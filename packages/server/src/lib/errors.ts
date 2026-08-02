@@ -1,0 +1,107 @@
+/**
+ * The one error type services throw and routes render. Wire shape and status
+ * usage are fixed by `api.md`; this module is the only place that mapping lives.
+ */
+
+export type ErrorCode =
+  | 'bad_request'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not_found'
+  | 'conflict'
+  | 'validation_failed'
+  | 'rate_limited'
+  | 'internal_error'
+
+const statusByCode = {
+  bad_request: 400,
+  unauthorized: 401,
+  forbidden: 403,
+  not_found: 404,
+  conflict: 409,
+  validation_failed: 422,
+  rate_limited: 429,
+  internal_error: 500,
+} as const satisfies Record<ErrorCode, number>
+
+export type ErrorStatus = (typeof statusByCode)[ErrorCode]
+
+export interface ErrorDetail {
+  readonly field: string
+  readonly message: string
+}
+
+export interface ErrorBody {
+  readonly error: {
+    readonly code: ErrorCode
+    readonly message: string
+    readonly details?: readonly ErrorDetail[]
+  }
+}
+
+export class AppError extends Error {
+  readonly code: ErrorCode
+  readonly status: ErrorStatus
+  readonly details: readonly ErrorDetail[] | undefined
+
+  constructor(code: ErrorCode, message: string, details?: readonly ErrorDetail[]) {
+    super(message)
+    this.name = 'AppError'
+    this.code = code
+    this.status = statusByCode[code]
+    this.details = details
+  }
+
+  static notFound(message = 'Not found'): AppError {
+    return new AppError('not_found', message)
+  }
+
+  static unauthorized(message = 'Missing or invalid credentials'): AppError {
+    return new AppError('unauthorized', message)
+  }
+
+  static validationFailed(message: string, details: readonly ErrorDetail[]): AppError {
+    return new AppError('validation_failed', message, details)
+  }
+
+  static conflict(message: string, details?: readonly ErrorDetail[]): AppError {
+    return new AppError('conflict', message, details)
+  }
+}
+
+/**
+ * Renders an `AppError` into the wire body from `api.md`. `details` is omitted
+ * rather than sent as null when the error carries none.
+ */
+export function toErrorBody(error: AppError): ErrorBody {
+  return {
+    error:
+      error.details === undefined
+        ? { code: error.code, message: error.message }
+        : { code: error.code, message: error.message, details: error.details },
+  }
+}
+
+/**
+ * The body sent for anything thrown that is not an `AppError`. The real cause is
+ * logged server-side; the client is told nothing about it.
+ */
+export function internalErrorBody(): ErrorBody {
+  return { error: { code: 'internal_error', message: 'Internal server error' } }
+}
+
+/**
+ * Renders an unknown thrown value as one diagnostic line. Driver errors often
+ * carry an empty `message` and put the useful part in `name` or `code`, so all
+ * three are included.
+ */
+export function describeThrown(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error)
+  }
+
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : ''
+  const parts = [error.name, code, error.message].filter((part) => part.length > 0)
+
+  return parts.join(': ')
+}

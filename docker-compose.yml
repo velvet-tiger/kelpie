@@ -1,0 +1,24 @@
+# Local development database only. These credentials are fixed on purpose so
+# .env.example works after a plain `docker compose up`. Never point a deployed
+# environment at this file.
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: kelpie
+      POSTGRES_PASSWORD: kelpie
+      POSTGRES_DB: kelpie_dev
+    ports:
+      - "5432:5432"
+    # Postgres 18 images want the whole directory mounted, not the data
+    # subdirectory, so that a later pg_upgrade can cross versions in place.
+    volumes:
+      - kelpie_db_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username kelpie --dbname kelpie_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  kelpie_db_data:

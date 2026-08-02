@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+@source ".";
+
+/*
+ * Theme tokens land here when the mockup pages are ported (Phase 1, "UI data
+ * layer"). The source of truth for them today is mockups/src/index.css.
+ */

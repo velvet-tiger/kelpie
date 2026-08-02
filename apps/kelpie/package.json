@@ -1,0 +1,28 @@
+{
+  "name": "@kelpie/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "node --watch --env-file=../../.env src/server.ts",
+    "dev:web": "vite",
+    "start": "node src/server.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --project tsconfig.server.json && tsc --project tsconfig.web.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.12",
+    "@kelpie/server": "^0.0.0",
+    "@kelpie/ui": "^0.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.1.2",
+    "@vitejs/plugin-react": "^6.0.5",
+    "vite": "^8.2.0"
+  }
+}

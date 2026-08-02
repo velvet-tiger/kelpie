@@ -1,0 +1,28 @@
+{
+  "name": "kelpie",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently --names api,web --prefix-colors blue,magenta \"npm run dev --workspace apps/kelpie\" \"npm run dev:web --workspace apps/kelpie\"",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "oxlint",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:up": "docker compose up --detach db",
+    "db:down": "docker compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.4",
+    "oxlint": "^1.76.0",
+    "typescript": "^7.0.2"
+  }
+}
