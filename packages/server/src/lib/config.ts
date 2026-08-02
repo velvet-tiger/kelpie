@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { describeValidationIssue } from './errors.ts'
+
 /**
  * The single place the service reads environment variables. Every other module
  * receives configuration as an argument. Nothing defaults silently: a missing or
@@ -48,16 +50,6 @@ const environmentSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']),
 })
 
-interface ValidationIssue {
-  readonly path: readonly PropertyKey[]
-  readonly message: string
-}
-
-function describeIssue(issue: ValidationIssue): string {
-  const path = issue.path.map(String).join('.')
-  return path.length > 0 ? `${path}: ${issue.message}` : issue.message
-}
-
 /**
  * Parses an environment into a validated config.
  *
@@ -68,7 +60,7 @@ export function loadConfig(environment: Environment): KelpieConfig {
   const result = environmentSchema.safeParse(environment)
 
   if (!result.success) {
-    throw new ConfigurationError(result.error.issues.map(describeIssue))
+    throw new ConfigurationError(result.error.issues.map(describeValidationIssue))
   }
 
   return {

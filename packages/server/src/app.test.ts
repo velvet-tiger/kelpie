@@ -1,31 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
-import { createApp } from './app.ts'
-import type { AppDependencies } from './app.ts'
-import type { DatabaseProbe } from './lib/database.ts'
 import { AppError } from './lib/errors.ts'
-import { createLogger } from './lib/logger.ts'
+import type { DatabaseProbe } from './lib/database.ts'
+import { createTestApp } from './testing/app.ts'
+import type { TestApp } from './testing/app.ts'
 
-interface TestHarness {
-  readonly app: ReturnType<typeof createApp>
-  readonly logLines: string[]
-}
-
-function buildApp(probe: DatabaseProbe, overrides: Partial<AppDependencies> = {}): TestHarness {
-  const logLines: string[] = []
-  const app = createApp({
-    logger: createLogger('debug', (line) => logLines.push(line)),
+function buildApp(probe: DatabaseProbe): Promise<TestApp> {
+  return createTestApp({
     probeDatabase: () => Promise.resolve(probe),
     generateRequestId: () => 'req-fixed',
-    ...overrides,
   })
-
-  return { app, logLines }
 }
 
 describe('GET /healthz', () => {
   it('reports ok when the database answers', async () => {
-    const { app } = buildApp({ reachable: true })
+    const { app } = await buildApp({ reachable: true })
 
     const response = await app.request('/healthz')
 
@@ -34,7 +23,7 @@ describe('GET /healthz', () => {
   })
 
   it('reports 503 and logs the reason when the database does not answer', async () => {
-    const { app, logLines } = buildApp({ reachable: false, reason: 'ECONNREFUSED' })
+    const { app, logLines } = await buildApp({ reachable: false, reason: 'ECONNREFUSED' })
 
     const response = await app.request('/healthz')
 
@@ -46,7 +35,7 @@ describe('GET /healthz', () => {
 
 describe('request ids', () => {
   it('echoes a generated id when the request has none', async () => {
-    const { app } = buildApp({ reachable: true })
+    const { app } = await buildApp({ reachable: true })
 
     const response = await app.request('/healthz')
 
@@ -54,7 +43,7 @@ describe('request ids', () => {
   })
 
   it('keeps the caller id when one is supplied', async () => {
-    const { app } = buildApp({ reachable: true })
+    const { app } = await buildApp({ reachable: true })
 
     const response = await app.request('/healthz', { headers: { 'X-Request-Id': 'req-from-caller' } })
 
@@ -64,7 +53,7 @@ describe('request ids', () => {
 
 describe('errors', () => {
   it('renders unknown routes in the api.md error shape', async () => {
-    const { app } = buildApp({ reachable: true })
+    const { app } = await buildApp({ reachable: true })
 
     const response = await app.request('/does-not-exist')
 
@@ -73,7 +62,7 @@ describe('errors', () => {
   })
 
   it('renders a thrown AppError with its own status and code', async () => {
-    const { app } = buildApp({ reachable: true })
+    const { app } = await buildApp({ reachable: true })
     app.get('/boom', () => {
       throw AppError.validationFailed('email is required', [
         { field: 'email', message: 'Missing required field' },
@@ -93,7 +82,7 @@ describe('errors', () => {
   })
 
   it('hides unexpected failures behind a 500 and logs the stack', async () => {
-    const { app, logLines } = buildApp({ reachable: true })
+    const { app, logLines } = await buildApp({ reachable: true })
     app.get('/explode', () => {
       throw new Error('column "nope" does not exist')
     })

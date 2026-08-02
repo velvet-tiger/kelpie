@@ -62,6 +62,39 @@ apps/kelpie/       The open-source assembly. Boots the server, builds the UI.
 
 `@kelpie/server` never starts a listener on import. `apps/kelpie` is the executable. The cloud repo assembles the same packages with private modules, per `modules.md`.
 
+## Modules
+
+Features register through the module runtime. Core features use the same runtime modules do, so the extension points cannot rot.
+
+A module is one object:
+
+```ts
+import type { KelpieModule } from '@kelpie/server'
+import { z } from 'zod'
+
+export const smtpEmail: KelpieModule = {
+  id: 'smtp-email',
+  requires: ['workspace'],
+  async register(context) {
+    const config = context.config(z.object({ SMTP_HOST: z.string() }))
+
+    context.routes((router) => {
+      router.get('/email/status', (c) => c.json({ host: config.SMTP_HOST }))
+    })
+
+    context.schema(tables, '/abs/path/to/migrations')
+    context.mcp.tool({ name: 'email.status', description: '…', inputSchema, invoke })
+    context.webhookEvents(['email.sent'])
+  },
+}
+```
+
+`apps/kelpie/kelpie.config.ts` is the only module list for this assembly. The cloud repo keeps its own.
+
+Routes mount under `/v1` and are public API like every other endpoint. Module config is validated against the environment at boot. Modules register in dependency order, and boot stops on a duplicate id, an unmet `requires`, a dependency cycle, invalid module config, or a `register` that throws. Every failure names the module.
+
+MCP tools share the input schema with their REST route, and the runtime parses arguments before the tool body runs. A bad argument fails with the same `validation_failed` error the REST surface returns.
+
 ## Scripts
 
 | Command | Does |
@@ -88,10 +121,11 @@ Every variable is required. There are no silent defaults; a missing or malformed
 
 ## Not here yet
 
-This is the Phase 0 scaffold. It boots, serves `/healthz`, and proves the wiring. The rest of Phase 0 follows in its own work items:
+The rest of Phase 0 follows in its own work items:
 
-- Module runtime, event bus, and entitlements registry. `kelpie.config.ts` arrives with them.
-- Database tables and migrations. `packages/server/src/schema/` is empty on purpose, and the boot sequence does not run migrations yet.
+- Event bus and entitlements registry. `ModuleContext` gains `events` and `entitlements` when they land; it does not carry stubs for them now.
+- Database tables and migrations. `packages/server/src/schema/` is empty on purpose. The runtime collects each module's tables and migrations directory, but nothing runs them yet.
+- The MCP endpoint (Phase 3). Tools register into the runtime today and have no transport.
 - Auth, sessions, workspaces, and API keys.
 - The integration test harness. Unit tests exist; nothing tests against a real database yet.
 - `LICENSE`. The project is AGPL-3.0-only per `modules.md`, and the package manifests declare it, but the licence text is not committed.

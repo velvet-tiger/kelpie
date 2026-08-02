@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { DatabaseProbe } from './lib/database.ts'
 import { AppError, internalErrorBody, toErrorBody } from './lib/errors.ts'
 import type { Logger } from './lib/logger.ts'
+import type { ModuleContributions } from './runtime/registry.ts'
 
 /**
  * Builds the HTTP application. Everything it touches arrives as a dependency, so
@@ -12,11 +13,14 @@ import type { Logger } from './lib/logger.ts'
 export interface AppDependencies {
   readonly logger: Logger
   readonly probeDatabase: () => Promise<DatabaseProbe>
+  /** Produced by the registration pass. Routers mount under `/v1`. */
+  readonly contributions: ModuleContributions
   /** Injected so tests can pin the id echoed on responses. */
   readonly generateRequestId?: () => string
 }
 
-interface AppBindings {
+/** Per-request values the middleware chain sets and handlers read. */
+export interface AppBindings {
   Variables: {
     requestId: string
     logger: Logger
@@ -47,6 +51,10 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
       durationMs: Math.round(performance.now() - startedAt),
     })
   })
+
+  for (const { router } of dependencies.contributions.routers) {
+    app.route('/v1', router)
+  }
 
   app.onError((error, context) => {
     if (error instanceof AppError) {

@@ -90,6 +90,24 @@ export function internalErrorBody(): ErrorBody {
   return { error: { code: 'internal_error', message: 'Internal server error' } }
 }
 
+/** One problem reported by a schema parse, in the shape Zod produces. */
+export interface ValidationIssue {
+  readonly path: readonly PropertyKey[]
+  readonly message: string
+}
+
+/** Renders a parse failure as `path: message`, or just the message at the root. */
+export function describeValidationIssue(issue: ValidationIssue): string {
+  const path = issue.path.map(String).join('.')
+
+  return path.length > 0 ? `${path}: ${issue.message}` : issue.message
+}
+
+/** Turns parse failures into the field-level `details` of a `422` response. */
+export function toErrorDetails(issues: readonly ValidationIssue[]): readonly ErrorDetail[] {
+  return issues.map((issue) => ({ field: issue.path.map(String).join('.'), message: issue.message }))
+}
+
 /**
  * Renders an unknown thrown value as one diagnostic line. Driver errors often
  * carry an empty `message` and put the useful part in `name` or `code`, so all

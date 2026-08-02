@@ -1,0 +1,157 @@
+import { Hono } from 'hono'
+
+import type { Environment } from '../lib/config.ts'
+import { AppError, describeThrown, describeValidationIssue, toErrorDetails } from '../lib/errors.ts'
+import type { Logger } from '../lib/logger.ts'
+import type { KelpieModule, McpTool, ModuleContext, SchemaContribution } from './module.ts'
+import { ModuleBootError, orderModules } from './order.ts'
+
+/**
+ * Everything the modules contributed during the registration pass. The app mounts
+ * the routers; the migration pipeline and the MCP endpoint consume the rest as
+ * those land.
+ */
+export interface ModuleContributions {
+  readonly routers: readonly ModuleRouter[]
+  readonly schemas: readonly SchemaContribution[]
+  readonly mcpTools: readonly McpTool[]
+  readonly webhookEvents: readonly string[]
+}
+
+export interface ModuleRouter {
+  readonly moduleId: string
+  readonly router: Hono
+}
+
+export interface ModuleRuntimeOptions {
+  readonly modules: readonly KelpieModule[]
+  /** Raw variables. Each module validates the slice it needs via `context.config`. */
+  readonly environment: Environment
+  readonly logger: Logger
+}
+
+/** Contributions accumulate here, one mutable set per registration pass. */
+interface Accumulator {
+  readonly routers: ModuleRouter[]
+  readonly schemas: SchemaContribution[]
+  readonly mcpTools: McpTool[]
+  readonly webhookEvents: Set<string>
+}
+
+function createModuleContext(
+  module: KelpieModule,
+  accumulator: Accumulator,
+  options: ModuleRuntimeOptions,
+): ModuleContext {
+  return {
+    routes(mount) {
+      const router = new Hono()
+      mount(router)
+      accumulator.routers.push({ moduleId: module.id, router })
+    },
+
+    schema(tables, migrationsDir) {
+      accumulator.schemas.push({ moduleId: module.id, tables, migrationsDir })
+    },
+
+    mcp: {
+      tool(definition) {
+        if (accumulator.mcpTools.some((existing) => existing.name === definition.name)) {
+          throw new ModuleBootError([`module "${module.id}" declares MCP tool "${definition.name}" twice`])
+        }
+
+        accumulator.mcpTools.push({
+          name: definition.name,
+          description: definition.description,
+          inputSchema: definition.inputSchema,
+          // Parsing here is what keeps MCP and REST from drifting: both surfaces
+          // validate with the module's schema and fail with the same api.md error.
+          invoke: async (rawInput) => {
+            const parsed = definition.inputSchema.safeParse(rawInput)
+
+            if (!parsed.success) {
+              throw AppError.validationFailed(
+                `Invalid arguments for tool "${definition.name}"`,
+                toErrorDetails(parsed.error.issues),
+              )
+            }
+
+            return definition.invoke(parsed.data)
+          },
+        })
+      },
+    },
+
+    webhookEvents(names) {
+      for (const name of names) {
+        accumulator.webhookEvents.add(name)
+      }
+    },
+
+    config(schema) {
+      const result = schema.safeParse(options.environment)
+
+      if (!result.success) {
+        throw new ModuleBootError(
+          result.error.issues.map((issue) => `module "${module.id}" config ${describeValidationIssue(issue)}`),
+        )
+      }
+
+      return result.data
+    },
+
+    log: options.logger.child({ module: module.id }),
+  }
+}
+
+/**
+ * Runs the registration pass: validate the module list, then call each module's
+ * `register` once, in dependency order.
+ *
+ * @returns The accumulated contributions.
+ * @throws ModuleBootError when the list is invalid or a module fails to register.
+ */
+export async function registerModules(options: ModuleRuntimeOptions): Promise<ModuleContributions> {
+  const ordered = orderModules(options.modules)
+  const accumulator: Accumulator = {
+    routers: [],
+    schemas: [],
+    mcpTools: [],
+    webhookEvents: new Set<string>(),
+  }
+
+  for (const module of ordered) {
+    const context = createModuleContext(module, accumulator, options)
+
+    try {
+      await module.register(context)
+    } catch (error: unknown) {
+      if (error instanceof ModuleBootError) {
+        throw error
+      }
+
+      throw new ModuleBootError([`module "${module.id}" failed to register: ${describeThrown(error)}`], {
+        cause: error,
+      })
+    }
+
+    context.log.debug('module registered')
+  }
+
+  options.logger.info('modules registered', {
+    count: ordered.length,
+    ids: ordered.map((module) => module.id),
+  })
+
+  return {
+    routers: accumulator.routers,
+    schemas: accumulator.schemas,
+    mcpTools: accumulator.mcpTools,
+    webhookEvents: [...accumulator.webhookEvents],
+  }
+}
+
+/** The contributions of an assembly with no modules configured. */
+export function noContributions(): ModuleContributions {
+  return { routers: [], schemas: [], mcpTools: [], webhookEvents: [] }
+}
