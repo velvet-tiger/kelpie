@@ -9,6 +9,7 @@ export type ErrorCode =
   | 'forbidden'
   | 'not_found'
   | 'conflict'
+  | 'entitlement_required'
   | 'validation_failed'
   | 'rate_limited'
   | 'internal_error'
@@ -19,6 +20,10 @@ const statusByCode = {
   forbidden: 403,
   not_found: 404,
   conflict: 409,
+  // Extends the api.md status list: the plan does not include this, which is
+  // neither a role problem nor a conflict. 402 would imply Kelpie takes payment,
+  // which a self-hosted install does not.
+  entitlement_required: 403,
   validation_failed: 422,
   rate_limited: 429,
   internal_error: 500,

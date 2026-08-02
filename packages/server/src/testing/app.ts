@@ -7,6 +7,7 @@ import type { DatabaseProbe } from '../lib/database.ts'
 import { createLogger } from '../lib/logger.ts'
 import type { KelpieModule } from '../runtime/module.ts'
 import type { ModuleContributions } from '../runtime/registry.ts'
+import type { EntitlementRegistry } from '../runtime/entitlements.ts'
 import { registerModules } from '../runtime/registry.ts'
 import { createTestServices } from './services.ts'
 import type { TestServices } from './services.ts'
@@ -24,6 +25,8 @@ export interface TestAppOptions {
   readonly generateRequestId?: () => string
   /** Defaults to fakes: a lazy unused database and a collecting email sender. */
   readonly services?: TestServices
+  /** Inject one to grant or deny capabilities before core modules register. */
+  readonly entitlements?: EntitlementRegistry
 }
 
 export interface TestApp {
@@ -46,6 +49,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     environment: options.environment ?? {},
     logger,
     events: services.events,
+    ...(options.entitlements === undefined ? {} : { entitlements: options.entitlements }),
     services,
   })
 

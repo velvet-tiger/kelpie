@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -62,6 +62,24 @@ export async function listMembers(db: Queryable, workspaceId: string): Promise<M
     .from(workspaceMembers)
     .where(eq(workspaceMembers.workspaceId, workspaceId))
     .orderBy(workspaceMembers.joinedAt)
+}
+
+/**
+ * Seats already spoken for: members plus invites still outstanding.
+ *
+ * A pending invite counts, otherwise a workspace on its last seat could send ten
+ * invitations and let whoever accepts first through while the others fail.
+ */
+export async function countSeatsInUse(db: Queryable, workspaceId: string): Promise<number> {
+  const [members, pending] = await Promise.all([
+    db.select({ id: workspaceMembers.id }).from(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspaceId)),
+    db
+      .select({ id: invites.id })
+      .from(invites)
+      .where(and(eq(invites.workspaceId, workspaceId), eq(invites.status, 'pending'))),
+  ])
+
+  return members.length + pending.length
 }
 
 export async function insertInvite(

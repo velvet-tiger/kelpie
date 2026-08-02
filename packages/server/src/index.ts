@@ -49,6 +49,18 @@ export type {
 
 export { ModuleBootError, orderModules } from './runtime/order.ts'
 
+export { createEntitlementRegistry, limitFor, requireCapability } from './runtime/entitlements.ts'
+export type {
+  Capability,
+  Entitlement,
+  EntitlementRegistry,
+  FlagCapability,
+  GrantProvider,
+  LimitCapability,
+} from './runtime/entitlements.ts'
+
+export { SEATS_LIMIT } from './modules/workspace/capabilities.ts'
+
 export { DOMAIN_EVENT_NAMES, RECORD_OBJECT_TYPES, createEventBus } from './runtime/events.ts'
 export type {
   DomainEventName,

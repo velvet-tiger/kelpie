@@ -1,4 +1,5 @@
 import type { KelpieModule } from '../../runtime/module.ts'
+import { SEATS_LIMIT } from './capabilities.ts'
 import { mountWorkspaceRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createWorkspaceService } from './service.ts'
@@ -15,12 +16,15 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
     requires: ['auth'],
 
     register(context) {
+      context.entitlements.declare(SEATS_LIMIT)
+
       const service = createWorkspaceService({
         db: context.db,
         transaction: context.transaction,
         email: context.email,
         createId: context.createId,
         now: context.now,
+        entitlements: context.entitlements,
       })
 
       context.schema(schema, migrationsDirectory)

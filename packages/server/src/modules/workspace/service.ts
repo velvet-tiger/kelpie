@@ -4,9 +4,12 @@ import type { EmailSender } from '../../lib/email.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
+import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
+import { limitFor } from '../../runtime/entitlements.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { Actor, SessionActor } from '../auth/actor.ts'
 import * as authRepository from '../auth/repository.ts'
+import { SEATS_LIMIT } from './capabilities.ts'
 import * as repository from './repository.ts'
 import { parseMemberRole, roleAllows } from './roles.ts'
 import type { InvitableRole, MemberRole } from './roles.ts'
@@ -31,6 +34,7 @@ export interface WorkspaceDependencies {
   readonly email: EmailSender
   readonly createId: IdFactory
   readonly now: () => Date
+  readonly entitlements: EntitlementRegistry
   readonly newToken?: () => string
 }
 
@@ -163,6 +167,29 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
     return { memberId: membership.id, role }
   }
 
+  /**
+   * Refuses a new invitation once the workspace is at its seat limit.
+   *
+   * Open source has no grant provider, so the limit is null and this never
+   * refuses. The cloud billing module is what makes it bite.
+   */
+  async function requireSeat(workspaceId: string): Promise<void> {
+    const limit = await limitFor(dependencies.entitlements, workspaceId, SEATS_LIMIT.name)
+
+    if (limit === null) {
+      return
+    }
+
+    const inUse = await repository.countSeatsInUse(dependencies.db, workspaceId)
+
+    if (inUse >= limit) {
+      throw new AppError(
+        'entitlement_required',
+        `This workspace has ${String(limit)} seats and all of them are taken`,
+      )
+    }
+  }
+
   return {
     async create(actor, input) {
       const now = dependencies.now()
@@ -278,6 +305,8 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
     async invite(actor, workspaceId, email, role, urlTemplate) {
       const inviter = await requireMembership(actor, workspaceId, 'admin')
+
+      await requireSeat(workspaceId)
 
       const now = dependencies.now()
       const token = newToken()

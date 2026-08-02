@@ -5,6 +5,7 @@ import type { Database } from '../lib/database.ts'
 import type { EmailSender } from '../lib/email.ts'
 import type { IdFactory } from '../lib/ids.ts'
 import type { Logger } from '../lib/logger.ts'
+import type { EntitlementRegistry } from './entitlements.ts'
 import type { EventBus } from './events.ts'
 import type { TransactionScope } from './transaction.ts'
 
@@ -80,6 +81,11 @@ export interface ModuleContext extends ModuleServices {
    * commits, and must be idempotent.
    */
   readonly events: EventBus
+  /**
+   * Declare capabilities and check grants. Every check is granted and unlimited
+   * until a module registers a provider.
+   */
+  readonly entitlements: EntitlementRegistry
   /** Adds names to the list of events webhooks can subscribe to. */
   webhookEvents(names: readonly string[]): void
   /** Validates this module's slice of the environment. Fails boot when invalid. */

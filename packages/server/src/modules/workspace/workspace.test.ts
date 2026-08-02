@@ -6,6 +6,7 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
+import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { coreModules } from '../core.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
@@ -260,6 +261,67 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       )
 
       expect(response.status).toBe(404)
+    })
+  })
+
+  describe('the seat limit', () => {
+    it('does not bite when no module provides grants', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      for (const email of ['a@example.com', 'b@example.com', 'c@example.com']) {
+        const response = await send(
+          'POST',
+          `/v1/workspaces/${workspaceId}/invites`,
+          { email, role: 'member', invite_url_template: INVITE_TEMPLATE },
+          cookie,
+        )
+
+        expect(response.status).toBe(201)
+      }
+    })
+
+    it('refuses a new invitation once the seats are taken', async () => {
+      // Two seats: the owner takes one, so the first invite fits and the second
+      // does not. This is the shape the cloud billing module will register.
+      const entitlements = createEntitlementRegistry()
+      entitlements.provide(() => Promise.resolve({ kind: 'limit', limit: 2 }))
+
+      const limited = await createTestApp({
+        modules: coreModules,
+        environment: { NODE_ENV: 'test' },
+        services: createTestServices({ db: database.db }),
+        entitlements,
+      })
+
+      const signup = await limited.app.request('/v1/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'ada@example.com', name: 'Ada', password: 'correct horse battery' }),
+      })
+      const cookie = (signup.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+      const created = await limited.app.request('/v1/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify(WORKSPACE),
+      })
+      const workspaceId = readString(await created.json(), 'id')
+
+      function invite(email: string): Promise<Response> {
+        return Promise.resolve(
+          limited.app.request(`/v1/workspaces/${workspaceId}/invites`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Cookie: cookie },
+            body: JSON.stringify({ email, role: 'member', invite_url_template: INVITE_TEMPLATE }),
+          }),
+        )
+      }
+
+      expect((await invite('first@example.com')).status).toBe(201)
+
+      const refused = await invite('second@example.com')
+      expect(refused.status).toBe(403)
+      expect(await refused.json()).toMatchObject({ error: { code: 'entitlement_required' } })
     })
   })
 

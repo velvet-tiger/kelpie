@@ -3,6 +3,8 @@ import { Hono } from 'hono'
 import type { Environment } from '../lib/config.ts'
 import { AppError, describeThrown, describeValidationIssue, toErrorDetails } from '../lib/errors.ts'
 import type { Logger } from '../lib/logger.ts'
+import { createEntitlementRegistry } from './entitlements.ts'
+import type { EntitlementRegistry } from './entitlements.ts'
 import { createEventBus } from './events.ts'
 import type { EventBus } from './events.ts'
 import type {
@@ -26,6 +28,8 @@ export interface ModuleContributions {
   readonly webhookEvents: readonly string[]
   /** The bus every module subscribed to. Services publish through it after commit. */
   readonly events: EventBus
+  /** Everything the modules declared, and any provider they registered. */
+  readonly entitlements: EntitlementRegistry
 }
 
 export interface ModuleRouter {
@@ -40,6 +44,8 @@ export interface ModuleRuntimeOptions {
   readonly logger: Logger
   /** Injected so a test can watch what core modules subscribe to. Defaults to a fresh bus. */
   readonly events?: EventBus
+  /** Injected so a test can grant or deny before core modules register. */
+  readonly entitlements?: EntitlementRegistry
   /** The database, transaction scope, and collaborators every module builds on. */
   readonly services: ModuleServices
 }
@@ -57,6 +63,7 @@ function createModuleContext(
   accumulator: Accumulator,
   options: ModuleRuntimeOptions,
   events: EventBus,
+  entitlements: EntitlementRegistry,
 ): ModuleContext {
   return {
     ...options.services,
@@ -118,6 +125,7 @@ function createModuleContext(
     },
 
     events,
+    entitlements,
 
     log: options.logger.child({ module: module.id }),
   }
@@ -133,6 +141,7 @@ function createModuleContext(
 export async function registerModules(options: ModuleRuntimeOptions): Promise<ModuleContributions> {
   const ordered = orderModules(options.modules)
   const events = options.events ?? createEventBus(options.logger)
+  const entitlements = options.entitlements ?? createEntitlementRegistry()
   const accumulator: Accumulator = {
     routers: [],
     schemas: [],
@@ -141,7 +150,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   }
 
   for (const module of ordered) {
-    const context = createModuleContext(module, accumulator, options, events)
+    const context = createModuleContext(module, accumulator, options, events, entitlements)
 
     try {
       await module.register(context)
@@ -169,5 +178,6 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     mcpTools: accumulator.mcpTools,
     webhookEvents: [...accumulator.webhookEvents],
     events,
+    entitlements,
   }
 }
