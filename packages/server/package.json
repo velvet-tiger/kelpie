@@ -11,7 +11,8 @@
   "scripts": {
     "typecheck": "tsc --project tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:generate": "node --env-file=../../.env ../../node_modules/drizzle-kit/bin.cjs generate"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
+    "drizzle-kit": "^0.31.10",
     "vitest": "^4.1.10"
   }
 }

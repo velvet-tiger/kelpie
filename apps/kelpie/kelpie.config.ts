@@ -1,3 +1,4 @@
+import { coreModules } from '@kelpie/server'
 import type { KelpieModule } from '@kelpie/server'
 
 /**
@@ -8,4 +9,4 @@ import type { KelpieModule } from '@kelpie/server'
  * Boot registers these in order, after resolving `requires`. An unknown id, an
  * unmet dependency, or invalid module config stops boot.
  */
-export const modules: readonly KelpieModule[] = []
+export const modules: readonly KelpieModule[] = [...coreModules]

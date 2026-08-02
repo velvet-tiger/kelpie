@@ -1,0 +1,62 @@
+import { bigint, date, index, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
+
+import { createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { companies } from '../companies/schema.ts'
+import { people } from '../people/schema.ts'
+import { pipelineStages } from '../pipelines/schema.ts'
+import { workspaceMembers, workspaces } from '../workspace/schema.ts'
+
+/**
+ * The sales pipeline. Money is integer cents plus a currency code, never a float
+ * (`api.md`).
+ *
+ * Company, stage, and owner are all restrict: deleting any of them while a deal
+ * points at it returns 409 rather than quietly destroying the deal.
+ */
+export const deals = pgTable(
+  'deals',
+  {
+    id: primaryId(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    companyId: text('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'restrict' }),
+    stageId: text('stage_id')
+      .notNull()
+      .references(() => pipelineStages.id, { onDelete: 'restrict' }),
+    valueCents: bigint('value_cents', { mode: 'number' }),
+    currency: text('currency'),
+    ownerId: text('owner_id').references(() => workspaceMembers.id, { onDelete: 'restrict' }),
+    expectedClose: date('expected_close'),
+    competitors: text('competitors').array().notNull().default([]),
+    risks: text('risks').notNull().default(''),
+    whyWin: text('why_win').notNull().default(''),
+    summary: text('summary').notNull().default(''),
+    tags: text('tags').array().notNull().default([]),
+    externalId: text('external_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    index('deals_workspace_idx').on(table.workspaceId),
+    index('deals_company_idx').on(table.companyId),
+    index('deals_stage_idx').on(table.stageId),
+  ],
+)
+
+/** People attached to a deal. Restrict on person: a deal contact cannot vanish. */
+export const dealPeople = pgTable(
+  'deal_people',
+  {
+    dealId: text('deal_id')
+      .notNull()
+      .references(() => deals.id, { onDelete: 'cascade' }),
+    personId: text('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'restrict' }),
+  },
+  (table) => [primaryKey({ columns: [table.dealId, table.personId] })],
+)

@@ -7,18 +7,22 @@ import {
   createLogger,
   loadConfig,
   registerModules,
+  runMigrations,
 } from '@kelpie/server'
 
 import { modules } from '../kelpie.config.ts'
 
 /**
  * The open-source assembly's entry point. It reads the environment, registers
- * the configured modules, wires the dependencies, and serves.
+ * the configured modules, applies migrations, wires the dependencies, and serves.
  *
- * TODO(phase-0): run pending migrations between config and registration
- * (architecture.md boot step 2) once the schema feature creates a migrations
- * pipeline. The registration pass already collects each module's tables and
- * migrations directory.
+ * Registration runs before migrations, which reverses `architecture.md` boot
+ * steps 2 and 3. It has to: modules declare their migrations directory during
+ * `register`, so there is nothing to migrate until the pass has run. Registration
+ * touches no database.
+ *
+ * `--no-migrate` skips the migration step, for deployments where a release step
+ * migrates once and many instances then start.
  */
 
 function reportFatal(message: string): void {
@@ -30,6 +34,13 @@ async function start(): Promise<void> {
   const logger = createLogger(config.logLevel)
   const database = connectDatabase(config.databaseUrl)
   const contributions = await registerModules({ modules, environment: process.env, logger })
+
+  if (process.argv.includes('--no-migrate')) {
+    logger.info('skipping migrations', { reason: '--no-migrate' })
+  } else {
+    await runMigrations(database.db, contributions.schemas, logger)
+  }
+
   const app = createApp({ logger, probeDatabase: database.probe, contributions })
 
   const server = serve({ fetch: app.fetch, port: config.port }, (address) => {

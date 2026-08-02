@@ -7,6 +7,46 @@ import { describeThrown } from './errors.ts'
 
 export type Database = PostgresJsDatabase<typeof schema>
 
+/**
+ * SQLSTATE raised by an explicit `ON DELETE RESTRICT`. Postgres uses this rather
+ * than 23503 when the constraint itself is what refused.
+ */
+export const RESTRICT_VIOLATION = '23001'
+
+/** SQLSTATE raised when a reference is violated without an explicit RESTRICT rule. */
+export const FOREIGN_KEY_VIOLATION = '23503'
+
+/** SQLSTATE for a unique violation, e.g. two people with one email in a workspace. */
+export const UNIQUE_VIOLATION = '23505'
+
+/**
+ * Digs the SQLSTATE out of a thrown value. Drizzle wraps driver errors in its own
+ * `Failed query` error, so the code lives on the cause rather than the top level.
+ *
+ * @returns The five-character SQLSTATE, or undefined if this was not a database error.
+ */
+export function postgresErrorCode(error: unknown): string | undefined {
+  const candidates: readonly unknown[] = [error, error instanceof Error ? error.cause : undefined]
+
+  for (const candidate of candidates) {
+    if (candidate instanceof Error && 'code' in candidate && typeof candidate.code === 'string') {
+      return candidate.code
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * True when the database refused a write because another row still references the
+ * target. `api.md` renders this as `409` with the referencing types in `details`.
+ */
+export function isReferenceViolation(error: unknown): boolean {
+  const code = postgresErrorCode(error)
+
+  return code === RESTRICT_VIOLATION || code === FOREIGN_KEY_VIOLATION
+}
+
 /** Outcome of a connectivity check. Carries the reason instead of throwing. */
 export type DatabaseProbe = { readonly reachable: true } | { readonly reachable: false; readonly reason: string }
 

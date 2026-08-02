@@ -62,6 +62,24 @@ apps/kelpie/       The open-source assembly. Boots the server, builds the UI.
 
 `@kelpie/server` never starts a listener on import. `apps/kelpie` is the executable. The cloud repo assembles the same packages with private modules, per `modules.md`.
 
+## Database
+
+Tables live in the module that owns them, under `packages/server/src/modules/<id>/schema.ts`. `packages/server/src/schema/index.ts` re-exports all of them; that barrel is what Drizzle and Drizzle Kit read.
+
+Core shares one migrations directory, `packages/server/migrations`. A module outside core brings its own, and the runner gives each directory its own migrations table.
+
+The service applies pending migrations at boot. Pass `--no-migrate` to skip that, for deployments where a release step migrates once and many instances then start.
+
+After changing a table:
+
+```bash
+npm run db:generate
+```
+
+That writes a new SQL file into `packages/server/migrations`. Read it before committing. The next boot applies it.
+
+Integration tests need `TEST_DATABASE_URL`. The database is created automatically if it does not exist, and tests truncate it between cases. Without that variable the integration suites skip rather than fail, so `npm test` still works with no Postgres running.
+
 ## Modules
 
 Features register through the module runtime. Core features use the same runtime modules do, so the extension points cannot rot.
@@ -124,7 +142,8 @@ Every variable is required. There are no silent defaults; a missing or malformed
 The rest of Phase 0 follows in its own work items:
 
 - Event bus and entitlements registry. `ModuleContext` gains `events` and `entitlements` when they land; it does not carry stubs for them now.
-- Database tables and migrations. `packages/server/src/schema/` is empty on purpose. The runtime collects each module's tables and migrations directory, but nothing runs them yet.
+- `npm run seed`. The demo dataset in `mockups/src/data/seed.ts` has not been ported.
+- Auth, sessions, workspaces, and API keys. The tables exist; nothing writes to them yet.
 - The MCP endpoint (Phase 3). Tools register into the runtime today and have no transport.
 - Auth, sessions, workspaces, and API keys.
 - The integration test harness. Unit tests exist; nothing tests against a real database yet.
