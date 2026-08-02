@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import type { ZodType } from 'zod'
 
 import type { Logger } from '../lib/logger.ts'
+import type { EventBus } from './events.ts'
 
 /**
  * The module contract from `modules.md`. Core features register through this
@@ -50,6 +51,11 @@ export interface ModuleContext {
   routes(mount: (router: Hono) => void): void
   schema(tables: Readonly<Record<string, unknown>>, migrationsDir: string): void
   readonly mcp: McpToolRegistry
+  /**
+   * Subscribe to domain events. Handlers run after the emitting transaction
+   * commits, and must be idempotent.
+   */
+  readonly events: EventBus
   /** Adds names to the list of events webhooks can subscribe to. */
   webhookEvents(names: readonly string[]): void
   /** Validates this module's slice of the environment. Fails boot when invalid. */

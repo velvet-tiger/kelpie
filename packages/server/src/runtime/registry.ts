@@ -3,6 +3,8 @@ import { Hono } from 'hono'
 import type { Environment } from '../lib/config.ts'
 import { AppError, describeThrown, describeValidationIssue, toErrorDetails } from '../lib/errors.ts'
 import type { Logger } from '../lib/logger.ts'
+import { createEventBus } from './events.ts'
+import type { EventBus } from './events.ts'
 import type { KelpieModule, McpTool, ModuleContext, SchemaContribution } from './module.ts'
 import { ModuleBootError, orderModules } from './order.ts'
 
@@ -16,6 +18,8 @@ export interface ModuleContributions {
   readonly schemas: readonly SchemaContribution[]
   readonly mcpTools: readonly McpTool[]
   readonly webhookEvents: readonly string[]
+  /** The bus every module subscribed to. Services publish through it after commit. */
+  readonly events: EventBus
 }
 
 export interface ModuleRouter {
@@ -28,6 +32,8 @@ export interface ModuleRuntimeOptions {
   /** Raw variables. Each module validates the slice it needs via `context.config`. */
   readonly environment: Environment
   readonly logger: Logger
+  /** Injected so a test can watch what core modules subscribe to. Defaults to a fresh bus. */
+  readonly events?: EventBus
 }
 
 /** Contributions accumulate here, one mutable set per registration pass. */
@@ -42,6 +48,7 @@ function createModuleContext(
   module: KelpieModule,
   accumulator: Accumulator,
   options: ModuleRuntimeOptions,
+  events: EventBus,
 ): ModuleContext {
   return {
     routes(mount) {
@@ -100,6 +107,8 @@ function createModuleContext(
       return result.data
     },
 
+    events,
+
     log: options.logger.child({ module: module.id }),
   }
 }
@@ -113,6 +122,7 @@ function createModuleContext(
  */
 export async function registerModules(options: ModuleRuntimeOptions): Promise<ModuleContributions> {
   const ordered = orderModules(options.modules)
+  const events = options.events ?? createEventBus(options.logger)
   const accumulator: Accumulator = {
     routers: [],
     schemas: [],
@@ -121,7 +131,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   }
 
   for (const module of ordered) {
-    const context = createModuleContext(module, accumulator, options)
+    const context = createModuleContext(module, accumulator, options, events)
 
     try {
       await module.register(context)
@@ -148,10 +158,6 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     schemas: accumulator.schemas,
     mcpTools: accumulator.mcpTools,
     webhookEvents: [...accumulator.webhookEvents],
+    events,
   }
-}
-
-/** The contributions of an assembly with no modules configured. */
-export function noContributions(): ModuleContributions {
-  return { routers: [], schemas: [], mcpTools: [], webhookEvents: [] }
 }

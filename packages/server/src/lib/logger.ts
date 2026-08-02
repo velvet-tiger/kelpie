@@ -46,13 +46,16 @@ export function createLogger(
       if (severityByLevel[lineLevel] < threshold) {
         return
       }
+      // The envelope is written last so a field called `message`, `level`, or
+      // `time` cannot overwrite it. A colliding field is dropped; a corrupted
+      // envelope would make the whole line untrustworthy.
       sink(
         JSON.stringify({
+          ...boundFields,
+          ...fields,
           time: now().toISOString(),
           level: lineLevel,
           message,
-          ...boundFields,
-          ...fields,
         }),
       )
     }

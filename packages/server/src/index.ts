@@ -43,10 +43,29 @@ export type {
 
 export { ModuleBootError, orderModules } from './runtime/order.ts'
 
+export { DOMAIN_EVENT_NAMES, RECORD_OBJECT_TYPES, createEventBus } from './runtime/events.ts'
+export type {
+  DomainEventName,
+  DomainEvents,
+  EventBus,
+  EventHandler,
+  RecordObjectType,
+  StagedObjectType,
+} from './runtime/events.ts'
+
+export { createTransactionScope } from './runtime/transaction.ts'
+export type {
+  BufferedEvents,
+  Transaction,
+  TransactionContext,
+  TransactionScope,
+  TransactionScopeDependencies,
+} from './runtime/transaction.ts'
+
 export { planMigrations, runMigrations } from './runtime/migrate.ts'
 export type { MigrationPlanStep } from './runtime/migrate.ts'
 
 export { coreMigrationsDirectory, coreModules } from './modules/core.ts'
 
-export { noContributions, registerModules } from './runtime/registry.ts'
+export { registerModules } from './runtime/registry.ts'
 export type { ModuleContributions, ModuleRouter, ModuleRuntimeOptions } from './runtime/registry.ts'

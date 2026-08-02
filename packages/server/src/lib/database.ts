@@ -4,6 +4,7 @@ import postgres from 'postgres'
 
 import * as schema from '../schema/index.ts'
 import { describeThrown } from './errors.ts'
+import type { Logger } from './logger.ts'
 
 export type Database = PostgresJsDatabase<typeof schema>
 
@@ -61,9 +62,15 @@ export interface DatabaseConnection {
  * Opens a lazy Postgres connection pool and wraps it in Drizzle.
  *
  * @param connectionString Validated by the config layer, never read from env here.
+ * @param logger Receives server notices. Without this the driver prints them to
+ *   stdout as loose objects, which breaks the JSON-lines log contract.
  */
-export function connectDatabase(connectionString: string): DatabaseConnection {
-  const client = postgres(connectionString)
+export function connectDatabase(connectionString: string, logger: Logger): DatabaseConnection {
+  const client = postgres(connectionString, {
+    onnotice: (notice) => {
+      logger.debug('postgres notice', { code: notice.code, notice: notice.message })
+    },
+  })
   const db = drizzle(client, { schema })
 
   async function probe(): Promise<DatabaseProbe> {

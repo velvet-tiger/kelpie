@@ -69,7 +69,7 @@ async function ensureDatabaseExists(connectionString: string): Promise<void> {
 export async function connectTestDatabase(connectionString: string): Promise<TestDatabase> {
   await ensureDatabaseExists(connectionString)
 
-  const connection = connectDatabase(connectionString)
+  const connection = connectDatabase(connectionString, silentLogger)
   const contributions = await registerModules({
     modules: coreModules,
     environment: {},

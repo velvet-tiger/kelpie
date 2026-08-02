@@ -164,6 +164,50 @@ describe('module MCP tools', () => {
   })
 })
 
+describe('module event subscriptions', () => {
+  it('delivers an event to a module that subscribed during registration', async () => {
+    const received: string[] = []
+    const listening: KelpieModule = {
+      id: 'listener',
+      register(context) {
+        context.events.subscribe('workspace.created', async (payload) => {
+          received.push(payload.slug)
+        })
+
+        return Promise.resolve()
+      },
+    }
+
+    const { contributions } = await createTestApp({ modules: [listening] })
+    await contributions.events.publish('workspace.created', { workspaceId: 'ws_1', slug: 'acme' })
+
+    expect(received).toEqual(['acme'])
+  })
+
+  it('lets two modules subscribe to the same event without shadowing each other', async () => {
+    const received: string[] = []
+    const subscriber = (id: string): KelpieModule => ({
+      id,
+      register(context) {
+        context.events.subscribe('member.joined', async (payload) => {
+          received.push(`${id}:${payload.memberId}`)
+        })
+
+        return Promise.resolve()
+      },
+    })
+
+    const { contributions } = await createTestApp({ modules: [subscriber('audit'), subscriber('billing')] })
+    await contributions.events.publish('member.joined', {
+      workspaceId: 'ws_1',
+      memberId: 'mem_1',
+      userId: 'usr_1',
+    })
+
+    expect(received.toSorted()).toEqual(['audit:mem_1', 'billing:mem_1'])
+  })
+})
+
 describe('module webhook events', () => {
   it('collects declared names and drops duplicates', async () => {
     const alsoSaying: KelpieModule = {
@@ -232,7 +276,10 @@ describe('an assembly with no modules', () => {
   it('still serves the app with empty contributions', async () => {
     const { app, contributions } = await createTestApp()
 
-    expect(contributions).toEqual({ routers: [], schemas: [], mcpTools: [], webhookEvents: [] })
+    expect(contributions.routers).toEqual([])
+    expect(contributions.schemas).toEqual([])
+    expect(contributions.mcpTools).toEqual([])
+    expect(contributions.webhookEvents).toEqual([])
     expect((await app.request('/healthz')).status).toBe(200)
   })
 })

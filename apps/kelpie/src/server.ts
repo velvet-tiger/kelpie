@@ -32,7 +32,7 @@ function reportFatal(message: string): void {
 async function start(): Promise<void> {
   const config = loadConfig(process.env)
   const logger = createLogger(config.logLevel)
-  const database = connectDatabase(config.databaseUrl)
+  const database = connectDatabase(config.databaseUrl, logger)
   const contributions = await registerModules({ modules, environment: process.env, logger })
 
   if (process.argv.includes('--no-migrate')) {
@@ -50,7 +50,11 @@ async function start(): Promise<void> {
   const shutdown = (signal: string): void => {
     logger.info('shutting down', { signal })
     server.close(() => {
-      void database.close().then(() => process.exit(0))
+      // Drain before closing the pool: a handler mid-flight may still be writing.
+      void contributions.events
+        .drain()
+        .then(() => database.close())
+        .then(() => process.exit(0))
     })
   }
 
