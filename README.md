@@ -172,4 +172,4 @@ Passwords are argon2id. Session, invite, reset, and API key secrets are stored a
 - **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.
 - **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.
 - **A CI workflow.** The scripts are ready; nothing runs them on push.
-- **`LICENSE`.** The project is AGPL-3.0-only per `modules.md`, and the package manifests declare it, but the licence text is not committed.
+- **A copyright holder.** `LICENSE` is the verbatim AGPL-3.0 text, but no file states who holds the copyright. `modules.md` depends on that: proprietary cloud modules are only possible while we own the core copyright, and external contributions need a CLA before the first outside PR.
