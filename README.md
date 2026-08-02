@@ -139,17 +139,37 @@ Every variable is required. There are no silent defaults; a missing or malformed
 | `PORT` | API listen port |
 | `DATABASE_URL` | `postgres://` or `postgresql://` connection string |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
+| `EMAIL_PROVIDER` | `log`. Writes invites and password resets to the log instead of sending them. Real providers ship as modules |
+| `EMAIL_FROM` | The address transactional mail comes from |
+
+`TEST_DATABASE_URL` is separate: it is read only by the test harness, and only the integration suites use it. Without it they skip.
 
 `packages/server/src/lib/config.ts` is the only place that reads the environment. Everything else takes configuration as an argument.
 
+## What works
+
+The Phase 0 backend. Every endpoint below has integration tests against a real Postgres.
+
+| Area | Surface |
+| --- | --- |
+| Accounts | `POST /v1/auth/signup`, `login`, `logout`, `GET /v1/auth/me` |
+| Sessions | `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id` |
+| Passwords | `PATCH /v1/auth/password`, `POST /v1/auth/password-reset` and `/confirm` |
+| Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `GET .../members` |
+| Invites | `POST` and `GET /v1/workspaces/:id/invites`, `POST /v1/invites/accept` |
+| API keys | `POST /v1/api-keys`, `GET /v1/api-keys?kind=`, `DELETE /v1/api-keys/:id` |
+
+Underneath: the module runtime, a typed event bus with after-commit publication, the entitlements registry, 36 tables with migrations, and an integration harness that creates and truncates its own database.
+
+Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
+
 ## Not here yet
 
-The rest of Phase 0 follows in its own work items:
-
-- Event bus and entitlements registry. `ModuleContext` gains `events` and `entitlements` when they land; it does not carry stubs for them now.
-- `npm run seed`. The demo dataset in `mockups/src/data/seed.ts` has not been ported.
-- Auth, sessions, workspaces, and API keys. The tables exist; nothing writes to them yet.
-- The MCP endpoint (Phase 3). Tools register into the runtime today and have no transport.
-- Auth, sessions, workspaces, and API keys.
-- The integration test harness. Unit tests exist; nothing tests against a real database yet.
-- `LICENSE`. The project is AGPL-3.0-only per `modules.md`, and the package manifests declare it, but the licence text is not committed.
+- **The UI.** It is a health probe. No page from `mockups/` is ported, so nothing in the table above has a screen in front of it yet.
+- **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
+- **CRM objects.** People, Companies, Deals and the rest have tables and a registered module, but no routes or services. That is Phase 1.
+- **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. The first mutating CRM route should add the middleware rather than inventing a second path.
+- **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.
+- **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.
+- **A CI workflow.** The scripts are ready; nothing runs them on push.
+- **`LICENSE`.** The project is AGPL-3.0-only per `modules.md`, and the package manifests declare it, but the licence text is not committed.
