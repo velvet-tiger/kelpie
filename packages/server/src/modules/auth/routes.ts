@@ -1,17 +1,14 @@
-import { getCookie } from 'hono/cookie'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError, toErrorDetails } from '../../lib/errors.ts'
-import type { Actor } from './actor.ts'
+import { requireSessionActor } from './actor.ts'
+import type { SessionActor } from './actor.ts'
+import { resolveActorFrom } from './credentials.ts'
+import type { CredentialDependencies } from './credentials.ts'
 import type { AuthService, IssuedSession, SessionView } from './service.ts'
-import {
-  SESSION_COOKIE,
-  clearSessionCookie,
-  resolveActor,
-  writeSessionCookie,
-} from './session.ts'
-import type { SessionCookieOptions, SessionResolverDependencies } from './session.ts'
+import { clearSessionCookie, writeSessionCookie } from './session.ts'
+import type { SessionCookieOptions } from './session.ts'
 
 /**
  * Wire shapes for `/v1/auth/*`. Bodies are `snake_case` per `api.md`; the service
@@ -45,7 +42,7 @@ const changePasswordBody = z.object({
   new_password: z.string().min(1),
 })
 
-export interface AuthRoutesDependencies extends SessionResolverDependencies {
+export interface AuthRoutesDependencies extends CredentialDependencies {
   readonly service: AuthService
   readonly cookie: SessionCookieOptions
 }
@@ -89,8 +86,9 @@ function sessionResponse(session: SessionView): Record<string, unknown> {
 }
 
 export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependencies): void {
-  const requireActor = (context: Context): Promise<Actor> =>
-    resolveActor(dependencies, getCookie(context, SESSION_COOKIE))
+  /** Every endpoint here manages a human's own credentials, so a key cannot call them. */
+  const requireActor = async (context: Context): Promise<SessionActor> =>
+    requireSessionActor(await resolveActorFrom(dependencies, context))
 
   router.post('/auth/signup', async (context) => {
     const body = await readBody(context, signUpBody)

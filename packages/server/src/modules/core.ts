@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import type { KelpieModule } from '../runtime/module.ts'
 import * as activities from './activities/schema.ts'
 import * as agentTasks from './agent-tasks/schema.ts'
-import * as apiKeys from './api-keys/schema.ts'
+import { createApiKeysModule } from './api-keys/index.ts'
 import { createAuthModule } from './auth/index.ts'
 import * as companies from './companies/schema.ts'
 import * as deals from './deals/schema.ts'
@@ -45,7 +45,6 @@ interface CoreModuleDefinition {
 }
 
 const definitions: readonly CoreModuleDefinition[] = [
-  { id: 'api-keys', requires: ['workspace'], tables: apiKeys },
   { id: 'people', requires: ['workspace'], tables: people },
   { id: 'companies', requires: ['workspace'], tables: companies },
   { id: 'positions', requires: ['people', 'companies'], tables: positions },
@@ -75,6 +74,7 @@ const definitions: readonly CoreModuleDefinition[] = [
 export const coreModules: readonly KelpieModule[] = [
   createAuthModule(coreMigrationsDirectory),
   createWorkspaceModule(coreMigrationsDirectory),
+  createApiKeysModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
     ...(definition.requires === undefined ? {} : { requires: definition.requires }),

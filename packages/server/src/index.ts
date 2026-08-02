@@ -73,11 +73,16 @@ export type { MigrationPlanStep } from './runtime/migrate.ts'
 
 export { coreMigrationsDirectory, coreModules } from './modules/core.ts'
 
+export { KEY_KINDS, kindOfSecret, mintKey, parseKeyKind, readBearerToken } from './modules/api-keys/keys.ts'
+export type { KeyKind, MintedKey } from './modules/api-keys/keys.ts'
+
 export { registerModules } from './runtime/registry.ts'
 export type { ModuleContributions, ModuleRouter, ModuleRuntimeOptions } from './runtime/registry.ts'
 export type { ModuleServices } from './runtime/module.ts'
 
-export type { Actor, WorkspaceActor } from './modules/auth/actor.ts'
-export { hasWorkspace } from './modules/auth/actor.ts'
+export type { Actor, ApiKeyActor, SessionActor } from './modules/auth/actor.ts'
+export { actorUserId, actorWorkspaceId, requireSessionActor } from './modules/auth/actor.ts'
+export { resolveActor, resolveActorFrom } from './modules/auth/credentials.ts'
+export type { CredentialDependencies } from './modules/auth/credentials.ts'
 export { MEMBER_ROLES, INVITABLE_ROLES, parseMemberRole, roleAllows } from './modules/workspace/roles.ts'
 export type { InvitableRole, MemberRole } from './modules/workspace/roles.ts'

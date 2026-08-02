@@ -6,7 +6,7 @@ import type { Database } from '../../lib/database.ts'
 import { MINIMUM_PASSWORD_LENGTH, hashPassword, verifyPassword } from '../../lib/passwords.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
-import type { Actor } from './actor.ts'
+import type { SessionActor } from './actor.ts'
 import * as repository from './repository.ts'
 
 /**
@@ -81,13 +81,13 @@ export interface AuthService {
   /** Creates the account only. The first workspace comes from onboarding. */
   signUp(input: SignUpInput): Promise<IssuedSession>
   logIn(input: LogInInput): Promise<IssuedSession>
-  logOut(actor: Actor): Promise<void>
-  listSessions(actor: Actor): Promise<readonly SessionView[]>
-  revokeSession(actor: Actor, sessionId: string): Promise<void>
+  logOut(actor: SessionActor): Promise<void>
+  listSessions(actor: SessionActor): Promise<readonly SessionView[]>
+  revokeSession(actor: SessionActor, sessionId: string): Promise<void>
   /** Resolves whether or not the address is registered. */
   requestPasswordReset(email: string, resetUrlTemplate: string): Promise<void>
   confirmPasswordReset(token: string, newPassword: string): Promise<void>
-  changePassword(actor: Actor, currentPassword: string, newPassword: string): Promise<void>
+  changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<void>
 }
 
 export function createAuthService(dependencies: AuthDependencies): AuthService {
@@ -175,11 +175,11 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       return dependencies.transaction(({ tx }) => issueSession(tx, user, input.device, input.location))
     },
 
-    async logOut(actor: Actor): Promise<void> {
+    async logOut(actor: SessionActor): Promise<void> {
       await repository.deleteSession(dependencies.db, actor.userId, actor.sessionId)
     },
 
-    async listSessions(actor: Actor): Promise<readonly SessionView[]> {
+    async listSessions(actor: SessionActor): Promise<readonly SessionView[]> {
       const records = await repository.listSessionsForUser(dependencies.db, actor.userId)
 
       return records.map((record) => ({
@@ -191,7 +191,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       }))
     },
 
-    async revokeSession(actor: Actor, sessionId: string): Promise<void> {
+    async revokeSession(actor: SessionActor, sessionId: string): Promise<void> {
       const removed = await repository.deleteSession(dependencies.db, actor.userId, sessionId)
 
       if (removed === 0) {
@@ -254,7 +254,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     },
 
     /** Keeps the caller signed in and ends every other session. */
-    async changePassword(actor: Actor, currentPassword: string, newPassword: string): Promise<void> {
+    async changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<void> {
       if (newPassword.length < MINIMUM_PASSWORD_LENGTH) {
         throw AppError.validationFailed('Password is too short', [
           { field: 'new_password', message: `Must be at least ${MINIMUM_PASSWORD_LENGTH} characters` },

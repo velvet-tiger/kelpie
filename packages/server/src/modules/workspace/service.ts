@@ -5,7 +5,7 @@ import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
-import type { Actor } from '../auth/actor.ts'
+import type { Actor, SessionActor } from '../auth/actor.ts'
 import * as authRepository from '../auth/repository.ts'
 import * as repository from './repository.ts'
 import { parseMemberRole, roleAllows } from './roles.ts'
@@ -73,14 +73,14 @@ export interface UpdateWorkspaceInput {
 
 export interface WorkspaceService {
   /** Creates the workspace, makes the caller its owner, and seeds its starters. */
-  create(actor: Actor, input: CreateWorkspaceInput): Promise<WorkspaceView>
+  create(actor: SessionActor, input: CreateWorkspaceInput): Promise<WorkspaceView>
   get(actor: Actor, workspaceId: string): Promise<WorkspaceView>
   update(actor: Actor, workspaceId: string, changes: UpdateWorkspaceInput): Promise<WorkspaceView>
   listMembers(actor: Actor, workspaceId: string): Promise<readonly MemberView[]>
   invite(actor: Actor, workspaceId: string, email: string, role: InvitableRole, urlTemplate: string): Promise<InviteView>
   listInvites(actor: Actor, workspaceId: string): Promise<readonly InviteView[]>
   /** Joins the invited workspace as the calling account. */
-  acceptInvite(actor: Actor, token: string): Promise<WorkspaceView>
+  acceptInvite(actor: SessionActor, token: string): Promise<WorkspaceView>
 }
 
 function toWorkspaceView(record: repository.WorkspaceRecord): WorkspaceView {
@@ -110,13 +110,41 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
   /**
    * A workspace the actor does not belong to is indistinguishable from one that
    * does not exist, per `api.md`.
+   *
+   * A workspace key has no member row: it is bound to its workspace at creation,
+   * and that binding is the membership. `memberId` is null for it, so anything
+   * needing a member to attribute the action to must say so.
    */
   async function requireMembership(
     actor: Actor,
     workspaceId: string,
     required: MemberRole,
+  ): Promise<{ memberId: string | null; role: MemberRole }> {
+    if (actor.kind === 'api_key') {
+      if (actor.workspaceId !== workspaceId) {
+        throw AppError.notFound('Workspace not found')
+      }
+
+      if (actor.userId === null) {
+        if (!roleAllows(actor.role, required)) {
+          throw new AppError('forbidden', `This action needs the ${required} role`)
+        }
+
+        return { memberId: null, role: actor.role }
+      }
+
+      return membershipFor(actor.userId, workspaceId, required)
+    }
+
+    return membershipFor(actor.userId, workspaceId, required)
+  }
+
+  async function membershipFor(
+    userId: string,
+    workspaceId: string,
+    required: MemberRole,
   ): Promise<{ memberId: string; role: MemberRole }> {
-    const membership = await authRepository.findMembership(dependencies.db, workspaceId, actor.userId)
+    const membership = await authRepository.findMembership(dependencies.db, workspaceId, userId)
 
     if (membership === undefined) {
       throw AppError.notFound('Workspace not found')

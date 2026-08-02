@@ -1,11 +1,11 @@
-import { getCookie } from 'hono/cookie'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError, toErrorDetails } from '../../lib/errors.ts'
-import type { Actor } from '../auth/actor.ts'
-import { SESSION_COOKIE, resolveActor } from '../auth/session.ts'
-import type { SessionResolverDependencies } from '../auth/session.ts'
+import { requireSessionActor } from '../auth/actor.ts'
+import type { Actor, SessionActor } from '../auth/actor.ts'
+import { resolveActorFrom } from '../auth/credentials.ts'
+import type { CredentialDependencies } from '../auth/credentials.ts'
 import { INVITABLE_ROLES } from './roles.ts'
 import type { InviteView, MemberView, WorkspaceService, WorkspaceView } from './service.ts'
 
@@ -37,7 +37,7 @@ const inviteBody = z.object({
 
 const acceptBody = z.object({ token: z.string().min(1) })
 
-export interface WorkspaceRoutesDependencies extends SessionResolverDependencies {
+export interface WorkspaceRoutesDependencies extends CredentialDependencies {
   readonly service: WorkspaceService
 }
 
@@ -85,12 +85,15 @@ function inviteResponse(invite: InviteView): Record<string, unknown> {
 }
 
 export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutesDependencies): void {
-  const requireActor = (context: Context): Promise<Actor> =>
-    resolveActor(dependencies, getCookie(context, SESSION_COOKIE))
+  const requireActor = (context: Context): Promise<Actor> => resolveActorFrom(dependencies, context)
+
+  /** Onboarding and joining are things a person does; a key has no session to move. */
+  const requireUser = async (context: Context): Promise<SessionActor> =>
+    requireSessionActor(await resolveActorFrom(dependencies, context))
 
   router.post('/workspaces', async (context) => {
     const body = await readBody(context, createBody)
-    const workspace = await dependencies.service.create(await requireActor(context), body)
+    const workspace = await dependencies.service.create(await requireUser(context), body)
 
     return context.json(workspaceResponse(workspace), 201)
   })
@@ -147,7 +150,7 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
   /** Not nested under a workspace: the caller does not know which one until it resolves. */
   router.post('/invites/accept', async (context) => {
     const body = await readBody(context, acceptBody)
-    const workspace = await dependencies.service.acceptInvite(await requireActor(context), body.token)
+    const workspace = await dependencies.service.acceptInvite(await requireUser(context), body.token)
 
     return context.json(workspaceResponse(workspace))
   })
