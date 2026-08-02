@@ -8,6 +8,8 @@ import { createLogger } from '../lib/logger.ts'
 import type { KelpieModule } from '../runtime/module.ts'
 import type { ModuleContributions } from '../runtime/registry.ts'
 import { registerModules } from '../runtime/registry.ts'
+import { createTestServices } from './services.ts'
+import type { TestServices } from './services.ts'
 
 /**
  * Assembles an app for tests. Unlike the real boot it defaults every dependency,
@@ -20,10 +22,13 @@ export interface TestAppOptions {
   readonly environment?: Environment
   readonly probeDatabase?: () => Promise<DatabaseProbe>
   readonly generateRequestId?: () => string
+  /** Defaults to fakes: a lazy unused database and a collecting email sender. */
+  readonly services?: TestServices
 }
 
 export interface TestApp {
   readonly app: Hono<AppBindings>
+  readonly services: TestServices
   readonly contributions: ModuleContributions
   /** Every log line the app emitted, newest last. */
   readonly logLines: readonly string[]
@@ -35,10 +40,13 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   const logLines: string[] = []
   const logger = createLogger('debug', (line) => logLines.push(line))
 
+  const services = options.services ?? createTestServices()
   const contributions = await registerModules({
     modules: options.modules ?? [],
     environment: options.environment ?? {},
     logger,
+    events: services.events,
+    services,
   })
 
   const app = createApp({
@@ -48,5 +56,5 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     generateRequestId: options.generateRequestId ?? (() => 'req-test'),
   })
 
-  return { app, contributions, logLines }
+  return { app, contributions, logLines, services }
 }

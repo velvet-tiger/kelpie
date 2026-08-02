@@ -4,7 +4,11 @@ import {
   ModuleBootError,
   connectDatabase,
   createApp,
+  createEmailSender,
+  createEventBus,
+  createIdFactory,
   createLogger,
+  createTransactionScope,
   loadConfig,
   registerModules,
   runMigrations,
@@ -33,7 +37,20 @@ async function start(): Promise<void> {
   const config = loadConfig(process.env)
   const logger = createLogger(config.logLevel)
   const database = connectDatabase(config.databaseUrl, logger)
-  const contributions = await registerModules({ modules, environment: process.env, logger })
+  const events = createEventBus(logger)
+  const contributions = await registerModules({
+    modules,
+    environment: process.env,
+    logger,
+    events,
+    services: {
+      db: database.db,
+      transaction: createTransactionScope({ db: database.db, bus: events, logger }),
+      email: createEmailSender(config.email, logger),
+      createId: createIdFactory(),
+      now: () => new Date(),
+    },
+  })
 
   if (process.argv.includes('--no-migrate')) {
     logger.info('skipping migrations', { reason: '--no-migrate' })

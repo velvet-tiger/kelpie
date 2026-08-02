@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { emailConfigSchema } from './email.ts'
+import type { EmailConfig } from './email.ts'
 import { describeValidationIssue } from './errors.ts'
 
 /**
@@ -19,6 +21,8 @@ export interface KelpieConfig {
   readonly port: number
   readonly databaseUrl: string
   readonly logLevel: LogLevel
+  /** Transactional mail only. Roadmap decision 4: configured, never hardcoded. */
+  readonly email: EmailConfig
 }
 
 /** Thrown at boot when the environment cannot produce a valid configuration. */
@@ -48,6 +52,7 @@ const environmentSchema = z.object({
     .string()
     .refine(isPostgresUrl, { message: 'must be a postgres:// or postgresql:// connection string' }),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']),
+  ...emailConfigSchema.shape,
 })
 
 /**
@@ -68,5 +73,6 @@ export function loadConfig(environment: Environment): KelpieConfig {
     port: result.data.PORT,
     databaseUrl: result.data.DATABASE_URL,
     logLevel: result.data.LOG_LEVEL,
+    email: { EMAIL_PROVIDER: result.data.EMAIL_PROVIDER, EMAIL_FROM: result.data.EMAIL_FROM },
   }
 }

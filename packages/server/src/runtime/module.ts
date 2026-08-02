@@ -1,8 +1,12 @@
 import type { Hono } from 'hono'
 import type { ZodType } from 'zod'
 
+import type { Database } from '../lib/database.ts'
+import type { EmailSender } from '../lib/email.ts'
+import type { IdFactory } from '../lib/ids.ts'
 import type { Logger } from '../lib/logger.ts'
 import type { EventBus } from './events.ts'
+import type { TransactionScope } from './transaction.ts'
 
 /**
  * The module contract from `modules.md`. Core features register through this
@@ -46,7 +50,27 @@ export interface McpToolRegistry {
   tool<Input>(definition: McpToolDefinition<Input>): void
 }
 
-export interface ModuleContext {
+/**
+ * What a module gets to build with, beyond its own contributions.
+ *
+ * `modules.md` does not list these. A module that contributes tables has no way
+ * to query them without a handle, and every write needs the transaction scope so
+ * its events publish after commit rather than during. Recorded here as the
+ * builder decision the spec left open.
+ */
+export interface ModuleServices {
+  readonly db: Database
+  /** Runs work in one transaction and publishes its events after commit. */
+  readonly transaction: TransactionScope
+  /** Transactional mail only: invites and password resets. */
+  readonly email: EmailSender
+  /** Generates `<prefix>_<ulid>` ids. Injected so tests can pin them. */
+  readonly createId: IdFactory
+  /** The current time, injected so expiry logic is testable. */
+  readonly now: () => Date
+}
+
+export interface ModuleContext extends ModuleServices {
   /** Registers routes. They mount under `/v1` and are public API like any other. */
   routes(mount: (router: Hono) => void): void
   schema(tables: Readonly<Record<string, unknown>>, migrationsDir: string): void

@@ -20,15 +20,21 @@ export function primaryId() {
   return text('id').primaryKey()
 }
 
+/**
+ * Timestamps are `Date` in TypeScript, never strings. Postgres renders its own
+ * string format (`2026-08-02 11:23:26.138+00`), which is not the ISO 8601 that
+ * `api.md` requires, so string mode would leak a non-conforming value straight
+ * onto the wire. Routes call `toISOString()` at the boundary.
+ */
 export function createdAt() {
-  return timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow()
+  return timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
 }
 
 export function updatedAt() {
-  return timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow()
+  return timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
 }
 
 /** A timestamptz that carries a real domain meaning rather than row bookkeeping. */
 export function moment(name: string) {
-  return timestamp(name, { withTimezone: true, mode: 'string' })
+  return timestamp(name, { withTimezone: true, mode: 'date' })
 }

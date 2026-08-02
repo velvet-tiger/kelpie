@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { AppError } from '../lib/errors.ts'
 import { createLogger } from '../lib/logger.ts'
+import { createTestServices } from '../testing/services.ts'
 import { createTestApp } from '../testing/app.ts'
 import type { KelpieModule } from './module.ts'
 import { ModuleBootError } from './order.ts'
@@ -82,7 +83,7 @@ describe('module config', () => {
 
   it('fails boot naming the module when its config is invalid', async () => {
     await expect(
-      registerModules({ modules: [greetingModule], environment: {}, logger: silentLogger() }),
+      registerModules({ modules: [greetingModule], environment: {}, logger: silentLogger(), services: createTestServices() }),
     ).rejects.toThrow(/module "greeting" config GREETING_WORD/)
   })
 })
@@ -159,7 +160,7 @@ describe('module MCP tools', () => {
     }
 
     await expect(
-      registerModules({ modules: [doubleDeclaring], environment: {}, logger: silentLogger() }),
+      registerModules({ modules: [doubleDeclaring], environment: {}, logger: silentLogger(), services: createTestServices() }),
     ).rejects.toThrow(ModuleBootError)
   })
 })
@@ -240,7 +241,7 @@ describe('registration failures', () => {
     let thrown: unknown
 
     try {
-      await registerModules({ modules: [broken], environment: {}, logger: silentLogger() })
+      await registerModules({ modules: [broken], environment: {}, logger: silentLogger(), services: createTestServices() })
     } catch (error: unknown) {
       thrown = error
     }
@@ -266,7 +267,7 @@ describe('registration failures', () => {
       },
     }
 
-    await registerModules({ modules: [counting], environment: {}, logger: silentLogger() })
+    await registerModules({ modules: [counting], environment: {}, logger: silentLogger(), services: createTestServices() })
 
     expect(registrations).toBe(1)
   })

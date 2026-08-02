@@ -4,7 +4,7 @@ import type { KelpieModule } from '../runtime/module.ts'
 import * as activities from './activities/schema.ts'
 import * as agentTasks from './agent-tasks/schema.ts'
 import * as apiKeys from './api-keys/schema.ts'
-import * as auth from './auth/schema.ts'
+import { createAuthModule } from './auth/index.ts'
 import * as companies from './companies/schema.ts'
 import * as deals from './deals/schema.ts'
 import * as decisions from './decisions/schema.ts'
@@ -45,7 +45,6 @@ interface CoreModuleDefinition {
 }
 
 const definitions: readonly CoreModuleDefinition[] = [
-  { id: 'auth', tables: auth },
   { id: 'workspace', requires: ['auth'], tables: workspace },
   { id: 'api-keys', requires: ['workspace'], tables: apiKeys },
   { id: 'people', requires: ['workspace'], tables: people },
@@ -69,12 +68,20 @@ const definitions: readonly CoreModuleDefinition[] = [
   { id: 'integrations', requires: ['workspace'], tables: integrations },
 ]
 
-export const coreModules: readonly KelpieModule[] = definitions.map((definition) => ({
-  id: definition.id,
-  ...(definition.requires === undefined ? {} : { requires: definition.requires }),
-  register(context) {
-    context.schema(definition.tables, coreMigrationsDirectory)
+/**
+ * Modules with behaviour are written out; the rest contribute only tables so far
+ * and are generated from the table above. As each grows routes and services it
+ * moves out of `definitions` into its own module file, like `auth` has.
+ */
+export const coreModules: readonly KelpieModule[] = [
+  createAuthModule(coreMigrationsDirectory),
+  ...definitions.map((definition): KelpieModule => ({
+    id: definition.id,
+    ...(definition.requires === undefined ? {} : { requires: definition.requires }),
+    register(context) {
+      context.schema(definition.tables, coreMigrationsDirectory)
 
-    return Promise.resolve()
-  },
-}))
+      return Promise.resolve()
+    },
+  })),
+]

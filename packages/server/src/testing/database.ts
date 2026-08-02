@@ -8,6 +8,7 @@ import { createLogger } from '../lib/logger.ts'
 import { coreModules } from '../modules/core.ts'
 import { runMigrations } from '../runtime/migrate.ts'
 import { registerModules } from '../runtime/registry.ts'
+import { createTestServices } from './services.ts'
 
 /**
  * A migrated database for integration tests.
@@ -72,8 +73,10 @@ export async function connectTestDatabase(connectionString: string): Promise<Tes
   const connection = connectDatabase(connectionString, silentLogger)
   const contributions = await registerModules({
     modules: coreModules,
-    environment: {},
+    // Enough for core modules to configure themselves; no test reads it further.
+    environment: { NODE_ENV: 'test' },
     logger: silentLogger,
+    services: createTestServices({ db: connection.db }),
   })
 
   await runMigrations(connection.db, contributions.schemas, silentLogger)

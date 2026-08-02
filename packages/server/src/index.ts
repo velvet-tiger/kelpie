@@ -16,6 +16,12 @@ export type { Database, DatabaseConnection, DatabaseProbe } from './lib/database
 
 export * as schema from './schema/index.ts'
 
+export { createEmailSender, createLogEmailSender, emailConfigSchema } from './lib/email.ts'
+export type { EmailConfig, EmailMessage, EmailSender } from './lib/email.ts'
+
+export { MINIMUM_PASSWORD_LENGTH, hashPassword, isPasswordStrongEnough, verifyPassword } from './lib/passwords.ts'
+export { generateToken, hashToken, tokenHashesMatch } from './lib/tokens.ts'
+
 export {
   AppError,
   describeThrown,
@@ -69,3 +75,9 @@ export { coreMigrationsDirectory, coreModules } from './modules/core.ts'
 
 export { registerModules } from './runtime/registry.ts'
 export type { ModuleContributions, ModuleRouter, ModuleRuntimeOptions } from './runtime/registry.ts'
+export type { ModuleServices } from './runtime/module.ts'
+
+export type { Actor, WorkspaceActor } from './modules/auth/actor.ts'
+export { hasWorkspace } from './modules/auth/actor.ts'
+export { MEMBER_ROLES, INVITABLE_ROLES, parseMemberRole, roleAllows } from './modules/workspace/roles.ts'
+export type { InvitableRole, MemberRole } from './modules/workspace/roles.ts'

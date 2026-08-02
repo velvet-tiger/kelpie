@@ -46,3 +46,19 @@ export const userPreferences = pgTable('user_preferences', {
   productUpdates: boolean('product_updates').notNull(),
   updatedAt: updatedAt(),
 })
+
+/**
+ * One-shot tokens for the reset link. Stored hashed like a session token, and
+ * marked used rather than deleted so a replayed link is refused rather than
+ * treated as an unknown token.
+ */
+export const passwordResetTokens = pgTable('password_reset_tokens', {
+  id: primaryId(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: moment('expires_at').notNull(),
+  usedAt: moment('used_at'),
+  createdAt: createdAt(),
+})

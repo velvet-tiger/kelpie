@@ -5,7 +5,13 @@ import { AppError, describeThrown, describeValidationIssue, toErrorDetails } fro
 import type { Logger } from '../lib/logger.ts'
 import { createEventBus } from './events.ts'
 import type { EventBus } from './events.ts'
-import type { KelpieModule, McpTool, ModuleContext, SchemaContribution } from './module.ts'
+import type {
+  KelpieModule,
+  McpTool,
+  ModuleContext,
+  ModuleServices,
+  SchemaContribution,
+} from './module.ts'
 import { ModuleBootError, orderModules } from './order.ts'
 
 /**
@@ -34,6 +40,8 @@ export interface ModuleRuntimeOptions {
   readonly logger: Logger
   /** Injected so a test can watch what core modules subscribe to. Defaults to a fresh bus. */
   readonly events?: EventBus
+  /** The database, transaction scope, and collaborators every module builds on. */
+  readonly services: ModuleServices
 }
 
 /** Contributions accumulate here, one mutable set per registration pass. */
@@ -51,6 +59,8 @@ function createModuleContext(
   events: EventBus,
 ): ModuleContext {
   return {
+    ...options.services,
+
     routes(mount) {
       const router = new Hono()
       mount(router)

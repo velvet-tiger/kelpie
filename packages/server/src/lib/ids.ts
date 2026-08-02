@@ -8,6 +8,7 @@ export const idPrefixes = {
   workspace: 'ws',
   user: 'usr',
   session: 'ses',
+  passwordResetToken: 'pwr',
   teamMember: 'mem',
   invite: 'inv',
   apiKey: 'key',

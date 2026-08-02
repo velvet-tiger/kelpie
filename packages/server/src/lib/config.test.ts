@@ -7,6 +7,8 @@ const validEnvironment = {
   PORT: '3000',
   DATABASE_URL: 'postgres://kelpie:kelpie@localhost:5432/kelpie_dev',
   LOG_LEVEL: 'debug',
+  EMAIL_PROVIDER: 'log',
+  EMAIL_FROM: 'kelpie@example.com',
 }
 
 describe('loadConfig', () => {
@@ -16,6 +18,7 @@ describe('loadConfig', () => {
       port: 3000,
       databaseUrl: 'postgres://kelpie:kelpie@localhost:5432/kelpie_dev',
       logLevel: 'debug',
+      email: { EMAIL_PROVIDER: 'log', EMAIL_FROM: 'kelpie@example.com' },
     })
   })
 
@@ -38,6 +41,7 @@ describe('loadConfig', () => {
     expect(problems).toContain('PORT')
     expect(problems).toContain('DATABASE_URL')
     expect(problems).toContain('LOG_LEVEL')
+    expect(problems).toContain('EMAIL_PROVIDER')
   })
 
   it('rejects a non-postgres database url', () => {
