@@ -116,6 +116,24 @@ export const smtpEmail: KelpieModule = {
 
 Routes mount under `/v1` and are public API like every other endpoint. Module config is validated against the environment at boot. Modules register in dependency order, and boot stops on a duplicate id, an unmet `requires`, a dependency cycle, invalid module config, or a `register` that throws. Every failure names the module.
 
+A module's UI half is a separate list, `apps/kelpie/kelpie.ui.config.ts`, because the server config is imported by the Node entry point and a UI module brings React with it. It contributes nav items, whole routes, record tabs, sidebar cards, dashboard cards and integration catalog entries, and can replace a core component outright:
+
+```ts
+export const gmailUi: UiModule = {
+  id: 'gmail-sync',
+
+  register(context) {
+    context.nav('primary', { id: 'gmail', label: 'Gmail', to: '/gmail', order: 250 })
+    context.route({ path: '/gmail', element: <GmailSettings /> })
+    context.recordTab('person', { id: 'threads', label: 'Email', render: (r) => <Threads id={r.recordId} /> })
+    context.dashboardCard({ id: 'unread', render: () => <Unread /> })
+    context.override(recordHeader, GmailRecordHeader)
+  },
+}
+```
+
+Open source ships no UI modules. Every slot renders nothing, which is how core pages are meant to look.
+
 MCP tools share the input schema with their REST route, and the runtime parses arguments before the tool body runs. A bad argument fails with the same `validation_failed` error the REST surface returns.
 
 ## Scripts
@@ -172,7 +190,7 @@ Passwords are argon2id. Session, invite, reset, and API key secrets are stored a
 
 ## Not here yet
 
-- **The UI.** It is a health probe. No page from `mockups/` is ported, so nothing in the table above has a screen in front of it yet.
+- **The UI.** It is a health probe. No page from `mockups/` is ported, so nothing in the table above has a screen in front of it yet. The extension registry underneath it is built (`packages/ui/src/registry/`, slot set per `modules.md`); core pages start rendering its slots as they land.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
 - **The rest of the CRM objects.** Deals, Opportunities, Partnerships, Raises, Hiring, Notes, Activities, Decisions, Plans and the Handbook have tables and a registered module, but no routes or services.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
