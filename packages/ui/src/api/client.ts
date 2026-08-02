@@ -6,6 +6,14 @@
  * Responses are untrusted input. Every method takes a `Decoder` and returns what
  * the decoder produced, so nothing is asserted into a type it was not checked
  * against.
+ *
+ * Roadmap decision 8: decoders come from Zod. A schema's `.parse` already matches
+ * `Decoder`, so pass `personSchema.parse` and nothing in this file changes. Do
+ * not hand-write a decoder for a new resource.
+ *
+ * Response schemas cannot live in `@kelpie/server`: importing it here would drag
+ * Drizzle, postgres.js, and Node built-ins into the browser bundle. They belong
+ * in a package that depends on nothing but Zod.
  */
 
 import { isRecord } from './json.ts'
