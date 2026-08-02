@@ -1,8 +1,22 @@
-import { sql } from 'drizzle-orm'
-import { check, index, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import { index, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
-import { citext, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, citext, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
+
+/**
+ * The fixed value sets from `seed.ts`. Exported because the API validates against
+ * these same arrays: a value the boundary accepts and the check constraint
+ * refuses would be a 500 where a 422 belongs.
+ */
+export const COMPANY_STAGES = ['startup', 'growth', 'enterprise', 'other'] as const
+export const SIZE_BANDS = ['1-10', '11-50', '51-200', '201+'] as const
+export const ACCOUNT_TYPES = ['prospect', 'customer', 'partner', 'investor', 'other'] as const
+export const ICP_FITS = ['high', 'medium', 'low', 'unknown'] as const
+
+export type CompanyStage = (typeof COMPANY_STAGES)[number]
+export type SizeBand = (typeof SIZE_BANDS)[number]
+export type AccountType = (typeof ACCOUNT_TYPES)[number]
+export type IcpFit = (typeof ICP_FITS)[number]
 
 /** Organisations. `domain` is normalised (no scheme, no path) and compared case-insensitively. */
 export const companies = pgTable(
@@ -31,12 +45,9 @@ export const companies = pgTable(
   (table) => [
     unique('companies_workspace_domain_key').on(table.workspaceId, table.domain),
     index('companies_workspace_idx').on(table.workspaceId),
-    check('companies_stage_check', sql`${table.stage} in ('startup', 'growth', 'enterprise', 'other')`),
-    check('companies_size_band_check', sql`${table.sizeBand} in ('1-10', '11-50', '51-200', '201+')`),
-    check(
-      'companies_account_type_check',
-      sql`${table.accountType} in ('prospect', 'customer', 'partner', 'investor', 'other')`,
-    ),
-    check('companies_icp_fit_check', sql`${table.icpFit} in ('high', 'medium', 'low', 'unknown')`),
+    checkOneOf('companies_stage_check', table.stage, COMPANY_STAGES),
+    checkOneOf('companies_size_band_check', table.sizeBand, SIZE_BANDS),
+    checkOneOf('companies_account_type_check', table.accountType, ACCOUNT_TYPES),
+    checkOneOf('companies_icp_fit_check', table.icpFit, ICP_FITS),
   ],
 )

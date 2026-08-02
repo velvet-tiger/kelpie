@@ -40,6 +40,24 @@ export function actorWorkspaceId(actor: Actor): string | null {
 }
 
 /**
+ * The same thing, for the endpoints that cannot work without one.
+ *
+ * CRM routes carry no workspace path segment and read no workspace header: a key
+ * is bound to its workspace at creation and a session carries its active one
+ * (`api.md`). The only actor without a workspace is an account between signup and
+ * its first workspace create.
+ *
+ * @throws AppError 403 when the actor has no workspace.
+ */
+export function requireWorkspaceId(actor: Actor): string {
+  if (actor.workspaceId === null) {
+    throw new AppError('forbidden', 'Create or join a workspace before using this endpoint')
+  }
+
+  return actor.workspaceId
+}
+
+/**
  * Narrows to a signed-in human.
  *
  * @throws AppError 403 for a key, which has no session to manage and no password

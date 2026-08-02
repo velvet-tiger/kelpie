@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { AppError, describeThrown, internalErrorBody, toErrorBody } from './errors.ts'
+import { AppError, describeThrown, internalErrorBody, toErrorBody, toErrorDetails } from './errors.ts'
 
 describe('AppError', () => {
   it('maps each code to the status api.md documents', () => {
@@ -30,6 +30,31 @@ describe('toErrorBody', () => {
         details: [{ field: 'email', message: 'Missing required field' }],
       },
     })
+  })
+})
+
+describe('toErrorDetails', () => {
+  it('reports a field problem against its path', () => {
+    expect(toErrorDetails([{ path: ['social_profiles', 0, 'url'], message: 'Required' }])).toEqual([
+      { field: 'social_profiles.0.url', message: 'Required' },
+    ])
+  })
+
+  /** Zod raises this at the object, so without the keys the client is told the field is `""`. */
+  it('reports an unrecognised key against the key', () => {
+    const details = toErrorDetails([
+      { path: [], message: 'Unrecognized key', code: 'unrecognized_keys', keys: ['job_title'] },
+    ])
+
+    expect(details).toEqual([{ field: 'job_title', message: 'Unknown field' }])
+  })
+
+  it('keeps the path when the unrecognised key is nested', () => {
+    const details = toErrorDetails([
+      { path: ['profile'], message: 'Unrecognized key', code: 'unrecognized_keys', keys: ['handle'] },
+    ])
+
+    expect(details).toEqual([{ field: 'profile.handle', message: 'Unknown field' }])
   })
 })
 

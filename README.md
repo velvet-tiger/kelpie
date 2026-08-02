@@ -148,7 +148,7 @@ Every variable is required. There are no silent defaults; a missing or malformed
 
 ## What works
 
-The Phase 0 backend. Every endpoint below has integration tests against a real Postgres.
+The Phase 0 backend, plus the first three CRM resources. Every endpoint below has integration tests against a real Postgres.
 
 | Area | Surface |
 | --- | --- |
@@ -158,6 +158,13 @@ The Phase 0 backend. Every endpoint below has integration tests against a real P
 | Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `GET .../members` |
 | Invites | `POST` and `GET /v1/workspaces/:id/invites`, `POST /v1/invites/accept` |
 | API keys | `POST /v1/api-keys`, `GET /v1/api-keys?kind=`, `DELETE /v1/api-keys/:id` |
+| People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
+| Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |
+| Positions | `GET`, `POST /v1/positions`, `GET`, `PATCH`, `DELETE /v1/positions/:id`. Filters `?person_id=` and `?company_id=` |
+
+Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
+
+A job title lives on Position and nowhere else, so a person can hold one at more than one company. `?q=` on people matches the titles they hold and the companies they hold them at, which is what the mockup's filter box does.
 
 Underneath: the module runtime, a typed event bus with after-commit publication, the entitlements registry, 36 tables with migrations, and an integration harness that creates and truncates its own database.
 
@@ -167,8 +174,8 @@ Passwords are argon2id. Session, invite, reset, and API key secrets are stored a
 
 - **The UI.** It is a health probe. No page from `mockups/` is ported, so nothing in the table above has a screen in front of it yet.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
-- **CRM objects.** People, Companies, Deals and the rest have tables and a registered module, but no routes or services. That is Phase 1.
-- **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. The first mutating CRM route should add the middleware rather than inventing a second path.
+- **The rest of the CRM objects.** Deals, Opportunities, Partnerships, Raises, Hiring, Notes, Activities, Decisions, Plans and the Handbook have tables and a registered module, but no routes or services.
+- **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
 - **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.
 - **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.
 - **A CI workflow.** The scripts are ready; nothing runs them on push.

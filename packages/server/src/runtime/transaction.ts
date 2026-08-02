@@ -13,6 +13,12 @@ import type { DomainEventName, DomainEvents, EventBus } from './events.ts'
 /** The transaction handle Drizzle passes to the work. Repositories join it. */
 export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0]
 
+/**
+ * What a repository function runs against: the pool for a single read, or an open
+ * transaction when a service is composing several writes.
+ */
+export type Queryable = Database | Transaction
+
 /** Collects events during the transaction. Nothing leaves until commit. */
 export interface BufferedEvents {
   emit<Name extends DomainEventName>(name: Name, payload: DomainEvents[Name]): void

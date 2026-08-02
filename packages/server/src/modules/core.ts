@@ -5,7 +5,7 @@ import * as activities from './activities/schema.ts'
 import * as agentTasks from './agent-tasks/schema.ts'
 import { createApiKeysModule } from './api-keys/index.ts'
 import { createAuthModule } from './auth/index.ts'
-import * as companies from './companies/schema.ts'
+import { createCompaniesModule } from './companies/index.ts'
 import * as deals from './deals/schema.ts'
 import * as decisions from './decisions/schema.ts'
 import * as forms from './forms/schema.ts'
@@ -16,10 +16,10 @@ import * as integrations from './integrations/schema.ts'
 import * as notes from './notes/schema.ts'
 import * as opportunities from './opportunities/schema.ts'
 import * as partnerships from './partnerships/schema.ts'
-import * as people from './people/schema.ts'
+import { createPeopleModule } from './people/index.ts'
 import * as pipelines from './pipelines/schema.ts'
 import * as plans from './plans/schema.ts'
-import * as positions from './positions/schema.ts'
+import { createPositionsModule } from './positions/index.ts'
 import * as raises from './raises/schema.ts'
 import * as webhooks from './webhooks/schema.ts'
 import { createWorkspaceModule } from './workspace/index.ts'
@@ -45,9 +45,6 @@ interface CoreModuleDefinition {
 }
 
 const definitions: readonly CoreModuleDefinition[] = [
-  { id: 'people', requires: ['workspace'], tables: people },
-  { id: 'companies', requires: ['workspace'], tables: companies },
-  { id: 'positions', requires: ['people', 'companies'], tables: positions },
   { id: 'pipelines', requires: ['workspace'], tables: pipelines },
   { id: 'deals', requires: ['companies', 'pipelines'], tables: deals },
   { id: 'opportunities', requires: ['pipelines'], tables: opportunities },
@@ -75,6 +72,9 @@ export const coreModules: readonly KelpieModule[] = [
   createAuthModule(coreMigrationsDirectory),
   createWorkspaceModule(coreMigrationsDirectory),
   createApiKeysModule(coreMigrationsDirectory),
+  createPeopleModule(coreMigrationsDirectory),
+  createCompaniesModule(coreMigrationsDirectory),
+  createPositionsModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
     ...(definition.requires === undefined ? {} : { requires: definition.requires }),

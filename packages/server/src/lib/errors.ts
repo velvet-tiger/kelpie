@@ -99,6 +99,10 @@ export function internalErrorBody(): ErrorBody {
 export interface ValidationIssue {
   readonly path: readonly PropertyKey[]
   readonly message: string
+  /** Zod's issue code. Only `unrecognized_keys` is treated specially. */
+  readonly code?: string
+  /** The offending field names, when the issue is an unrecognised key. */
+  readonly keys?: readonly string[]
 }
 
 /** Renders a parse failure as `path: message`, or just the message at the root. */
@@ -108,9 +112,26 @@ export function describeValidationIssue(issue: ValidationIssue): string {
   return path.length > 0 ? `${path}: ${issue.message}` : issue.message
 }
 
-/** Turns parse failures into the field-level `details` of a `422` response. */
+/**
+ * Turns parse failures into the field-level `details` of a `422` response.
+ *
+ * An unrecognised key is reported against the key itself. Zod raises it at the
+ * object, so its path is empty, and `details` is where a client looks to find out
+ * which field it got wrong.
+ */
 export function toErrorDetails(issues: readonly ValidationIssue[]): readonly ErrorDetail[] {
-  return issues.map((issue) => ({ field: issue.path.map(String).join('.'), message: issue.message }))
+  return issues.flatMap((issue) => {
+    if (issue.code === 'unrecognized_keys' && issue.keys !== undefined) {
+      const prefix = issue.path.map(String).join('.')
+
+      return issue.keys.map((key) => ({
+        field: prefix.length > 0 ? `${prefix}.${key}` : key,
+        message: 'Unknown field',
+      }))
+    }
+
+    return [{ field: issue.path.map(String).join('.'), message: issue.message }]
+  })
 }
 
 /**

@@ -1,0 +1,35 @@
+import type { KelpieModule } from '../../runtime/module.ts'
+import { mountPeopleRoutes } from './routes.ts'
+import * as schema from './schema.ts'
+import { createPeopleService } from './service.ts'
+
+/**
+ * People: who the workspace knows.
+ *
+ * Requires `workspace`: every person belongs to one, and the actor's workspace is
+ * the only scope a request can reach.
+ */
+export function createPeopleModule(migrationsDirectory: string): KelpieModule {
+  return {
+    id: 'people',
+    requires: ['workspace'],
+
+    register(context) {
+      const service = createPeopleService({
+        db: context.db,
+        transaction: context.transaction,
+        createId: context.createId,
+        now: context.now,
+      })
+
+      context.schema(schema, migrationsDirectory)
+      context.webhookEvents(['record.created', 'record.updated', 'record.deleted'])
+
+      context.routes((router) => {
+        mountPeopleRoutes(router, { db: context.db, now: context.now, service })
+      })
+
+      return Promise.resolve()
+    },
+  }
+}

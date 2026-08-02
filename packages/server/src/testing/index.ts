@@ -6,3 +6,6 @@ export type { TestDatabase } from './database.ts'
 
 export { insertWorkspaceFixture } from './fixtures.ts'
 export type { WorkspaceFixture } from './fixtures.ts'
+
+export { createTestClient, readCursor, readList, readRecord, readString } from './client.ts'
+export type { TestClient, TestOwner, TestRequestOptions } from './client.ts'

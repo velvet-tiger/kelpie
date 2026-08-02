@@ -21,21 +21,47 @@ export const FOREIGN_KEY_VIOLATION = '23503'
 export const UNIQUE_VIOLATION = '23505'
 
 /**
- * Digs the SQLSTATE out of a thrown value. Drizzle wraps driver errors in its own
- * `Failed query` error, so the code lives on the cause rather than the top level.
- *
- * @returns The five-character SQLSTATE, or undefined if this was not a database error.
+ * Reads a field off a driver error. Drizzle wraps driver errors in its own
+ * `Failed query` error, so the useful fields live on the cause rather than the
+ * top level.
  */
-export function postgresErrorCode(error: unknown): string | undefined {
+function driverErrorField(error: unknown, field: string): string | undefined {
   const candidates: readonly unknown[] = [error, error instanceof Error ? error.cause : undefined]
 
   for (const candidate of candidates) {
-    if (candidate instanceof Error && 'code' in candidate && typeof candidate.code === 'string') {
-      return candidate.code
+    if (candidate instanceof Error && field in candidate) {
+      const value: unknown = (candidate as unknown as Record<string, unknown>)[field]
+
+      if (typeof value === 'string') {
+        return value
+      }
     }
   }
 
   return undefined
+}
+
+/**
+ * Digs the SQLSTATE out of a thrown value.
+ *
+ * @returns The five-character SQLSTATE, or undefined if this was not a database error.
+ */
+export function postgresErrorCode(error: unknown): string | undefined {
+  return driverErrorField(error, 'code')
+}
+
+/**
+ * The table that still references the row a delete tried to remove.
+ *
+ * Postgres names the *referencing* table, which is what `api.md` wants in the
+ * `details` of the 409: the caller needs to know what to detach, not which
+ * constraint object refused.
+ *
+ * @returns undefined when the error carries no table, which every caller must
+ *   tolerate: the 409 is still correct without it.
+ */
+export function referenceViolationTable(error: unknown): string | undefined {
+  return driverErrorField(error, 'table_name')
 }
 
 /**
