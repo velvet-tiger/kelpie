@@ -22,7 +22,7 @@ import * as plans from './plans/schema.ts'
 import * as positions from './positions/schema.ts'
 import * as raises from './raises/schema.ts'
 import * as webhooks from './webhooks/schema.ts'
-import * as workspace from './workspace/schema.ts'
+import { createWorkspaceModule } from './workspace/index.ts'
 
 /**
  * The core feature modules, in the order `architecture.md` fixes. Core registers
@@ -45,7 +45,6 @@ interface CoreModuleDefinition {
 }
 
 const definitions: readonly CoreModuleDefinition[] = [
-  { id: 'workspace', requires: ['auth'], tables: workspace },
   { id: 'api-keys', requires: ['workspace'], tables: apiKeys },
   { id: 'people', requires: ['workspace'], tables: people },
   { id: 'companies', requires: ['workspace'], tables: companies },
@@ -75,6 +74,7 @@ const definitions: readonly CoreModuleDefinition[] = [
  */
 export const coreModules: readonly KelpieModule[] = [
   createAuthModule(coreMigrationsDirectory),
+  createWorkspaceModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
     ...(definition.requires === undefined ? {} : { requires: definition.requires }),
