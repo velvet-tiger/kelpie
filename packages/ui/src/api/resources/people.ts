@@ -23,6 +23,9 @@ const people = createResourceHooks<Person, CreatePersonInput, PersonInput>({
   decode: personSchema.parse,
   createBody: personBody,
   updateBody: personBody,
+  // Every write here emits an activity server-side, in the same transaction, so
+  // a timeline rendered on this record is stale the moment the write lands.
+  alsoInvalidates: ['activities'],
 })
 
 /** The documented filters on `GET /v1/people`. There is no generic filter DSL. */

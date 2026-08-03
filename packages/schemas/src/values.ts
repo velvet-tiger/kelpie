@@ -2,14 +2,11 @@
  * Fixed value sets shared by the wire schemas and by any UI that renders a
  * dropdown over one.
  *
- * These are a second copy of the arrays in `@kelpie/server`'s module schemas,
- * which is the price of a package the browser can import: pulling the server in
- * would bring Drizzle, postgres.js, and Node built-ins with it.
- *
- * The server's copy drives both its check constraints and its Zod enums, so a
- * value this package allows and the server does not comes back as a `422`
- * rather than as bad data. Nothing asserts the two lists are equal yet; that
- * needs the server to import this package, which is follow-up work.
+ * This is the only copy. `@kelpie/server`'s module schemas import from here and
+ * re-export, so one array drives a table's check constraint, the route's Zod
+ * enum, and the browser's decoder. The dependency runs one way: the server may
+ * import this package, and this package depends on Zod and nothing else, which
+ * is what keeps it usable from a browser bundle and from the cloud repo.
  */
 
 export const PREFERRED_CHANNELS = ['email', 'call', 'linkedin'] as const
@@ -93,6 +90,43 @@ export const RECORD_OBJECT_TYPES = [
 ] as const
 
 export type RecordObjectType = (typeof RECORD_OBJECT_TYPES)[number]
+
+/**
+ * The record types a note, activity, decision, or plan item attaches to.
+ *
+ * Not the same list as `RECORD_OBJECT_TYPES`: a Role is a detail page a UI
+ * module can extend, but nothing attaches a note to it. Interview notes go on
+ * the Candidate, which is the person-and-role link.
+ */
+export const RECORD_TARGET_TYPES = [
+  'person',
+  'company',
+  'deal',
+  'opportunity',
+  'partnership',
+  'raise',
+  'candidate',
+] as const
+
+export type RecordTargetType = (typeof RECORD_TARGET_TYPES)[number]
+
+/**
+ * What an activity says happened. `created`, `updated`, `stage_changed`,
+ * `note_added` and `linked` are emitted by the server; `email`, `call` and
+ * `meeting` are logged history an integration or an agent supplies.
+ */
+export const ACTIVITY_KINDS = [
+  'created',
+  'updated',
+  'stage_changed',
+  'note_added',
+  'email',
+  'call',
+  'meeting',
+  'linked',
+] as const
+
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
 export const MEMBER_ROLES = ['owner', 'admin', 'member'] as const
 

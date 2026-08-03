@@ -73,6 +73,7 @@ async function resolveSessionActor(
     sessionId: session.id,
     workspaceId: membership?.workspaceId ?? null,
     role: membership === undefined ? null : roleFromMembership(membership.role),
+    memberId: membership?.id ?? null,
   }
 }
 
@@ -99,6 +100,7 @@ async function resolveApiKeyActor(
       userId: null,
       workspaceId: record.workspaceId,
       role: WORKSPACE_KEY_ROLE,
+      memberId: null,
     }
   }
 
@@ -116,6 +118,7 @@ async function resolveApiKeyActor(
     userId: record.userId,
     workspaceId: record.workspaceId,
     role: roleFromMembership(membership.role),
+    memberId: membership.id,
   }
 }
 

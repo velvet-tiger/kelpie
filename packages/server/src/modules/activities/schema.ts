@@ -1,8 +1,12 @@
-import { sql } from 'drizzle-orm'
-import { check, index, pgTable, text } from 'drizzle-orm/pg-core'
+import { ACTIVITY_KINDS, RECORD_TARGET_TYPES } from '@kelpie/schemas'
+import { index, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, primaryId } from '../../lib/columns.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
+
+/** Re-exported for the routes and service that constrain themselves to this table. */
+export { ACTIVITY_KINDS } from '@kelpie/schemas'
+export type { ActivityKind } from '@kelpie/schemas'
 
 /**
  * System history, rolled up onto person and company timelines. Append-only: there
@@ -31,13 +35,7 @@ export const activities = pgTable(
   },
   (table) => [
     index('activities_target_idx').on(table.workspaceId, table.targetType, table.targetId),
-    check(
-      'activities_target_type_check',
-      sql`${table.targetType} in ('person', 'company', 'deal', 'opportunity', 'partnership', 'raise', 'candidate')`,
-    ),
-    check(
-      'activities_kind_check',
-      sql`${table.kind} in ('created', 'updated', 'stage_changed', 'note_added', 'email', 'call', 'meeting', 'linked')`,
-    ),
+    checkOneOf('activities_target_type_check', table.targetType, RECORD_TARGET_TYPES),
+    checkOneOf('activities_kind_check', table.kind, ACTIVITY_KINDS),
   ],
 )

@@ -7,6 +7,9 @@ import { normaliseEmail } from '../../lib/normalisation.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import type { ActivityRecorder } from '../activities/recorder.ts'
+import { describeCreation, describeUpdate } from '../activities/wording.ts'
+import type { FieldLabels } from '../activities/wording.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
@@ -31,6 +34,29 @@ export interface PeopleDependencies {
   readonly transaction: TransactionScope
   readonly createId: IdFactory
   readonly now: () => Date
+  readonly recordActivity: ActivityRecorder
+}
+
+/**
+ * What a changed column is called on a timeline.
+ *
+ * Written out rather than derived from the column name, because the mechanical
+ * answer is wrong often enough to matter: `preferredChannel` happens to give
+ * "Preferred channel", and `icpFit` gives "Icp fit".
+ */
+const PERSON_FIELD_LABELS: FieldLabels = {
+  name: 'Name',
+  email: 'Email',
+  phones: 'Phone numbers',
+  socialProfiles: 'Social profiles',
+  timezone: 'Timezone',
+  location: 'Location',
+  preferredChannel: 'Preferred channel',
+  influence: 'Influence',
+  relationship: 'Relationship',
+  summary: 'Summary',
+  tags: 'Tags',
+  lastContactedAt: 'Last contacted',
 }
 
 /**
@@ -159,6 +185,13 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
           throw error
         }
 
+        await dependencies.recordActivity(tx, workspaceId, actor, {
+          targetType: 'person',
+          targetId: created.id,
+          kind: 'created',
+          ...describeCreation('Person'),
+        })
+
         events.emit('record.created', { workspaceId, objectType: 'person', recordId: created.id })
 
         return toView(created)
@@ -197,6 +230,13 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
         if (updated === undefined) {
           throw AppError.notFound('Person not found')
         }
+
+        await dependencies.recordActivity(tx, workspaceId, actor, {
+          targetType: 'person',
+          targetId: id,
+          kind: 'updated',
+          ...describeUpdate(changed, PERSON_FIELD_LABELS, existing, columns),
+        })
 
         events.emit('record.updated', {
           workspaceId,

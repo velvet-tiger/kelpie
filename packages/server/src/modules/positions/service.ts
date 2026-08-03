@@ -5,6 +5,8 @@ import type { IdFactory } from '../../lib/ids.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import type { ActivityRecorder } from '../activities/recorder.ts'
+import { describeLink } from '../activities/wording.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import * as companyRepository from '../companies/repository.ts'
@@ -28,6 +30,7 @@ export interface PositionsDependencies {
   readonly transaction: TransactionScope
   readonly createId: IdFactory
   readonly now: () => Date
+  readonly recordActivity: ActivityRecorder
 }
 
 /** A position as the API returns one: the stored row minus the tenancy column. */
@@ -86,8 +89,15 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
    * workspace, because they are global. Checking here is what makes the tenancy
    * boundary hold, and a record on the far side of it reports as missing rather
    * than as forbidden, per `api.md`.
+   *
+   * @returns Both names. The link activity names the far side on each end's
+   *   timeline, and re-reading two rows that were just read to say so would be
+   *   two queries spent on something already in hand.
    */
-  async function requireEnds(workspaceId: string, input: CreatePositionInput): Promise<void> {
+  async function requireEnds(
+    workspaceId: string,
+    input: CreatePositionInput,
+  ): Promise<{ personName: string; companyName: string }> {
     const person = await personRepository.findPerson(dependencies.db, workspaceId, input.personId)
 
     if (person === undefined) {
@@ -103,6 +113,8 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
     if (company === undefined) {
       throw AppError.notFound('Company not found')
     }
+
+    return { personName: person.name, companyName: company.name }
   }
 
   return {
@@ -120,9 +132,7 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
 
     async create(actor, input) {
       const workspaceId = requireWorkspaceId(actor)
-
-      await requireEnds(workspaceId, input)
-
+      const ends = await requireEnds(workspaceId, input)
       const id = dependencies.createId('position')
 
       return dependencies.transaction(async ({ tx, events }) => {
@@ -143,6 +153,22 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
 
           throw error
         }
+
+        // Both ends. A position is the link itself and has no timeline of its
+        // own, so the event that matters is "this person is now at that
+        // company", which is news on each of their pages.
+        await dependencies.recordActivity(tx, workspaceId, actor, {
+          targetType: 'person',
+          targetId: input.personId,
+          kind: 'linked',
+          ...describeLink('company', ends.companyName),
+        })
+        await dependencies.recordActivity(tx, workspaceId, actor, {
+          targetType: 'company',
+          targetId: input.companyId,
+          kind: 'linked',
+          ...describeLink('person', ends.personName),
+        })
 
         events.emit('record.created', { workspaceId, objectType: 'position', recordId: created.id })
 
@@ -198,6 +224,9 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
         await require(workspaceId, id)
         await repository.deletePosition(tx, workspaceId, id)
 
+        // No activity for an unlink. `kind` has no value for it, and filing one
+        // as `linked` would put a row on two timelines saying the opposite of
+        // what happened. Adding the kind is a schema change, not a line here.
         events.emit('record.deleted', { workspaceId, objectType: 'position', recordId: id })
       })
     },

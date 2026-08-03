@@ -16,6 +16,8 @@ export interface SessionActor {
   readonly sessionId: string
   readonly workspaceId: string | null
   readonly role: MemberRole | null
+  /** The `workspace_members` row behind this actor. Null when there is no membership. */
+  readonly memberId: string | null
 }
 
 /**
@@ -30,6 +32,8 @@ export interface ApiKeyActor {
   readonly userId: string | null
   readonly workspaceId: string
   readonly role: MemberRole
+  /** Null for a workspace key: it belongs to the workspace, not to a member. */
+  readonly memberId: string | null
 }
 
 export type Actor = SessionActor | ApiKeyActor
@@ -74,4 +78,15 @@ export function requireSessionActor(actor: Actor): SessionActor {
 /** The user behind the request, if there is one. A workspace key has none. */
 export function actorUserId(actor: Actor): string | null {
   return actor.userId
+}
+
+/**
+ * The member row to attribute a write to: a note's author, an activity's actor.
+ *
+ * Null means nobody on the team did this. A workspace key is the case that
+ * reaches here today; an integration writing on the workspace's behalf is the
+ * one the `actor_label` column exists for.
+ */
+export function actorMemberId(actor: Actor): string | null {
+  return actor.memberId
 }

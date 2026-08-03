@@ -30,7 +30,9 @@ const positions = createResourceHooks<Position, CreatePositionInput, PositionTit
   // `?company_id=` on people and `?person_id=` on companies are lists this join
   // decides the membership of. Without this, linking a person to a company shows
   // the new row with the name still unfetched.
-  alsoInvalidates: ['people', 'companies'],
+  // Creating one also emits a `linked` activity on both the person and the
+  // company, so both timelines are stale too.
+  alsoInvalidates: ['people', 'companies', 'activities'],
 })
 
 export interface PositionFilters {

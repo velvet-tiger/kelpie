@@ -7,6 +7,9 @@ import { normaliseDomain } from '../../lib/normalisation.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import type { ActivityRecorder } from '../activities/recorder.ts'
+import { describeCreation, describeUpdate } from '../activities/wording.ts'
+import type { FieldLabels } from '../activities/wording.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
@@ -28,6 +31,24 @@ export interface CompaniesDependencies {
   readonly transaction: TransactionScope
   readonly createId: IdFactory
   readonly now: () => Date
+  readonly recordActivity: ActivityRecorder
+}
+
+/** What a changed column is called on a timeline. `icpFit` is why these are written out. */
+const COMPANY_FIELD_LABELS: FieldLabels = {
+  name: 'Name',
+  domain: 'Domain',
+  industry: 'Industry',
+  description: 'Description',
+  stage: 'Stage',
+  sizeBand: 'Size',
+  hq: 'Headquarters',
+  website: 'Website',
+  accountType: 'Account type',
+  icpFit: 'ICP fit',
+  techStack: 'Tech stack',
+  summary: 'Summary',
+  tags: 'Tags',
 }
 
 /** A company as the API returns one: the stored row minus the tenancy column. */
@@ -157,6 +178,13 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
           throw error
         }
 
+        await dependencies.recordActivity(tx, workspaceId, actor, {
+          targetType: 'company',
+          targetId: created.id,
+          kind: 'created',
+          ...describeCreation('Company'),
+        })
+
         events.emit('record.created', { workspaceId, objectType: 'company', recordId: created.id })
 
         return toView(created)
@@ -192,6 +220,13 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
         if (updated === undefined) {
           throw AppError.notFound('Company not found')
         }
+
+        await dependencies.recordActivity(tx, workspaceId, actor, {
+          targetType: 'company',
+          targetId: id,
+          kind: 'updated',
+          ...describeUpdate(changed, COMPANY_FIELD_LABELS, existing, columns),
+        })
 
         events.emit('record.updated', {
           workspaceId,

@@ -66,20 +66,29 @@ export interface ListOptions {
   readonly enabled?: boolean
 }
 
-export interface ResourceHooks<TRecord, TCreateInput, TUpdateInput> {
-  useList(query?: QueryParameters, options?: ListOptions): RecordListResult<TRecord>
-  useRecord(id: string | undefined): RecordResult<TRecord>
+export interface ResourceHooks<TRecord, TCreateInput, TUpdateInput>
+  extends ReadOnlyResourceHooks<TRecord> {
   useCreate(): MutationResult<TCreateInput, TRecord>
   useUpdate(): MutationResult<UpdateArguments<TUpdateInput>, TRecord>
   useRemove(): MutationResult<string, void>
 }
 
-export interface ResourceDefinition<TRecord, TCreateInput, TUpdateInput> {
-  /** Cache key root. The plural resource name, e.g. `people`. */
+/** What a collection with no write verbs offers. Activities are the case: the table is append-only. */
+export interface ReadOnlyResourceHooks<TRecord> {
+  useList(query?: QueryParameters, options?: ListOptions): RecordListResult<TRecord>
+  useRecord(id: string | undefined): RecordResult<TRecord>
+}
+
+export interface ReadOnlyResourceDefinition<TRecord> {
+  /** Cache key root. The plural resource name, e.g. `activities`. */
   readonly name: string
-  /** Path under the API base, e.g. `/people`. */
+  /** Path under the API base, e.g. `/activities`. */
   readonly path: string
   readonly decode: Decoder<TRecord>
+}
+
+export interface ResourceDefinition<TRecord, TCreateInput, TUpdateInput>
+  extends ReadOnlyResourceDefinition<TRecord> {
   readonly createBody: (input: TCreateInput) => unknown
   readonly updateBody: (input: TUpdateInput) => unknown
   /**
@@ -169,26 +178,17 @@ function removeRecordEverywhere<TRecord extends { readonly id: string }>(
   )
 }
 
-export function createResourceHooks<
-  TRecord extends { readonly id: string },
-  TCreateInput,
-  TUpdateInput extends Partial<TRecord>,
->(
-  definition: ResourceDefinition<TRecord, TCreateInput, TUpdateInput>,
-): ResourceHooks<TRecord, TCreateInput, TUpdateInput> {
+/**
+ * The read half: `useList` and `useRecord`, and nothing that writes.
+ *
+ * Split out because a collection can be read-only. `createResourceHooks` builds
+ * on this rather than repeating it, so both kinds of resource page, cache, and
+ * report a 404 identically.
+ */
+export function createReadOnlyResourceHooks<TRecord>(
+  definition: ReadOnlyResourceDefinition<TRecord>,
+): ReadOnlyResourceHooks<TRecord> {
   const keys = keysFor(definition.name)
-  const related = (definition.alsoInvalidates ?? []).map(keysFor)
-
-  /**
-   * Marks this resource's lists stale, and the related resources' with them.
-   * Applied to every write rather than only to create and delete: a resource
-   * that declares a relation has one, whichever verb reaches it.
-   */
-  function invalidateLists(queryClient: QueryClient): void {
-    for (const target of [keys, ...related]) {
-      void queryClient.invalidateQueries({ queryKey: target.lists })
-    }
-  }
 
   function useList(query: QueryParameters = {}, options: ListOptions = {}): RecordListResult<TRecord> {
     const client = useApiClient()
@@ -234,6 +234,31 @@ export function createResourceHooks<
       isLoading: result.isPending && id !== undefined,
       error: toError(result.error),
       isNotFound: result.error instanceof ApiError && result.error.status === 404,
+    }
+  }
+
+  return { useList, useRecord }
+}
+
+export function createResourceHooks<
+  TRecord extends { readonly id: string },
+  TCreateInput,
+  TUpdateInput extends Partial<TRecord>,
+>(
+  definition: ResourceDefinition<TRecord, TCreateInput, TUpdateInput>,
+): ResourceHooks<TRecord, TCreateInput, TUpdateInput> {
+  const keys = keysFor(definition.name)
+  const related = (definition.alsoInvalidates ?? []).map(keysFor)
+  const { useList, useRecord } = createReadOnlyResourceHooks(definition)
+
+  /**
+   * Marks this resource's lists stale, and the related resources' with them.
+   * Applied to every write rather than only to create and delete: a resource
+   * that declares a relation has one, whichever verb reaches it.
+   */
+  function invalidateLists(queryClient: QueryClient): void {
+    for (const target of [keys, ...related]) {
+      void queryClient.invalidateQueries({ queryKey: target.lists })
     }
   }
 

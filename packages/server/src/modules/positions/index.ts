@@ -1,4 +1,5 @@
 import type { KelpieModule } from '../../runtime/module.ts'
+import { createActivityRecorder } from '../activities/index.ts'
 import { mountPositionsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createPositionsService } from './service.ts'
@@ -12,7 +13,7 @@ import { createPositionsService } from './service.ts'
 export function createPositionsModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'positions',
-    requires: ['people', 'companies'],
+    requires: ['people', 'companies', 'activities'],
 
     register(context) {
       const service = createPositionsService({
@@ -20,6 +21,10 @@ export function createPositionsModule(migrationsDirectory: string): KelpieModule
         transaction: context.transaction,
         createId: context.createId,
         now: context.now,
+        recordActivity: createActivityRecorder({
+          createId: context.createId,
+          now: context.now,
+        }),
       })
 
       context.schema(schema, migrationsDirectory)

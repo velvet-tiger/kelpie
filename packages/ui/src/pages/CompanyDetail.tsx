@@ -16,11 +16,13 @@ import {
   usePositions,
   useUpdatePositionTitle,
 } from '../api/resources/positions.ts'
+import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
+import { NotesPanel } from '../components/NotesPanel.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
@@ -34,9 +36,9 @@ import { toOptions, toTags } from './fields.ts'
 /**
  * One company.
  *
- * As with People, the tabs for Deals, Opportunities, Partnerships, Raises,
- * Notes, Activities and Decisions wait for their endpoints. Overview and the
- * `company` record-tab slot are what render today.
+ * Overview, Activity and Notes render today. As with People, the tabs for
+ * Deals, Opportunities, Partnerships, Raises and Decisions wait for their
+ * endpoints. A UI module can add its own through the `company` record-tab slot.
  */
 
 const STAGE_OPTIONS = toOptions(COMPANY_STAGES)
@@ -73,6 +75,8 @@ export function CompanyDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'notes', label: 'Notes' },
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -113,6 +117,8 @@ export function CompanyDetail(): React.JSX.Element {
             ariaLabel="Company sections"
           >
             {active === 'overview' && <CompanyOverview company={record} />}
+            {active === 'activity' && <ActivitiesPanel targetType="company" targetId={record.id} />}
+            {active === 'notes' && <NotesPanel targetType="company" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'company', recordId: record.id })}
           </RecordTabs>
         </div>
@@ -161,16 +167,20 @@ function CompanyHeading({ company }: { readonly company: Company }): React.JSX.E
   )
 }
 
+/** Summary plus the latest activity. The plan section waits on the Plan items API. */
 function CompanyOverview({ company }: { readonly company: Company }): React.JSX.Element {
   const patch = useCompanyPatch(company)
 
   return (
-    <SummaryBlock
-      value={company.summary}
-      onChange={(summary) => {
-        patch({ summary })
-      }}
-    />
+    <div className="space-y-8">
+      <SummaryBlock
+        value={company.summary}
+        onChange={(summary) => {
+          patch({ summary })
+        }}
+      />
+      <LatestActivity targetType="company" targetId={company.id} />
+    </div>
   )
 }
 

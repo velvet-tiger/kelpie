@@ -52,6 +52,8 @@ export interface MemberView {
   readonly userId: string
   readonly role: MemberRole
   readonly joinedAt: Date
+  readonly name: string
+  readonly email: string
 }
 
 export interface InviteView {
@@ -299,7 +301,14 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
           throw new Error(`workspace_members.role holds "${record.role}", which its check forbids`)
         }
 
-        return { id: record.id, userId: record.userId, role, joinedAt: record.joinedAt }
+        return {
+          id: record.id,
+          userId: record.userId,
+          role,
+          joinedAt: record.joinedAt,
+          name: record.name,
+          email: record.email,
+        }
       })
     },
 

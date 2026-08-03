@@ -12,10 +12,12 @@ import {
   usePositions,
   useUpdatePositionTitle,
 } from '../api/resources/positions.ts'
+import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
+import { NotesPanel } from '../components/NotesPanel.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
@@ -31,10 +33,10 @@ import { toOptions, toTags } from './fields.ts'
 /**
  * One person.
  *
- * The mockup carried eight tabs. Seven of them read Deals, Opportunities,
- * Partnerships, Candidates, Notes, Activities, or Decisions, none of which have
- * an endpoint, so this page ships Overview plus whatever a UI module contributes
- * through the `person` record-tab slot. The rest return with their APIs.
+ * The mockup carried eight tabs. Overview, Activity and Notes are here; the
+ * remaining five read Deals, Opportunities, Partnerships, Candidates or
+ * Decisions, none of which have an endpoint yet, and return with their APIs.
+ * A UI module can add its own through the `person` record-tab slot.
  *
  * Influence and relationship warmth are not on this page. They are Person
  * columns in the API and fields on the mockup's own `Person` type, but the
@@ -65,6 +67,8 @@ export function PersonDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'notes', label: 'Notes' },
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -100,6 +104,8 @@ export function PersonDetail(): React.JSX.Element {
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Person sections">
             {active === 'overview' && <PersonOverview person={record} />}
+            {active === 'activity' && <ActivitiesPanel targetType="person" targetId={record.id} />}
+            {active === 'notes' && <NotesPanel targetType="person" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'person', recordId: record.id })}
           </RecordTabs>
         </div>
@@ -150,16 +156,23 @@ function PersonHeading({ person }: { readonly person: Person }): React.JSX.Eleme
   )
 }
 
+/**
+ * The mockup's Overview is a summary, the latest activity, and the plan items
+ * needing attention. The plan section waits on the Plan items API.
+ */
 function PersonOverview({ person }: { readonly person: Person }): React.JSX.Element {
   const patch = usePersonPatch(person)
 
   return (
-    <SummaryBlock
-      value={person.summary}
-      onChange={(summary) => {
-        patch({ summary })
-      }}
-    />
+    <div className="space-y-8">
+      <SummaryBlock
+        value={person.summary}
+        onChange={(summary) => {
+          patch({ summary })
+        }}
+      />
+      <LatestActivity targetType="person" targetId={person.id} />
+    </div>
   )
 }
 

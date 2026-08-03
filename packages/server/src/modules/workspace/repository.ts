@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
+import { users } from '../auth/schema.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { invites, workspaceMembers, workspaces } from './schema.ts'
@@ -56,10 +57,36 @@ export async function insertMember(
   return created
 }
 
-export async function listMembers(db: Queryable, workspaceId: string): Promise<MemberRecord[]> {
+/** A membership plus the identity behind it, which is what a member is to a reader. */
+export interface MemberWithUser {
+  readonly id: string
+  readonly userId: string
+  readonly role: string
+  readonly joinedAt: Date
+  readonly name: string
+  readonly email: string
+}
+
+/**
+ * Members with their user's name and email.
+ *
+ * Joined here rather than left to the caller: every list of members is read to
+ * be shown to a human, and a membership row on its own carries nothing a human
+ * recognises. Notes and activities attribute to a member id and resolve the name
+ * through this list.
+ */
+export async function listMembers(db: Queryable, workspaceId: string): Promise<MemberWithUser[]> {
   return db
-    .select()
+    .select({
+      id: workspaceMembers.id,
+      userId: workspaceMembers.userId,
+      role: workspaceMembers.role,
+      joinedAt: workspaceMembers.joinedAt,
+      name: users.name,
+      email: users.email,
+    })
     .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
     .where(eq(workspaceMembers.workspaceId, workspaceId))
     .orderBy(workspaceMembers.joinedAt)
 }

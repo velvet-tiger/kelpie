@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 
 import type { KelpieModule } from '../runtime/module.ts'
-import * as activities from './activities/schema.ts'
+import { createActivitiesModule } from './activities/index.ts'
 import * as agentTasks from './agent-tasks/schema.ts'
 import { createApiKeysModule } from './api-keys/index.ts'
 import { createAuthModule } from './auth/index.ts'
@@ -13,7 +13,7 @@ import * as handbook from './handbook/schema.ts'
 import * as hiring from './hiring/schema.ts'
 import * as importExport from './import-export/schema.ts'
 import * as integrations from './integrations/schema.ts'
-import * as notes from './notes/schema.ts'
+import { createNotesModule } from './notes/index.ts'
 import * as opportunities from './opportunities/schema.ts'
 import * as partnerships from './partnerships/schema.ts'
 import { createPeopleModule } from './people/index.ts'
@@ -53,8 +53,6 @@ const definitions: readonly CoreModuleDefinition[] = [
   { id: 'hiring', requires: ['people'], tables: hiring },
   { id: 'plans', requires: ['workspace'], tables: plans },
   { id: 'decisions', requires: ['workspace'], tables: decisions },
-  { id: 'notes', requires: ['workspace'], tables: notes },
-  { id: 'activities', requires: ['workspace'], tables: activities },
   { id: 'handbook', requires: ['workspace'], tables: handbook },
   { id: 'forms', requires: ['people', 'companies', 'positions', 'deals'], tables: forms },
   { id: 'import-export', requires: ['workspace'], tables: importExport },
@@ -75,6 +73,8 @@ export const coreModules: readonly KelpieModule[] = [
   createPeopleModule(coreMigrationsDirectory),
   createCompaniesModule(coreMigrationsDirectory),
   createPositionsModule(coreMigrationsDirectory),
+  createActivitiesModule(coreMigrationsDirectory),
+  createNotesModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
     ...(definition.requires === undefined ? {} : { requires: definition.requires }),

@@ -15,12 +15,14 @@
 
 export {
   ACCOUNT_TYPES,
+  ACTIVITY_KINDS,
   COMPANY_STAGES,
   ICP_FITS,
   INFLUENCE_LEVELS,
   MEMBER_ROLES,
   PREFERRED_CHANNELS,
   RECORD_OBJECT_TYPES,
+  RECORD_TARGET_TYPES,
   RELATIONSHIP_LEVELS,
   SIZE_BANDS,
   SOCIAL_NETWORK_IDS,
@@ -28,12 +30,14 @@ export {
 } from './values.ts'
 export type {
   AccountType,
+  ActivityKind,
   CompanyStage,
   IcpFit,
   Influence,
   MemberRole,
   PreferredChannel,
   RecordObjectType,
+  RecordTargetType,
   Relationship,
   SizeBand,
   SocialNetworkId,
@@ -50,6 +54,15 @@ export type { Company, CompanyInput } from './company.ts'
 
 export { createPositionBody, positionSchema, updatePositionBody } from './position.ts'
 export type { CreatePositionInput, Position } from './position.ts'
+
+export { createNoteBody, noteBody, noteSchema } from './note.ts'
+export type { CreateNoteInput, Note, NoteInput } from './note.ts'
+
+export { activitySchema } from './activity.ts'
+export type { Activity } from './activity.ts'
+
+export { memberSchema } from './member.ts'
+export type { Member } from './member.ts'
 
 export {
   createWorkspaceBody,

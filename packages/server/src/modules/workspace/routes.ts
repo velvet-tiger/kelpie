@@ -69,6 +69,8 @@ function memberResponse(member: MemberView): Record<string, unknown> {
   return {
     id: member.id,
     user_id: member.userId,
+    name: member.name,
+    email: member.email,
     role: member.role,
     joined_at: member.joinedAt.toISOString(),
   }

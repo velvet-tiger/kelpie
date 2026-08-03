@@ -23,6 +23,9 @@ const companies = createResourceHooks<Company, CreateCompanyInput, CompanyInput>
   decode: companySchema.parse,
   createBody: companyBody,
   updateBody: companyBody,
+  // Every write here emits an activity server-side, in the same transaction, so
+  // a timeline rendered on this record is stale the moment the write lands.
+  alsoInvalidates: ['activities'],
 })
 
 /** The documented filters on `GET /v1/companies`. */
