@@ -61,6 +61,14 @@ export {
 } from './api/resources/planItems.ts'
 export type { PlanItemFilters } from './api/resources/planItems.ts'
 
+export {
+  useCreateDecision,
+  useDecisions,
+  useDeleteDecision,
+  useUpdateDecision,
+} from './api/resources/decisions.ts'
+export type { DecisionFilters } from './api/resources/decisions.ts'
+
 export { useCreateWorkspace, useLogIn, useLogOut, useSession } from './api/resources/session.ts'
 export type { SessionState } from './api/resources/session.ts'
 
@@ -71,6 +79,8 @@ export { Chip } from './components/Chip.tsx'
 export type { ChipProps, ChipTone } from './components/Chip.tsx'
 export { DataTable } from './components/DataTable.tsx'
 export type { Column, DataTableGroup, DataTableProps } from './components/DataTable.tsx'
+export { DecisionsPanel } from './components/DecisionsPanel.tsx'
+export type { DecisionsPanelProps } from './components/DecisionsPanel.tsx'
 export { DeleteRecord } from './components/DeleteRecord.tsx'
 export type { DeleteRecordProps } from './components/DeleteRecord.tsx'
 export { EntitySearch } from './components/EntitySearch.tsx'
@@ -101,6 +111,7 @@ export type { SummaryBlockProps } from './components/SummaryBlock.tsx'
 
 export { CompaniesPage } from './pages/CompaniesPage.tsx'
 export { CompanyDetail } from './pages/CompanyDetail.tsx'
+export { DecisionsPage } from './pages/DecisionsPage.tsx'
 export { PeoplePage } from './pages/PeoplePage.tsx'
 export { PersonDetail } from './pages/PersonDetail.tsx'
 export { PlanningPage } from './pages/PlanningPage.tsx'

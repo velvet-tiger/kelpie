@@ -7,7 +7,7 @@ import { createApiKeysModule } from './api-keys/index.ts'
 import { createAuthModule } from './auth/index.ts'
 import { createCompaniesModule } from './companies/index.ts'
 import { createDealsModule } from './deals/index.ts'
-import * as decisions from './decisions/schema.ts'
+import { createDecisionsModule } from './decisions/index.ts'
 import * as forms from './forms/schema.ts'
 import * as handbook from './handbook/schema.ts'
 import * as hiring from './hiring/schema.ts'
@@ -49,7 +49,6 @@ const definitions: readonly CoreModuleDefinition[] = [
   { id: 'partnerships', requires: ['companies', 'pipelines'], tables: partnerships },
   { id: 'raises', requires: ['companies', 'pipelines'], tables: raises },
   { id: 'hiring', requires: ['people'], tables: hiring },
-  { id: 'decisions', requires: ['workspace'], tables: decisions },
   { id: 'handbook', requires: ['workspace'], tables: handbook },
   { id: 'forms', requires: ['people', 'companies', 'positions', 'deals'], tables: forms },
   { id: 'import-export', requires: ['workspace'], tables: importExport },
@@ -75,6 +74,7 @@ export const coreModules: readonly KelpieModule[] = [
   createPipelinesModule(coreMigrationsDirectory),
   createDealsModule(coreMigrationsDirectory),
   createPlansModule(coreMigrationsDirectory),
+  createDecisionsModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
     ...(definition.requires === undefined ? {} : { requires: definition.requires }),

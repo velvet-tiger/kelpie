@@ -12,6 +12,7 @@ import { useRecordPlanItems } from '../api/resources/planItems.ts'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
@@ -33,8 +34,8 @@ import { toTags } from './fields.ts'
 /**
  * One deal.
  *
- * Overview, Plan, Activity and Notes render today; the Decisions tab waits for
- * its endpoint. A UI module can add its own tab through the `deal` record-tab
+ * Overview, Plan, Activity, Notes and Decisions render today, the mockup's
+ * full set. A UI module can add its own tab through the `deal` record-tab
  * slot.
  */
 
@@ -68,6 +69,7 @@ export function DealDetail(): React.JSX.Element {
     { id: 'plan', label: 'Plan' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
+    { id: 'decisions', label: 'Decisions' },
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -106,6 +108,7 @@ export function DealDetail(): React.JSX.Element {
             {active === 'plan' && <PlanPanel targetType="deal" targetId={record.id} />}
             {active === 'activity' && <ActivitiesPanel targetType="deal" targetId={record.id} />}
             {active === 'notes' && <NotesPanel targetType="deal" targetId={record.id} />}
+            {active === 'decisions' && <DecisionsPanel targetType="deal" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'deal', recordId: record.id })}
           </RecordTabs>
         </div>

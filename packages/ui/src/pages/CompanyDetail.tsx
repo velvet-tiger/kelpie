@@ -20,6 +20,7 @@ import {
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
@@ -38,8 +39,8 @@ import { toOptions, toTags } from './fields.ts'
 /**
  * One company.
  *
- * Overview, Activity and Notes render today. As with People, the tabs for
- * Deals, Opportunities, Partnerships, Raises and Decisions wait for their
+ * Overview, Activity, Notes and Decisions render today. As with People, the
+ * tabs for Deals, Opportunities, Partnerships and Raises wait for their
  * endpoints. A UI module can add its own through the `company` record-tab slot.
  */
 
@@ -79,6 +80,7 @@ export function CompanyDetail(): React.JSX.Element {
     { id: 'overview', label: 'Overview' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
+    { id: 'decisions', label: 'Decisions' },
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -121,6 +123,7 @@ export function CompanyDetail(): React.JSX.Element {
             {active === 'overview' && <CompanyOverview company={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="company" targetId={record.id} />}
             {active === 'notes' && <NotesPanel targetType="company" targetId={record.id} />}
+            {active === 'decisions' && <DecisionsPanel targetType="company" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'company', recordId: record.id })}
           </RecordTabs>
         </div>

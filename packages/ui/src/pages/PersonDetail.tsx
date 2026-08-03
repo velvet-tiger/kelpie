@@ -15,6 +15,7 @@ import {
 } from '../api/resources/positions.ts'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
+import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
@@ -35,9 +36,9 @@ import { toOptions, toTags } from './fields.ts'
 /**
  * One person.
  *
- * The mockup carried eight tabs. Overview, Activity and Notes are here; the
- * remaining five read Deals, Opportunities, Partnerships, Candidates or
- * Decisions, none of which have an endpoint yet, and return with their APIs.
+ * The mockup carried eight tabs. Overview, Activity, Notes and Decisions are
+ * here; the remaining four read Deals, Opportunities, Partnerships or
+ * Candidates, none of which have an endpoint yet, and return with their APIs.
  * A UI module can add its own through the `person` record-tab slot.
  *
  * Influence and relationship warmth are not on this page. They are Person
@@ -71,6 +72,7 @@ export function PersonDetail(): React.JSX.Element {
     { id: 'overview', label: 'Overview' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
+    { id: 'decisions', label: 'Decisions' },
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -108,6 +110,7 @@ export function PersonDetail(): React.JSX.Element {
             {active === 'overview' && <PersonOverview person={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="person" targetId={record.id} />}
             {active === 'notes' && <NotesPanel targetType="person" targetId={record.id} />}
+            {active === 'decisions' && <DecisionsPanel targetType="person" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'person', recordId: record.id })}
           </RecordTabs>
         </div>

@@ -1,8 +1,17 @@
-import { sql } from 'drizzle-orm'
-import { check, index, pgTable, text } from 'drizzle-orm/pg-core'
+import { RECORD_TARGET_TYPES } from '@kelpie/schemas'
+import { index, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
+
+/**
+ * The target types come from `@kelpie/schemas`, so this check constraint, the
+ * route's Zod enum, and the browser's decoder are one list rather than three
+ * copies. Re-exported because `routes.ts` and `service.ts` read them from here,
+ * and the table they constrain is the reason they matter.
+ */
+export { RECORD_TARGET_TYPES } from '@kelpie/schemas'
+export type { RecordTargetType } from '@kelpie/schemas'
 
 /**
  * What we decided or promised. These are the commitments agents must not
@@ -27,9 +36,6 @@ export const decisions = pgTable(
   },
   (table) => [
     index('decisions_target_idx').on(table.workspaceId, table.targetType, table.targetId),
-    check(
-      'decisions_target_type_check',
-      sql`${table.targetType} in ('person', 'company', 'deal', 'opportunity', 'partnership', 'raise', 'candidate')`,
-    ),
+    checkOneOf('decisions_target_type_check', table.targetType, RECORD_TARGET_TYPES),
   ],
 )

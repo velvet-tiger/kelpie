@@ -82,6 +82,9 @@ export type { CreateNoteInput, Note, NoteInput } from './note.ts'
 export { createPlanItemBody, planItemBody, planItemSchema } from './planItem.ts'
 export type { CreatePlanItemInput, PlanItem, PlanItemInput } from './planItem.ts'
 
+export { createDecisionBody, decisionBody, decisionSchema } from './decision.ts'
+export type { CreateDecisionInput, Decision, DecisionInput } from './decision.ts'
+
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'
 

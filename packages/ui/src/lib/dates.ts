@@ -74,6 +74,11 @@ export function formatDay(iso: string): string {
   return DAY.format(new Date(`${iso}T12:00:00`))
 }
 
+/** A moment whose time of day does not matter to the reader, e.g. when a decision was made. */
+export function formatDate(value: Date): string {
+  return DAY.format(value)
+}
+
 const MONTH = new Intl.DateTimeFormat('en-AU', { month: 'long' })
 const MONTH_AND_YEAR = new Intl.DateTimeFormat('en-AU', { month: 'long', year: 'numeric' })
 

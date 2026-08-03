@@ -21,6 +21,7 @@ const CORE_NAV: readonly NavItem[] = [
   { id: 'companies', label: 'Companies', to: '/companies', order: 200 },
   { id: 'deals', label: 'Deals', to: '/deals', order: 300 },
   { id: 'planning', label: 'Planning', to: '/planning', order: 400 },
+  { id: 'decisions', label: 'Decisions', to: '/decisions', order: 500 },
 ]
 
 function linkClass({ isActive }: { isActive: boolean }): string {

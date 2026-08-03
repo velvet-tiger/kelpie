@@ -1,11 +1,13 @@
 import { QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiProvider } from '../api/ApiProvider.tsx'
 import type { ApiClient, QueryParameters } from '../api/client.ts'
 import { useUpdatePerson } from '../api/resources/people.ts'
 import { ActivitiesPanel } from './ActivitiesPanel.tsx'
+import { DecisionsPanel } from './DecisionsPanel.tsx'
 import { NotesPanel } from './NotesPanel.tsx'
 
 afterEach(cleanup)
@@ -38,8 +40,10 @@ const SESSION = {
 interface Stubs {
   readonly activities?: readonly unknown[]
   readonly notes?: readonly unknown[]
+  readonly decisions?: readonly unknown[]
   readonly onPost?: (path: string, body: unknown) => unknown
   readonly onPatch?: (path: string, body: unknown) => unknown
+  readonly onDelete?: (path: string) => void
   readonly onList?: (path: string) => void
   /** Overrides `activities` from the second request onwards, for invalidation tests. */
   readonly activitiesAfterRefetch?: readonly unknown[]
@@ -70,11 +74,13 @@ function stubClient(stubs: Stubs): ApiClient {
           ? (laterActivities ?? stubs.activities ?? [])
           : path === '/notes'
             ? (stubs.notes ?? [])
-            : path === '/workspaces/ws_1/members'
-              ? [MEMBER]
-              : path === '/people'
-                ? []
-                : undefined
+            : path === '/decisions'
+              ? (stubs.decisions ?? [])
+              : path === '/workspaces/ws_1/members'
+                ? [MEMBER]
+                : path === '/people'
+                  ? []
+                  : undefined
 
       if (items === undefined) {
         throw new Error(`Unexpected list ${path}`)
@@ -99,8 +105,14 @@ function stubClient(stubs: Stubs): ApiClient {
 
       return Promise.resolve(decode(stubs.onPatch(path, body)))
     },
-    delete: () => {
-      throw new Error('Unexpected delete call')
+    delete: (path) => {
+      if (stubs.onDelete === undefined) {
+        throw new Error(`Unexpected delete ${path}`)
+      }
+
+      stubs.onDelete(path)
+
+      return Promise.resolve()
     },
   }
 }
@@ -110,10 +122,13 @@ function renderWithClient(client: ApiClient, element: React.JSX.Element): void {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
 
+  // The router is real because DecisionsPanel links to the workspace list.
   render(
-    <ApiProvider client={client} queryClient={queryClient}>
-      {element}
-    </ApiProvider>,
+    <MemoryRouter>
+      <ApiProvider client={client} queryClient={queryClient}>
+        {element}
+      </ApiProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -128,6 +143,22 @@ function activity(overrides: Record<string, unknown> = {}): Record<string, unkno
     action: 'created Person',
     detail: null,
     created_at: '2026-08-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function decision(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'dec_1',
+    target_type: 'person',
+    target_id: 'per_1',
+    body: 'We will not build a favour ledger.',
+    rationale: null,
+    decided_at: '2026-08-01T00:00:00.000Z',
+    owner_id: 'mem_1',
+    due_at: null,
+    created_at: '2026-08-01T00:00:00.000Z',
+    updated_at: '2026-08-01T00:00:00.000Z',
     ...overrides,
   }
 }
@@ -360,6 +391,101 @@ describe('NotesPanel', () => {
       target_type: 'person',
       target_id: 'per_1',
       body: 'Written just now',
+    })
+  })
+})
+
+describe('DecisionsPanel', () => {
+  it('names the owner and the moments beside a decision', async () => {
+    renderWithClient(
+      stubClient({ decisions: [decision({ due_at: '2026-09-01T00:00:00.000Z' })] }),
+      <DecisionsPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('We will not build a favour ledger.')
+    await screen.findByText('Ada Lovelace')
+    await screen.findByText(/^Decided /u)
+    await screen.findByText(/^By /u)
+  })
+
+  it('shows nothing for an owner nobody can name', async () => {
+    renderWithClient(
+      stubClient({ decisions: [decision({ owner_id: null })] }),
+      <DecisionsPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('We will not build a favour ledger.')
+
+    expect(screen.queryByText('Unknown')).toBeNull()
+    expect(screen.queryByText('API key')).toBeNull()
+  })
+
+  it('posts a new decision to the record it is showing', async () => {
+    const posted: { path?: string; body?: unknown } = {}
+    const client = stubClient({
+      decisions: [],
+      onPost: (path, body) => {
+        posted.path = path
+        posted.body = body
+
+        return decision({ body: 'Decided just now' })
+      },
+    })
+
+    renderWithClient(client, <DecisionsPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('No decisions yet.')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Add decision' }).click()
+    })
+
+    const textarea = screen.getByPlaceholderText('We decided / promised…')
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        globalThis.HTMLTextAreaElement.prototype,
+        'value',
+      )?.set?.call(textarea, 'Decided just now')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Add' }).click()
+    })
+
+    await waitFor(() => {
+      expect(posted.path).toBe('/decisions')
+    })
+
+    // No rationale, due date, or owner: blank optional fields stay off the
+    // wire, and the owner is the server's default, not the form's claim.
+    expect(posted.body).toEqual({
+      target_type: 'person',
+      target_id: 'per_1',
+      body: 'Decided just now',
+    })
+  })
+
+  it('removes a decision from the record it is showing', async () => {
+    const deleted: { path?: string } = {}
+    const client = stubClient({
+      decisions: [decision()],
+      onDelete: (path) => {
+        deleted.path = path
+      },
+    })
+
+    renderWithClient(client, <DecisionsPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('We will not build a favour ledger.')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Remove' }).click()
+    })
+
+    await waitFor(() => {
+      expect(deleted.path).toBe('/decisions/dec_1')
     })
   })
 })
