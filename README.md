@@ -219,6 +219,7 @@ Every variable is required. There are no silent defaults; a missing or malformed
 | --- | --- |
 | `NODE_ENV` | `development`, `test`, or `production` |
 | `PORT` | API listen port |
+| `API_PORT` | The same number again, for the Vite dev server's `/v1` proxy. It needs its own name because a launcher sets `PORT` to the port it wants Vite on, and Vite would then proxy to itself |
 | `DATABASE_URL` | `postgres://` or `postgresql://` connection string |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
 | `EMAIL_PROVIDER` | `log`. Writes invites and password resets to the log instead of sending them. Real providers ship as modules |
