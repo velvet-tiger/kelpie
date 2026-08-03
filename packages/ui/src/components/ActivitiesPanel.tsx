@@ -36,6 +36,7 @@ const KIND_GLYPHS: Readonly<Record<ActivityKind, string>> = {
   call: 'Ca',
   meeting: 'Mt',
   linked: 'Ln',
+  unlinked: 'Un',
 }
 
 const TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {

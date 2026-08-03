@@ -97,6 +97,17 @@ export function describeLink(relatedLabel: string, relatedName: string): Activit
   return { action: `linked to ${relatedLabel}`, detail: relatedName }
 }
 
+/**
+ * `unlinked from company`, the mirror of `describeLink`.
+ *
+ * The far side is named for the same reason it is named on the link: the row
+ * lands on each end's timeline, and `unlinked from company` alone leaves the
+ * reader asking which one.
+ */
+export function describeUnlink(relatedLabel: string, relatedName: string): ActivityWording {
+  return { action: `unlinked from ${relatedLabel}`, detail: relatedName }
+}
+
 /** `moved to Proposal`, with where it came from beneath. */
 export function describeStageChange(fromStage: string, toStage: string): ActivityWording {
   return { action: `moved to ${toStage}`, detail: `${fromStage} → ${toStage}` }

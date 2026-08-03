@@ -6,7 +6,7 @@ import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
-import { describeLink } from '../activities/wording.ts'
+import { describeLink, describeUnlink } from '../activities/wording.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import * as companyRepository from '../companies/repository.ts'
@@ -36,9 +36,13 @@ export interface PositionsDependencies {
 /** A position as the API returns one: the stored row minus the tenancy column. */
 export type PositionView = Omit<PositionRecord, 'workspaceId'>
 
-export interface CreatePositionInput {
+/** The two records a position joins. Both the create input and a stored row satisfy it. */
+export interface PositionEnds {
   readonly personId: string
   readonly companyId: string
+}
+
+export interface CreatePositionInput extends PositionEnds {
   readonly title: string
 }
 
@@ -96,7 +100,7 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
    */
   async function requireEnds(
     workspaceId: string,
-    input: CreatePositionInput,
+    input: PositionEnds,
   ): Promise<{ personName: string; companyName: string }> {
     const person = await personRepository.findPerson(dependencies.db, workspaceId, input.personId)
 
@@ -221,12 +225,27 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
       const workspaceId = requireWorkspaceId(actor)
 
       await dependencies.transaction(async ({ tx, events }) => {
-        await require(workspaceId, id)
+        const position = await require(workspaceId, id)
+        const ends = await requireEnds(workspaceId, position)
+
         await repository.deletePosition(tx, workspaceId, id)
 
-        // No activity for an unlink. `kind` has no value for it, and filing one
-        // as `linked` would put a row on two timelines saying the opposite of
-        // what happened. Adding the kind is a schema change, not a line here.
+        // Both ends, mirroring the link. Only this route files the unlink: the
+        // foreign keys take positions with either end, and that path never
+        // reaches a service.
+        await dependencies.recordActivity(tx, workspaceId, actor, {
+          targetType: 'person',
+          targetId: position.personId,
+          kind: 'unlinked',
+          ...describeUnlink('company', ends.companyName),
+        })
+        await dependencies.recordActivity(tx, workspaceId, actor, {
+          targetType: 'company',
+          targetId: position.companyId,
+          kind: 'unlinked',
+          ...describeUnlink('person', ends.personName),
+        })
+
         events.emit('record.deleted', { workspaceId, objectType: 'position', recordId: id })
       })
     },

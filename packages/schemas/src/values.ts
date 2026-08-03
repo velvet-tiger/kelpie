@@ -112,8 +112,13 @@ export type RecordTargetType = (typeof RECORD_TARGET_TYPES)[number]
 
 /**
  * What an activity says happened. `created`, `updated`, `stage_changed`,
- * `note_added` and `linked` are emitted by the server; `email`, `call` and
- * `meeting` are logged history an integration or an agent supplies.
+ * `note_added`, `linked` and `unlinked` are emitted by the server; `email`,
+ * `call` and `meeting` are logged history an integration or an agent supplies.
+ *
+ * `unlinked` is only filed when a link is deleted through its own route. A link
+ * that dies with either of its ends never reaches a service, so the timeline
+ * that survives keeps the `linked` row without a counterpart. That row is
+ * history rather than a claim about the present, so it stays true either way.
  */
 export const ACTIVITY_KINDS = [
   'created',
@@ -124,6 +129,7 @@ export const ACTIVITY_KINDS = [
   'call',
   'meeting',
   'linked',
+  'unlinked',
 ] as const
 
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]

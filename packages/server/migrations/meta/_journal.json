@@ -15,6 +15,13 @@
       "when": 1785669418397,
       "tag": "0001_uneven_lockjaw",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785724794993,
+      "tag": "0002_neat_madame_web",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,7 @@ import {
   describeLink,
   describeNote,
   describeStageChange,
+  describeUnlink,
   describeUpdate,
 } from './wording.ts'
 import type { FieldLabels } from './wording.ts'
@@ -86,6 +87,15 @@ describe('describeLink', () => {
   it('names the relation and the far side', () => {
     expect(describeLink('company', 'Analytical Engines')).toEqual({
       action: 'linked to company',
+      detail: 'Analytical Engines',
+    })
+  })
+})
+
+describe('describeUnlink', () => {
+  it('names the relation and the far side', () => {
+    expect(describeUnlink('company', 'Analytical Engines')).toEqual({
+      action: 'unlinked from company',
       detail: 'Analytical Engines',
     })
   })

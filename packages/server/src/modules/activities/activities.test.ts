@@ -211,6 +211,29 @@ describe.skipIf(connectionString === undefined)('activities', () => {
       expect(company[0]?.action).toBe('linked to person')
       expect(company[0]?.detail).toBe('Ada Lovelace')
     })
+
+    it('files an unlinked row on both ends when the position is deleted', async () => {
+      const personId = await createPerson('Ada Lovelace')
+      const companyId = await createCompany('Analytical Engines')
+
+      const created = await client.send('POST', '/v1/positions', {
+        body: { person_id: personId, company_id: companyId, title: 'Chief Mathematician' },
+        cookie: acme.cookie,
+      })
+      const positionId = readString(await created.json(), 'id')
+
+      await client.send('DELETE', `/v1/positions/${positionId}`, { cookie: acme.cookie })
+
+      const person = await timeline('person', personId)
+      const company = await timeline('company', companyId)
+
+      expect(person[0]?.kind).toBe('unlinked')
+      expect(person[0]?.action).toBe('unlinked from company')
+      expect(person[0]?.detail).toBe('Analytical Engines')
+      expect(company[0]?.kind).toBe('unlinked')
+      expect(company[0]?.action).toBe('unlinked from person')
+      expect(company[0]?.detail).toBe('Ada Lovelace')
+    })
   })
 
   describe('emission on note', () => {
