@@ -6,7 +6,7 @@ import * as agentTasks from './agent-tasks/schema.ts'
 import { createApiKeysModule } from './api-keys/index.ts'
 import { createAuthModule } from './auth/index.ts'
 import { createCompaniesModule } from './companies/index.ts'
-import * as deals from './deals/schema.ts'
+import { createDealsModule } from './deals/index.ts'
 import * as decisions from './decisions/schema.ts'
 import * as forms from './forms/schema.ts'
 import * as handbook from './handbook/schema.ts'
@@ -17,7 +17,7 @@ import { createNotesModule } from './notes/index.ts'
 import * as opportunities from './opportunities/schema.ts'
 import * as partnerships from './partnerships/schema.ts'
 import { createPeopleModule } from './people/index.ts'
-import * as pipelines from './pipelines/schema.ts'
+import { createPipelinesModule } from './pipelines/index.ts'
 import * as plans from './plans/schema.ts'
 import { createPositionsModule } from './positions/index.ts'
 import * as raises from './raises/schema.ts'
@@ -45,8 +45,6 @@ interface CoreModuleDefinition {
 }
 
 const definitions: readonly CoreModuleDefinition[] = [
-  { id: 'pipelines', requires: ['workspace'], tables: pipelines },
-  { id: 'deals', requires: ['companies', 'pipelines'], tables: deals },
   { id: 'opportunities', requires: ['pipelines'], tables: opportunities },
   { id: 'partnerships', requires: ['companies', 'pipelines'], tables: partnerships },
   { id: 'raises', requires: ['companies', 'pipelines'], tables: raises },
@@ -75,6 +73,8 @@ export const coreModules: readonly KelpieModule[] = [
   createPositionsModule(coreMigrationsDirectory),
   createActivitiesModule(coreMigrationsDirectory),
   createNotesModule(coreMigrationsDirectory),
+  createPipelinesModule(coreMigrationsDirectory),
+  createDealsModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
     ...(definition.requires === undefined ? {} : { requires: definition.requires }),

@@ -4,6 +4,9 @@ import { ApiProvider } from '../api/ApiProvider.tsx'
 import { Shell } from '../components/Shell.tsx'
 import { CompaniesPage } from '../pages/CompaniesPage.tsx'
 import { CompanyDetail } from '../pages/CompanyDetail.tsx'
+import { DealDetail } from '../pages/DealDetail.tsx'
+import { DealStageSettingsPage } from '../pages/DealStageSettingsPage.tsx'
+import { DealsPage } from '../pages/DealsPage.tsx'
 import { PeoplePage } from '../pages/PeoplePage.tsx'
 import { PersonDetail } from '../pages/PersonDetail.tsx'
 import { CreateWorkspacePage } from '../pages/auth/CreateWorkspacePage.tsx'
@@ -57,6 +60,9 @@ function AppRoutes(): React.JSX.Element {
           <Route path="people/:id" element={<PersonDetail />} />
           <Route path="companies" element={<CompaniesPage />} />
           <Route path="companies/:id" element={<CompanyDetail />} />
+          <Route path="deals" element={<DealsPage />} />
+          <Route path="deals/settings" element={<DealStageSettingsPage />} />
+          <Route path="deals/:id" element={<DealDetail />} />
           {moduleRoutes.map((route) => (
             <Route key={route.path} path={route.path} element={route.element} />
           ))}

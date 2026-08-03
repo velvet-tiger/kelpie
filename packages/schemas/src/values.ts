@@ -111,6 +111,15 @@ export const RECORD_TARGET_TYPES = [
 export type RecordTargetType = (typeof RECORD_TARGET_TYPES)[number]
 
 /**
+ * The four pipelines whose board columns live in `pipeline_stages`. A Deal moves
+ * through `deal` stages and so on; the kinds are fixed even though the stages
+ * within each are workspace-configurable.
+ */
+export const PIPELINE_KINDS = ['deal', 'opportunity', 'raise', 'partnership'] as const
+
+export type PipelineKind = (typeof PIPELINE_KINDS)[number]
+
+/**
  * What an activity says happened. `created`, `updated`, `stage_changed`,
  * `note_added`, `linked` and `unlinked` are emitted by the server; `email`,
  * `call` and `meeting` are logged history an integration or an agent supplies.

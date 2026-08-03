@@ -64,6 +64,16 @@ export function formatRelativeTime(value: Date, now: Date = new Date()): string 
   return months < 12 ? plural(months, 'month') : plural(Math.round(months / 12), 'year')
 }
 
+const DAY = new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+
+/**
+ * A date-only field (`YYYY-MM-DD`), as the mockup writes one. Parsed at midday
+ * so no timezone west or east of UTC shifts it onto a neighbouring day.
+ */
+export function formatDay(iso: string): string {
+  return DAY.format(new Date(`${iso}T12:00:00`))
+}
+
 const MONTH = new Intl.DateTimeFormat('en-AU', { month: 'long' })
 const MONTH_AND_YEAR = new Intl.DateTimeFormat('en-AU', { month: 'long', year: 'numeric' })
 

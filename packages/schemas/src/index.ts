@@ -20,6 +20,7 @@ export {
   ICP_FITS,
   INFLUENCE_LEVELS,
   MEMBER_ROLES,
+  PIPELINE_KINDS,
   PREFERRED_CHANNELS,
   RECORD_OBJECT_TYPES,
   RECORD_TARGET_TYPES,
@@ -35,6 +36,7 @@ export type {
   IcpFit,
   Influence,
   MemberRole,
+  PipelineKind,
   PreferredChannel,
   RecordObjectType,
   RecordTargetType,
@@ -54,6 +56,20 @@ export type { Company, CompanyInput } from './company.ts'
 
 export { createPositionBody, positionSchema, updatePositionBody } from './position.ts'
 export type { CreatePositionInput, Position } from './position.ts'
+
+export { dealBody, dealSchema } from './deal.ts'
+export type { Deal, DealInput } from './deal.ts'
+
+export {
+  createPipelineStageBody,
+  pipelineStageSchema,
+  updatePipelineStageBody,
+} from './pipelineStage.ts'
+export type {
+  CreatePipelineStageInput,
+  PipelineStage,
+  UpdatePipelineStageInput,
+} from './pipelineStage.ts'
 
 export { createNoteBody, noteBody, noteSchema } from './note.ts'
 export type { CreateNoteInput, Note, NoteInput } from './note.ts'

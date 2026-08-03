@@ -27,7 +27,7 @@ export interface SortableField<TRecord> {
   /** Reads the cursor value out of the last row of a page. */
   readonly valueOf: (record: TRecord) => string
   /** Turns that string back into something comparable against the column. */
-  readonly parse: (value: string) => Date | string
+  readonly parse: (value: string) => Date | string | number
 }
 
 /** The documented sort fields of one resource, keyed by their wire name. */
@@ -35,7 +35,7 @@ export type SortableFields<TRecord> = Readonly<Record<string, SortableField<TRec
 
 /** Where the previous page stopped. */
 export interface CursorPosition {
-  readonly value: Date | string
+  readonly value: Date | string | number
   readonly id: string
 }
 
@@ -80,6 +80,25 @@ export function textSort<TRecord>(
   valueOf: (record: TRecord) => string,
 ): SortableField<TRecord> {
   return { column, valueOf, parse: (value) => value }
+}
+
+export function integerSort<TRecord>(
+  column: Column,
+  valueOf: (record: TRecord) => number,
+): SortableField<TRecord> {
+  return {
+    column,
+    valueOf: (record) => String(valueOf(record)),
+    parse: (value) => {
+      const parsed = Number(value)
+
+      if (!Number.isInteger(parsed)) {
+        throw invalidCursor('Its position is not a whole number')
+      }
+
+      return parsed
+    },
+  }
 }
 
 export function timestampSort<TRecord>(

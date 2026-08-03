@@ -1,8 +1,11 @@
-import { sql } from 'drizzle-orm'
-import { boolean, check, index, integer, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import { PIPELINE_KINDS } from '@kelpie/schemas'
+import { boolean, index, integer, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
+
+export { PIPELINE_KINDS } from '@kelpie/schemas'
+export type { PipelineKind } from '@kelpie/schemas'
 
 /**
  * Board columns for all four pipelines. `slug` is the stable id imports alias to;
@@ -29,9 +32,6 @@ export const pipelineStages = pgTable(
   (table) => [
     unique('pipeline_stages_workspace_kind_slug_key').on(table.workspaceId, table.kind, table.slug),
     index('pipeline_stages_workspace_kind_idx').on(table.workspaceId, table.kind),
-    check(
-      'pipeline_stages_kind_check',
-      sql`${table.kind} in ('deal', 'opportunity', 'raise', 'partnership')`,
-    ),
+    checkOneOf('pipeline_stages_kind_check', table.kind, PIPELINE_KINDS),
   ],
 )
