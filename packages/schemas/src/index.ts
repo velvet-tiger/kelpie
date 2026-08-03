@@ -20,7 +20,11 @@ export {
   ICP_FITS,
   INFLUENCE_LEVELS,
   MEMBER_ROLES,
+  OPEN_PLAN_ITEM_STATUSES,
+  PIPELINE_KIND_LABELS,
   PIPELINE_KINDS,
+  PLAN_ITEM_STATUS_LABELS,
+  PLAN_ITEM_STATUSES,
   PREFERRED_CHANNELS,
   RECORD_OBJECT_TYPES,
   RECORD_TARGET_TYPES,
@@ -37,6 +41,7 @@ export type {
   Influence,
   MemberRole,
   PipelineKind,
+  PlanItemStatus,
   PreferredChannel,
   RecordObjectType,
   RecordTargetType,
@@ -73,6 +78,9 @@ export type {
 
 export { createNoteBody, noteBody, noteSchema } from './note.ts'
 export type { CreateNoteInput, Note, NoteInput } from './note.ts'
+
+export { createPlanItemBody, planItemBody, planItemSchema } from './planItem.ts'
+export type { CreatePlanItemInput, PlanItem, PlanItemInput } from './planItem.ts'
 
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'

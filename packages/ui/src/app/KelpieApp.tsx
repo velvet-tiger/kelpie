@@ -9,6 +9,7 @@ import { DealStageSettingsPage } from '../pages/DealStageSettingsPage.tsx'
 import { DealsPage } from '../pages/DealsPage.tsx'
 import { PeoplePage } from '../pages/PeoplePage.tsx'
 import { PersonDetail } from '../pages/PersonDetail.tsx'
+import { PlanningPage } from '../pages/PlanningPage.tsx'
 import { CreateWorkspacePage } from '../pages/auth/CreateWorkspacePage.tsx'
 import { SignInPage } from '../pages/auth/SignInPage.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
@@ -63,6 +64,7 @@ function AppRoutes(): React.JSX.Element {
           <Route path="deals" element={<DealsPage />} />
           <Route path="deals/settings" element={<DealStageSettingsPage />} />
           <Route path="deals/:id" element={<DealDetail />} />
+          <Route path="planning" element={<PlanningPage />} />
           {moduleRoutes.map((route) => (
             <Route key={route.path} path={route.path} element={route.element} />
           ))}

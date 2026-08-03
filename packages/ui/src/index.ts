@@ -50,6 +50,17 @@ export {
 } from './api/resources/positions.ts'
 export type { PositionFilters, PositionTitleUpdate } from './api/resources/positions.ts'
 
+export {
+  MAX_PAGE_SIZE,
+  useCreatePlanItem,
+  useDeletePlanItem,
+  usePlanItems,
+  usePlanItemsForRecords,
+  useRecordPlanItems,
+  useUpdatePlanItem,
+} from './api/resources/planItems.ts'
+export type { PlanItemFilters } from './api/resources/planItems.ts'
+
 export { useCreateWorkspace, useLogIn, useLogOut, useSession } from './api/resources/session.ts'
 export type { SessionState } from './api/resources/session.ts'
 
@@ -70,6 +81,10 @@ export { FilterBar, PageHeader } from './components/PageHeader.tsx'
 export type { FilterBarProps, PageHeaderProps } from './components/PageHeader.tsx'
 export { PhonesField } from './components/PhonesField.tsx'
 export type { PhonesFieldProps } from './components/PhonesField.tsx'
+export { PlanAttention, RelatedPlanAttention } from './components/PlanAttention.tsx'
+export type { PlanAttentionProps } from './components/PlanAttention.tsx'
+export { PlanPanel } from './components/PlanPanel.tsx'
+export type { PlanPanelProps } from './components/PlanPanel.tsx'
 export { ErrorPanel, LoadingPanel, NotFoundPanel } from './components/QueryState.tsx'
 export type { ErrorPanelProps } from './components/QueryState.tsx'
 export { RecordTabs } from './components/RecordTabs.tsx'
@@ -88,8 +103,25 @@ export { CompaniesPage } from './pages/CompaniesPage.tsx'
 export { CompanyDetail } from './pages/CompanyDetail.tsx'
 export { PeoplePage } from './pages/PeoplePage.tsx'
 export { PersonDetail } from './pages/PersonDetail.tsx'
+export { PlanningPage } from './pages/PlanningPage.tsx'
 export { CreateWorkspacePage } from './pages/auth/CreateWorkspacePage.tsx'
 export { SignInPage } from './pages/auth/SignInPage.tsx'
+
+export {
+  DUE_BUCKETS,
+  addDays,
+  byDateThenTitle,
+  dueBucketFor,
+  isOpen,
+  monthBounds,
+  nextOpenByTarget,
+  nextOpenPlanItem,
+  planAttention,
+  planStatusTone,
+  toIsoDay,
+  todayIso,
+} from './lib/plan.ts'
+export type { DueBucketId, PlanAttention as PlanAttentionSummary } from './lib/plan.ts'
 
 export { applyTheme, getStoredTheme, resolveTheme, setStoredTheme, watchSystemTheme } from './lib/theme.ts'
 export type { ThemePreference } from './lib/theme.ts'

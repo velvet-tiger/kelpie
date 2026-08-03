@@ -18,7 +18,7 @@ import * as opportunities from './opportunities/schema.ts'
 import * as partnerships from './partnerships/schema.ts'
 import { createPeopleModule } from './people/index.ts'
 import { createPipelinesModule } from './pipelines/index.ts'
-import * as plans from './plans/schema.ts'
+import { createPlansModule } from './plans/index.ts'
 import { createPositionsModule } from './positions/index.ts'
 import * as raises from './raises/schema.ts'
 import * as webhooks from './webhooks/schema.ts'
@@ -49,7 +49,6 @@ const definitions: readonly CoreModuleDefinition[] = [
   { id: 'partnerships', requires: ['companies', 'pipelines'], tables: partnerships },
   { id: 'raises', requires: ['companies', 'pipelines'], tables: raises },
   { id: 'hiring', requires: ['people'], tables: hiring },
-  { id: 'plans', requires: ['workspace'], tables: plans },
   { id: 'decisions', requires: ['workspace'], tables: decisions },
   { id: 'handbook', requires: ['workspace'], tables: handbook },
   { id: 'forms', requires: ['people', 'companies', 'positions', 'deals'], tables: forms },
@@ -75,6 +74,7 @@ export const coreModules: readonly KelpieModule[] = [
   createNotesModule(coreMigrationsDirectory),
   createPipelinesModule(coreMigrationsDirectory),
   createDealsModule(coreMigrationsDirectory),
+  createPlansModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
     ...(definition.requires === undefined ? {} : { requires: definition.requires }),

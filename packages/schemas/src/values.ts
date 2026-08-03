@@ -119,6 +119,33 @@ export const PIPELINE_KINDS = ['deal', 'opportunity', 'raise', 'partnership'] as
 
 export type PipelineKind = (typeof PIPELINE_KINDS)[number]
 
+/** Display names for `PIPELINE_KINDS`. "Fundraising" is what the nav calls a Raise. */
+export const PIPELINE_KIND_LABELS: Readonly<Record<PipelineKind, string>> = {
+  deal: 'Deal',
+  opportunity: 'Opportunity',
+  raise: 'Fundraising',
+  partnership: 'Partnership',
+}
+
+/**
+ * How far along a plan item is. Stored, never derived: whether something is
+ * overdue is a question about its date, and whether it is finished is a question
+ * about this column, and conflating the two would make a late-but-done item
+ * shout for attention forever.
+ */
+export const PLAN_ITEM_STATUSES = ['todo', 'in_progress', 'done'] as const
+
+export type PlanItemStatus = (typeof PLAN_ITEM_STATUSES)[number]
+
+export const PLAN_ITEM_STATUS_LABELS: Readonly<Record<PlanItemStatus, string>> = {
+  todo: 'To do',
+  in_progress: 'In progress',
+  done: 'Done',
+}
+
+/** The statuses that still need doing. `plan.completed` fires on leaving this set. */
+export const OPEN_PLAN_ITEM_STATUSES = ['todo', 'in_progress'] as const
+
 /**
  * What an activity says happened. `created`, `updated`, `stage_changed`,
  * `note_added`, `linked` and `unlinked` are emitted by the server; `email`,

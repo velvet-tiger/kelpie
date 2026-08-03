@@ -1,6 +1,7 @@
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
+import { isoDateSchema } from '../../lib/dates.ts'
 import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
@@ -8,19 +9,6 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { CreateDealInput, DealView, DealsService, UpdateDealInput } from './service.ts'
 
 /** Wire shapes for `/v1/deals`. Bodies are strict; an unknown field is a 422, per `api.md`. */
-
-/**
- * `YYYY-MM-DD`, and a date that exists. The regex alone would wave `2026-02-30`
- * through to Postgres, which refuses it as a 500 instead of a 422.
- */
-const isoDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/u, 'Use YYYY-MM-DD')
-  .refine((value) => {
-    const parsed = new Date(`${value}T00:00:00Z`)
-
-    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
-  }, 'That date does not exist')
 
 /** The full field set, without defaults. `createBody` adds those; `updateBody` makes it partial. */
 const dealShape = {
@@ -30,7 +18,7 @@ const dealShape = {
   value_cents: z.number().int().min(0).nullable(),
   currency: z.string().regex(/^[A-Z]{3}$/u, 'Use a three-letter ISO 4217 code').nullable(),
   owner_id: z.string().min(1).nullable(),
-  expected_close: isoDate.nullable(),
+  expected_close: isoDateSchema.nullable(),
   person_ids: z.array(z.string().min(1)),
   competitors: z.array(z.string().min(1)),
   risks: z.string(),

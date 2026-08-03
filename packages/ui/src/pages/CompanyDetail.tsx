@@ -9,6 +9,7 @@ import {
   useDeleteCompany,
   useUpdateCompany,
 } from '../api/resources/companies.ts'
+import { useDeals } from '../api/resources/deals.ts'
 import { usePeople } from '../api/resources/people.ts'
 import {
   useCreatePosition,
@@ -23,6 +24,7 @@ import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
+import { RelatedPlanAttention } from '../components/PlanAttention.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
@@ -167,9 +169,16 @@ function CompanyHeading({ company }: { readonly company: Company }): React.JSX.E
   )
 }
 
-/** Summary plus the latest activity. The plan section waits on the Plan items API. */
+/**
+ * A summary, the plan items needing attention, and the latest activity.
+ *
+ * The plan rolls up from this company's deals. The mockup also rolls up its
+ * opportunities, partnerships and raises, none of which have an endpoint yet, so
+ * nothing in the workspace can carry a plan item against one.
+ */
 function CompanyOverview({ company }: { readonly company: Company }): React.JSX.Element {
   const patch = useCompanyPatch(company)
+  const deals = useDeals({ companyIds: [company.id] })
 
   return (
     <div className="space-y-8">
@@ -179,6 +188,7 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
           patch({ summary })
         }}
       />
+      <RelatedPlanAttention deals={deals.records} isLoadingDeals={deals.isLoading} />
       <LatestActivity targetType="company" targetId={company.id} />
     </div>
   )

@@ -364,15 +364,9 @@ describe.skipIf(connectionString === undefined)('deals', () => {
         body: { target_type: 'deal', target_id: id, body: 'Worth remembering' },
         cookie: acme.cookie,
       })
-      // Plan items have no routes yet, so the row goes straight into the table
-      // the way the Plans feature will write it.
-      await database.db.insert(planItems).values({
-        id: 'plan_test0000000000000000',
-        workspaceId: acme.workspaceId,
-        targetType: 'deal',
-        targetId: id,
-        date: '2026-09-01',
-        title: 'Send proposal',
+      await client.send('POST', '/v1/plan_items', {
+        body: { target_type: 'deal', target_id: id, date: '2026-09-01', title: 'Send proposal' },
+        cookie: acme.cookie,
       })
 
       const response = await client.send('DELETE', `/v1/deals/${id}`, { cookie: acme.cookie })

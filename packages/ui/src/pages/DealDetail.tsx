@@ -8,6 +8,7 @@ import { useDeal, useDeleteDeal, useUpdateDeal } from '../api/resources/deals.ts
 import { useMembers } from '../api/resources/members.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
+import { useRecordPlanItems } from '../api/resources/planItems.ts'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
@@ -15,6 +16,8 @@ import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
+import { PlanAttention } from '../components/PlanAttention.tsx'
+import { PlanPanel } from '../components/PlanPanel.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
@@ -30,9 +33,9 @@ import { toTags } from './fields.ts'
 /**
  * One deal.
  *
- * Overview, Activity and Notes render today; the Plan and Decisions tabs wait
- * for their endpoints, as does the mockup's plan-attention block. A UI module
- * can add its own tab through the `deal` record-tab slot.
+ * Overview, Plan, Activity and Notes render today; the Decisions tab waits for
+ * its endpoint. A UI module can add its own tab through the `deal` record-tab
+ * slot.
  */
 
 const STAGE_TONES: Readonly<Record<string, ChipTone>> = {
@@ -62,6 +65,7 @@ export function DealDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'plan', label: 'Plan' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
@@ -99,6 +103,7 @@ export function DealDetail(): React.JSX.Element {
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Deal sections">
             {active === 'overview' && <DealOverview deal={record} />}
+            {active === 'plan' && <PlanPanel targetType="deal" targetId={record.id} />}
             {active === 'activity' && <ActivitiesPanel targetType="deal" targetId={record.id} />}
             {active === 'notes' && <NotesPanel targetType="deal" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'deal', recordId: record.id })}
@@ -166,9 +171,10 @@ function DetailField({
   )
 }
 
-/** Summary, the agent fields, and the latest activity. */
+/** Summary, the agent fields, what is late or due this week, and the latest activity. */
 function DealOverview({ deal }: { readonly deal: Deal }): React.JSX.Element {
   const patch = useDealPatch(deal)
+  const planItems = useRecordPlanItems('deal', deal.id)
 
   return (
     <div className="space-y-8">
@@ -216,6 +222,8 @@ function DealOverview({ deal }: { readonly deal: Deal }): React.JSX.Element {
           </DetailField>
         </div>
       </section>
+
+      <PlanAttention items={planItems.records} isLoading={planItems.isLoading} />
 
       <LatestActivity targetType="deal" targetId={deal.id} />
     </div>

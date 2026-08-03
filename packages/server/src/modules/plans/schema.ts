@@ -1,8 +1,12 @@
-import { sql } from 'drizzle-orm'
-import { check, date, index, pgTable, text } from 'drizzle-orm/pg-core'
+import { PIPELINE_KINDS, PLAN_ITEM_STATUSES } from '@kelpie/schemas'
+import { date, index, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
+
+/** Re-exported for the routes and service that constrain themselves to this table. */
+export { PIPELINE_KINDS, PLAN_ITEM_STATUSES } from '@kelpie/schemas'
+export type { PipelineKind, PlanItemStatus } from '@kelpie/schemas'
 
 /**
  * Dated action items on the four pipelines. These replace any next-step text
@@ -30,10 +34,7 @@ export const planItems = pgTable(
   (table) => [
     index('plan_items_target_idx').on(table.workspaceId, table.targetType, table.targetId),
     index('plan_items_date_idx').on(table.workspaceId, table.date),
-    check(
-      'plan_items_target_type_check',
-      sql`${table.targetType} in ('deal', 'opportunity', 'raise', 'partnership')`,
-    ),
-    check('plan_items_status_check', sql`${table.status} in ('todo', 'in_progress', 'done')`),
+    checkOneOf('plan_items_target_type_check', table.targetType, PIPELINE_KINDS),
+    checkOneOf('plan_items_status_check', table.status, PLAN_ITEM_STATUSES),
   ],
 )

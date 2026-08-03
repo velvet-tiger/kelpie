@@ -5,6 +5,7 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { useCompanies } from '../api/resources/companies.ts'
+import { useDeals } from '../api/resources/deals.ts'
 import { useDeletePerson, usePerson, useUpdatePerson } from '../api/resources/people.ts'
 import {
   useCreatePosition,
@@ -18,6 +19,7 @@ import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
+import { RelatedPlanAttention } from '../components/PlanAttention.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
@@ -157,11 +159,15 @@ function PersonHeading({ person }: { readonly person: Person }): React.JSX.Eleme
 }
 
 /**
- * The mockup's Overview is a summary, the latest activity, and the plan items
- * needing attention. The plan section waits on the Plan items API.
+ * A summary, the plan items needing attention, and the latest activity.
+ *
+ * The plan rolls up from the deals this person is on. The mockup also rolls up
+ * their partnerships, which have no endpoint yet, so nothing in the workspace
+ * can carry a plan item against one.
  */
 function PersonOverview({ person }: { readonly person: Person }): React.JSX.Element {
   const patch = usePersonPatch(person)
+  const deals = useDeals({ personIds: [person.id] })
 
   return (
     <div className="space-y-8">
@@ -171,6 +177,7 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
           patch({ summary })
         }}
       />
+      <RelatedPlanAttention deals={deals.records} isLoadingDeals={deals.isLoading} />
       <LatestActivity targetType="person" targetId={person.id} />
     </div>
   )
