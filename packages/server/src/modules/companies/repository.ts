@@ -1,4 +1,4 @@
-import { and, eq, ilike, or, sql } from 'drizzle-orm'
+import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
@@ -25,8 +25,8 @@ export const DEFAULT_COMPANY_SORT = '-created_at'
 export interface CompanyFilters {
   /** `?q=`, matched the way the mockup's Companies filter matches. */
   readonly term?: string | undefined
-  /** `?person_id=`: companies where that person holds a position. */
-  readonly personId?: string | undefined
+  /** `?person_id=`, repeatable: companies where any of these people holds a position. */
+  readonly personIds?: readonly string[] | undefined
 }
 
 /**
@@ -36,13 +36,13 @@ export interface CompanyFilters {
  * Reads the `positions` table, never its repository. See the same note in the
  * people repository.
  */
-function employsPerson(personId: string): SQL {
+function employsAnyOf(personIds: readonly string[]): SQL {
   return sql`exists (
     select 1
     from ${positions}
     where ${positions.companyId} = ${companies.id}
       and ${positions.workspaceId} = ${companies.workspaceId}
-      and ${positions.personId} = ${personId}
+      and ${inArray(positions.personId, personIds)}
   )`
 }
 
@@ -63,7 +63,7 @@ function conditionsFor(workspaceId: string, filters: CompanyFilters): (SQL | und
   return [
     eq(companies.workspaceId, workspaceId),
     filters.term === undefined ? undefined : matchesTerm(filters.term),
-    filters.personId === undefined ? undefined : employsPerson(filters.personId),
+    filters.personIds === undefined ? undefined : employsAnyOf(filters.personIds),
   ]
 }
 

@@ -1,3 +1,4 @@
+import { personSchema } from '@kelpie/schemas'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -328,6 +329,50 @@ describe.skipIf(connectionString === undefined)('people', () => {
 
       expect(readList(await response.json()).map((row) => row.name)).toEqual(['Ada Lovelace'])
     })
+
+    it('takes company_id more than once, and answers for any of them', async () => {
+      const ada = await createPerson({ name: 'Ada Lovelace' })
+      const grace = await createPerson({ name: 'Grace Hopper' })
+      await createPerson({ name: 'Unemployed Ursula' })
+      const harbour = await createCompany('Harbour')
+      const initech = await createCompany('Initech')
+
+      await client.send('POST', '/v1/positions', {
+        body: { person_id: ada.id, company_id: harbour, title: 'Chief Mathematician' },
+        cookie: acme.cookie,
+      })
+      await client.send('POST', '/v1/positions', {
+        body: { person_id: grace.id, company_id: initech, title: 'Rear Admiral' },
+        cookie: acme.cookie,
+      })
+
+      const response = await client.send(
+        'GET',
+        `/v1/people?company_id=${harbour}&company_id=${initech}&sort=name`,
+        { cookie: acme.cookie },
+      )
+
+      expect(readList(await response.json()).map((row) => row.name)).toEqual([
+        'Ada Lovelace',
+        'Grace Hopper',
+      ])
+    })
+
+    it('refuses a blank company_id with 422 rather than ignoring it', async () => {
+      const response = await client.send('GET', '/v1/people?company_id=', { cookie: acme.cookie })
+
+      expect(response.status).toBe(422)
+      expect(readRecord(readRecord(await response.json()).error).code).toBe('validation_failed')
+    })
+
+    it('refuses more ids than a page could hold', async () => {
+      const tooMany = Array.from({ length: 201 }, (_, index) => `company_id=com_${String(index)}`)
+      const response = await client.send(`GET`, `/v1/people?${tooMany.join('&')}`, {
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(422)
+    })
   })
 
   describe('paging and sorting', () => {
@@ -637,6 +682,45 @@ describe.skipIf(connectionString === undefined)('people', () => {
       await harness.services.events.drain()
 
       expect(seen).toEqual([person.id])
+    })
+  })
+
+  /**
+   * The client decodes with `personSchema`, so a field renamed here and not
+   * there is a runtime failure in the browser that no server test would catch.
+   * `parse` throws naming the offending field, which beats an equality assertion
+   * on a shape nobody would keep up to date.
+   */
+  describe('the wire contract', () => {
+    it('answers every read path with the shape @kelpie/schemas decodes', async () => {
+      const created = await createPerson({
+        name: 'Ada Lovelace',
+        email: 'ada@example.com',
+        phones: ['+61 400 000 000'],
+        social_profiles: [{ network: 'github', url: 'https://github.com/ada' }],
+        timezone: 'Australia/Sydney',
+        location: 'Sydney',
+        preferred_channel: 'call',
+        influence: 'champion',
+        relationship: 'strong',
+        summary: 'Runs the analytics team.',
+        tags: ['ai'],
+        last_contacted_at: '2026-07-01T09:30:00.000Z',
+      })
+
+      expect(personSchema.parse(created).name).toBe('Ada Lovelace')
+
+      const detail = await client.send(`GET`, `/v1/people/${String(created.id)}`, { cookie: acme.cookie })
+      expect(personSchema.parse(readRecord(await detail.json())).id).toBe(created.id)
+
+      const listed = await client.send('GET', '/v1/people', { cookie: acme.cookie })
+      expect(readList(await listed.json()).map((item) => personSchema.parse(item).id)).toContain(created.id)
+
+      const patched = await client.send('PATCH', `/v1/people/${String(created.id)}`, {
+        body: { summary: 'Updated' },
+        cookie: acme.cookie,
+      })
+      expect(personSchema.parse(readRecord(await patched.json())).summary).toBe('Updated')
     })
   })
 })

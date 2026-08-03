@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
@@ -24,15 +24,17 @@ export const DEFAULT_POSITION_SORT = '-created_at'
  * reachable from both sides through the person and company filters.
  */
 export interface PositionFilters {
-  readonly personId?: string | undefined
-  readonly companyId?: string | undefined
+  /** `?person_id=`, repeatable: the positions held by any of these people. */
+  readonly personIds?: readonly string[] | undefined
+  /** `?company_id=`, repeatable: the positions held at any of these companies. */
+  readonly companyIds?: readonly string[] | undefined
 }
 
 function conditionsFor(workspaceId: string, filters: PositionFilters): (SQL | undefined)[] {
   return [
     eq(positions.workspaceId, workspaceId),
-    filters.personId === undefined ? undefined : eq(positions.personId, filters.personId),
-    filters.companyId === undefined ? undefined : eq(positions.companyId, filters.companyId),
+    filters.personIds === undefined ? undefined : inArray(positions.personId, filters.personIds),
+    filters.companyIds === undefined ? undefined : inArray(positions.companyId, filters.companyIds),
   ]
 }
 

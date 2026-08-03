@@ -1,22 +1,17 @@
+import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from '@kelpie/schemas'
 import { index, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, citext, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
- * The fixed value sets from `seed.ts`. Exported because the API validates against
- * these same arrays: a value the boundary accepts and the check constraint
- * refuses would be a 500 where a 422 belongs.
+ * The fixed value sets come from `@kelpie/schemas`, so this table's check
+ * constraints, this module's Zod enums, and the browser's decoder are one list
+ * rather than three copies. A value the boundary accepts and the check
+ * constraint refuses would be a 500 where a 422 belongs.
  */
-export const COMPANY_STAGES = ['startup', 'growth', 'enterprise', 'other'] as const
-export const SIZE_BANDS = ['1-10', '11-50', '51-200', '201+'] as const
-export const ACCOUNT_TYPES = ['prospect', 'customer', 'partner', 'investor', 'other'] as const
-export const ICP_FITS = ['high', 'medium', 'low', 'unknown'] as const
-
-export type CompanyStage = (typeof COMPANY_STAGES)[number]
-export type SizeBand = (typeof SIZE_BANDS)[number]
-export type AccountType = (typeof ACCOUNT_TYPES)[number]
-export type IcpFit = (typeof ICP_FITS)[number]
+export { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from '@kelpie/schemas'
+export type { AccountType, CompanyStage, IcpFit, SizeBand } from '@kelpie/schemas'
 
 /** Organisations. `domain` is normalised (no scheme, no path) and compared case-insensitively. */
 export const companies = pgTable(

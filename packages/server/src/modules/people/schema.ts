@@ -1,52 +1,32 @@
+import { INFLUENCE_LEVELS, PREFERRED_CHANNELS, RELATIONSHIP_LEVELS } from '@kelpie/schemas'
+import type { SocialProfile } from '@kelpie/schemas'
 import { index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, citext, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
- * The fixed value sets from `seed.ts`. Exported because the API validates against
- * these same arrays: a value the boundary accepts and the check constraint
- * refuses would be a 500 where a 422 belongs.
+ * The fixed value sets come from `@kelpie/schemas`, so this table's check
+ * constraints, this module's Zod enums, and the browser's decoder are one list
+ * rather than three copies. A value the boundary accepts and the check
+ * constraint refuses would be a 500 where a 422 belongs.
+ *
+ * Re-exported because `routes.ts` and `service.ts` read them from here, and the
+ * table they constrain is the reason they matter.
  */
-export const PREFERRED_CHANNELS = ['email', 'call', 'linkedin'] as const
-export const INFLUENCE_LEVELS = [
-  'champion',
-  'decision_maker',
-  'influencer',
-  'blocker',
-  'end_user',
-] as const
-export const RELATIONSHIP_LEVELS = ['cold', 'warm', 'strong'] as const
-
-export type PreferredChannel = (typeof PREFERRED_CHANNELS)[number]
-export type Influence = (typeof INFLUENCE_LEVELS)[number]
-export type Relationship = (typeof RELATIONSHIP_LEVELS)[number]
-
-/** Networks a person can be linked on, from `SOCIAL_NETWORKS` in the mockups. */
-export const SOCIAL_NETWORK_IDS = [
-  'angellist',
-  'bluesky',
-  'crunchbase',
-  'facebook',
-  'github',
-  'instagram',
-  'linkedin',
-  'mastodon',
-  'medium',
-  'substack',
-  'threads',
-  'tiktok',
-  'twitter',
-  'youtube',
-  'other',
-] as const
-
-export type SocialNetworkId = (typeof SOCIAL_NETWORK_IDS)[number]
-
-export interface SocialProfile {
-  readonly network: SocialNetworkId
-  readonly url: string
-}
+export {
+  INFLUENCE_LEVELS,
+  PREFERRED_CHANNELS,
+  RELATIONSHIP_LEVELS,
+  SOCIAL_NETWORK_IDS,
+} from '@kelpie/schemas'
+export type {
+  Influence,
+  PreferredChannel,
+  Relationship,
+  SocialNetworkId,
+} from '@kelpie/schemas'
+export type { SocialProfile }
 
 /**
  * Who you know. Job title is not here: it lives on Position, because a person can

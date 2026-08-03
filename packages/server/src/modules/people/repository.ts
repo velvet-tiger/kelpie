@@ -1,4 +1,4 @@
-import { and, eq, ilike, or, sql } from 'drizzle-orm'
+import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
@@ -26,8 +26,8 @@ export const DEFAULT_PERSON_SORT = '-created_at'
 export interface PersonFilters {
   /** `?q=`, matched the way the mockup's People filter matches. */
   readonly term?: string | undefined
-  /** `?company_id=`: people holding a position at that company. */
-  readonly companyId?: string | undefined
+  /** `?company_id=`, repeatable: people holding a position at any of these companies. */
+  readonly companyIds?: readonly string[] | undefined
 }
 
 /**
@@ -51,13 +51,13 @@ function heldPositionMatches(pattern: string): SQL {
   )`
 }
 
-function holdsPositionAt(companyId: string): SQL {
+function holdsPositionAtAny(companyIds: readonly string[]): SQL {
   return sql`exists (
     select 1
     from ${positions}
     where ${positions.personId} = ${people.id}
       and ${positions.workspaceId} = ${people.workspaceId}
-      and ${positions.companyId} = ${companyId}
+      and ${inArray(positions.companyId, companyIds)}
   )`
 }
 
@@ -77,7 +77,7 @@ function conditionsFor(workspaceId: string, filters: PersonFilters): (SQL | unde
   return [
     eq(people.workspaceId, workspaceId),
     filters.term === undefined ? undefined : matchesTerm(filters.term),
-    filters.companyId === undefined ? undefined : holdsPositionAt(filters.companyId),
+    filters.companyIds === undefined ? undefined : holdsPositionAtAny(filters.companyIds),
   ]
 }
 

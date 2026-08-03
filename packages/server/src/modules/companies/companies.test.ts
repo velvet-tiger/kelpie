@@ -1,3 +1,4 @@
+import { companySchema } from '@kelpie/schemas'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -367,6 +368,83 @@ describe.skipIf(connectionString === undefined)('companies', () => {
       })
 
       expect(created.status).toBe(201)
+    })
+  })
+
+  describe('filtering by a set of ids', () => {
+    it('takes person_id more than once, and answers for any of them', async () => {
+      const harbour = await createCompany({ name: 'Harbour' })
+      const initech = await createCompany({ name: 'Initech' })
+      await createCompany({ name: 'Unconnected' })
+      const ada = readString(
+        await (await client.send('POST', '/v1/people', { body: { name: 'Ada' }, cookie: acme.cookie })).json(),
+        'id',
+      )
+      const grace = readString(
+        await (await client.send('POST', '/v1/people', { body: { name: 'Grace' }, cookie: acme.cookie })).json(),
+        'id',
+      )
+
+      await client.send('POST', '/v1/positions', {
+        body: { person_id: ada, company_id: harbour.id, title: 'Chief Mathematician' },
+        cookie: acme.cookie,
+      })
+      await client.send('POST', '/v1/positions', {
+        body: { person_id: grace, company_id: initech.id, title: 'Rear Admiral' },
+        cookie: acme.cookie,
+      })
+
+      const response = await client.send(
+        'GET',
+        `/v1/companies?person_id=${ada}&person_id=${grace}&sort=name`,
+        { cookie: acme.cookie },
+      )
+
+      expect(readList(await response.json()).map((row) => row.name)).toEqual(['Harbour', 'Initech'])
+    })
+
+    it('refuses more ids than a page could hold', async () => {
+      const tooMany = Array.from({ length: 201 }, (_, index) => `person_id=per_${String(index)}`)
+      const response = await client.send('GET', `/v1/companies?${tooMany.join('&')}`, {
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(422)
+    })
+  })
+
+  /** The client decodes with `companySchema`. See the note in `people.test.ts`. */
+  describe('the wire contract', () => {
+    it('answers every read path with the shape @kelpie/schemas decodes', async () => {
+      const created = await createCompany({
+        name: 'Harbour Analytics',
+        domain: 'harbour.dev',
+        industry: 'Analytics',
+        description: 'Warehouse-native analytics.',
+        stage: 'growth',
+        size_band: '11-50',
+        hq: 'Sydney',
+        website: 'https://harbour.dev',
+        account_type: 'customer',
+        icp_fit: 'high',
+        tech_stack: ['postgres'],
+        summary: 'Expanding into APAC.',
+        tags: ['apac'],
+      })
+
+      expect(companySchema.parse(created).name).toBe('Harbour Analytics')
+
+      const detail = await client.send('GET', `/v1/companies/${String(created.id)}`, { cookie: acme.cookie })
+      expect(companySchema.parse(readRecord(await detail.json())).id).toBe(created.id)
+
+      const listed = await client.send('GET', '/v1/companies', { cookie: acme.cookie })
+      expect(readList(await listed.json()).map((item) => companySchema.parse(item).id)).toContain(created.id)
+
+      const patched = await client.send('PATCH', `/v1/companies/${String(created.id)}`, {
+        body: { summary: 'Updated' },
+        cookie: acme.cookie,
+      })
+      expect(companySchema.parse(readRecord(await patched.json())).summary).toBe('Updated')
     })
   })
 })

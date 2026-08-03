@@ -1,12 +1,17 @@
+import { MEMBER_ROLES } from '@kelpie/schemas'
+import type { MemberRole } from '@kelpie/schemas'
+
 /**
  * Workspace roles, ordered by authority. `owner` is a single seat per workspace,
  * enforced in the service layer because it is a per-workspace invariant rather
  * than a per-row one.
+ *
+ * The list itself lives in `@kelpie/schemas`: `GET /v1/auth/me` returns a role,
+ * so the browser decodes against the same values this file gates on.
  */
 
-export const MEMBER_ROLES = ['owner', 'admin', 'member'] as const
-
-export type MemberRole = (typeof MEMBER_ROLES)[number]
+export { MEMBER_ROLES }
+export type { MemberRole }
 
 /** Roles an invite may offer. Ownership transfers, it is never invited. */
 export const INVITABLE_ROLES = ['admin', 'member'] as const

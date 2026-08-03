@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
-import { pageBody, readJsonBody, readListParameters } from '../../lib/http.ts'
+import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -135,7 +135,7 @@ export function mountPeopleRoutes(router: Hono, dependencies: PeopleRoutesDepend
       await requireActor(context),
       {
         term: context.req.query('q'),
-        companyId: context.req.query('company_id'),
+        companyIds: readIdFilter(context, 'company_id'),
       },
       readListParameters(context),
     )

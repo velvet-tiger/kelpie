@@ -35,6 +35,49 @@ export function readListParameters(context: Context): ListQueryParameters {
   }
 }
 
+/**
+ * The most ids one filter may name, matching the `?limit=` ceiling in `api.md`.
+ *
+ * The two are the same number on purpose. A caller resolving a page of records
+ * asks about at most one page of ids, so a filter that allowed fewer would make
+ * the maximum page size unusable, and one that allowed more would invite a query
+ * no page could have produced.
+ */
+export const MAX_FILTER_IDS = 200
+
+/**
+ * Reads an id filter that may be given more than once: `?person_id=a&person_id=b`.
+ *
+ * Repeated parameters rather than a comma-separated list, because an id needs no
+ * escaping this way and there is no separator to get wrong. One occurrence is
+ * the ordinary case and reads the same as it always did.
+ *
+ * @returns The ids, or undefined when the parameter is absent.
+ * @throws AppError 422 for a blank value or more than `MAX_FILTER_IDS` of them.
+ *   Silently dropping either would answer a different question than the one asked.
+ */
+export function readIdFilter(context: Context, name: string): readonly string[] | undefined {
+  const values = context.req.queries(name)
+
+  if (values === undefined || values.length === 0) {
+    return undefined
+  }
+
+  if (values.some((value) => value.length === 0)) {
+    throw AppError.validationFailed(`"${name}" cannot be blank`, [
+      { field: name, message: 'Expected an id' },
+    ])
+  }
+
+  if (values.length > MAX_FILTER_IDS) {
+    throw AppError.validationFailed(`"${name}" takes at most ${String(MAX_FILTER_IDS)} ids`, [
+      { field: name, message: `Given ${String(values.length)}` },
+    ])
+  }
+
+  return values
+}
+
 /** The `{ data, next_cursor }` envelope from `api.md`. */
 export function pageBody<T>(
   page: Page<T>,
