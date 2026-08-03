@@ -1,19 +1,15 @@
-import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
-import { StageSettings } from '../components/StageSettings.tsx'
 import {
   useCreatePipelineStage,
   usePipelineStages,
   useRemovePipelineStage,
   useUpdatePipelineStage,
 } from '../api/resources/pipelineStages.ts'
+import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
+import { StageSettings } from '../components/StageSettings.tsx'
 
-/**
- * The deal pipeline's stage settings. `StageSettings` is the shared editor;
- * Opportunities mount it already, and Raises and Partnerships follow when those
- * pipelines land.
- */
-export function DealStageSettingsPage(): React.JSX.Element {
-  const stages = usePipelineStages('deal')
+/** The opportunity pipeline's stage settings, on the shared `StageSettings` editor. */
+export function OpportunityStageSettingsPage(): React.JSX.Element {
+  const stages = usePipelineStages('opportunity')
   const createStage = useCreatePipelineStage()
   const updateStage = useUpdatePipelineStage()
   const removeStage = useRemovePipelineStage()
@@ -37,10 +33,10 @@ export function DealStageSettingsPage(): React.JSX.Element {
         </div>
       )}
       <StageSettings
-        title="Deal stages"
-        backTo="/deals"
-        backLabel="Deals"
-        recordNoun="deal"
+        title="Opportunity stages"
+        backTo="/opportunities"
+        backLabel="Opportunities"
+        recordNoun="opportunity"
         stages={ordered}
         onRename={(id, label) => {
           updateStage.run({ id, changes: { label } })
@@ -56,7 +52,7 @@ export function DealStageSettingsPage(): React.JSX.Element {
           updateStage.run({ id, changes: { open } })
         }}
         onAdd={(label) => {
-          createStage.run({ kind: 'deal', label })
+          createStage.run({ kind: 'opportunity', label })
         }}
         onRemove={(id, moveToId) => {
           removeStage.run({ id, moveToId })

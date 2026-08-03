@@ -14,7 +14,7 @@ import * as hiring from './hiring/schema.ts'
 import * as importExport from './import-export/schema.ts'
 import * as integrations from './integrations/schema.ts'
 import { createNotesModule } from './notes/index.ts'
-import * as opportunities from './opportunities/schema.ts'
+import { createOpportunitiesModule } from './opportunities/index.ts'
 import * as partnerships from './partnerships/schema.ts'
 import { createPeopleModule } from './people/index.ts'
 import { createPipelinesModule } from './pipelines/index.ts'
@@ -45,7 +45,6 @@ interface CoreModuleDefinition {
 }
 
 const definitions: readonly CoreModuleDefinition[] = [
-  { id: 'opportunities', requires: ['pipelines'], tables: opportunities },
   { id: 'partnerships', requires: ['companies', 'pipelines'], tables: partnerships },
   { id: 'raises', requires: ['companies', 'pipelines'], tables: raises },
   { id: 'hiring', requires: ['people'], tables: hiring },
@@ -73,6 +72,7 @@ export const coreModules: readonly KelpieModule[] = [
   createNotesModule(coreMigrationsDirectory),
   createPipelinesModule(coreMigrationsDirectory),
   createDealsModule(coreMigrationsDirectory),
+  createOpportunitiesModule(coreMigrationsDirectory),
   createPlansModule(coreMigrationsDirectory),
   createDecisionsModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({

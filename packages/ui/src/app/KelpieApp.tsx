@@ -8,6 +8,9 @@ import { DealDetail } from '../pages/DealDetail.tsx'
 import { DealStageSettingsPage } from '../pages/DealStageSettingsPage.tsx'
 import { DealsPage } from '../pages/DealsPage.tsx'
 import { DecisionsPage } from '../pages/DecisionsPage.tsx'
+import { OpportunitiesPage } from '../pages/OpportunitiesPage.tsx'
+import { OpportunityDetail } from '../pages/OpportunityDetail.tsx'
+import { OpportunityStageSettingsPage } from '../pages/OpportunityStageSettingsPage.tsx'
 import { PeoplePage } from '../pages/PeoplePage.tsx'
 import { PersonDetail } from '../pages/PersonDetail.tsx'
 import { PlanningPage } from '../pages/PlanningPage.tsx'
@@ -65,6 +68,9 @@ function AppRoutes(): React.JSX.Element {
           <Route path="deals" element={<DealsPage />} />
           <Route path="deals/settings" element={<DealStageSettingsPage />} />
           <Route path="deals/:id" element={<DealDetail />} />
+          <Route path="opportunities" element={<OpportunitiesPage />} />
+          <Route path="opportunities/settings" element={<OpportunityStageSettingsPage />} />
+          <Route path="opportunities/:id" element={<OpportunityDetail />} />
           <Route path="planning" element={<PlanningPage />} />
           <Route path="decisions" element={<DecisionsPage />} />
           {moduleRoutes.map((route) => (

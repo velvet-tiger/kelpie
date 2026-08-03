@@ -180,7 +180,7 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
           patch({ summary })
         }}
       />
-      <RelatedPlanAttention deals={deals.records} isLoadingDeals={deals.isLoading} />
+      <RelatedPlanAttention deals={deals.records} isLoading={deals.isLoading} />
       <LatestActivity targetType="person" targetId={person.id} />
     </div>
   )

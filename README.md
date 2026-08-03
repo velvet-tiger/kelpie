@@ -244,6 +244,7 @@ The Phase 0 backend, plus the first three CRM resources. Every endpoint below ha
 | People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
 | Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |
 | Positions | `GET`, `POST /v1/positions`, `GET`, `PATCH`, `DELETE /v1/positions/:id`. Filters `?person_id=` and `?company_id=` |
+| Opportunities | `GET`, `POST /v1/opportunities`, `GET`, `PATCH`, `DELETE /v1/opportunities/:id`. Filters `?q=`, `?kind=`, `?company_id=` and `?stage_id=` |
 | Decisions | `GET`, `POST /v1/decisions`, `GET`, `PATCH`, `DELETE /v1/decisions/:id`. Filters `?q=`, `?target_type=` and `?target_id=` |
 
 Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
@@ -260,10 +261,10 @@ In the browser: People and Companies, list and detail, against those endpoints. 
 
 ## Not here yet
 
-- **Most of the UI.** People, Companies, Positions, Deals, Planning and Decisions are ported. Everything else in `mockups/` is not: the dashboard, handbook, the other three pipelines, search, forms, admin and account pages all wait for their endpoints.
+- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Planning and Decisions are ported. Everything else in `mockups/` is not: the dashboard, handbook, the other two pipelines, search, forms, admin and account pages all wait for their endpoints.
 - **The rest of the auth pages.** Sign-in and first-workspace exist as placeholders so the CRM pages can be reached. Signup, password reset, the onboarding wizard, and the account security page are a separate feature and replace them.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
-- **The rest of the CRM objects.** Opportunities, Partnerships, Raises, Hiring and the Handbook have tables and a registered module, but no routes or services.
+- **The rest of the CRM objects.** Partnerships, Raises, Hiring and the Handbook have tables and a registered module, but no routes or services.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
 - **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.
 - **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.

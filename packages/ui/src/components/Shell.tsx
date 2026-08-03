@@ -13,13 +13,15 @@ import { inSlotOrder } from '../registry/registry.ts'
  *
  * Core numbers its nav items in hundreds so a module can land between two of
  * them without core renumbering, which is the contract `contributions.ts`
- * documents. The list is short because it holds what is ported: the mockup's
+ * documents; a core entry added later slots at an intermediate value for the
+ * same reason. The list is short because it holds what is ported: the mockup's
  * other entries arrive with the features behind them.
  */
 const CORE_NAV: readonly NavItem[] = [
   { id: 'people', label: 'People', to: '/people', order: 100 },
   { id: 'companies', label: 'Companies', to: '/companies', order: 200 },
   { id: 'deals', label: 'Deals', to: '/deals', order: 300 },
+  { id: 'opportunities', label: 'Opportunities', to: '/opportunities', order: 350 },
   { id: 'planning', label: 'Planning', to: '/planning', order: 400 },
   { id: 'decisions', label: 'Decisions', to: '/decisions', order: 500 },
 ]

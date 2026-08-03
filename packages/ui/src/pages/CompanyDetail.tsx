@@ -10,6 +10,7 @@ import {
   useUpdateCompany,
 } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
+import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePeople } from '../api/resources/people.ts'
 import {
   useCreatePosition,
@@ -175,13 +176,14 @@ function CompanyHeading({ company }: { readonly company: Company }): React.JSX.E
 /**
  * A summary, the plan items needing attention, and the latest activity.
  *
- * The plan rolls up from this company's deals. The mockup also rolls up its
- * opportunities, partnerships and raises, none of which have an endpoint yet, so
- * nothing in the workspace can carry a plan item against one.
+ * The plan rolls up from this company's deals and opportunities. The mockup
+ * also rolls up its partnerships and raises, neither of which has an endpoint
+ * yet, so nothing in the workspace can carry a plan item against one.
  */
 function CompanyOverview({ company }: { readonly company: Company }): React.JSX.Element {
   const patch = useCompanyPatch(company)
   const deals = useDeals({ companyIds: [company.id] })
+  const opportunities = useOpportunities({ companyIds: [company.id] })
 
   return (
     <div className="space-y-8">
@@ -191,7 +193,11 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
           patch({ summary })
         }}
       />
-      <RelatedPlanAttention deals={deals.records} isLoadingDeals={deals.isLoading} />
+      <RelatedPlanAttention
+        deals={deals.records}
+        opportunities={opportunities.records}
+        isLoading={deals.isLoading || opportunities.isLoading}
+      />
       <LatestActivity targetType="company" targetId={company.id} />
     </div>
   )

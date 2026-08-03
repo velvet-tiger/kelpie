@@ -1,5 +1,5 @@
 import { PIPELINE_KIND_LABELS, PLAN_ITEM_STATUS_LABELS } from '@kelpie/schemas'
-import type { Deal, PipelineKind, PlanItem } from '@kelpie/schemas'
+import type { Deal, Opportunity, PipelineKind, PlanItem } from '@kelpie/schemas'
 import { Link } from 'react-router'
 
 import { useMembers } from '../api/resources/members.ts'
@@ -18,10 +18,10 @@ import { SectionHeader } from './SectionHeader.tsx'
  * attached to, which is two requests the page already has to make.
  */
 
-/** Where a plan item's record lives. Only Deals have a page today. */
+/** Where a plan item's record lives. Raises and Partnerships have no page yet. */
 const ROUTES: Readonly<Record<PipelineKind, string | undefined>> = {
   deal: '/deals',
-  opportunity: undefined,
+  opportunity: '/opportunities',
   raise: undefined,
   partnership: undefined,
 }
@@ -78,33 +78,44 @@ export function PlanAttention({
 }
 
 /**
- * The plan rolled up from a Person's or a Company's deals.
+ * The plan rolled up from a Person's or a Company's pipeline records.
  *
- * Deals only, and that is the whole roll-up today rather than a slice of it: the
- * other three pipelines have no create route, so nothing in the workspace can
- * have a plan item attached to one. This widens when they land.
+ * Deals and opportunities, and that is the whole roll-up today rather than a
+ * slice of it: raises and partnerships have no create route, so nothing in the
+ * workspace can have a plan item attached to one. This widens when they land.
+ * A person's list passes no opportunities, because an opportunity has no people.
  *
  * @param deals The records to roll up, which the page has already fetched to
  *   render its own related list.
  */
 export function RelatedPlanAttention({
   deals,
-  isLoadingDeals,
+  opportunities = [],
+  isLoading,
 }: {
   readonly deals: readonly Deal[]
-  readonly isLoadingDeals: boolean
+  readonly opportunities?: readonly Opportunity[]
+  readonly isLoading: boolean
 }): React.JSX.Element {
-  const items = usePlanItemsForRecords(
+  const dealItems = usePlanItemsForRecords(
     'deal',
     deals.map((deal) => deal.id),
+  )
+  const opportunityItems = usePlanItemsForRecords(
+    'opportunity',
+    opportunities.map((opportunity) => opportunity.id),
   )
 
   return (
     <PlanAttention
-      items={items.records}
+      items={[...dealItems.records, ...opportunityItems.records]}
       showTarget
-      targetNames={new Map(deals.map((deal) => [deal.id, deal.name]))}
-      isLoading={isLoadingDeals || items.isLoading}
+      targetNames={
+        new Map(
+          [...deals, ...opportunities].map((record) => [record.id, record.name]),
+        )
+      }
+      isLoading={isLoading || dealItems.isLoading || opportunityItems.isLoading}
     />
   )
 }

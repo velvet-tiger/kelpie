@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { useDeals } from '../api/resources/deals.ts'
 import { useMembers } from '../api/resources/members.ts'
+import { useOpportunities } from '../api/resources/opportunities.ts'
 import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
 import { Chip } from '../components/Chip.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
@@ -150,15 +151,18 @@ export function PlanningPage(): React.JSX.Element {
 /**
  * Names for the records the loaded items point at.
  *
- * Deals are the only pipeline with a list endpoint, so the other three render as
- * their type alone until their own features land. The directory is one page,
- * matching the Deal contacts precedent: past it a row still says what kind of
- * record it belongs to.
+ * Deals and opportunities have list endpoints; raises and partnerships render as
+ * their type alone until their own features land. The directory is one page per
+ * pipeline, matching the Deal contacts precedent: past it a row still says what
+ * kind of record it belongs to.
  */
 function useTargetNames(): ReadonlyMap<string, string> {
   const deals = useDeals({ limit: 200 })
+  const opportunities = useOpportunities({ limit: 200 })
 
-  return new Map(deals.records.map((deal) => [deal.id, deal.name]))
+  return new Map(
+    [...deals.records, ...opportunities.records].map((record) => [record.id, record.name]),
+  )
 }
 
 function PlanList({ items }: { readonly items: readonly PlanItem[] }): React.JSX.Element {
