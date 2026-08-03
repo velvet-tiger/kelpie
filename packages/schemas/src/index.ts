@@ -68,6 +68,9 @@ export type { Deal, DealInput } from './deal.ts'
 export { opportunityBody, opportunitySchema } from './opportunity.ts'
 export type { Opportunity, OpportunityInput } from './opportunity.ts'
 
+export { partnershipBody, partnershipSchema } from './partnership.ts'
+export type { Partnership, PartnershipInput } from './partnership.ts'
+
 export {
   createPipelineStageBody,
   pipelineStageSchema,

@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
+import { usePartnerships } from '../api/resources/partnerships.ts'
 import { useDeletePerson, usePerson, useUpdatePerson } from '../api/resources/people.ts'
 import {
   useCreatePosition,
@@ -164,13 +165,13 @@ function PersonHeading({ person }: { readonly person: Person }): React.JSX.Eleme
 /**
  * A summary, the plan items needing attention, and the latest activity.
  *
- * The plan rolls up from the deals this person is on. The mockup also rolls up
- * their partnerships, which have no endpoint yet, so nothing in the workspace
- * can carry a plan item against one.
+ * The plan rolls up from the deals and partnerships this person is on, the
+ * mockup's whole roll-up for a person.
  */
 function PersonOverview({ person }: { readonly person: Person }): React.JSX.Element {
   const patch = usePersonPatch(person)
   const deals = useDeals({ personIds: [person.id] })
+  const partnerships = usePartnerships({ personIds: [person.id] })
 
   return (
     <div className="space-y-8">
@@ -180,7 +181,11 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
           patch({ summary })
         }}
       />
-      <RelatedPlanAttention deals={deals.records} isLoading={deals.isLoading} />
+      <RelatedPlanAttention
+        deals={deals.records}
+        partnerships={partnerships.records}
+        isLoading={deals.isLoading || partnerships.isLoading}
+      />
       <LatestActivity targetType="person" targetId={person.id} />
     </div>
   )

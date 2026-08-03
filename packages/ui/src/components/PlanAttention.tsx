@@ -1,5 +1,5 @@
 import { PIPELINE_KIND_LABELS, PLAN_ITEM_STATUS_LABELS } from '@kelpie/schemas'
-import type { Deal, Opportunity, PipelineKind, PlanItem } from '@kelpie/schemas'
+import type { Deal, Opportunity, Partnership, PipelineKind, PlanItem } from '@kelpie/schemas'
 import { Link } from 'react-router'
 
 import { useMembers } from '../api/resources/members.ts'
@@ -18,12 +18,12 @@ import { SectionHeader } from './SectionHeader.tsx'
  * attached to, which is two requests the page already has to make.
  */
 
-/** Where a plan item's record lives. Raises and Partnerships have no page yet. */
+/** Where a plan item's record lives. Raises have no page yet. */
 const ROUTES: Readonly<Record<PipelineKind, string | undefined>> = {
   deal: '/deals',
   opportunity: '/opportunities',
   raise: undefined,
-  partnership: undefined,
+  partnership: '/partnerships',
 }
 
 export interface PlanAttentionProps {
@@ -80,8 +80,8 @@ export function PlanAttention({
 /**
  * The plan rolled up from a Person's or a Company's pipeline records.
  *
- * Deals and opportunities, and that is the whole roll-up today rather than a
- * slice of it: raises and partnerships have no create route, so nothing in the
+ * Deals, opportunities and partnerships, and that is the whole roll-up today
+ * rather than a slice of it: raises have no create route, so nothing in the
  * workspace can have a plan item attached to one. This widens when they land.
  * A person's list passes no opportunities, because an opportunity has no people.
  *
@@ -91,10 +91,12 @@ export function PlanAttention({
 export function RelatedPlanAttention({
   deals,
   opportunities = [],
+  partnerships = [],
   isLoading,
 }: {
   readonly deals: readonly Deal[]
   readonly opportunities?: readonly Opportunity[]
+  readonly partnerships?: readonly Partnership[]
   readonly isLoading: boolean
 }): React.JSX.Element {
   const dealItems = usePlanItemsForRecords(
@@ -105,17 +107,23 @@ export function RelatedPlanAttention({
     'opportunity',
     opportunities.map((opportunity) => opportunity.id),
   )
+  const partnershipItems = usePlanItemsForRecords(
+    'partnership',
+    partnerships.map((partnership) => partnership.id),
+  )
 
   return (
     <PlanAttention
-      items={[...dealItems.records, ...opportunityItems.records]}
+      items={[...dealItems.records, ...opportunityItems.records, ...partnershipItems.records]}
       showTarget
       targetNames={
         new Map(
-          [...deals, ...opportunities].map((record) => [record.id, record.name]),
+          [...deals, ...opportunities, ...partnerships].map((record) => [record.id, record.name]),
         )
       }
-      isLoading={isLoading || dealItems.isLoading || opportunityItems.isLoading}
+      isLoading={
+        isLoading || dealItems.isLoading || opportunityItems.isLoading || partnershipItems.isLoading
+      }
     />
   )
 }

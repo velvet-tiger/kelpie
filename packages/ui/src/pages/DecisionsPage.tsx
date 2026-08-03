@@ -7,6 +7,7 @@ import { useDeals } from '../api/resources/deals.ts'
 import { useDecisions } from '../api/resources/decisions.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
+import { usePartnerships } from '../api/resources/partnerships.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
@@ -21,10 +22,10 @@ import { formatDate } from '../lib/dates.ts'
  * matches target names the loaded page may not even hold.
  *
  * The "Linked to" column joins client-side against one page each of people,
- * companies, deals and opportunities, because `api.md` has no include-expansion
- * and no list takes a set of bare ids. A target past those pages, or one whose
- * type has no page yet (partnership, raise, candidate), names its record type
- * instead — better than a raw id or a link to a route that does not exist.
+ * companies, deals, opportunities and partnerships, because `api.md` has no
+ * include-expansion and no list takes a set of bare ids. A target past those
+ * pages, or one whose type has no page yet (raise, candidate), names its record
+ * type instead — better than a raw id or a link to a route that does not exist.
  */
 
 /** `api.md`: `?limit=` maxes out at 200. */
@@ -45,6 +46,7 @@ const TARGET_ROUTES: Readonly<Partial<Record<RecordTargetType, string>>> = {
   company: '/companies',
   deal: '/deals',
   opportunity: '/opportunities',
+  partnership: '/partnerships',
 }
 
 interface TargetDirectory {
@@ -57,6 +59,7 @@ function useTargetDirectory(): TargetDirectory {
   const companies = useCompanies({ limit: MAX_PAGE })
   const deals = useDeals({ limit: MAX_PAGE })
   const opportunities = useOpportunities({ limit: MAX_PAGE })
+  const partnerships = usePartnerships({ limit: MAX_PAGE })
 
   const nameById = useMemo(
     () =>
@@ -66,15 +69,26 @@ function useTargetDirectory(): TargetDirectory {
           ...companies.records,
           ...deals.records,
           ...opportunities.records,
+          ...partnerships.records,
         ].map((record) => [record.id, record.name]),
       ),
-    [people.records, companies.records, deals.records, opportunities.records],
+    [
+      people.records,
+      companies.records,
+      deals.records,
+      opportunities.records,
+      partnerships.records,
+    ],
   )
 
   return {
     nameFor: (decision) => nameById.get(decision.targetId),
     isComplete:
-      !people.hasMore && !companies.hasMore && !deals.hasMore && !opportunities.hasMore,
+      !people.hasMore &&
+      !companies.hasMore &&
+      !deals.hasMore &&
+      !opportunities.hasMore &&
+      !partnerships.hasMore,
   }
 }
 
