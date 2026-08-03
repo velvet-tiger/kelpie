@@ -49,18 +49,82 @@ Run these in order from the repository root.
 
    Expected: `{"status":"ok","database":"up"}`. A `503` with `{"status":"degraded","database":"down"}` means the API is up but Postgres is not; go back to step 3.
 
-Open http://localhost:5173 and the page reports the same status.
+6. Create an account. There is no signup form yet — that page belongs to the auth
+   UI port — so the first account is made through the API.
+
+   ```bash
+   curl -s -X POST http://localhost:5173/v1/auth/signup -H 'Content-Type: application/json' -d '{"email":"you@example.com","name":"Your Name","password":"a-real-password"}'
+   ```
+
+   Expected: `{"account":{...},"active_workspace_id":null}`. A `409` means the
+   address is already registered; sign in with it instead.
+
+7. Open http://localhost:5173, sign in with that address, and create a workspace
+   when asked. That lands on People, and the sidebar has People and Companies.
 
 ## Layout
 
 ```
+packages/schemas/  @kelpie/schemas — the /v1 wire contract as Zod schemas. Depends on
+                   Zod and nothing else, so the browser and the cloud repo can both use it.
 packages/server/   @kelpie/server — the service as a library. Exports the Hono app,
                    config loader, database client, errors, ids, and logger.
-packages/ui/       @kelpie/ui — React components and the typed API client.
+packages/ui/       @kelpie/ui — the React application: API client, query layer,
+                   components, and pages.
 apps/kelpie/       The open-source assembly. Boots the server, builds the UI.
 ```
 
 `@kelpie/server` never starts a listener on import. `apps/kelpie` is the executable. The cloud repo assembles the same packages with private modules, per `modules.md`.
+
+## The UI data layer
+
+The UI is one more API consumer. There is no private endpoint and no shared
+in-process state with the server; every screen goes through `/v1`.
+
+Three pieces, in `packages/ui/src/api/`:
+
+- **`client.ts`** speaks `api.md`: the list envelope, the error shape, the write
+  verbs. Every method takes a `Decoder<T>` and returns what the decoder produced,
+  so no response is asserted into a type it was not checked against.
+- **`@kelpie/schemas`** supplies those decoders. One module per resource holding
+  the record the UI works with, a Zod schema that parses the `snake_case`
+  response into it, and a function that builds a request body back out. The
+  `snake_case` ↔ `camelCase` mapping `api.md` describes happens there and nowhere
+  else.
+- **`resource.ts`** turns a path plus a decoder into the five hooks a CRM
+  resource needs, over TanStack Query. Optimistic updates and their rollback live
+  here once rather than in each page.
+
+A page imports `usePeople`, `usePerson`, `useUpdatePerson` and so on, and never
+imports `@tanstack/react-query`. That keeps page code short, and it means the
+cache library can be replaced without touching a page.
+
+`@kelpie/server` consumes the same package, so a fixed value set like
+`COMPANY_STAGES` is one list rather than three copies: the check constraint, the
+route's Zod enum, and the browser's decoder all read it. Each resource's
+integration tests parse their `POST`, `GET`, list and `PATCH` responses through
+the shared schema, so a renamed or removed field fails there rather than in a
+browser. An added field still passes, because changes within `/v1` are additive
+only.
+
+**The dependency runs server → schemas and never the reverse.** `@kelpie/schemas`
+having any dependency but Zod would put Drizzle, postgres.js and Node built-ins
+back in the browser bundle.
+
+Two things to know before adding a resource:
+
+- **A join resource declares `alsoInvalidates`.** `GET /v1/people?company_id=` is
+  a list of people whose membership a Position decides, so creating one has to
+  mark the people and companies lists stale as well. Without it a company page
+  renders a new row against a name it never fetched.
+- **A list filtered by a set of ids passes `{ enabled }`.** It has nothing to ask
+  until the ids are known, and asking with the filter omitted answers with every
+  record in the workspace. `usePeopleDirectory` and `useCompanyHeadcounts` in
+  `src/pages/positionDirectory.ts` are the worked example.
+- **`undefined` and `null` are not the same.** `undefined` means "not sent",
+  `null` means "clear this field". `definedFields` in `@kelpie/schemas` drops the
+  former; the optimistic merge in `resource.ts` leaves the existing value alone
+  for it.
 
 ## Database
 
@@ -182,15 +246,20 @@ The Phase 0 backend, plus the first three CRM resources. Every endpoint below ha
 
 Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
 
+**Id filters repeat to name a set:** `?person_id=per_1&person_id=per_2` matches either, up to 200 ids. It is what replaces the `include` expansion this version does not have: a list page showing a related column resolves it in one extra request rather than one per row. A blank value or more than 200 is `422`.
+
 A job title lives on Position and nowhere else, so a person can hold one at more than one company. `?q=` on people matches the titles they hold and the companies they hold them at, which is what the mockup's filter box does.
 
 Underneath: the module runtime, a typed event bus with after-commit publication, the entitlements registry, 36 tables with migrations, and an integration harness that creates and truncates its own database.
 
 Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
 
+In the browser: People and Companies, list and detail, against those endpoints. Filtering, inline editing, creating, deleting, and linking a person to a company through a Position all work end to end. Detail pages render the `person` and `company` record-tab slots, and the sidebar renders module nav items, so a UI module has somewhere to land from the start.
+
 ## Not here yet
 
-- **The UI.** It is a health probe. No page from `mockups/` is ported, so nothing in the table above has a screen in front of it yet. The extension registry underneath it is built (`packages/ui/src/registry/`, slot set per `modules.md`); core pages start rendering its slots as they land.
+- **Most of the UI.** People, Companies, and Positions are ported. Everything else in `mockups/` is not: the dashboard, handbook, pipelines, planning, decisions, search, forms, admin and account pages all wait for their endpoints.
+- **The rest of the auth pages.** Sign-in and first-workspace exist as placeholders so the CRM pages can be reached. Signup, password reset, the onboarding wizard, and the account security page are a separate feature and replace them.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
 - **The rest of the CRM objects.** Deals, Opportunities, Partnerships, Raises, Hiring, Notes, Activities, Decisions, Plans and the Handbook have tables and a registered module, but no routes or services.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.

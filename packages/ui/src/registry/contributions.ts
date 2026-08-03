@@ -1,3 +1,4 @@
+import type { RecordObjectType } from '@kelpie/schemas'
 import type { ComponentType, ReactNode } from 'react'
 
 /**
@@ -34,22 +35,13 @@ export interface RouteContribution {
  * The record types a detail page exists for, and therefore the ones a module can
  * add a tab or a sidebar card to.
  *
- * A copy of the server's list, because `@kelpie/ui` importing `@kelpie/server`
- * would drag Drizzle, postgres.js and Node built-ins into the browser bundle
- * (roadmap decision 8). It moves to the shared schema package when that lands.
+ * Now in `@kelpie/schemas`, which is the shared-schema package this file's
+ * previous note was waiting for. Re-exported rather than moved outright: it is
+ * part of the contribution vocabulary, and a module author reading this file
+ * should not have to follow an import to learn what a record type is.
  */
-export const RECORD_OBJECT_TYPES = [
-  'person',
-  'company',
-  'deal',
-  'opportunity',
-  'partnership',
-  'raise',
-  'role',
-  'candidate',
-] as const
-
-export type RecordObjectType = (typeof RECORD_OBJECT_TYPES)[number]
+export { RECORD_OBJECT_TYPES } from '@kelpie/schemas'
+export type { RecordObjectType }
 
 /** What a tab or card is rendering against. Ids, not records: the contributor fetches its own data. */
 export interface RecordContext {

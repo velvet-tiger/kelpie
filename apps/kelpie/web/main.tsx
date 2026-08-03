@@ -1,4 +1,4 @@
-import { ServiceStatus, UiExtensionProvider, registerUiModules } from '@kelpie/ui'
+import { KelpieApp, registerUiModules } from '@kelpie/ui'
 import '@kelpie/ui/styles.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -18,8 +18,6 @@ const extensions = registerUiModules(uiModules)
 
 createRoot(container).render(
   <StrictMode>
-    <UiExtensionProvider extensions={extensions}>
-      <ServiceStatus healthUrl="/healthz" />
-    </UiExtensionProvider>
+    <KelpieApp extensions={extensions} />
   </StrictMode>,
 )

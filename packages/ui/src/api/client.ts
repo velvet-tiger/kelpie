@@ -46,7 +46,13 @@ export interface Page<T> {
   readonly nextCursor: string | null
 }
 
-export type QueryParameters = Readonly<Record<string, string | number | boolean | undefined>>
+/**
+ * Query string values. An array becomes a repeated parameter, which is how
+ * `api.md` names a set of ids: `?person_id=per_1&person_id=per_2`.
+ */
+export type QueryParameters = Readonly<
+  Record<string, string | number | boolean | readonly string[] | undefined>
+>
 
 export interface ApiClientOptions {
   /** Origin plus base path, e.g. `/v1` in the browser or `http://localhost:3000/v1` in tests. */
@@ -58,6 +64,12 @@ export interface ApiClient {
   get<T>(path: string, decode: Decoder<T>, query?: QueryParameters): Promise<T>
   list<T>(path: string, decodeItem: Decoder<T>, query?: QueryParameters): Promise<Page<T>>
   post<T>(path: string, body: unknown, decode: Decoder<T>): Promise<T>
+  /**
+   * A `POST` whose success carries no body. `api.md` has resource writes return
+   * the resulting object, but the session endpoints have nothing to return:
+   * logout answers `204`, and a password reset request answers `202`.
+   */
+  postEmpty(path: string, body?: unknown): Promise<void>
   patch<T>(path: string, body: unknown, decode: Decoder<T>): Promise<T>
   delete(path: string): Promise<void>
 }
@@ -70,7 +82,16 @@ function buildUrl(baseUrl: string, path: string, query: QueryParameters | undefi
   const search = new URLSearchParams()
 
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value !== undefined) {
+    if (value === undefined) {
+      continue
+    }
+
+    if (Array.isArray(value)) {
+      // append, not set: every id has to survive into the query string.
+      for (const item of value) {
+        search.append(key, item)
+      }
+    } else {
       search.set(key, String(value))
     }
   }
@@ -147,6 +168,17 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     return decode(await readJson(await request(method, url, body)))
   }
 
+  /**
+   * Builds the error for a response that was supposed to have no body. The body
+   * is parsed defensively: a proxy answering `502` with HTML would otherwise
+   * surface as a JSON syntax error, hiding the status that explains it.
+   */
+  async function readEmptyError(response: Response): Promise<ApiError> {
+    const payload: unknown = await response.json().catch(() => null)
+
+    return readErrorBody(response.status, payload)
+  }
+
   return {
     get: (path, decode, query) => send('GET', buildUrl(options.baseUrl, path, query), decode),
 
@@ -155,13 +187,23 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
     post: (path, body, decode) => send('POST', buildUrl(options.baseUrl, path, undefined), decode, body),
 
+    postEmpty: async (path, body) => {
+      const response = await request('POST', buildUrl(options.baseUrl, path, undefined), body)
+
+      if (!response.ok) {
+        throw await readEmptyError(response)
+      }
+    },
+
     patch: (path, body, decode) => send('PATCH', buildUrl(options.baseUrl, path, undefined), decode, body),
 
     delete: async (path) => {
       const response = await request('DELETE', buildUrl(options.baseUrl, path, undefined))
 
+      // Stricter than `response.ok`: `api.md` says a successful delete is `204`,
+      // and anything else means the server is not doing what it documents.
       if (response.status !== 204) {
-        throw readErrorBody(response.status, await response.json())
+        throw await readEmptyError(response)
       }
     },
   }

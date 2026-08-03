@@ -3,6 +3,164 @@
 @source ".";
 
 /*
- * Theme tokens land here when the mockup pages are ported (Phase 1, "UI data
- * layer"). The source of truth for them today is mockups/src/index.css.
+ * Theme tokens, ported from mockups/src/index.css. Every colour a component
+ * names is a token, never a literal, so light and dark are the same markup with
+ * a different :root block. A module replacing a component inherits the palette
+ * for free.
  */
+
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-fg: var(--danger-fg);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-ink: var(--sidebar-ink);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-code-bg: var(--code-bg);
+  --color-code-fg: var(--code-fg);
+  --color-sidebar-border: var(--sidebar-border);
+}
+
+:root {
+  color-scheme: light;
+
+  --surface: #fafafa;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f4f4f5;
+  --ink: #18181b;
+  --ink-muted: #71717a;
+  --ink-faint: #a1a1aa;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --accent: #0f766e;
+  --accent-hover: #0d9488;
+  --accent-soft: #f0fdfa;
+  --accent-fg: #ffffff;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --danger-fg: #ffffff;
+  --success: #059669;
+  --success-soft: #ecfdf5;
+  --warning: #d97706;
+  --warning-soft: #fffbeb;
+  --sidebar: #fafafa;
+  --sidebar-ink: #18181b;
+  --sidebar-muted: #71717a;
+  --sidebar-hover: #f4f4f5;
+  --sidebar-active: #ececef;
+  --sidebar-border: #e4e4e7;
+  --code-bg: #18181b;
+  --code-fg: #99f6e4;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface: #0c0c0d;
+  --surface-raised: #141416;
+  --surface-sunken: #09090b;
+  --ink: #fafafa;
+  --ink-muted: #a1a1aa;
+  --ink-faint: #71717a;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-soft: #134e4a;
+  --accent-fg: #042f2e;
+  --danger: #f87171;
+  --danger-soft: #450a0a;
+  --danger-fg: #450a0a;
+  --success: #34d399;
+  --success-soft: #064e3b;
+  --warning: #fbbf24;
+  --warning-soft: #451a03;
+  --sidebar: #0c0c0d;
+  --sidebar-ink: #fafafa;
+  --sidebar-muted: #a1a1aa;
+  --sidebar-hover: #18181b;
+  --sidebar-active: #1f1f23;
+  --sidebar-border: #27272a;
+  --code-bg: #09090b;
+  --code-fg: #99f6e4;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    color: var(--ink);
+    background: var(--surface);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 160ms ease-out;
+  }
+
+  .animate-slide-in {
+    animation: slide-in 200ms ease-out;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
