@@ -273,7 +273,8 @@ describe.skipIf(connectionString === undefined)('migrations', () => {
       expect(names).toContain('handbook_pages')
       expect(names).toContain('integration_connections')
       expect(names).toContain('password_reset_tokens')
-      expect(names).toHaveLength(36)
+      expect(names).toContain('import_job_rows')
+      expect(names).toHaveLength(37)
     } finally {
       await database.close()
     }

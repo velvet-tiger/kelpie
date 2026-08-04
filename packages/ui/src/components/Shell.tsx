@@ -21,6 +21,7 @@ import { inSlotOrder } from '../registry/registry.ts'
 const CORE_ADMIN_NAV: readonly NavItem[] = [
   { id: 'workspace', label: 'Workspace', to: '/admin/workspace', order: 100 },
   { id: 'team', label: 'Team', to: '/admin/team', order: 200 },
+  { id: 'data', label: 'Data', to: '/admin/data', order: 300 },
 ]
 
 const CORE_NAV: readonly NavItem[] = [

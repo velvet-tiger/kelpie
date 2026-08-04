@@ -68,9 +68,27 @@ export function describeFormSubmission(formName: string, answers: string | null)
   return { action: `Submitted via ${formName}`, detail: answers }
 }
 
-/** `created Deal via Website contact`. The deal side of the same submit. */
-export function describeCreationVia(objectLabel: string, formName: string): ActivityWording {
-  return { action: `created ${objectLabel} via ${formName}`, detail: null }
+/**
+ * `created Deal via Website contact`, `created Company via acme-companies.csv`.
+ *
+ * @param sourceName What brought the record in: a form's name, an import's file
+ *   name. Named on the row because a record nobody typed in needs to say where
+ *   it came from, and the actor column only says who pressed the button.
+ */
+export function describeCreationVia(objectLabel: string, sourceName: string): ActivityWording {
+  return { action: `created ${objectLabel} via ${sourceName}`, detail: null }
+}
+
+/**
+ * `updated Company via acme-companies.csv`.
+ *
+ * A bulk update names no fields, unlike `describeUpdate`. One import row can
+ * move a dozen columns at once, and a timeline listing them says less than the
+ * file that carried them: the job's own row-by-row account is where that detail
+ * belongs.
+ */
+export function describeUpdateVia(objectLabel: string, sourceName: string): ActivityWording {
+  return { action: `updated ${objectLabel} via ${sourceName}`, detail: null }
 }
 
 /**

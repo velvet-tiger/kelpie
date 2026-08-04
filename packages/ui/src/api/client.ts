@@ -62,8 +62,21 @@ export interface ApiClientOptions {
 
 export interface ApiClient {
   get<T>(path: string, decode: Decoder<T>, query?: QueryParameters): Promise<T>
+  /**
+   * A `GET` answering something other than JSON. CSV export is the case: the
+   * response is a file, and there is nothing to decode.
+   */
+  getText(path: string): Promise<string>
   list<T>(path: string, decodeItem: Decoder<T>, query?: QueryParameters): Promise<Page<T>>
   post<T>(path: string, body: unknown, decode: Decoder<T>): Promise<T>
+  /**
+   * A `POST` carrying a file. Creating an import job is the case: base64 in a
+   * JSON body would spend a third of the ten megabyte limit on encoding.
+   *
+   * The body sets its own `Content-Type` with the multipart boundary in it, so
+   * unlike `post` this must not name one.
+   */
+  postForm<T>(path: string, form: FormData, decode: Decoder<T>): Promise<T>
   /**
    * A `POST` whose success carries no body. `api.md` has resource writes return
    * the resulting object, but the session endpoints have nothing to return:
@@ -192,6 +205,31 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
   return {
     get: (path, decode, query) => send('GET', buildUrl(options.baseUrl, path, query), decode),
+
+    getText: async (path) => {
+      const response = await doFetch(buildUrl(options.baseUrl, path, undefined), {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: { Accept: 'text/csv' },
+      })
+
+      if (!response.ok) {
+        throw await readEmptyError(response)
+      }
+
+      return response.text()
+    },
+
+    postForm: async (path, form, decode) => {
+      const response = await doFetch(buildUrl(options.baseUrl, path, undefined), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+        body: form,
+      })
+
+      return decode(await readJson(response))
+    },
 
     list: async (path, decodeItem, query) =>
       readPage(await readJson(await request('GET', buildUrl(options.baseUrl, path, query))), decodeItem),
