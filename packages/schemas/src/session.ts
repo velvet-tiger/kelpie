@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import type { Account } from './account.ts'
 import { MEMBER_ROLES } from './values.ts'
 import type { MemberRole } from './values.ts'
 import { definedFields, idSchema } from './wire.ts'
@@ -35,12 +36,6 @@ export const sessionSchema: z.ZodType<Session, unknown> = z
       role: wire.role,
     }),
   )
-
-export interface Account {
-  readonly id: string
-  readonly email: string
-  readonly name: string
-}
 
 /** What `POST /v1/auth/login` and `/v1/auth/signup` answer with. */
 export interface SignedInAccount {

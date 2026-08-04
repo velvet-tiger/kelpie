@@ -8,7 +8,7 @@ import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
-import { users } from './schema.ts'
+import { userPreferences, users } from './schema.ts'
 
 /**
  * The auth surface against real Postgres. These assert behaviour a stranger can
@@ -58,6 +58,25 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       },
       body: JSON.stringify(body),
     }))
+  }
+
+  function patch(path: string, body: unknown, cookie?: string): Promise<Response> {
+    return Promise.resolve(harness.app.request(path, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cookie === undefined ? {} : { Cookie: cookie }),
+      },
+      body: JSON.stringify(body),
+    }))
+  }
+
+  function get(path: string, cookie?: string): Promise<Response> {
+    return Promise.resolve(
+      harness.app.request(path, {
+        headers: cookie === undefined ? {} : { Cookie: cookie },
+      }),
+    )
   }
 
   function isRecord(value: unknown): value is Record<string, unknown> {
@@ -293,6 +312,214 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       })
 
       expect(response.status).toBe(404)
+    })
+  })
+
+  describe('the account', () => {
+    const OTHER = {
+      email: 'grace@example.com',
+      name: 'Grace Hopper',
+      password: 'another long enough password',
+    }
+
+    it('answers with the signed-in account', async () => {
+      const cookie = await signUp()
+
+      const response = await get('/v1/account', cookie)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        id: expect.stringMatching(/^usr_/u),
+        email: 'ada@example.com',
+        name: 'Ada Lovelace',
+      })
+    })
+
+    it('answers 401 without a cookie', async () => {
+      expect((await get('/v1/account')).status).toBe(401)
+      expect((await patch('/v1/account', { name: 'Nobody' })).status).toBe(401)
+    })
+
+    it('changes the name and leaves the address alone', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account', { name: 'Ada King' }, cookie)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ name: 'Ada King', email: 'ada@example.com' })
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ name: 'Ada King' })
+    })
+
+    it('stores a new address lowercase and moves the login to it', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account', { email: 'Ada.King@Example.com' }, cookie)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ email: 'ada.king@example.com' })
+      expect(
+        (await post('/v1/auth/login', { email: 'ada.king@example.com', password: SIGNUP.password }))
+          .status,
+      ).toBe(200)
+      expect(
+        (await post('/v1/auth/login', { email: SIGNUP.email, password: SIGNUP.password })).status,
+      ).toBe(401)
+    })
+
+    it('answers 409 for an address another account holds', async () => {
+      const cookie = await signUp()
+      await post('/v1/auth/signup', OTHER)
+
+      const response = await patch('/v1/account', { email: 'GRACE@example.com' }, cookie)
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toMatchObject({
+        error: { code: 'conflict', details: [{ field: 'email' }] },
+      })
+    })
+
+    it('refuses a name that is only whitespace', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account', { name: '   ' }, cookie)
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toMatchObject({
+        error: { code: 'validation_failed', details: [{ field: 'name' }] },
+      })
+    })
+
+    it('refuses a field it does not define', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account', { role: 'owner' }, cookie)
+
+      expect(response.status).toBe(422)
+    })
+
+    it('leaves another account untouched', async () => {
+      const mine = await signUp()
+      const theirs = sessionCookieFrom(await post('/v1/auth/signup', OTHER))
+
+      expect((await patch('/v1/account', { name: 'Renamed' }, mine)).status).toBe(200)
+
+      expect(await (await get('/v1/account', theirs)).json()).toMatchObject({
+        name: 'Grace Hopper',
+        email: 'grace@example.com',
+      })
+    })
+  })
+
+  describe('account preferences', () => {
+    const DEFAULTS = {
+      timezone: 'UTC',
+      theme: 'system',
+      email_digest: true,
+      mention_emails: true,
+      product_updates: false,
+    }
+
+    it('answers defaults for an account that has never saved any, and stores no row', async () => {
+      const cookie = await signUp()
+
+      const response = await get('/v1/account/preferences', cookie)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual(DEFAULTS)
+      expect(await database.db.select().from(userPreferences)).toHaveLength(0)
+    })
+
+    it('answers 401 without a cookie', async () => {
+      expect((await get('/v1/account/preferences')).status).toBe(401)
+      expect((await patch('/v1/account/preferences', { theme: 'dark' })).status).toBe(401)
+    })
+
+    it('saves the fields it was given and defaults the rest', async () => {
+      const cookie = await signUp()
+
+      const response = await patch(
+        '/v1/account/preferences',
+        { timezone: 'Australia/Sydney', product_updates: true },
+        cookie,
+      )
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        ...DEFAULTS,
+        timezone: 'Australia/Sydney',
+        product_updates: true,
+      })
+    })
+
+    it('merges a later change onto what is stored', async () => {
+      const cookie = await signUp()
+      await patch('/v1/account/preferences', { timezone: 'Australia/Sydney' }, cookie)
+
+      const response = await patch('/v1/account/preferences', { theme: 'dark' }, cookie)
+
+      expect(await response.json()).toEqual({
+        ...DEFAULTS,
+        timezone: 'Australia/Sydney',
+        theme: 'dark',
+      })
+      expect(await (await get('/v1/account/preferences', cookie)).json()).toMatchObject({
+        timezone: 'Australia/Sydney',
+        theme: 'dark',
+      })
+    })
+
+    it('turns a toggle off, rather than reading false as an absent field', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account/preferences', { email_digest: false }, cookie)
+
+      expect(await response.json()).toMatchObject({ email_digest: false })
+    })
+
+    it('writes one row however many times the same save is repeated', async () => {
+      const cookie = await signUp()
+      const body = { timezone: 'Europe/London', theme: 'light' }
+
+      const first = await patch('/v1/account/preferences', body, cookie)
+      const second = await patch('/v1/account/preferences', body, cookie)
+
+      expect(second.status).toBe(200)
+      expect(await second.json()).toEqual(await first.json())
+      expect(await database.db.select().from(userPreferences)).toHaveLength(1)
+    })
+
+    it('refuses a timezone the platform cannot resolve', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account/preferences', { timezone: 'Mars/Olympus' }, cookie)
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toMatchObject({
+        error: { code: 'validation_failed', details: [{ field: 'timezone' }] },
+      })
+    })
+
+    it('refuses a theme outside the documented set', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account/preferences', { theme: 'sepia' }, cookie)
+
+      expect(response.status).toBe(422)
+    })
+
+    it('keeps one account\'s preferences out of another\'s', async () => {
+      const mine = await signUp()
+      const theirs = sessionCookieFrom(
+        await post('/v1/auth/signup', {
+          email: 'grace@example.com',
+          name: 'Grace Hopper',
+          password: 'another long enough password',
+        }),
+      )
+
+      await patch('/v1/account/preferences', { theme: 'dark', timezone: 'Europe/London' }, mine)
+
+      expect(await (await get('/v1/account/preferences', theirs)).json()).toEqual(DEFAULTS)
     })
   })
 

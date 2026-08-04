@@ -72,6 +72,12 @@ export interface ApiClient {
   postEmpty(path: string, body?: unknown): Promise<void>
   patch<T>(path: string, body: unknown, decode: Decoder<T>): Promise<T>
   /**
+   * A `PATCH` whose success carries no body. Changing a password is the case:
+   * it answers `204` because the one thing it changed is the one thing the API
+   * will not hand back.
+   */
+  patchEmpty(path: string, body: unknown): Promise<void>
+  /**
    * `query` is for a delete that takes a confirmation, which
    * `DELETE /v1/workspaces/:id?slug=` is. A `DELETE` body would be the other
    * option, and HTTP lets a client drop one.
@@ -201,6 +207,14 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     },
 
     patch: (path, body, decode) => send('PATCH', buildUrl(options.baseUrl, path, undefined), decode, body),
+
+    patchEmpty: async (path, body) => {
+      const response = await request('PATCH', buildUrl(options.baseUrl, path, undefined), body)
+
+      if (!response.ok) {
+        throw await readEmptyError(response)
+      }
+    },
 
     delete: async (path, query) => {
       const response = await request('DELETE', buildUrl(options.baseUrl, path, query))

@@ -98,6 +98,9 @@ function stubClient(stubs: Stubs): ApiClient {
     postEmpty: () => {
       throw new Error('Unexpected postEmpty call')
     },
+    patchEmpty: () => {
+      throw new Error('Unexpected patchEmpty call')
+    },
     patch: (path, body, decode) => {
       if (stubs.onPatch === undefined) {
         throw new Error(`Unexpected patch ${path}`)

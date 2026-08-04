@@ -48,6 +48,7 @@ export {
   SIZE_BANDS,
   SOCIAL_NETWORK_IDS,
   SOCIAL_NETWORK_LABELS,
+  THEME_PREFERENCES,
 } from './values.ts'
 export type {
   AccountType,
@@ -73,6 +74,7 @@ export type {
   RoleStatus,
   SizeBand,
   SocialNetworkId,
+  ThemePreference,
 } from './values.ts'
 
 export { definedFields, idSchema, nullableTimestampSchema, timestampSchema } from './wire.ts'
@@ -169,7 +171,6 @@ export {
   workspaceSchema,
 } from './session.ts'
 export type {
-  Account,
   CreateWorkspaceInput,
   LogInInput,
   Session,
@@ -177,3 +178,21 @@ export type {
   UpdateWorkspaceInput,
   Workspace,
 } from './session.ts'
+
+export {
+  MINIMUM_PASSWORD_LENGTH,
+  accountPreferencesSchema,
+  accountSchema,
+  accountSessionSchema,
+  changePasswordBody,
+  updateAccountBody,
+  updateAccountPreferencesBody,
+} from './account.ts'
+export type {
+  Account,
+  AccountPreferences,
+  AccountSession,
+  ChangePasswordInput,
+  UpdateAccountInput,
+  UpdateAccountPreferencesInput,
+} from './account.ts'

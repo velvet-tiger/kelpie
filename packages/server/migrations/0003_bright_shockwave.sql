@@ -1,0 +1,1 @@
+ALTER TABLE "user_preferences" ADD CONSTRAINT "user_preferences_theme_check" CHECK ("user_preferences"."theme" in ('system', 'light', 'dark'));

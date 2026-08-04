@@ -1,3 +1,4 @@
+import { THEME_PREFERENCES } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -6,7 +7,8 @@ import { requireSessionActor } from './actor.ts'
 import type { SessionActor } from './actor.ts'
 import { resolveActorFrom } from './credentials.ts'
 import type { CredentialDependencies } from './credentials.ts'
-import type { AuthService, IssuedSession, SessionView } from './service.ts'
+import type { PreferenceValues } from './preferences.ts'
+import type { AccountView, AuthService, IssuedSession, SessionView } from './service.ts'
 import { clearSessionCookie, writeSessionCookie } from './session.ts'
 import type { SessionCookieOptions } from './session.ts'
 
@@ -42,6 +44,41 @@ const changePasswordBody = z.object({
   new_password: z.string().min(1),
 })
 
+const updateAccountBody = z
+  .strictObject({ name: z.string().min(1), email: z.string().min(1) })
+  .partial()
+
+/**
+ * An IANA zone name, checked by asking `Intl` to build a formatter for it.
+ *
+ * A stored zone the platform cannot resolve would throw at render time, in a
+ * component far from the request that accepted it, so the refusal belongs here.
+ */
+const timezoneSchema = z.string().refine(
+  (value) => {
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: value })
+
+      return true
+    } catch {
+      // Only a RangeError for an unknown zone reaches this. Intl throws nothing
+      // else for a well-formed options object.
+      return false
+    }
+  },
+  { message: 'Must be an IANA time zone name, e.g. Australia/Sydney' },
+)
+
+const updatePreferencesBody = z
+  .strictObject({
+    timezone: timezoneSchema,
+    theme: z.enum(THEME_PREFERENCES),
+    email_digest: z.boolean(),
+    mention_emails: z.boolean(),
+    product_updates: z.boolean(),
+  })
+  .partial()
+
 export interface AuthRoutesDependencies extends CredentialDependencies {
   readonly service: AuthService
   readonly cookie: SessionCookieOptions
@@ -72,6 +109,20 @@ function accountResponse(issued: IssuedSession): Record<string, unknown> {
   return {
     account: { id: issued.account.id, email: issued.account.email, name: issued.account.name },
     active_workspace_id: issued.activeWorkspaceId,
+  }
+}
+
+function accountBody(account: AccountView): Record<string, unknown> {
+  return { id: account.id, email: account.email, name: account.name }
+}
+
+function preferencesResponse(preferences: PreferenceValues): Record<string, unknown> {
+  return {
+    timezone: preferences.timezone,
+    theme: preferences.theme,
+    email_digest: preferences.emailDigest,
+    mention_emails: preferences.mentionEmails,
+    product_updates: preferences.productUpdates,
   }
 }
 
@@ -124,6 +175,44 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
       workspace_id: actor.workspaceId,
       role: actor.role,
     })
+  })
+
+  /**
+   * `/account` rather than `/auth/account`: `/auth/*` is how a browser gets a
+   * session, and this is the person that session belongs to. The auth module
+   * owns both because it owns the `users` table.
+   */
+  router.get('/account', async (context) =>
+    context.json(accountBody(await dependencies.service.getAccount(await requireActor(context)))),
+  )
+
+  router.patch('/account', async (context) => {
+    const body = await readBody(context, updateAccountBody)
+    const account = await dependencies.service.updateAccount(await requireActor(context), {
+      ...(body.name === undefined ? {} : { name: body.name }),
+      ...(body.email === undefined ? {} : { email: body.email }),
+    })
+
+    return context.json(accountBody(account))
+  })
+
+  router.get('/account/preferences', async (context) =>
+    context.json(
+      preferencesResponse(await dependencies.service.getPreferences(await requireActor(context))),
+    ),
+  )
+
+  router.patch('/account/preferences', async (context) => {
+    const body = await readBody(context, updatePreferencesBody)
+    const preferences = await dependencies.service.updatePreferences(await requireActor(context), {
+      ...(body.timezone === undefined ? {} : { timezone: body.timezone }),
+      ...(body.theme === undefined ? {} : { theme: body.theme }),
+      ...(body.email_digest === undefined ? {} : { emailDigest: body.email_digest }),
+      ...(body.mention_emails === undefined ? {} : { mentionEmails: body.mention_emails }),
+      ...(body.product_updates === undefined ? {} : { productUpdates: body.product_updates }),
+    })
+
+    return context.json(preferencesResponse(preferences))
   })
 
   router.get('/auth/sessions', async (context) => {

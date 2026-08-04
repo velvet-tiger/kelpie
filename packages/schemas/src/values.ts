@@ -243,6 +243,17 @@ export const INVITE_STATUSES = ['pending', 'expired'] as const
 
 export type InviteStatus = (typeof INVITE_STATUSES)[number]
 
+/**
+ * Light, dark, or whatever the operating system says.
+ *
+ * `system` is a stored answer rather than the absence of one: a reader who has
+ * chosen to follow the machine has expressed a preference, and it has to survive
+ * a move to a browser whose machine currently says something else.
+ */
+export const THEME_PREFERENCES = ['system', 'light', 'dark'] as const
+
+export type ThemePreference = (typeof THEME_PREFERENCES)[number]
+
 /** A paused form still exists and still renders; its submit answers 409 (`forms.md`). */
 export const FORM_STATUSES = ['active', 'paused'] as const
 

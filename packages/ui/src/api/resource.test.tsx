@@ -92,6 +92,9 @@ function stubClient(parts: StubParts): ApiClient {
     postEmpty: () => {
       throw new Error('Unexpected postEmpty call')
     },
+    patchEmpty: () => {
+      throw new Error('Unexpected patchEmpty call')
+    },
     patch: (path, body, decode) => required(parts.patch, 'patch')(path, body).then(decode),
     delete: (path) => required(parts.delete, 'delete')(path),
   }
