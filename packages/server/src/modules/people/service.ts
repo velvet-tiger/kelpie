@@ -12,7 +12,10 @@ import { describeCreation, describeUpdate } from '../activities/wording.ts'
 import type { FieldLabels } from '../activities/wording.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
-import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
+import {
+  deleteRecordsAttachedTo,
+  deleteRecordsAttachedToCandidaciesOf,
+} from '../attachedRecords.ts'
 import { referencedElsewhere } from '../references.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_PERSON_SORT, PERSON_SORTS } from './repository.ts'
@@ -259,6 +262,10 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
         // so nothing in the database removes them. Same transaction: if the
         // delete below is refused, these come back with it.
         await deleteRecordsAttachedTo(tx, workspaceId, 'person', id)
+
+        // The candidacy rows themselves cascade, which is why their interview
+        // notes have to be taken here: no hiring service sees that delete.
+        await deleteRecordsAttachedToCandidaciesOf(tx, workspaceId, id)
 
         try {
           await repository.deletePerson(tx, workspaceId, id)

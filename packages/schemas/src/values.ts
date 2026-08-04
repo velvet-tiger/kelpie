@@ -110,6 +110,61 @@ export const RECORD_TARGET_TYPES = [
 
 export type RecordTargetType = (typeof RECORD_TARGET_TYPES)[number]
 
+/** Whether a Role is still being hired for. */
+export const ROLE_STATUSES = ['open', 'closed'] as const
+
+export type RoleStatus = (typeof ROLE_STATUSES)[number]
+
+export const ROLE_STATUS_LABELS: Readonly<Record<RoleStatus, string>> = {
+  open: 'Open',
+  closed: 'Closed',
+}
+
+/**
+ * Where a Candidate stands with the Role they are attached to.
+ *
+ * This is the Person↔Role link's state, never a column on Person: the same
+ * person can be in process for one role and in the nurture pile for another.
+ */
+export const CANDIDATE_STATUSES = [
+  'in_process',
+  'nurture',
+  'hired',
+  'passed',
+  'withdrawn',
+] as const
+
+export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number]
+
+export const CANDIDATE_STATUS_LABELS: Readonly<Record<CandidateStatus, string>> = {
+  in_process: 'In process',
+  nurture: 'Nurture',
+  hired: 'Hired',
+  passed: 'Passed',
+  withdrawn: 'Withdrawn',
+}
+
+/** The one status that carries an interview stage. Every other status clears it. */
+export const IN_PROCESS: CandidateStatus = 'in_process'
+
+/**
+ * How far through interviewing a candidate is, in order. Meaningful only while
+ * the candidate is in process, which is why `interview_stage` is nullable.
+ */
+export const INTERVIEW_STAGES = ['sourced', 'screen', 'interview', 'offer'] as const
+
+export type InterviewStage = (typeof INTERVIEW_STAGES)[number]
+
+export const INTERVIEW_STAGE_LABELS: Readonly<Record<InterviewStage, string>> = {
+  sourced: 'Sourced',
+  screen: 'Screen',
+  interview: 'Interview',
+  offer: 'Offer',
+}
+
+/** Where a candidate enters the process when no stage is named. */
+export const FIRST_INTERVIEW_STAGE: InterviewStage = INTERVIEW_STAGES[0]
+
 /**
  * The four pipelines whose board columns live in `pipeline_stages`. A Deal moves
  * through `deal` stages and so on; the kinds are fixed even though the stages

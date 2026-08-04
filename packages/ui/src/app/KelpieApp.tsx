@@ -9,6 +9,7 @@ import { DealStageSettingsPage } from '../pages/DealStageSettingsPage.tsx'
 import { DealsPage } from '../pages/DealsPage.tsx'
 import { DecisionsPage } from '../pages/DecisionsPage.tsx'
 import { FundraisingPage } from '../pages/FundraisingPage.tsx'
+import { HiringPage } from '../pages/HiringPage.tsx'
 import { OpportunitiesPage } from '../pages/OpportunitiesPage.tsx'
 import { OpportunityDetail } from '../pages/OpportunityDetail.tsx'
 import { OpportunityStageSettingsPage } from '../pages/OpportunityStageSettingsPage.tsx'
@@ -20,6 +21,7 @@ import { PersonDetail } from '../pages/PersonDetail.tsx'
 import { PlanningPage } from '../pages/PlanningPage.tsx'
 import { RaiseDetail } from '../pages/RaiseDetail.tsx'
 import { RaiseStageSettingsPage } from '../pages/RaiseStageSettingsPage.tsx'
+import { RoleDetail } from '../pages/RoleDetail.tsx'
 import { CreateWorkspacePage } from '../pages/auth/CreateWorkspacePage.tsx'
 import { SignInPage } from '../pages/auth/SignInPage.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
@@ -69,6 +71,8 @@ function AppRoutes(): React.JSX.Element {
           <Route index element={<Navigate to="/people" replace />} />
           <Route path="people" element={<PeoplePage />} />
           <Route path="people/:id" element={<PersonDetail />} />
+          <Route path="hiring" element={<HiringPage />} />
+          <Route path="hiring/:id" element={<RoleDetail />} />
           <Route path="companies" element={<CompaniesPage />} />
           <Route path="companies/:id" element={<CompanyDetail />} />
           <Route path="deals" element={<DealsPage />} />

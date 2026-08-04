@@ -1,9 +1,10 @@
-import { PREFERRED_CHANNELS } from '@kelpie/schemas'
-import type { Person, PersonInput, PreferredChannel } from '@kelpie/schemas'
+import { IN_PROCESS, PREFERRED_CHANNELS } from '@kelpie/schemas'
+import type { Candidate, Person, PersonInput, PreferredChannel } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
+import { useCandidates } from '../api/resources/candidates.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
@@ -32,15 +33,25 @@ import { PhonesField } from '../components/PhonesField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { useRecordTabs } from '../registry/context.ts'
 import { inSlotOrder } from '../registry/registry.ts'
+import {
+  CandidateReferrerField,
+  CandidateStageField,
+  CandidateStatusField,
+} from './candidateFields.tsx'
 import { toOptions, toTags } from './fields.ts'
+import { usePersonNames, useRoleTitles } from './hiringDirectory.ts'
 
 /**
  * One person.
  *
- * The mockup carried eight tabs. Overview, Activity, Notes and Decisions are
- * here; the remaining four read Deals, Opportunities, Partnerships or
- * Candidates, none of which have an endpoint yet, and return with their APIs.
- * A UI module can add its own through the `person` record-tab slot.
+ * The mockup carried eight tabs. Overview, Activity, Notes, Decisions and Hiring
+ * are here; the remaining three read Deals, Opportunities or Partnerships, and
+ * return with their pages. A UI module can add its own through the `person`
+ * record-tab slot.
+ *
+ * Hiring appears only when this person is up for a role, which is the mockup's
+ * rule: a Person carries no hiring fields, so with no candidacy there is nothing
+ * for the tab to hold.
  *
  * Influence and relationship warmth are not on this page. They are Person
  * columns in the API and fields on the mockup's own `Person` type, but the
@@ -56,6 +67,9 @@ export function PersonDetail(): React.JSX.Element {
   const deletePerson = useDeletePerson()
   const moduleTabs = inSlotOrder(useRecordTabs('person'))
   const [activeTab, setActiveTab] = useState('overview')
+  const candidacies = useCandidates({ personIds: id === undefined ? [] : [id] }, {
+    enabled: id !== undefined,
+  })
 
   if (isNotFound) {
     return <NotFoundPanel label="Person" backTo="/people" />
@@ -72,6 +86,9 @@ export function PersonDetail(): React.JSX.Element {
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'activity', label: 'Activity' },
+    ...(candidacies.records.length === 0
+      ? []
+      : [{ id: 'hiring', label: 'Hiring', count: candidacies.records.length }]),
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
@@ -110,6 +127,7 @@ export function PersonDetail(): React.JSX.Element {
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Person sections">
             {active === 'overview' && <PersonOverview person={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="person" targetId={record.id} />}
+            {active === 'hiring' && <PersonHiring candidacies={candidacies.records} />}
             {active === 'notes' && <NotesPanel targetType="person" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="person" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'person', recordId: record.id })}
@@ -188,6 +206,76 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
       />
       <LatestActivity targetType="person" targetId={person.id} />
     </div>
+  )
+}
+
+/**
+ * Every role this person is up for, one card each.
+ *
+ * The full notes panel rather than the Role page's single note: an interview
+ * note belongs to the candidacy, and this is the page where the reader wants all
+ * of them rather than the latest one. That split is the mockup's.
+ */
+function PersonHiring({
+  candidacies,
+}: {
+  readonly candidacies: readonly Candidate[]
+}): React.JSX.Element {
+  const roles = useRoleTitles()
+  const names = usePersonNames()
+
+  return (
+    <section>
+      <SectionHeader title="Hiring" />
+      <ul className="space-y-4">
+        {candidacies.map((candidate) => (
+          <li key={candidate.id} className="rounded-md border border-border p-4">
+            <Link
+              to={`/hiring/${candidate.roleId}`}
+              className="text-[14px] font-medium text-ink hover:text-accent"
+            >
+              {roles.titleFor(candidate.roleId) ?? candidate.roleId}
+            </Link>
+
+            <div className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-3">
+              <div>
+                <div className="mb-0.5 text-[10px] font-semibold tracking-wide text-ink-faint uppercase">
+                  Status
+                </div>
+                <CandidateStatusField candidate={candidate} plain />
+              </div>
+              <div>
+                {candidate.status === IN_PROCESS && (
+                  <>
+                    <div className="mb-0.5 text-[10px] font-semibold tracking-wide text-ink-faint uppercase">
+                      Stage
+                    </div>
+                    <CandidateStageField candidate={candidate} plain />
+                  </>
+                )}
+              </div>
+              <div>
+                <div className="mb-0.5 text-[10px] font-semibold tracking-wide text-ink-faint uppercase">
+                  Referrer
+                </div>
+                <CandidateReferrerField
+                  candidate={candidate}
+                  referrerName={
+                    candidate.referrerPersonId === null
+                      ? undefined
+                      : names.nameFor(candidate.referrerPersonId)
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 border-t border-border pt-3">
+              <NotesPanel targetType="candidate" targetId={candidate.id} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

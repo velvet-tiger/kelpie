@@ -16,9 +16,15 @@
 export {
   ACCOUNT_TYPES,
   ACTIVITY_KINDS,
+  CANDIDATE_STATUS_LABELS,
+  CANDIDATE_STATUSES,
   COMPANY_STAGES,
+  FIRST_INTERVIEW_STAGE,
   ICP_FITS,
+  IN_PROCESS,
   INFLUENCE_LEVELS,
+  INTERVIEW_STAGE_LABELS,
+  INTERVIEW_STAGES,
   MEMBER_ROLES,
   OPEN_PLAN_ITEM_STATUSES,
   PIPELINE_KIND_LABELS,
@@ -29,6 +35,8 @@ export {
   RECORD_OBJECT_TYPES,
   RECORD_TARGET_TYPES,
   RELATIONSHIP_LEVELS,
+  ROLE_STATUS_LABELS,
+  ROLE_STATUSES,
   SIZE_BANDS,
   SOCIAL_NETWORK_IDS,
   SOCIAL_NETWORK_LABELS,
@@ -36,9 +44,11 @@ export {
 export type {
   AccountType,
   ActivityKind,
+  CandidateStatus,
   CompanyStage,
   IcpFit,
   Influence,
+  InterviewStage,
   MemberRole,
   PipelineKind,
   PlanItemStatus,
@@ -46,6 +56,7 @@ export type {
   RecordObjectType,
   RecordTargetType,
   Relationship,
+  RoleStatus,
   SizeBand,
   SocialNetworkId,
 } from './values.ts'
@@ -73,6 +84,12 @@ export type { Partnership, PartnershipInput } from './partnership.ts'
 
 export { raiseBody, raiseSchema } from './raise.ts'
 export type { Raise, RaiseInput } from './raise.ts'
+
+export { roleBody, roleSchema } from './role.ts'
+export type { Role, RoleInput } from './role.ts'
+
+export { candidateBody, candidateSchema, createCandidateBody } from './candidate.ts'
+export type { Candidate, CandidateInput, CreateCandidateInput } from './candidate.ts'
 
 export {
   createPipelineStageBody,

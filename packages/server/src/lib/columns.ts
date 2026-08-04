@@ -56,15 +56,24 @@ export function moment(name: string) {
  *   inlined into DDL, so a quote in one would be a syntax error at boot.
  */
 export function checkOneOf(name: string, column: PgColumn, values: readonly string[]) {
+  return check(name, oneOf(name, column, values))
+}
+
+/**
+ * The `column in (…)` half of such a constraint, for a column whose rule needs
+ * more than membership. A nullable enum is the case: `interview_stage` is either
+ * null or one of the stages, and only the second half comes from the array.
+ *
+ * @param constraintName Only for the error below, which fires at boot.
+ */
+export function oneOf(constraintName: string, column: Column, values: readonly string[]) {
   const offending = values.find((value) => value.includes("'"))
 
   if (offending !== undefined) {
-    throw new Error(`Check constraint ${name} cannot inline a value containing a quote: ${offending}`)
+    throw new Error(
+      `Check constraint ${constraintName} cannot inline a value containing a quote: ${offending}`,
+    )
   }
 
-  return check(name, oneOfCondition(column, values))
-}
-
-function oneOfCondition(column: Column, values: readonly string[]) {
   return sql`${column} in (${sql.raw(values.map((value) => `'${value}'`).join(', '))})`
 }

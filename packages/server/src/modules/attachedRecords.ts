@@ -1,9 +1,11 @@
 import { PIPELINE_KINDS } from '@kelpie/schemas'
 import type { PipelineKind } from '@kelpie/schemas'
+import { and, eq } from 'drizzle-orm'
 
 import type { Queryable } from '../runtime/transaction.ts'
 import * as activityRepository from './activities/repository.ts'
 import * as decisionRepository from './decisions/repository.ts'
+import { candidates } from './hiring/schema.ts'
 import * as noteRepository from './notes/repository.ts'
 import * as planRepository from './plans/repository.ts'
 
@@ -20,7 +22,7 @@ import * as planRepository from './plans/repository.ts'
  */
 
 /** Target types that can own attached records here. */
-export type AttachableTargetType = 'person' | 'company' | PipelineKind
+export type AttachableTargetType = 'person' | 'company' | 'candidate' | PipelineKind
 
 const PLAN_TARGET_TYPES: ReadonlySet<string> = new Set(PIPELINE_KINDS)
 
@@ -45,4 +47,39 @@ export async function deleteRecordsAttachedTo(
     : 0
 
   return notes + activities + decisions + plans
+}
+
+/**
+ * The same cleanup for the candidacies a person's delete takes with them.
+ *
+ * `candidates.person_id` cascades, so those rows go without any service seeing
+ * them, and the interview notes attached to each would outlive the candidacy
+ * they described. This is the only link in the schema that both dies by cascade
+ * and owns attached records, which is why it is the only one with a helper here.
+ *
+ * Reads the `candidates` *table* rather than the hiring repository: the module
+ * that owns those rows registers after `people`, and `architecture.md` allows a
+ * table read where a repository import would invert the dependency.
+ *
+ * @param db Must be the caller's transaction, so a refused person delete brings
+ *   these rows back with it.
+ * @returns How many attached rows were removed.
+ */
+export async function deleteRecordsAttachedToCandidaciesOf(
+  db: Queryable,
+  workspaceId: string,
+  personId: string,
+): Promise<number> {
+  const held = await db
+    .select({ id: candidates.id })
+    .from(candidates)
+    .where(and(eq(candidates.workspaceId, workspaceId), eq(candidates.personId, personId)))
+
+  let removed = 0
+
+  for (const candidacy of held) {
+    removed += await deleteRecordsAttachedTo(db, workspaceId, 'candidate', candidacy.id)
+  }
+
+  return removed
 }
