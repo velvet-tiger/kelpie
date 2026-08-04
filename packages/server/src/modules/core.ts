@@ -9,7 +9,7 @@ import { createCompaniesModule } from './companies/index.ts'
 import { createDealsModule } from './deals/index.ts'
 import { createDecisionsModule } from './decisions/index.ts'
 import * as forms from './forms/schema.ts'
-import * as handbook from './handbook/schema.ts'
+import { createHandbookModule } from './handbook/index.ts'
 import { createHiringModule } from './hiring/index.ts'
 import * as importExport from './import-export/schema.ts'
 import * as integrations from './integrations/schema.ts'
@@ -45,7 +45,6 @@ interface CoreModuleDefinition {
 }
 
 const definitions: readonly CoreModuleDefinition[] = [
-  { id: 'handbook', requires: ['workspace'], tables: handbook },
   { id: 'forms', requires: ['people', 'companies', 'positions', 'deals'], tables: forms },
   { id: 'import-export', requires: ['workspace'], tables: importExport },
   { id: 'agent-tasks', requires: ['workspace'], tables: agentTasks },
@@ -75,6 +74,7 @@ export const coreModules: readonly KelpieModule[] = [
   createHiringModule(coreMigrationsDirectory),
   createPlansModule(coreMigrationsDirectory),
   createDecisionsModule(coreMigrationsDirectory),
+  createHandbookModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
     ...(definition.requires === undefined ? {} : { requires: definition.requires }),

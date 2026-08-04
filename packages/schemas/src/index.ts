@@ -111,6 +111,18 @@ export type { CreatePlanItemInput, PlanItem, PlanItemInput } from './planItem.ts
 export { createDecisionBody, decisionBody, decisionSchema } from './decision.ts'
 export type { CreateDecisionInput, Decision, DecisionInput } from './decision.ts'
 
+export {
+  MAX_HANDBOOK_DEPTH,
+  createHandbookPageBody,
+  handbookPageBody,
+  handbookPageSchema,
+} from './handbookPage.ts'
+export type {
+  CreateHandbookPageInput,
+  HandbookPage,
+  HandbookPageInput,
+} from './handbookPage.ts'
+
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'
 

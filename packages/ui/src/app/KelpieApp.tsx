@@ -24,6 +24,7 @@ import { RaiseStageSettingsPage } from '../pages/RaiseStageSettingsPage.tsx'
 import { RoleDetail } from '../pages/RoleDetail.tsx'
 import { CreateWorkspacePage } from '../pages/auth/CreateWorkspacePage.tsx'
 import { SignInPage } from '../pages/auth/SignInPage.tsx'
+import { HandbookLayout } from '../pages/handbook/HandbookPage.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
 import { useModuleRoutes } from '../registry/context.ts'
 import type { UiExtensions } from '../registry/registry.ts'
@@ -89,6 +90,9 @@ function AppRoutes(): React.JSX.Element {
           <Route path="partnerships/:id" element={<PartnershipDetail />} />
           <Route path="planning" element={<PlanningPage />} />
           <Route path="decisions" element={<DecisionsPage />} />
+          {/* The optional segment is the mockup's: /handbook opens the first page. */}
+          <Route path="handbook" element={<HandbookLayout />} />
+          <Route path="handbook/:pageId" element={<HandbookLayout />} />
           {moduleRoutes.map((route) => (
             <Route key={route.path} path={route.path} element={route.element} />
           ))}

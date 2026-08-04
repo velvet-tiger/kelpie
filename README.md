@@ -250,6 +250,7 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | Roles | `GET`, `POST /v1/roles`, `GET`, `PATCH`, `DELETE /v1/roles/:id`. Filters `?q=` and `?status=` |
 | Candidates | `GET`, `POST /v1/candidates`, `GET`, `PATCH`, `DELETE /v1/candidates/:id`. Filters `?role_id=`, `?person_id=` and `?status=` |
 | Decisions | `GET`, `POST /v1/decisions`, `GET`, `PATCH`, `DELETE /v1/decisions/:id`. Filters `?q=`, `?target_type=` and `?target_id=` |
+| Handbook | `GET`, `POST /v1/handbook_pages`, `GET`, `PATCH`, `DELETE /v1/handbook_pages/:id`. Filters `?q=` and `?slug=` |
 
 Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
 
@@ -259,6 +260,8 @@ A job title lives on Position and nowhere else, so a person can hold one at more
 
 Hiring state lives on Candidate, the Person↔Role link, for the same reason: one person can be interviewing for one role and in the nurture pile for another. `interview_stage` is null unless the status is `in_process`, and the API keeps that true — leaving the process clears the stage, rejoining it restores the first one, and a stage that contradicts the status is a `422`.
 
+The handbook is a tree the caller rebuilds from `parent_id` and `sort_order`; a page's `sort_order` positions it among its siblings and means nothing across the whole set, so the list sorts by title. `PATCH` with a `parent_id` or a `sort_order` is a move, and the API renumbers both sibling sets so positions stay contiguous from 0. In the sidebar one gesture does both: dragging a page sideways indents or lifts it where it stands, and a drag that ends where it started writes nothing. It nests five levels, and a move that would push a page *or its own subpages* past that is a `422`, as is nesting a page under itself or one of its subpages. A page's `slug` is the stable handle `agent-tasks.md` names pages by, so renaming a page leaves it alone; moving it on purpose is a separate field, and a collision is a `409`. Deleting a page deletes every page under it.
+
 Underneath: the module runtime, a typed event bus with after-commit publication, the entitlements registry, 36 tables with migrations, and an integration harness that creates and truncates its own database.
 
 Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
@@ -267,10 +270,10 @@ In the browser: People and Companies, list and detail, against those endpoints. 
 
 ## Not here yet
 
-- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Planning and Decisions are ported. Everything else in `mockups/` is not: the dashboard, handbook, search, forms, admin and account pages all wait for their endpoints.
+- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning and Decisions are ported. Everything else in `mockups/` is not: the dashboard, search, forms, admin and account pages all wait for their endpoints.
+- **Agent tasks on a handbook page.** The mockup's handbook header carries an Agent tasks button. It arrives with the agent task registry in Phase 3, like every other record's.
 - **The rest of the auth pages.** Sign-in and first-workspace exist as placeholders so the CRM pages can be reached. Signup, password reset, the onboarding wizard, and the account security page are a separate feature and replace them.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
-- **The rest of the CRM objects.** The Handbook has tables and a registered module, but no routes or services.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
 - **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.
 - **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.
