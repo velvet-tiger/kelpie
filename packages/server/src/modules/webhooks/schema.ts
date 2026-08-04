@@ -1,8 +1,16 @@
-import { sql } from 'drizzle-orm'
-import { check, index, integer, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
+import {
+  WEBHOOK_DELIVERY_STATUSES,
+  WEBHOOK_EVENTS,
+  WEBHOOK_STATUSES,
+} from '@kelpie/schemas'
+import type { WebhookDeliveryStatus, WebhookEvent, WebhookStatus } from '@kelpie/schemas'
+import { index, integer, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
+
+export { WEBHOOK_DELIVERY_STATUSES, WEBHOOK_EVENTS, WEBHOOK_STATUSES }
+export type { WebhookDeliveryStatus, WebhookEvent, WebhookStatus }
 
 /** Outbound HTTP deliveries driven by the internal event bus. */
 export const webhooks = pgTable(
@@ -13,16 +21,24 @@ export const webhooks = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     url: text('url').notNull(),
-    events: text('events').array().notNull().default([]),
-    secretHash: text('secret_hash').notNull(),
+    events: text('events').array().$type<WebhookEvent[]>().notNull().default([]),
+    /**
+     * The signing secret, sealed by `lib/secrets.ts`.
+     *
+     * Not a hash, unlike every other secret in the schema, because `api.md`
+     * signs each delivery *with* this secret and the receiver holds the
+     * plaintext we showed them once. A hash could never produce a signature
+     * anything off the shelf can verify.
+     */
+    secretEncrypted: text('secret_encrypted').notNull(),
     secretPrefix: text('secret_prefix').notNull(),
-    status: text('status').notNull().default('active'),
+    status: text('status').$type<WebhookStatus>().notNull().default('active'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     index('webhooks_workspace_idx').on(table.workspaceId),
-    check('webhooks_status_check', sql`${table.status} in ('active', 'failing', 'paused')`),
+    checkOneOf('webhooks_status_check', table.status, WEBHOOK_STATUSES),
   ],
 )
 
@@ -37,15 +53,15 @@ export const webhookDeliveries = pgTable(
     webhookId: text('webhook_id')
       .notNull()
       .references(() => webhooks.id, { onDelete: 'cascade' }),
-    event: text('event').notNull(),
-    payload: jsonb('payload').notNull(),
-    status: text('status').notNull(),
+    event: text('event').$type<WebhookEvent>().notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    status: text('status').$type<WebhookDeliveryStatus>().notNull(),
     attempts: integer('attempts').notNull().default(0),
     deliveredAt: moment('delivered_at'),
     createdAt: createdAt(),
   },
   (table) => [
     index('webhook_deliveries_webhook_idx').on(table.webhookId),
-    check('webhook_deliveries_status_check', sql`${table.status} in ('success', 'failed')`),
+    checkOneOf('webhook_deliveries_status_check', table.status, WEBHOOK_DELIVERY_STATUSES),
   ],
 )

@@ -23,6 +23,13 @@ export { MINIMUM_PASSWORD_LENGTH, hashPassword, isPasswordStrongEnough, verifyPa
 export { generateToken, hashToken, tokenHashesMatch } from './lib/tokens.ts'
 
 export {
+  SecretDecryptionError,
+  createSecretCipher,
+  secretEncryptionConfigSchema,
+} from './lib/secrets.ts'
+export type { SecretCipher, SecretEncryptionConfig } from './lib/secrets.ts'
+
+export {
   AppError,
   describeThrown,
   describeValidationIssue,

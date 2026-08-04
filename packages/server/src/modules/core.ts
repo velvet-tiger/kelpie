@@ -21,7 +21,7 @@ import { createPipelinesModule } from './pipelines/index.ts'
 import { createPlansModule } from './plans/index.ts'
 import { createPositionsModule } from './positions/index.ts'
 import { createRaisesModule } from './raises/index.ts'
-import * as webhooks from './webhooks/schema.ts'
+import { createWebhooksModule } from './webhooks/index.ts'
 import { createWorkspaceModule } from './workspace/index.ts'
 
 /**
@@ -46,7 +46,6 @@ interface CoreModuleDefinition {
 
 const definitions: readonly CoreModuleDefinition[] = [
   { id: 'agent-tasks', requires: ['workspace'], tables: agentTasks },
-  { id: 'webhooks', requires: ['workspace'], tables: webhooks },
   { id: 'integrations', requires: ['workspace'], tables: integrations },
 ]
 
@@ -75,6 +74,7 @@ export const coreModules: readonly KelpieModule[] = [
   createHandbookModule(coreMigrationsDirectory),
   createFormsModule(coreMigrationsDirectory),
   createImportExportModule(coreMigrationsDirectory),
+  createWebhooksModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
     ...(definition.requires === undefined ? {} : { requires: definition.requires }),

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
+import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
@@ -69,7 +70,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     await database.truncateAll()
     harness = await createTestApp({
       modules: coreModules,
-      environment: { NODE_ENV: 'test' },
+      environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
     })
   })
@@ -822,7 +823,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       const limited = await createTestApp({
         modules: coreModules,
-        environment: { NODE_ENV: 'test' },
+        environment: TEST_ENVIRONMENT,
         services: createTestServices({ db: database.db }),
         entitlements,
       })
@@ -927,7 +928,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const past = new Date('2026-01-01T00:00:00.000Z')
       const stale = await createTestApp({
         modules: coreModules,
-        environment: { NODE_ENV: 'test' },
+        environment: TEST_ENVIRONMENT,
         services: createTestServices({ db: database.db, now: () => past }),
       })
 

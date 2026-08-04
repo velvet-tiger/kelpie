@@ -31,6 +31,8 @@ export const idPrefixes = {
   formField: 'ff',
   formSubmission: 'sub',
   webhook: 'wh',
+  /** One settled delivery. `api.md` gained the prefix with the delivery log. */
+  webhookDelivery: 'whd',
   agentRegistration: 'ag',
   agentRun: 'run',
   importJob: 'imp',

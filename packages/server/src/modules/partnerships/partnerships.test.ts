@@ -8,6 +8,7 @@ import { createTestClient, readList, readRecord, readString } from '../../testin
 import type { TestClient, TestOwner } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
+import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
 import { planItems } from '../plans/schema.ts'
@@ -40,7 +41,7 @@ describe.skipIf(connectionString === undefined)('partnerships', () => {
     await database.truncateAll()
     harness = await createTestApp({
       modules: coreModules,
-      environment: { NODE_ENV: 'test' },
+      environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
     })
     client = createTestClient(harness.app)
