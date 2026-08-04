@@ -38,8 +38,12 @@ export type StagedObjectType = 'deal' | 'opportunity' | 'raise' | 'partnership'
  */
 export interface DomainEvents {
   'workspace.created': { workspaceId: string; slug: string }
+  /** Fires after the cascade, so nothing the workspace owned still exists. */
+  'workspace.deleted': { workspaceId: string; slug: string }
   'member.invited': { workspaceId: string; inviteId: string; email: string }
   'member.joined': { workspaceId: string; memberId: string; userId: string }
+  /** Pairs with `member.joined`, which is what a seat count subscribes to. */
+  'member.removed': { workspaceId: string; memberId: string; userId: string }
   'record.created': { workspaceId: string; objectType: RecordObjectType; recordId: string }
   'record.updated': {
     workspaceId: string
@@ -74,8 +78,10 @@ export type DomainEventName = keyof DomainEvents
  */
 export const DOMAIN_EVENT_NAMES = [
   'workspace.created',
+  'workspace.deleted',
   'member.invited',
   'member.joined',
+  'member.removed',
   'record.created',
   'record.updated',
   'record.deleted',

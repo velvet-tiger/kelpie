@@ -238,8 +238,9 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | Accounts | `POST /v1/auth/signup`, `login`, `logout`, `GET /v1/auth/me` |
 | Sessions | `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id` |
 | Passwords | `PATCH /v1/auth/password`, `POST /v1/auth/password-reset` and `/confirm` |
-| Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `GET .../members` |
-| Invites | `POST` and `GET /v1/workspaces/:id/invites`, `POST /v1/invites/accept` |
+| Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `DELETE /v1/workspaces/:id?slug=` |
+| Membership | `GET`, `PATCH` and `DELETE /v1/workspaces/:id/members[/:member_id]` |
+| Invites | `POST` and `GET /v1/workspaces/:id/invites`, `POST .../invites/:invite_id/resend`, `DELETE .../invites/:invite_id`, `POST /v1/invites/accept` |
 | API keys | `POST /v1/api-keys`, `GET /v1/api-keys?kind=`, `DELETE /v1/api-keys/:id` |
 | People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
 | Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |
@@ -278,11 +279,21 @@ In the browser: People and Companies, list and detail, against those endpoints. 
 
 Forms have a list and a four-tab detail page: submissions with links to what each one created, a drag-ordered field builder, settings, and the embed snippets. The builder is the one screen in the app that saves explicitly rather than per keystroke, because a write replaces the whole field list and committing on every character would reissue every field id. It refuses to send a list the API would reject, and shows why beside the field responsible.
 
+Workspace administration is under Admin in the sidebar. **Workspace** carries the settings, including the two agent identity strings: `tagline` is the short line an agent loads first and `one_liner` is what the company does. Clearing either sends `null`, so an emptied field is no tagline rather than an empty one. The slug is editable and a collision is a `409`.
+
+**Team** invites by email, changes roles, and removes members. Every rule is the API's, not the page's: a member who tries anyway gets `403`. The owner cannot be demoted or removed, and ownership moves only by being given away, which makes the outgoing owner an admin in the same transaction. Removing somebody who still owns Deals, Opportunities, Partnerships, Raises, Plan items, Decisions or Notes answers `409` naming each type and how many, per `schema.md`'s restrict rule; reassign them first. An invitation's status is derived from `expires_at` rather than stored, so a stale one reads as expired with nothing sweeping the table. Resending issues a new token and retires the old link. Revoking deletes the row, which is what actually kills the link already in somebody's inbox.
+
+Deleting a workspace is the owner's alone and takes the slug as confirmation, in the request rather than only in the browser, so an accidental `DELETE` at the right id does nothing. It cascades every table that carries a `workspace_id`. Accounts are global and survive it.
+
+The emailed invitation lands on `/join?token=…`, which accepts as the signed-in account. Signing in from there returns to the invitation instead of the CRM.
+
 ## Not here yet
 
-- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions and Forms are ported. Everything else in `mockups/` is not: the dashboard, search, admin and account pages all wait for their endpoints.
+- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, and the Workspace and Team admin pages are ported. Everything else in `mockups/` is not: the dashboard, search, the remaining admin pages and the account pages all wait for their endpoints.
+- **Role enforcement outside workspace administration.** Administration is gated at `admin`, and API keys already were. Every CRM resource is open to any member, which is what the specs describe; no document defines a read-only role. Narrowing that is a product decision, not a missing check.
 - **Agent tasks on a handbook page.** The mockup's handbook header carries an Agent tasks button. It arrives with the agent task registry in Phase 3, like every other record's.
-- **The rest of the auth pages.** Sign-in and first-workspace exist as placeholders so the CRM pages can be reached. Signup, password reset, the onboarding wizard, and the account security page are a separate feature and replace them.
+- **The rest of the auth pages.** Sign-in, first-workspace and join exist so the CRM pages can be reached and an invitation can be accepted. Signup, password reset, the onboarding wizard, and the account security page are a separate feature and replace the first two.
+- **Leaving a workspace, and the last owner.** An admin can remove themselves; the owner cannot, and has to hand ownership over first. An owner who is the only member has no way out except deleting the workspace.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
 - **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.

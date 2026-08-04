@@ -229,6 +229,20 @@ export const MEMBER_ROLES = ['owner', 'admin', 'member'] as const
 
 export type MemberRole = (typeof MEMBER_ROLES)[number]
 
+/**
+ * Roles an invitation may offer. Ownership is created with the workspace or
+ * transferred between members; it is never invited, and the `invites.role` check
+ * constraint says the same.
+ */
+export const INVITABLE_ROLES = ['admin', 'member'] as const
+
+export type InvitableRole = (typeof INVITABLE_ROLES)[number]
+
+/** What a pending invitation is called once its `expires_at` has passed. */
+export const INVITE_STATUSES = ['pending', 'expired'] as const
+
+export type InviteStatus = (typeof INVITE_STATUSES)[number]
+
 /** A paused form still exists and still renders; its submit answers 409 (`forms.md`). */
 export const FORM_STATUSES = ['active', 'paused'] as const
 

@@ -17,6 +17,11 @@ import { inSlotOrder } from '../registry/registry.ts'
  * same reason. The list is short because it holds what is ported: the mockup's
  * other entries arrive with the features behind them.
  */
+const CORE_ADMIN_NAV: readonly NavItem[] = [
+  { id: 'workspace', label: 'Workspace', to: '/admin/workspace', order: 100 },
+  { id: 'team', label: 'Team', to: '/admin/team', order: 200 },
+]
+
 const CORE_NAV: readonly NavItem[] = [
   { id: 'people', label: 'People', to: '/people', order: 100 },
   { id: 'hiring', label: 'Hiring', to: '/hiring', order: 150 },
@@ -57,6 +62,7 @@ export function Shell(): React.JSX.Element {
   const { session } = useSession()
   const logOut = useLogOut()
   const moduleNav = useNavItems('primary')
+  const moduleAdminNav = useNavItems('admin')
   const [menuOpen, setMenuOpen] = useState(false)
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme())
   const menuRef = useRef<HTMLDivElement>(null)
@@ -103,6 +109,7 @@ export function Shell(): React.JSX.Element {
   }, [menuOpen])
 
   const navItems = inSlotOrder([...CORE_NAV, ...moduleNav])
+  const adminItems = inSlotOrder([...CORE_ADMIN_NAV, ...moduleAdminNav])
 
   return (
     <div className="flex min-h-screen bg-surface">
@@ -120,6 +127,22 @@ export function Shell(): React.JSX.Element {
             <div className="mb-1 px-2 text-[11px] text-sidebar-muted">CRM</div>
             <div className="flex flex-col gap-0.5">
               {navItems.map((item) => (
+                <NavLink key={item.id} to={item.to} className={linkClass}>
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          </div>
+
+          {/*
+            Shown to every member. Both pages read for anyone in the workspace
+            and only their controls are admin-gated, so hiding the section would
+            keep a member from seeing who else is on their team.
+          */}
+          <div>
+            <div className="mb-1 px-2 text-[11px] text-sidebar-muted">Admin</div>
+            <div className="flex flex-col gap-0.5">
+              {adminItems.map((item) => (
                 <NavLink key={item.id} to={item.to} className={linkClass}>
                   {item.label}
                 </NavLink>

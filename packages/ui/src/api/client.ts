@@ -71,7 +71,12 @@ export interface ApiClient {
    */
   postEmpty(path: string, body?: unknown): Promise<void>
   patch<T>(path: string, body: unknown, decode: Decoder<T>): Promise<T>
-  delete(path: string): Promise<void>
+  /**
+   * `query` is for a delete that takes a confirmation, which
+   * `DELETE /v1/workspaces/:id?slug=` is. A `DELETE` body would be the other
+   * option, and HTTP lets a client drop one.
+   */
+  delete(path: string, query?: QueryParameters): Promise<void>
 }
 
 function isErrorDetail(value: unknown): value is ErrorDetail {
@@ -197,8 +202,8 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
     patch: (path, body, decode) => send('PATCH', buildUrl(options.baseUrl, path, undefined), decode, body),
 
-    delete: async (path) => {
-      const response = await request('DELETE', buildUrl(options.baseUrl, path, undefined))
+    delete: async (path, query) => {
+      const response = await request('DELETE', buildUrl(options.baseUrl, path, query))
 
       // Stricter than `response.ok`: `api.md` says a successful delete is `204`,
       // and anything else means the server is not doing what it documents.

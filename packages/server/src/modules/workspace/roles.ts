@@ -1,22 +1,18 @@
-import { MEMBER_ROLES } from '@kelpie/schemas'
-import type { MemberRole } from '@kelpie/schemas'
+import { INVITABLE_ROLES, INVITE_STATUSES, MEMBER_ROLES } from '@kelpie/schemas'
+import type { InvitableRole, InviteStatus, MemberRole } from '@kelpie/schemas'
 
 /**
  * Workspace roles, ordered by authority. `owner` is a single seat per workspace,
  * enforced in the service layer because it is a per-workspace invariant rather
  * than a per-row one.
  *
- * The list itself lives in `@kelpie/schemas`: `GET /v1/auth/me` returns a role,
- * so the browser decodes against the same values this file gates on.
+ * The lists themselves live in `@kelpie/schemas`: `GET /v1/auth/me` returns a
+ * role and the team page offers one, so the browser decodes against the same
+ * values this file gates on.
  */
 
-export { MEMBER_ROLES }
-export type { MemberRole }
-
-/** Roles an invite may offer. Ownership transfers, it is never invited. */
-export const INVITABLE_ROLES = ['admin', 'member'] as const
-
-export type InvitableRole = (typeof INVITABLE_ROLES)[number]
+export { INVITABLE_ROLES, INVITE_STATUSES, MEMBER_ROLES }
+export type { InvitableRole, InviteStatus, MemberRole }
 
 const authority: Readonly<Record<MemberRole, number>> = {
   owner: 3,

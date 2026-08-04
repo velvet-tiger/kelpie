@@ -30,6 +30,8 @@ export {
   INFLUENCE_LEVELS,
   INTERVIEW_STAGE_LABELS,
   INTERVIEW_STAGES,
+  INVITABLE_ROLES,
+  INVITE_STATUSES,
   MEMBER_ROLES,
   OPEN_PLAN_ITEM_STATUSES,
   PERSON_EMAIL_TARGET,
@@ -59,6 +61,8 @@ export type {
   IcpFit,
   Influence,
   InterviewStage,
+  InvitableRole,
+  InviteStatus,
   MemberRole,
   PipelineKind,
   PlanItemStatus,
@@ -150,14 +154,18 @@ export type { FormSubmission, FormSubmitResult } from './formSubmission.ts'
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'
 
-export { memberSchema } from './member.ts'
-export type { Member } from './member.ts'
+export { memberSchema, updateMemberRoleBody } from './member.ts'
+export type { Member, UpdateMemberRoleInput } from './member.ts'
+
+export { createInviteBody, inviteSchema, resendInviteBody } from './invite.ts'
+export type { CreateInviteInput, Invite, ResendInviteInput } from './invite.ts'
 
 export {
   createWorkspaceBody,
   logInBody,
   sessionSchema,
   signedInAccountSchema,
+  updateWorkspaceBody,
   workspaceSchema,
 } from './session.ts'
 export type {
@@ -166,5 +174,6 @@ export type {
   LogInInput,
   Session,
   SignedInAccount,
+  UpdateWorkspaceInput,
   Workspace,
 } from './session.ts'

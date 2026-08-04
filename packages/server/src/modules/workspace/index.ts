@@ -28,7 +28,13 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(['workspace.created', 'member.invited', 'member.joined'])
+      context.webhookEvents([
+        'workspace.created',
+        'workspace.deleted',
+        'member.invited',
+        'member.joined',
+        'member.removed',
+      ])
 
       context.routes((router) => {
         mountWorkspaceRoutes(router, { db: context.db, now: context.now, service })

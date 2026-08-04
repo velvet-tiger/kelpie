@@ -6,7 +6,7 @@ import { requireSessionActor } from '../auth/actor.ts'
 import type { Actor, SessionActor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
-import { INVITABLE_ROLES } from './roles.ts'
+import { INVITABLE_ROLES, MEMBER_ROLES } from './roles.ts'
 import type { InviteView, MemberView, WorkspaceService, WorkspaceView } from './service.ts'
 
 /** Wire shapes for `/v1/workspaces`, per `onboarding.md`'s API sketch. */
@@ -23,6 +23,7 @@ const createBody = z.object({
 const updateBody = z
   .object({
     name: z.string().min(1),
+    slug: z.string().min(1).max(63).regex(slugPattern, 'Use lowercase letters, digits, and hyphens'),
     timezone: z.string().min(1),
     tagline: z.string().nullable(),
     one_liner: z.string().nullable(),
@@ -34,6 +35,12 @@ const inviteBody = z.object({
   role: z.enum(INVITABLE_ROLES),
   invite_url_template: z.string().min(1).includes('{token}'),
 })
+
+const resendBody = z.object({
+  invite_url_template: z.string().min(1).includes('{token}'),
+})
+
+const memberRoleBody = z.object({ role: z.enum(MEMBER_ROLES) })
 
 const acceptBody = z.object({ token: z.string().min(1) })
 
@@ -83,6 +90,7 @@ function inviteResponse(invite: InviteView): Record<string, unknown> {
     role: invite.role,
     status: invite.status,
     expires_at: invite.expiresAt.toISOString(),
+    created_at: invite.createdAt.toISOString(),
   }
 }
 
@@ -110,12 +118,28 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
     const body = await readBody(context, updateBody)
     const workspace = await dependencies.service.update(await requireActor(context), context.req.param('id'), {
       ...(body.name === undefined ? {} : { name: body.name }),
+      ...(body.slug === undefined ? {} : { slug: body.slug }),
       ...(body.timezone === undefined ? {} : { timezone: body.timezone }),
       ...(body.tagline === undefined ? {} : { tagline: body.tagline }),
       ...(body.one_liner === undefined ? {} : { oneLiner: body.one_liner }),
     })
 
     return context.json(workspaceResponse(workspace))
+  })
+
+  /**
+   * The confirmation rides in the query string rather than a body: a `DELETE`
+   * body is optional in HTTP and dropped by some clients, and this one decides
+   * whether the request is honoured.
+   */
+  router.delete('/workspaces/:id', async (context) => {
+    await dependencies.service.remove(
+      await requireActor(context),
+      context.req.param('id'),
+      context.req.query('slug') ?? '',
+    )
+
+    return context.body(null, 204)
   })
 
   router.get('/workspaces/:id/members', async (context) => {
@@ -125,6 +149,28 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
     )
 
     return context.json({ data: members.map(memberResponse), next_cursor: null })
+  })
+
+  router.patch('/workspaces/:id/members/:memberId', async (context) => {
+    const body = await readBody(context, memberRoleBody)
+    const member = await dependencies.service.setMemberRole(
+      await requireActor(context),
+      context.req.param('id'),
+      context.req.param('memberId'),
+      body.role,
+    )
+
+    return context.json(memberResponse(member))
+  })
+
+  router.delete('/workspaces/:id/members/:memberId', async (context) => {
+    await dependencies.service.removeMember(
+      await requireActor(context),
+      context.req.param('id'),
+      context.req.param('memberId'),
+    )
+
+    return context.body(null, 204)
   })
 
   router.post('/workspaces/:id/invites', async (context) => {
@@ -147,6 +193,28 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
     )
 
     return context.json({ data: invites.map(inviteResponse), next_cursor: null })
+  })
+
+  router.post('/workspaces/:id/invites/:inviteId/resend', async (context) => {
+    const body = await readBody(context, resendBody)
+    const invite = await dependencies.service.resendInvite(
+      await requireActor(context),
+      context.req.param('id'),
+      context.req.param('inviteId'),
+      body.invite_url_template,
+    )
+
+    return context.json(inviteResponse(invite))
+  })
+
+  router.delete('/workspaces/:id/invites/:inviteId', async (context) => {
+    await dependencies.service.revokeInvite(
+      await requireActor(context),
+      context.req.param('id'),
+      context.req.param('inviteId'),
+    )
+
+    return context.body(null, 204)
   })
 
   /** Not nested under a workspace: the caller does not know which one until it resolves. */

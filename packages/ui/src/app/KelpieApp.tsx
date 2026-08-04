@@ -24,7 +24,10 @@ import { PlanningPage } from '../pages/PlanningPage.tsx'
 import { RaiseDetail } from '../pages/RaiseDetail.tsx'
 import { RaiseStageSettingsPage } from '../pages/RaiseStageSettingsPage.tsx'
 import { RoleDetail } from '../pages/RoleDetail.tsx'
+import { TeamPage } from '../pages/admin/TeamPage.tsx'
+import { WorkspaceSettingsPage } from '../pages/admin/WorkspaceSettingsPage.tsx'
 import { CreateWorkspacePage } from '../pages/auth/CreateWorkspacePage.tsx'
+import { JoinPage } from '../pages/auth/JoinPage.tsx'
 import { SignInPage } from '../pages/auth/SignInPage.tsx'
 import { HandbookLayout } from '../pages/handbook/HandbookPage.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
@@ -68,6 +71,9 @@ function AppRoutes(): React.JSX.Element {
     <Routes>
       <Route path="/sign-in" element={<SignInPage />} />
       <Route path="/create-workspace" element={<CreateWorkspacePage />} />
+      {/* Outside the gate: an invitee may have no workspace yet, and this is how
+          they get one. */}
+      <Route path="/join" element={<JoinPage />} />
 
       <Route element={<SessionGate />}>
         <Route element={<Shell />}>
@@ -97,6 +103,8 @@ function AppRoutes(): React.JSX.Element {
           {/* The optional segment is the mockup's: /handbook opens the first page. */}
           <Route path="handbook" element={<HandbookLayout />} />
           <Route path="handbook/:pageId" element={<HandbookLayout />} />
+          <Route path="admin/workspace" element={<WorkspaceSettingsPage />} />
+          <Route path="admin/team" element={<TeamPage />} />
           {moduleRoutes.map((route) => (
             <Route key={route.path} path={route.path} element={route.element} />
           ))}

@@ -19,6 +19,7 @@ import type { ApiClient } from '../client.ts'
 import { useApiClient } from '../context.ts'
 import { toError } from '../errors.ts'
 import type { MutationResult } from '../resource.ts'
+import { asMutationResult } from './mutation.ts'
 
 /**
  * Who the browser is signed in as.
@@ -104,6 +105,27 @@ export function useLogOut(): MutationResult<void, void> {
 }
 
 /**
+ * Joins the workspace an invitation names.
+ *
+ * Like creating one, this moves the session, so the whole cache goes: the next
+ * page belongs to a different workspace than the one just cached.
+ */
+export function useAcceptInvite(): MutationResult<{ readonly token: string }, Workspace> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: ({ token }: { readonly token: string }) =>
+      client.post('/invites/accept', { token }, workspaceSchema.parse),
+    onSuccess: async () => {
+      queryClient.clear()
+      await queryClient.fetchQuery(sessionQuery(client))
+    },
+  })
+
+  return asMutationResult(mutation)
+}
+
+/**
  * Creates the account's first workspace.
  *
  * Signup makes an account and nothing else (`onboarding.md`), so without this a
@@ -124,22 +146,3 @@ export function useCreateWorkspace(): MutationResult<CreateWorkspaceInput, Works
   return asMutationResult(mutation)
 }
 
-interface MutationLike<TInput, TOutput> {
-  mutate: (input: TInput) => void
-  mutateAsync: (input: TInput) => Promise<TOutput>
-  isPending: boolean
-  error: unknown
-}
-
-function asMutationResult<TInput, TOutput>(
-  mutation: MutationLike<TInput, TOutput>,
-): MutationResult<TInput, TOutput> {
-  return {
-    run: (input) => {
-      mutation.mutate(input)
-    },
-    runAsync: (input) => mutation.mutateAsync(input),
-    isPending: mutation.isPending,
-    error: toError(mutation.error),
-  }
-}

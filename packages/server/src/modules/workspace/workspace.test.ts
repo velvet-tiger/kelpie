@@ -10,7 +10,7 @@ import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { coreModules } from '../core.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
-import { workspaceMembers } from './schema.ts'
+import { invites, workspaceMembers } from './schema.ts'
 import { STARTER_HANDBOOK_PAGES } from './starters.ts'
 
 /** Workspace creation, membership, and invites against real Postgres. */
@@ -38,6 +38,15 @@ function readList(payload: unknown): unknown[] {
   }
 
   return payload.data
+}
+
+/** The `details` of an error body, as `api.md` shapes them. */
+function readErrorFields(payload: unknown): string[] {
+  if (!isRecord(payload) || !isRecord(payload.error) || !Array.isArray(payload.error.details)) {
+    throw new Error(`Expected error details, got ${JSON.stringify(payload)}`)
+  }
+
+  return payload.error.details.map((detail: unknown) => readString(detail, 'field'))
 }
 
 describe.skipIf(connectionString === undefined)('workspaces', () => {
@@ -98,6 +107,63 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     expect(response.status).toBe(201)
 
     return readString(await response.json(), 'id')
+  }
+
+  /** The token out of the most recent invitation email. */
+  function lastInviteToken(): string {
+    const body = harness.services.sentEmails.at(-1)?.body ?? ''
+    const match = /token=([^\s]+)/u.exec(body)
+
+    if (match?.[1] === undefined) {
+      throw new Error(`No token in the invite email: ${body}`)
+    }
+
+    return match[1]
+  }
+
+  interface Joined {
+    readonly cookie: string
+    readonly memberId: string
+  }
+
+  /** Invites an address, accepts as a fresh account, and reports the membership. */
+  async function addMember(
+    ownerCookie: string,
+    workspaceId: string,
+    email: string,
+    role: 'admin' | 'member',
+  ): Promise<Joined> {
+    const invited = await send(
+      'POST',
+      `/v1/workspaces/${workspaceId}/invites`,
+      { email, role, invite_url_template: INVITE_TEMPLATE },
+      ownerCookie,
+    )
+    expect(invited.status).toBe(201)
+
+    const cookie = await signUp(email)
+    const accepted = await send('POST', '/v1/invites/accept', { token: lastInviteToken() }, cookie)
+    expect(accepted.status).toBe(200)
+
+    const members = readList(await (await send('GET', `/v1/workspaces/${workspaceId}/members`, undefined, cookie)).json())
+    const member = members.find((entry) => readString(entry, 'email') === email.toLowerCase())
+
+    if (member === undefined) {
+      throw new Error(`${email} accepted an invite but is not in the member list`)
+    }
+
+    return { cookie, memberId: readString(member, 'id') }
+  }
+
+  async function ownerMemberId(cookie: string, workspaceId: string): Promise<string> {
+    const members = readList(await (await send('GET', `/v1/workspaces/${workspaceId}/members`, undefined, cookie)).json())
+    const owner = members.find((entry) => readString(entry, 'role') === 'owner')
+
+    if (owner === undefined) {
+      throw new Error('The workspace has no owner')
+    }
+
+    return readString(owner, 'id')
   }
 
   describe('creating a workspace', () => {
@@ -214,6 +280,320 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(readString(body, 'one_liner')).toBe('We make anvils.')
       expect(readString(body, 'slug')).toBe('acme')
     })
+
+    it('changes the slug', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { slug: 'acme-corp' }, cookie)
+
+      expect(response.status).toBe(200)
+      expect(readString(await response.json(), 'slug')).toBe('acme-corp')
+    })
+
+    it('refuses a slug another workspace already holds', async () => {
+      await createWorkspace(await signUp('ada@example.com'))
+      const other = await signUp('grace@example.com')
+      const otherId = readString(
+        await (await send('POST', '/v1/workspaces', { ...WORKSPACE, slug: 'globex' }, other)).json(),
+        'id',
+      )
+
+      const response = await send('PATCH', `/v1/workspaces/${otherId}`, { slug: 'acme' }, other)
+
+      expect(response.status).toBe(409)
+      expect(readErrorFields(await response.json())).toEqual(['slug'])
+    })
+
+    it('refuses a slug that would not survive a URL', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { slug: 'Not A Slug' }, cookie)
+
+      expect(response.status).toBe(422)
+    })
+
+    it('clears the agent identity strings when they are sent as null', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await send('PATCH', `/v1/workspaces/${workspaceId}`, { tagline: 'Anvils that land' }, cookie)
+
+      const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { tagline: null }, cookie)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ tagline: null })
+    })
+
+    it('refuses a member changing the settings', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { name: 'Mine now' }, grace.cookie)
+
+      expect(response.status).toBe(403)
+    })
+  })
+
+  describe('deleting a workspace', () => {
+    it('takes the workspace and everything in it once the owner names it', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const response = await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme`, undefined, cookie)
+
+      expect(response.status).toBe(204)
+      expect(
+        await database.db.select().from(handbookPages).where(eq(handbookPages.workspaceId, workspaceId)),
+      ).toHaveLength(0)
+      expect(
+        await database.db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspaceId)),
+      ).toHaveLength(0)
+    })
+
+    it('leaves the signed-in account able to start again', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme`, undefined, cookie)
+
+      const me = await (await send('GET', '/v1/auth/me', undefined, cookie)).json()
+
+      expect(me).toMatchObject({ workspace_id: null, role: null })
+    })
+
+    it('refuses a confirmation that does not match the slug', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const response = await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme-corp`, undefined, cookie)
+
+      expect(response.status).toBe(422)
+      expect((await send('GET', `/v1/workspaces/${workspaceId}`, undefined, cookie)).status).toBe(200)
+    })
+
+    it('refuses an admin who is not the owner', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+
+      const response = await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme`, undefined, grace.cookie)
+
+      expect(response.status).toBe(403)
+    })
+
+    it('emits workspace.deleted after the transaction commits', async () => {
+      const seen: string[] = []
+      harness.services.events.subscribe('workspace.deleted', async (payload) => {
+        seen.push(payload.slug)
+      })
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme`, undefined, cookie)
+      await harness.services.events.drain()
+
+      expect(seen).toEqual(['acme'])
+    })
+  })
+
+  describe('member roles', () => {
+    it('lets an admin promote a member', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      const response = await send(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+        { role: 'admin' },
+        owner,
+      )
+
+      expect(response.status).toBe(200)
+      expect(readString(await response.json(), 'role')).toBe('admin')
+      expect(readString(await (await send('GET', '/v1/auth/me', undefined, grace.cookie)).json(), 'role')).toBe('admin')
+    })
+
+    it('transfers ownership and leaves the outgoing owner an admin', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+
+      const response = await send(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+        { role: 'owner' },
+        owner,
+      )
+
+      expect(response.status).toBe(200)
+      expect(readString(await response.json(), 'role')).toBe('owner')
+
+      const members = await database.db
+        .select()
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.workspaceId, workspaceId))
+
+      expect(members.filter((member) => member.role === 'owner')).toHaveLength(1)
+      expect(readString(await (await send('GET', '/v1/auth/me', undefined, owner)).json(), 'role')).toBe('admin')
+    })
+
+    it('refuses an admin trying to hand ownership around', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+      const mallory = await addMember(owner, workspaceId, 'mallory@example.com', 'member')
+
+      const response = await send(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/members/${mallory.memberId}`,
+        { role: 'owner' },
+        grace.cookie,
+      )
+
+      expect(response.status).toBe(403)
+    })
+
+    it('refuses demoting the owner', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const ownerId = await ownerMemberId(owner, workspaceId)
+
+      const response = await send(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/members/${ownerId}`,
+        { role: 'admin' },
+        owner,
+      )
+
+      expect(response.status).toBe(409)
+      expect(readString(await (await send('GET', '/v1/auth/me', undefined, owner)).json(), 'role')).toBe('owner')
+    })
+
+    it('refuses a member changing anybody', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      const response = await send(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+        { role: 'admin' },
+        grace.cookie,
+      )
+
+      expect(response.status).toBe(403)
+    })
+
+    it('does not find a member of another workspace', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const outsider = await signUp('mallory@example.com')
+      const otherId = readString(
+        await (await send('POST', '/v1/workspaces', { ...WORKSPACE, slug: 'globex' }, outsider)).json(),
+        'id',
+      )
+      const strangerId = await ownerMemberId(outsider, otherId)
+
+      const response = await send(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/members/${strangerId}`,
+        { role: 'admin' },
+        owner,
+      )
+
+      expect(response.status).toBe(404)
+    })
+  })
+
+  describe('removing a member', () => {
+    it('takes their access with them', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      const response = await send(
+        'DELETE',
+        `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+        undefined,
+        owner,
+      )
+
+      expect(response.status).toBe(204)
+      const me = await (await send('GET', '/v1/auth/me', undefined, grace.cookie)).json()
+      expect(me).toMatchObject({ workspace_id: null, role: null })
+    })
+
+    it('emits member.removed after the transaction commits', async () => {
+      const seen: string[] = []
+      harness.services.events.subscribe('member.removed', async (payload) => {
+        seen.push(payload.memberId)
+      })
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      await send('DELETE', `/v1/workspaces/${workspaceId}/members/${grace.memberId}`, undefined, owner)
+      await harness.services.events.drain()
+
+      expect(seen).toEqual([grace.memberId])
+    })
+
+    it('refuses to remove the owner', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const ownerId = await ownerMemberId(owner, workspaceId)
+
+      const response = await send(
+        'DELETE',
+        `/v1/workspaces/${workspaceId}/members/${ownerId}`,
+        undefined,
+        owner,
+      )
+
+      expect(response.status).toBe(409)
+    })
+
+    it('refuses while they still own records, and names what they own', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      const created = await send(
+        'POST',
+        '/v1/opportunities',
+        { name: 'Innovation grant', owner_id: grace.memberId },
+        owner,
+      )
+      expect(created.status).toBe(201)
+
+      const response = await send(
+        'DELETE',
+        `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+        undefined,
+        owner,
+      )
+
+      expect(response.status).toBe(409)
+      expect(readErrorFields(await response.json())).toEqual(['opportunity'])
+    })
+
+    it('refuses a member removing anybody', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+      const mallory = await addMember(owner, workspaceId, 'mallory@example.com', 'member')
+
+      const response = await send(
+        'DELETE',
+        `/v1/workspaces/${workspaceId}/members/${mallory.memberId}`,
+        undefined,
+        grace.cookie,
+      )
+
+      expect(response.status).toBe(403)
+    })
   })
 
   describe('invites', () => {
@@ -261,6 +641,159 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       )
 
       expect(response.status).toBe(404)
+    })
+
+    it('refuses a member reading the invitation list', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      const response = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, grace.cookie)
+
+      expect(response.status).toBe(403)
+    })
+  })
+
+  describe('managing an invitation', () => {
+    async function invite(cookie: string, workspaceId: string): Promise<string> {
+      const response = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
+        cookie,
+      )
+      expect(response.status).toBe(201)
+
+      return readString(await response.json(), 'id')
+    }
+
+    it('resends with a fresh token and retires the old one', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const inviteId = await invite(cookie, workspaceId)
+      const first = lastInviteToken()
+
+      const response = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`,
+        { invite_url_template: INVITE_TEMPLATE },
+        cookie,
+      )
+
+      expect(response.status).toBe(200)
+      const second = lastInviteToken()
+      expect(second).not.toBe(first)
+      expect(harness.services.sentEmails.at(-1)?.to).toBe('grace@example.com')
+
+      const stale = await send('POST', '/v1/invites/accept', { token: first }, await signUp('grace@example.com'))
+      expect(stale.status).toBe(401)
+
+      const fresh = await send('POST', '/v1/invites/accept', { token: second }, await signUp('gracie@example.com'))
+      expect(fresh.status).toBe(200)
+    })
+
+    it('revokes an invitation, and its link stops working', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const inviteId = await invite(cookie, workspaceId)
+      const token = lastInviteToken()
+
+      const response = await send(
+        'DELETE',
+        `/v1/workspaces/${workspaceId}/invites/${inviteId}`,
+        undefined,
+        cookie,
+      )
+
+      expect(response.status).toBe(204)
+      expect(
+        readList(await (await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)).json()),
+      ).toHaveLength(0)
+
+      const accepted = await send('POST', '/v1/invites/accept', { token }, await signUp('grace@example.com'))
+      expect(accepted.status).toBe(401)
+    })
+
+    it('refuses a member resending or revoking', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const inviteId = await invite(owner, workspaceId)
+      const mallory = await addMember(owner, workspaceId, 'mallory@example.com', 'member')
+
+      const resent = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`,
+        { invite_url_template: INVITE_TEMPLATE },
+        mallory.cookie,
+      )
+      const revoked = await send(
+        'DELETE',
+        `/v1/workspaces/${workspaceId}/invites/${inviteId}`,
+        undefined,
+        mallory.cookie,
+      )
+
+      expect([resent.status, revoked.status]).toEqual([403, 403])
+    })
+
+    it('does not find an invitation belonging to another workspace', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const inviteId = await invite(owner, workspaceId)
+      const outsider = await signUp('mallory@example.com')
+      const otherId = readString(
+        await (await send('POST', '/v1/workspaces', { ...WORKSPACE, slug: 'globex' }, outsider)).json(),
+        'id',
+      )
+
+      const response = await send(
+        'DELETE',
+        `/v1/workspaces/${otherId}/invites/${inviteId}`,
+        undefined,
+        outsider,
+      )
+
+      expect(response.status).toBe(404)
+    })
+
+    it('reports an invitation past its expiry as expired', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const inviteId = await invite(cookie, workspaceId)
+
+      // Aged in place rather than through the API, because no endpoint makes an
+      // invitation old. Nothing sweeps the table, so the status is derived from
+      // this column every time the list is read.
+      await database.db
+        .update(invites)
+        .set({ expiresAt: new Date('2026-01-01T00:00:00.000Z') })
+        .where(eq(invites.id, inviteId))
+
+      const listed = readList(
+        await (await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)).json(),
+      )
+
+      expect(listed).toHaveLength(1)
+      expect(readString(listed[0], 'status')).toBe('expired')
+    })
+
+    it('makes a resent invitation pending again', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const inviteId = await invite(cookie, workspaceId)
+      await database.db
+        .update(invites)
+        .set({ expiresAt: new Date('2026-01-01T00:00:00.000Z') })
+        .where(eq(invites.id, inviteId))
+
+      const response = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`,
+        { invite_url_template: INVITE_TEMPLATE },
+        cookie,
+      )
+
+      expect(readString(await response.json(), 'status')).toBe('pending')
     })
   })
 
@@ -333,14 +866,8 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         { email: 'grace@example.com', role, invite_url_template: INVITE_TEMPLATE },
         cookie,
       )
-      const body = harness.services.sentEmails.at(-1)?.body ?? ''
-      const match = /token=([^\s]+)/u.exec(body)
 
-      if (match?.[1] === undefined) {
-        throw new Error(`No token in the invite email: ${body}`)
-      }
-
-      return match[1]
+      return lastInviteToken()
     }
 
     it('joins the workspace with the invited role', async () => {

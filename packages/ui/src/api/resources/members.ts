@@ -1,9 +1,11 @@
-import { memberSchema } from '@kelpie/schemas'
-import type { Member } from '@kelpie/schemas'
-import { useQuery } from '@tanstack/react-query'
+import { memberSchema, updateMemberRoleBody } from '@kelpie/schemas'
+import type { Member, MemberRole } from '@kelpie/schemas'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useApiClient } from '../context.ts'
 import { toError } from '../errors.ts'
+import type { MutationResult } from '../resource.ts'
+import { asMutationResult } from './mutation.ts'
 import { useSession } from './session.ts'
 
 /**
@@ -46,4 +48,58 @@ export function useMembers(): MemberDirectory {
     isLoading: result.isPending && workspaceId !== undefined,
     error: toError(result.error),
   }
+}
+
+export interface SetMemberRoleArguments {
+  readonly memberId: string
+  readonly role: MemberRole
+}
+
+/**
+ * Changes a member's role, or hands them ownership.
+ *
+ * Both invalidate the session as well as the list: a role change that lands on
+ * the caller changes what the app should offer them, and a transfer always lands
+ * on the caller.
+ */
+export function useSetMemberRole(): MutationResult<SetMemberRoleArguments, Member> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const { session } = useSession()
+  const workspaceId = session?.workspaceId ?? ''
+  const mutation = useMutation({
+    mutationFn: ({ memberId, role }: SetMemberRoleArguments) =>
+      client.patch(
+        `/workspaces/${workspaceId}/members/${memberId}`,
+        updateMemberRoleBody({ role }),
+        memberSchema.parse,
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['members', workspaceId] })
+      await queryClient.invalidateQueries({ queryKey: ['session'] })
+    },
+  })
+
+  return asMutationResult(mutation)
+}
+
+/**
+ * Removes somebody from the workspace.
+ *
+ * Records they own are the API's business, not this hook's: it answers `409`
+ * naming every type still pointing at them, and the page shows that.
+ */
+export function useRemoveMember(): MutationResult<string, void> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const { session } = useSession()
+  const workspaceId = session?.workspaceId ?? ''
+  const mutation = useMutation({
+    mutationFn: (memberId: string) => client.delete(`/workspaces/${workspaceId}/members/${memberId}`),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['members', workspaceId] })
+    },
+  })
+
+  return asMutationResult(mutation)
 }

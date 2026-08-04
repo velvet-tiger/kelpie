@@ -107,8 +107,10 @@ describe('DOMAIN_EVENT_NAMES', () => {
   it('lists the catalog modules.md documents', () => {
     expect([...DOMAIN_EVENT_NAMES]).toEqual([
       'workspace.created',
+      'workspace.deleted',
       'member.invited',
       'member.joined',
+      'member.removed',
       'record.created',
       'record.updated',
       'record.deleted',

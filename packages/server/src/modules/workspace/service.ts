@@ -1,4 +1,4 @@
-import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
+import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import type { EmailSender } from '../../lib/email.ts'
 import { AppError } from '../../lib/errors.ts'
@@ -11,8 +11,8 @@ import type { Actor, SessionActor } from '../auth/actor.ts'
 import * as authRepository from '../auth/repository.ts'
 import { SEATS_LIMIT } from './capabilities.ts'
 import * as repository from './repository.ts'
-import { parseMemberRole, roleAllows } from './roles.ts'
-import type { InvitableRole, MemberRole } from './roles.ts'
+import { parseInvitableRole, parseMemberRole, roleAllows } from './roles.ts'
+import type { InvitableRole, InviteStatus, MemberRole } from './roles.ts'
 import {
   STARTER_HANDBOOK_PAGES,
   STARTER_PIPELINE_STAGES,
@@ -59,9 +59,10 @@ export interface MemberView {
 export interface InviteView {
   readonly id: string
   readonly email: string
-  readonly role: string
-  readonly status: string
+  readonly role: InvitableRole
+  readonly status: InviteStatus
   readonly expiresAt: Date
+  readonly createdAt: Date
 }
 
 export interface CreateWorkspaceInput {
@@ -72,6 +73,7 @@ export interface CreateWorkspaceInput {
 
 export interface UpdateWorkspaceInput {
   readonly name?: string
+  readonly slug?: string
   readonly timezone?: string
   readonly tagline?: string | null
   readonly oneLiner?: string | null
@@ -82,9 +84,22 @@ export interface WorkspaceService {
   create(actor: SessionActor, input: CreateWorkspaceInput): Promise<WorkspaceView>
   get(actor: Actor, workspaceId: string): Promise<WorkspaceView>
   update(actor: Actor, workspaceId: string, changes: UpdateWorkspaceInput): Promise<WorkspaceView>
+  /**
+   * Deletes the workspace and everything in it.
+   *
+   * @param confirmSlug The workspace's own slug. The caller has to name what it
+   *   is destroying, so an unintended `DELETE` at the right id does nothing.
+   */
+  remove(actor: Actor, workspaceId: string, confirmSlug: string): Promise<void>
   listMembers(actor: Actor, workspaceId: string): Promise<readonly MemberView[]>
+  /** Changes a member's role, or transfers ownership when `role` is `owner`. */
+  setMemberRole(actor: Actor, workspaceId: string, memberId: string, role: MemberRole): Promise<MemberView>
+  removeMember(actor: Actor, workspaceId: string, memberId: string): Promise<void>
   invite(actor: Actor, workspaceId: string, email: string, role: InvitableRole, urlTemplate: string): Promise<InviteView>
   listInvites(actor: Actor, workspaceId: string): Promise<readonly InviteView[]>
+  /** Issues a fresh token and expiry for an invitation, and emails it again. */
+  resendInvite(actor: Actor, workspaceId: string, inviteId: string, urlTemplate: string): Promise<InviteView>
+  revokeInvite(actor: Actor, workspaceId: string, inviteId: string): Promise<void>
   /** Joins the invited workspace as the calling account. */
   acceptInvite(actor: SessionActor, token: string): Promise<WorkspaceView>
 }
@@ -100,13 +115,45 @@ function toWorkspaceView(record: repository.WorkspaceRecord): WorkspaceView {
   }
 }
 
-function toInviteView(record: repository.InviteRecord): InviteView {
+/**
+ * An invitation as a reader sees it.
+ *
+ * `status` is computed from `expires_at` rather than read from the column.
+ * Expiry is a function of the clock, so a stored value would only be true until
+ * the moment it passed, and keeping it true would mean a sweeper. `acceptInvite`
+ * already decides the same way, and this keeps the list agreeing with it.
+ */
+function toInviteView(record: repository.InviteRecord, now: Date): InviteView {
+  const role = parseInvitableRole(record.role)
+
+  if (role === undefined) {
+    throw new Error(`invites.role holds "${record.role}", which its check constraint forbids`)
+  }
+
   return {
     id: record.id,
     email: record.email,
-    role: record.role,
-    status: record.status,
+    role,
+    status: record.expiresAt > now ? 'pending' : 'expired',
     expiresAt: record.expiresAt,
+    createdAt: record.createdAt,
+  }
+}
+
+function toMemberView(record: repository.MemberWithUser): MemberView {
+  const role = parseMemberRole(record.role)
+
+  if (role === undefined) {
+    throw new Error(`workspace_members.role holds "${record.role}", which its check forbids`)
+  }
+
+  return {
+    id: record.id,
+    userId: record.userId,
+    role,
+    joinedAt: record.joinedAt,
+    name: record.name,
+    email: record.email,
   }
 }
 
@@ -182,7 +229,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       return
     }
 
-    const inUse = await repository.countSeatsInUse(dependencies.db, workspaceId)
+    const inUse = await repository.countSeatsInUse(dependencies.db, workspaceId, dependencies.now())
 
     if (inUse >= limit) {
       throw new AppError(
@@ -190,6 +237,82 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         `This workspace has ${String(limit)} seats and all of them are taken`,
       )
     }
+  }
+
+  /**
+   * The membership being acted on.
+   *
+   * A member of another workspace is not found rather than forbidden, for the
+   * same reason `api.md` gives for records: an id that answers differently when
+   * it exists elsewhere tells the caller it exists elsewhere.
+   */
+  async function requireTarget(workspaceId: string, memberId: string): Promise<repository.MemberRecord> {
+    const target = await repository.findMember(dependencies.db, workspaceId, memberId)
+
+    if (target === undefined) {
+      throw AppError.notFound('Member not found')
+    }
+
+    return target
+  }
+
+  function sendInviteEmail(to: string, token: string, urlTemplate: string): Promise<void> {
+    return dependencies.email.send({
+      to,
+      subject: 'You have been invited to a Kelpie workspace',
+      body: `Accept the invitation within seven days:\n\n${urlTemplate.replace('{token}', token)}`,
+    })
+  }
+
+  /** The same membership with the name and email a reader needs, after a write. */
+  async function requireMemberWithUser(
+    workspaceId: string,
+    memberId: string,
+  ): Promise<repository.MemberWithUser> {
+    const member = await repository.findMemberWithUser(dependencies.db, workspaceId, memberId)
+
+    if (member === undefined) {
+      throw new Error(`Member ${memberId} has no user row, which the join makes impossible`)
+    }
+
+    return member
+  }
+
+  async function requireInvite(workspaceId: string, inviteId: string): Promise<repository.InviteRecord> {
+    const invite = await repository.findInvite(dependencies.db, workspaceId, inviteId)
+
+    if (invite === undefined) {
+      throw AppError.notFound('Invitation not found')
+    }
+
+    return invite
+  }
+
+  /**
+   * Moves ownership to `target` and leaves the outgoing owner an admin.
+   *
+   * One transaction, because a workspace with two owners or none is a state no
+   * other code is written to survive.
+   */
+  async function transferOwnership(
+    workspaceId: string,
+    currentOwner: repository.MemberRecord,
+    target: repository.MemberRecord,
+  ): Promise<repository.MemberWithUser> {
+    const now = dependencies.now()
+
+    return dependencies.transaction(async ({ tx }) => {
+      await repository.updateMemberRole(tx, currentOwner.id, 'admin', now)
+      await repository.updateMemberRole(tx, target.id, 'owner', now)
+
+      const updated = await repository.findMemberWithUser(tx, workspaceId, target.id)
+
+      if (updated === undefined) {
+        throw new Error(`Member ${target.id} vanished during an ownership transfer`)
+      }
+
+      return updated
+    })
   }
 
   return {
@@ -278,10 +401,22 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
     async update(actor, workspaceId, changes) {
       await requireMembership(actor, workspaceId, 'admin')
 
-      const updated = await repository.updateWorkspace(dependencies.db, workspaceId, {
-        ...changes,
-        updatedAt: dependencies.now(),
-      })
+      let updated: repository.WorkspaceRecord | undefined
+
+      try {
+        updated = await repository.updateWorkspace(dependencies.db, workspaceId, {
+          ...changes,
+          updatedAt: dependencies.now(),
+        })
+      } catch (error: unknown) {
+        if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+          throw AppError.conflict('That workspace address is taken', [
+            { field: 'slug', message: 'Already in use' },
+          ])
+        }
+
+        throw error
+      }
 
       if (updated === undefined) {
         throw AppError.notFound('Workspace not found')
@@ -290,26 +425,115 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       return toWorkspaceView(updated)
     },
 
+    async remove(actor, workspaceId, confirmSlug) {
+      // Owner only. A workspace key resolves as an admin and can never reach
+      // this, which is deliberate: an agent's credential does not get to end the
+      // workspace it lives in.
+      await requireMembership(actor, workspaceId, 'owner')
+
+      const workspace = await repository.findWorkspace(dependencies.db, workspaceId)
+
+      if (workspace === undefined) {
+        throw AppError.notFound('Workspace not found')
+      }
+
+      if (confirmSlug !== workspace.slug) {
+        throw AppError.validationFailed('Confirm the deletion by naming the workspace', [
+          { field: 'slug', message: `Expected "${workspace.slug}"` },
+        ])
+      }
+
+      await dependencies.transaction(async ({ tx, events }) => {
+        await repository.deleteWorkspace(tx, workspaceId)
+
+        events.emit('workspace.deleted', { workspaceId, slug: workspace.slug })
+      })
+    },
+
     async listMembers(actor, workspaceId) {
       await requireMembership(actor, workspaceId, 'member')
       const records = await repository.listMembers(dependencies.db, workspaceId)
 
-      return records.map((record) => {
-        const role = parseMemberRole(record.role)
+      return records.map(toMemberView)
+    },
 
-        if (role === undefined) {
-          throw new Error(`workspace_members.role holds "${record.role}", which its check forbids`)
+    async setMemberRole(actor, workspaceId, memberId, role) {
+      const caller = await requireMembership(actor, workspaceId, 'admin')
+      const target = await requireTarget(workspaceId, memberId)
+
+      if (role === 'owner') {
+        if (caller.role !== 'owner') {
+          throw new AppError('forbidden', 'Only the owner can hand ownership to somebody else')
         }
 
-        return {
-          id: record.id,
-          userId: record.userId,
-          role,
-          joinedAt: record.joinedAt,
-          name: record.name,
-          email: record.email,
+        const currentOwner = await repository.findOwner(dependencies.db, workspaceId)
+
+        if (currentOwner === undefined) {
+          throw new Error(`Workspace ${workspaceId} has an owner-role caller but no owner row`)
         }
-      })
+
+        if (currentOwner.id === target.id) {
+          return toMemberView(await requireMemberWithUser(workspaceId, target.id))
+        }
+
+        return toMemberView(await transferOwnership(workspaceId, currentOwner, target))
+      }
+
+      // Demoting the owner by naming their row would leave the workspace without
+      // one. Transferring is the only way ownership moves, and it fills the seat
+      // in the same write that empties it.
+      if (target.role === 'owner') {
+        throw AppError.conflict(
+          'The owner cannot be demoted. Give ownership to another member instead',
+        )
+      }
+
+      await repository.updateMemberRole(dependencies.db, target.id, role, dependencies.now())
+
+      return toMemberView(await requireMemberWithUser(workspaceId, target.id))
+    },
+
+    async removeMember(actor, workspaceId, memberId) {
+      await requireMembership(actor, workspaceId, 'admin')
+      const target = await requireTarget(workspaceId, memberId)
+
+      if (target.role === 'owner') {
+        throw AppError.conflict(
+          'The owner cannot be removed. Give ownership to another member first',
+        )
+      }
+
+      // `schema.md`: removing a member is restricted while they own records.
+      // Reported before the delete so every referencing type can be named, which
+      // is what the caller needs to know what to reassign.
+      const references = await repository.countMemberReferences(dependencies.db, target.id)
+
+      if (references.length > 0) {
+        throw AppError.conflict(
+          'This member still owns records. Reassign them first',
+          references.map((reference) => ({
+            field: reference.type,
+            message: `Owns ${String(reference.count)}`,
+          })),
+        )
+      }
+
+      try {
+        await dependencies.transaction(async ({ tx, events }) => {
+          await repository.deleteMember(tx, target.id)
+
+          events.emit('member.removed', { workspaceId, memberId: target.id, userId: target.userId })
+        })
+      } catch (error: unknown) {
+        // A record assigned to them between the count and this delete. The
+        // constraint answers the same question the count did, so the caller gets
+        // the same refusal rather than a 500; it just cannot name the type.
+        if (isReferenceViolation(error)) {
+          throw AppError.conflict('This member owns records that were assigned while removing them')
+        }
+
+        throw error
+      }
     },
 
     async invite(actor, workspaceId, email, role, urlTemplate) {
@@ -337,20 +561,50 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       })
 
       // Sent after commit, so a rolled-back invite never reaches an inbox.
-      await dependencies.email.send({
-        to: invite.email,
-        subject: 'You have been invited to a Kelpie workspace',
-        body: `Accept the invitation within seven days:\n\n${urlTemplate.replace('{token}', token)}`,
-      })
+      await sendInviteEmail(invite.email, token, urlTemplate)
 
-      return toInviteView(invite)
+      return toInviteView(invite, now)
     },
 
     async listInvites(actor, workspaceId) {
       await requireMembership(actor, workspaceId, 'admin')
       const records = await repository.listInvites(dependencies.db, workspaceId)
+      const now = dependencies.now()
 
-      return records.map(toInviteView)
+      return records.map((record) => toInviteView(record, now))
+    },
+
+    async resendInvite(actor, workspaceId, inviteId, urlTemplate) {
+      await requireMembership(actor, workspaceId, 'admin')
+      const invite = await requireInvite(workspaceId, inviteId)
+
+      // A new token, not the old one again: the address in the first email may
+      // have been forwarded anywhere, and reissuing retires it.
+      const now = dependencies.now()
+      const token = newToken()
+      const updated = await repository.updateInvite(dependencies.db, invite.id, {
+        tokenHash: hashToken(token),
+        expiresAt: new Date(now.getTime() + INVITE_LIFETIME_MS),
+        status: 'pending',
+        updatedAt: now,
+      })
+
+      if (updated === undefined) {
+        throw AppError.notFound('Invitation not found')
+      }
+
+      await sendInviteEmail(updated.email, token, urlTemplate)
+
+      return toInviteView(updated, now)
+    },
+
+    async revokeInvite(actor, workspaceId, inviteId) {
+      await requireMembership(actor, workspaceId, 'admin')
+      const invite = await requireInvite(workspaceId, inviteId)
+
+      // Deleted rather than marked: the row is what the token resolves through,
+      // so removing it is what actually stops the link in the sent email.
+      await repository.deleteInvite(dependencies.db, invite.id)
     },
 
     async acceptInvite(actor, token) {

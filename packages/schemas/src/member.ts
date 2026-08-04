@@ -39,3 +39,15 @@ export const memberSchema: z.ZodType<Member, unknown> = z
       joinedAt: wire.joined_at,
     }),
   )
+
+export interface UpdateMemberRoleInput {
+  /**
+   * `owner` transfers ownership: the workspace holds exactly one, so the caller
+   * giving it away becomes an admin in the same write.
+   */
+  readonly role: MemberRole
+}
+
+export function updateMemberRoleBody(input: UpdateMemberRoleInput): Record<string, unknown> {
+  return { role: input.role }
+}

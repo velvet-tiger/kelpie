@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { MEMBER_ROLES } from './values.ts'
 import type { MemberRole } from './values.ts'
-import { idSchema } from './wire.ts'
+import { definedFields, idSchema } from './wire.ts'
 
 /**
  * Wire shapes for the endpoints a signed-in browser needs before it can render
@@ -97,6 +97,31 @@ export interface CreateWorkspaceInput {
 
 export function createWorkspaceBody(input: CreateWorkspaceInput): Record<string, unknown> {
   return { name: input.name, slug: input.slug, timezone: input.timezone }
+}
+
+/**
+ * Settings a workspace admin can change.
+ *
+ * `tagline` and `oneLiner` are the two strings an agent reads to say who this
+ * company is, so `null` clears them and `undefined` leaves them alone, per
+ * `api.md`. `definedFields` is what keeps those two apart on the wire.
+ */
+export interface UpdateWorkspaceInput {
+  readonly name?: string
+  readonly slug?: string
+  readonly timezone?: string
+  readonly tagline?: string | null
+  readonly oneLiner?: string | null
+}
+
+export function updateWorkspaceBody(input: UpdateWorkspaceInput): Record<string, unknown> {
+  return definedFields({
+    name: input.name,
+    slug: input.slug,
+    timezone: input.timezone,
+    tagline: input.tagline,
+    one_liner: input.oneLiner,
+  })
 }
 
 export interface LogInInput {

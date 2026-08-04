@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 
 import { useLogIn } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
@@ -18,18 +18,30 @@ import { AuthLayout } from './AuthLayout.tsx'
  * There is no signup form yet. Creating the first account is a `POST` to
  * `/v1/auth/signup`; the README gives the command.
  */
+/**
+ * Only a path within this app. An absolute URL in `?next=` would turn the
+ * sign-in form into an open redirect, which is worth guarding even while the
+ * only sender is the invitation link.
+ */
+function safeNext(value: string | null): string {
+  return value !== null && value.startsWith('/') && !value.startsWith('//') ? value : '/people'
+}
+
 export function SignInPage(): React.JSX.Element {
   const navigate = useNavigate()
+  const [searchParameters] = useSearchParams()
   const logIn = useLogIn()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+
+  const next = safeNext(searchParameters.get('next'))
 
   function submit(event: FormEvent): void {
     event.preventDefault()
 
     logIn
       .runAsync({ email: email.trim(), password })
-      .then(() => navigate('/people', { replace: true }))
+      .then(() => navigate(next, { replace: true }))
       .catch(() => undefined)
   }
 
