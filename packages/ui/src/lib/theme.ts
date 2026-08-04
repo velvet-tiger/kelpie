@@ -1,18 +1,25 @@
+import { THEME_PREFERENCES } from '@kelpie/schemas'
+import type { ThemePreference } from '@kelpie/schemas'
+
 /**
- * Light, dark, or whatever the operating system says.
+ * Applying light, dark, or whatever the operating system says.
  *
- * The preference is stored, the resolved value goes on `data-theme`, and
- * `styles.css` does the rest. Ported from `mockups/src/lib/theme.ts`.
+ * The resolved value goes on `data-theme` and `styles.css` does the rest. What
+ * is stored here is a per-browser copy: the account's preference is the source
+ * of truth, and this exists so the first paint does not have to wait for it.
+ *
+ * The preference itself is a wire value, so `ThemePreference` comes from
+ * `@kelpie/schemas` rather than being declared again here.
  */
 
-export type ThemePreference = 'system' | 'light' | 'dark'
+export type { ThemePreference }
 
 const STORAGE_KEY = 'kelpie.theme'
 
 export function getStoredTheme(): ThemePreference {
   const stored = localStorage.getItem(STORAGE_KEY)
 
-  return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+  return THEME_PREFERENCES.find((preference) => preference === stored) ?? 'system'
 }
 
 export function setStoredTheme(theme: ThemePreference): void {

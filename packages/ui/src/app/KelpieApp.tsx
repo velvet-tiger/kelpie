@@ -24,6 +24,10 @@ import { PlanningPage } from '../pages/PlanningPage.tsx'
 import { RaiseDetail } from '../pages/RaiseDetail.tsx'
 import { RaiseStageSettingsPage } from '../pages/RaiseStageSettingsPage.tsx'
 import { RoleDetail } from '../pages/RoleDetail.tsx'
+import { AccountLayout } from '../pages/account/AccountLayout.tsx'
+import { PreferencesPage } from '../pages/account/PreferencesPage.tsx'
+import { ProfilePage } from '../pages/account/ProfilePage.tsx'
+import { SecurityPage } from '../pages/account/SecurityPage.tsx'
 import { TeamPage } from '../pages/admin/TeamPage.tsx'
 import { WorkspaceSettingsPage } from '../pages/admin/WorkspaceSettingsPage.tsx'
 import { CreateWorkspacePage } from '../pages/auth/CreateWorkspacePage.tsx'
@@ -105,6 +109,13 @@ function AppRoutes(): React.JSX.Element {
           <Route path="handbook/:pageId" element={<HandbookLayout />} />
           <Route path="admin/workspace" element={<WorkspaceSettingsPage />} />
           <Route path="admin/team" element={<TeamPage />} />
+          {/* The mockup's own shape: /account opens the first tab. */}
+          <Route path="account" element={<AccountLayout />}>
+            <Route index element={<Navigate to="/account/profile" replace />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="security" element={<SecurityPage />} />
+            <Route path="preferences" element={<PreferencesPage />} />
+          </Route>
           {moduleRoutes.map((route) => (
             <Route key={route.path} path={route.path} element={route.element} />
           ))}

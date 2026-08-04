@@ -1,6 +1,8 @@
+import { THEME_PREFERENCES } from '@kelpie/schemas'
+import type { ThemePreference } from '@kelpie/schemas'
 import { boolean, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { citext, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, citext, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 
 /**
  * Accounts are global, not workspace rows (roadmap decision 6). Signup creates a
@@ -35,17 +37,28 @@ export const sessions = pgTable('sessions', {
   createdAt: createdAt(),
 })
 
-export const userPreferences = pgTable('user_preferences', {
-  userId: text('user_id')
-    .primaryKey()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  timezone: text('timezone').notNull(),
-  theme: text('theme').notNull(),
-  emailDigest: boolean('email_digest').notNull(),
-  mentionEmails: boolean('mention_emails').notNull(),
-  productUpdates: boolean('product_updates').notNull(),
-  updatedAt: updatedAt(),
-})
+/**
+ * Settings that belong to the person rather than to a workspace.
+ *
+ * A row is written on the first save, not at signup: the endpoint answers with
+ * documented defaults until then, so an account created before this table was
+ * ever written to needs no backfill.
+ */
+export const userPreferences = pgTable(
+  'user_preferences',
+  {
+    userId: text('user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    timezone: text('timezone').notNull(),
+    theme: text('theme').$type<ThemePreference>().notNull(),
+    emailDigest: boolean('email_digest').notNull(),
+    mentionEmails: boolean('mention_emails').notNull(),
+    productUpdates: boolean('product_updates').notNull(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [checkOneOf('user_preferences_theme_check', table.theme, THEME_PREFERENCES)],
+)
 
 /**
  * One-shot tokens for the reset link. Stored hashed like a session token, and

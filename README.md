@@ -235,7 +235,8 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 
 | Area | Surface |
 | --- | --- |
-| Accounts | `POST /v1/auth/signup`, `login`, `logout`, `GET /v1/auth/me` |
+| Accounts | `POST /v1/auth/signup`, `login`, `logout`, `GET /v1/auth/me`, `GET` and `PATCH /v1/account` |
+| Preferences | `GET` and `PATCH /v1/account/preferences` (timezone, theme, notification choices) |
 | Sessions | `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id` |
 | Passwords | `PATCH /v1/auth/password`, `POST /v1/auth/password-reset` and `/confirm` |
 | Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `DELETE /v1/workspaces/:id?slug=` |
@@ -289,10 +290,13 @@ The emailed invitation lands on `/join?token=…`, which accepts as the signed-i
 
 ## Not here yet
 
-- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, and the Workspace and Team admin pages are ported. Everything else in `mockups/` is not: the dashboard, search, the remaining admin pages and the account pages all wait for their endpoints.
+- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, the Workspace and Team admin pages, and the account's own Profile, Security and Preferences pages are ported. Everything else in `mockups/` is not: the dashboard, search, the remaining admin pages, and the account's integrations and personal API key tabs all wait for their endpoints.
 - **Role enforcement outside workspace administration.** Administration is gated at `admin`, and API keys already were. Every CRM resource is open to any member, which is what the specs describe; no document defines a read-only role. Narrowing that is a product decision, not a missing check.
 - **Agent tasks on a handbook page.** The mockup's handbook header carries an Agent tasks button. It arrives with the agent task registry in Phase 3, like every other record's.
-- **The rest of the auth pages.** Sign-in, first-workspace and join exist so the CRM pages can be reached and an invitation can be accepted. Signup, password reset, the onboarding wizard, and the account security page are a separate feature and replace the first two.
+- **The rest of the auth pages.** Sign-in, first-workspace and join exist so the CRM pages can be reached and an invitation can be accepted. Signup, password reset and the onboarding wizard are a separate feature and replace the first two. Changing a password while signed in is on the account's Security page and does exist.
+- **Notification email.** The Preferences page stores a weekly digest, mention and product-update choice per account, and nothing sends any of them: email sending is a v0 non-goal (`brief.md`), and the port `EMAIL_PROVIDER=log` serves password reset only. The page says so on screen rather than leaving a reader to infer a capability from a toggle.
+- **A user timezone that anything reads.** It is stored and returned; every formatter in `packages/ui/src/lib/dates.ts` is still fixed `en-AU`.
+- **A friendly device name on the Security page.** A session records the raw `User-Agent` and shows it, so a browser reads as a long string rather than "Chrome on macOS". `location` is never populated at all and renders "Unknown"; nothing derives one from a request.
 - **Leaving a workspace, and the last owner.** An admin can remove themselves; the owner cannot, and has to hand ownership over first. An owner who is the only member has no way out except deleting the workspace.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.

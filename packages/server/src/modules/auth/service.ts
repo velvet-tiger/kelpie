@@ -7,6 +7,8 @@ import { MINIMUM_PASSWORD_LENGTH, hashPassword, verifyPassword } from '../../lib
 import { generateToken, hashToken } from '../../lib/tokens.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { SessionActor } from './actor.ts'
+import { DEFAULT_PREFERENCES, applyPreferenceChanges } from './preferences.ts'
+import type { PreferenceChanges, PreferenceValues } from './preferences.ts'
 import * as repository from './repository.ts'
 
 /**
@@ -61,6 +63,12 @@ export interface SignUpInput {
   readonly location?: string
 }
 
+/** Only what the caller sent. An absent field is left alone, per `api.md`. */
+export interface UpdateAccountChanges {
+  readonly name?: string
+  readonly email?: string
+}
+
 export interface LogInInput {
   readonly email: string
   readonly password: string
@@ -72,9 +80,38 @@ function toAccountView(user: repository.UserRecord): AccountView {
   return { id: user.id, email: user.email, name: user.name }
 }
 
+function toPreferenceValues(record: repository.UserPreferencesRecord): PreferenceValues {
+  return {
+    timezone: record.timezone,
+    theme: record.theme,
+    emailDigest: record.emailDigest,
+    mentionEmails: record.mentionEmails,
+    productUpdates: record.productUpdates,
+  }
+}
+
 /** Emails are stored and compared lowercase, per `schema.md`. */
 function normaliseEmail(email: string): string {
   return email.trim().toLowerCase()
+}
+
+/**
+ * Rejects a field that is only whitespace.
+ *
+ * The route already refuses an empty string, but `"   "` passes that and then
+ * normalises to nothing. Storing a nameless account or an empty address would be
+ * accepting a request the caller did not mean to make.
+ */
+function requireText(value: string, field: string): string {
+  const trimmed = value.trim()
+
+  if (trimmed.length === 0) {
+    throw AppError.validationFailed(`${field} cannot be blank`, [
+      { field, message: 'Cannot be blank' },
+    ])
+  }
+
+  return trimmed
 }
 
 export interface AuthService {
@@ -82,6 +119,11 @@ export interface AuthService {
   signUp(input: SignUpInput): Promise<IssuedSession>
   logIn(input: LogInInput): Promise<IssuedSession>
   logOut(actor: SessionActor): Promise<void>
+  getAccount(actor: SessionActor): Promise<AccountView>
+  updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<AccountView>
+  /** Answers documented defaults for an account that has never saved any. */
+  getPreferences(actor: SessionActor): Promise<PreferenceValues>
+  updatePreferences(actor: SessionActor, changes: PreferenceChanges): Promise<PreferenceValues>
   listSessions(actor: SessionActor): Promise<readonly SessionView[]>
   revokeSession(actor: SessionActor, sessionId: string): Promise<void>
   /** Resolves whether or not the address is registered. */
@@ -92,6 +134,20 @@ export interface AuthService {
 
 export function createAuthService(dependencies: AuthDependencies): AuthService {
   const newToken = dependencies.newToken ?? generateToken
+
+  /**
+   * The account behind a live session. A session outliving its user means the
+   * row was deleted underneath it, which is not an authenticated caller.
+   */
+  async function requireUser(userId: string): Promise<repository.UserRecord> {
+    const user = await repository.findUserById(dependencies.db, userId)
+
+    if (user === undefined) {
+      throw AppError.unauthorized('This session no longer belongs to an account')
+    }
+
+    return user
+  }
 
   async function issueSession(
     db: repository.Queryable,
@@ -177,6 +233,83 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
     async logOut(actor: SessionActor): Promise<void> {
       await repository.deleteSession(dependencies.db, actor.userId, actor.sessionId)
+    },
+
+    async getAccount(actor: SessionActor): Promise<AccountView> {
+      return toAccountView(await requireUser(actor.userId))
+    },
+
+    /**
+     * Name and email, for every workspace at once. An account is global, so this
+     * is not a change to one membership.
+     */
+    async updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<AccountView> {
+      await requireUser(actor.userId)
+
+      const values = {
+        ...(changes.name === undefined ? {} : { name: requireText(changes.name, 'name') }),
+        ...(changes.email === undefined
+          ? {}
+          : { email: requireText(normaliseEmail(changes.email), 'email') }),
+      }
+
+      try {
+        const updated = await repository.updateUserProfile(
+          dependencies.db,
+          actor.userId,
+          values,
+          dependencies.now(),
+        )
+
+        if (updated === undefined) {
+          throw AppError.unauthorized('This session no longer belongs to an account')
+        }
+
+        return toAccountView(updated)
+      } catch (error: unknown) {
+        if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+          // The caller typed this address, so naming the clash discloses nothing
+          // they did not already supply. Same reasoning as signup.
+          throw AppError.conflict('An account with that email already exists', [
+            { field: 'email', message: 'Already registered' },
+          ])
+        }
+
+        throw error
+      }
+    },
+
+    async getPreferences(actor: SessionActor): Promise<PreferenceValues> {
+      const stored = await repository.findPreferences(dependencies.db, actor.userId)
+
+      return stored === undefined ? DEFAULT_PREFERENCES : toPreferenceValues(stored)
+    },
+
+    /**
+     * Writes the whole row from defaults plus what is stored plus what changed,
+     * so a first save and a later one take the same path and a repeat is a no-op.
+     */
+    async updatePreferences(
+      actor: SessionActor,
+      changes: PreferenceChanges,
+    ): Promise<PreferenceValues> {
+      await requireUser(actor.userId)
+
+      return dependencies.transaction(async ({ tx }) => {
+        const stored = await repository.findPreferences(tx, actor.userId)
+        const values = applyPreferenceChanges(
+          stored === undefined ? undefined : toPreferenceValues(stored),
+          changes,
+        )
+
+        return toPreferenceValues(
+          await repository.upsertPreferences(tx, {
+            userId: actor.userId,
+            ...values,
+            updatedAt: dependencies.now(),
+          }),
+        )
+      })
     },
 
     async listSessions(actor: SessionActor): Promise<readonly SessionView[]> {

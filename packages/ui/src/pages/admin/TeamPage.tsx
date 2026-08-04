@@ -13,6 +13,7 @@ import {
 import { useSession } from '../../api/resources/session.ts'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
+import { initialsOf } from '../../lib/names.ts'
 
 /**
  * The workspace's people: who is in it, and who has been asked.
@@ -382,11 +383,4 @@ function RemoveMemberCell({
       </button>
     </div>
   )
-}
-
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/u).slice(0, 2)
-  const letters = parts.map((part) => part.slice(0, 1)).join('')
-
-  return letters.length > 0 ? letters.toUpperCase() : '?'
 }

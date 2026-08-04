@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
 
-import { useLogOut, useSession } from '../api/resources/session.ts'
-import { applyTheme, getStoredTheme, setStoredTheme, watchSystemTheme } from '../lib/theme.ts'
+import { useAccount, useTheme } from '../api/resources/account.ts'
+import { useLogOut } from '../api/resources/session.ts'
+import { initialsOf } from '../lib/names.ts'
 import type { ThemePreference } from '../lib/theme.ts'
 import { useNavItems } from '../registry/context.ts'
 import type { NavItem } from '../registry/contributions.ts'
@@ -59,28 +60,15 @@ const THEME_LABELS: Readonly<Record<ThemePreference, string>> = {
 
 export function Shell(): React.JSX.Element {
   const navigate = useNavigate()
-  const { session } = useSession()
+  const { account } = useAccount()
   const logOut = useLogOut()
   const moduleNav = useNavItems('primary')
   const moduleAdminNav = useNavItems('admin')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme())
+  // The same preference the account page writes, so this button and that page
+  // cannot disagree about which theme the account is on.
+  const { theme, setTheme } = useTheme()
   const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    applyTheme(theme)
-    setStoredTheme(theme)
-  }, [theme])
-
-  useEffect(() => {
-    if (theme !== 'system') {
-      return
-    }
-
-    return watchSystemTheme(() => {
-      applyTheme('system')
-    })
-  }, [theme])
 
   useEffect(() => {
     if (!menuOpen) {
@@ -157,7 +145,7 @@ export function Shell(): React.JSX.Element {
           <button
             type="button"
             onClick={() => {
-              setTheme((current) => THEME_CYCLE[current])
+              setTheme(THEME_CYCLE[theme])
             }}
             title={`Theme: ${THEME_LABELS[theme]}`}
             className="rounded-md px-2 py-1 text-[12px] text-ink-muted transition hover:bg-surface-sunken hover:text-ink"
@@ -173,9 +161,9 @@ export function Shell(): React.JSX.Element {
               aria-expanded={menuOpen}
               aria-haspopup="menu"
               className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[10px] font-semibold text-accent-fg transition hover:bg-accent-hover"
-              title="Account"
+              title={account?.name ?? 'Account'}
             >
-              {(session?.role ?? '?').slice(0, 1).toUpperCase()}
+              {account === undefined ? '?' : initialsOf(account.name)}
             </button>
             {menuOpen && (
               <div
@@ -183,10 +171,33 @@ export function Shell(): React.JSX.Element {
                 className="absolute right-0 z-20 mt-1.5 w-56 overflow-hidden rounded-md border border-border bg-surface-raised py-1"
               >
                 <div className="border-b border-border px-3 py-2">
+                  <div className="truncate text-[13px] font-medium text-ink">
+                    {account?.name ?? 'Loading…'}
+                  </div>
                   <div className="truncate font-mono text-[11px] text-ink-faint">
-                    {session?.workspaceId ?? 'No workspace'}
+                    {account?.email ?? ''}
                   </div>
                 </div>
+                <NavLink
+                  to="/account/profile"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                  }}
+                  className="block px-3 py-1.5 text-left text-[13px] text-ink hover:bg-surface-sunken"
+                >
+                  Account settings
+                </NavLink>
+                <NavLink
+                  to="/account/preferences"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                  }}
+                  className="block border-b border-border px-3 py-1.5 text-left text-[13px] text-ink hover:bg-surface-sunken"
+                >
+                  Preferences
+                </NavLink>
                 <button
                   type="button"
                   role="menuitem"

@@ -3,7 +3,7 @@ import { and, desc, eq, gt, isNull, ne } from 'drizzle-orm'
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
-import { passwordResetTokens, sessions, users } from './schema.ts'
+import { passwordResetTokens, sessions, userPreferences, users } from './schema.ts'
 
 /**
  * Drizzle queries for accounts and sessions. No business logic: the service
@@ -18,6 +18,7 @@ export type Queryable = Database | Transaction
 
 export type UserRecord = typeof users.$inferSelect
 export type SessionRecord = typeof sessions.$inferSelect
+export type UserPreferencesRecord = typeof userPreferences.$inferSelect
 
 export async function findUserByEmail(db: Queryable, email: string): Promise<UserRecord | undefined> {
   const [found] = await db.select().from(users).where(eq(users.email, email)).limit(1)
@@ -51,6 +52,60 @@ export async function updateUserPassword(
     .update(users)
     .set({ passwordHash, updatedAt: now })
     .where(eq(users.id, userId))
+}
+
+/**
+ * Writes name and email. Not the password: that one has its own function because
+ * it also ends sessions, and the two must not be reachable through one call.
+ */
+export async function updateUserProfile(
+  db: Queryable,
+  userId: string,
+  changes: { readonly name?: string; readonly email?: string },
+  now: Date,
+): Promise<UserRecord | undefined> {
+  const [updated] = await db
+    .update(users)
+    .set({ ...changes, updatedAt: now })
+    .where(eq(users.id, userId))
+    .returning()
+
+  return updated
+}
+
+export async function findPreferences(
+  db: Queryable,
+  userId: string,
+): Promise<UserPreferencesRecord | undefined> {
+  const [found] = await db
+    .select()
+    .from(userPreferences)
+    .where(eq(userPreferences.userId, userId))
+    .limit(1)
+
+  return found
+}
+
+/**
+ * Inserts the row or replaces it, since the caller always has a complete set of
+ * values. Repeating a save writes the same row rather than failing on the
+ * primary key.
+ */
+export async function upsertPreferences(
+  db: Queryable,
+  values: typeof userPreferences.$inferInsert,
+): Promise<UserPreferencesRecord> {
+  const [saved] = await db
+    .insert(userPreferences)
+    .values(values)
+    .onConflictDoUpdate({ target: userPreferences.userId, set: values })
+    .returning()
+
+  if (saved === undefined) {
+    throw new Error(`Upserting preferences for ${values.userId} returned no row`)
+  }
+
+  return saved
 }
 
 export async function insertSession(

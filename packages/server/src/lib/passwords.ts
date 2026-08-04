@@ -1,3 +1,4 @@
+import { MINIMUM_PASSWORD_LENGTH } from '@kelpie/schemas'
 import { hash, verify } from '@node-rs/argon2'
 
 /**
@@ -9,8 +10,14 @@ import { hash, verify } from '@node-rs/argon2'
  * parameters they were made with, and `needsRehash` says when to upgrade one.
  */
 
-/** Rejected before hashing. Argon2 will happily hash an empty string. */
-const MINIMUM_LENGTH = 12
+/**
+ * Rejected before hashing. Argon2 will happily hash an empty string.
+ *
+ * The number lives in `@kelpie/schemas` because the browser's change-password
+ * form states the rule before submitting, and two copies would be two rules.
+ * Re-exported here so callers keep reading it off the module that enforces it.
+ */
+export { MINIMUM_PASSWORD_LENGTH }
 
 export class WeakPasswordError extends Error {
   constructor(message: string) {
@@ -23,8 +30,8 @@ export class WeakPasswordError extends Error {
  * @throws WeakPasswordError when the password is too short to be worth hashing.
  */
 export async function hashPassword(plaintext: string): Promise<string> {
-  if (plaintext.length < MINIMUM_LENGTH) {
-    throw new WeakPasswordError(`Password must be at least ${MINIMUM_LENGTH} characters`)
+  if (plaintext.length < MINIMUM_PASSWORD_LENGTH) {
+    throw new WeakPasswordError(`Password must be at least ${MINIMUM_PASSWORD_LENGTH} characters`)
   }
 
   return hash(plaintext)
@@ -45,7 +52,5 @@ export async function verifyPassword(storedHash: string, plaintext: string): Pro
 }
 
 export function isPasswordStrongEnough(plaintext: string): boolean {
-  return plaintext.length >= MINIMUM_LENGTH
+  return plaintext.length >= MINIMUM_PASSWORD_LENGTH
 }
-
-export const MINIMUM_PASSWORD_LENGTH = MINIMUM_LENGTH
