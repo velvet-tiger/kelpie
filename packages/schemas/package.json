@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --project tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },
   "dependencies": {
