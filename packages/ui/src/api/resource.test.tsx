@@ -88,7 +88,13 @@ function stubClient(parts: StubParts): ApiClient {
 
       return { items: wire.items.map(decodeItem), nextCursor: wire.nextCursor }
     },
+    getText: () => {
+      throw new Error('Unexpected getText call')
+    },
     post: (path, body, decode) => required(parts.post, 'post')(path, body).then(decode),
+    postForm: () => {
+      throw new Error('Unexpected postForm call')
+    },
     postEmpty: () => {
       throw new Error('Unexpected postEmpty call')
     },

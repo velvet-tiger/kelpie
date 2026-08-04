@@ -153,6 +153,45 @@ export type {
 export { formSubmissionSchema, formSubmitResultSchema } from './formSubmission.ts'
 export type { FormSubmission, FormSubmitResult } from './formSubmission.ts'
 
+export {
+  CONFLICT_MODE_LABELS,
+  IMPORT_CONFLICT_MODES,
+  IMPORT_JOB_STATUSES,
+  IMPORT_OBJECTS,
+  IMPORT_PREVIEW_ROWS,
+  IMPORT_REPORTED_ERRORS,
+  IMPORT_ROW_ACTIONS,
+  IMPORT_SOURCES,
+  LIST_COLUMNS,
+  MATCH_KEYS,
+  MAX_IMPORT_FILE_BYTES,
+  MAX_IMPORT_ROWS,
+  OBJECT_COLUMNS,
+  OBJECT_LABELS,
+  SOURCE_LABELS,
+  SYNC_IMPORT_ROWS,
+  defaultMatchKeyId,
+  findMatchKey,
+  importJobSchema,
+  isImportJobSettled,
+  requiredColumns,
+} from './importExport.ts'
+export type {
+  CsvColumn,
+  ImportColumnMap,
+  ImportConflictMode,
+  ImportCounts,
+  ImportJob,
+  ImportJobStatus,
+  ImportObject,
+  ImportPreviewRow,
+  ImportRowAction,
+  ImportRowError,
+  ImportSource,
+  MatchKeyOption,
+  SettledRowAction,
+} from './importExport.ts'
+
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'
 

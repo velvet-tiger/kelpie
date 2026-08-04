@@ -255,6 +255,8 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | Handbook | `GET`, `POST /v1/handbook_pages`, `GET`, `PATCH`, `DELETE /v1/handbook_pages/:id`. Filters `?q=` and `?slug=` |
 | Forms | `GET`, `POST /v1/forms`, `GET`, `PATCH`, `DELETE /v1/forms/:id`. Filters `?q=` and `?status=`. Plus `GET /v1/forms/:id/submissions` and `GET /v1/forms/:id/embed` |
 | Public forms | `POST /v1/public/forms/:public_key/submit` and `GET /v1/public/forms/:public_key/embed`. No credentials, any origin |
+| Export | `GET /v1/export/{people,companies,positions,deals}.csv` and `GET /v1/export/templates/{object}.csv` |
+| Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit` |
 
 Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
 
@@ -272,7 +274,15 @@ A form carries its fields, and a write replaces the whole list — field ids nev
 
 The handbook is a tree the caller rebuilds from `parent_id` and `sort_order`; a page's `sort_order` positions it among its siblings and means nothing across the whole set, so the list sorts by title. `PATCH` with a `parent_id` or a `sort_order` is a move, and the API renumbers both sibling sets so positions stay contiguous from 0. In the sidebar one gesture does both: dragging a page sideways indents or lifts it where it stands, and a drag that ends where it started writes nothing. It nests five levels, and a move that would push a page *or its own subpages* past that is a `422`, as is nesting a page under itself or one of its subpages. A page's `slug` is the stable handle `agent-tasks.md` names pages by, so renaming a page leaves it alone; moving it on purpose is a separate field, and a collision is a `409`. Deleting a page deletes every page under it.
 
-Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with after-commit publication, the entitlements registry, 36 tables with migrations, and an integration harness that creates and truncates its own database.
+**An import is a dry run you then commit, and the two do not have to agree.** `POST /v1/import/jobs` parses the file, stores every row as it arrived, and plans each one against the workspace: create, update, skip, or error, with the counts and the first failing rows on the job. `POST .../commit` then re-resolves every row rather than replaying the plan, because the workspace can change in between and because rows earlier in the same file create the records later rows must match against. That is also what makes a commit idempotent — run it twice, or re-upload the same file, and the second pass finds what the first one wrote. A row that fails takes only itself down; the rest of the file still commits.
+
+`column_map` is optional. Leave it out and the server derives one from the source pack and the file's own headers, and answers with both it and `source_headers`, so nothing has to parse CSV to build a mapping screen. A corrected mapping is a fresh job over the same file. An unmapped or blank cell is never written: a partial export with an empty Summary column would otherwise erase every summary it names.
+
+A deal's stage resolves against this workspace's own pipeline — its slug, then its label, then the HubSpot and Salesforce alias tables — and a name that matches none of them fails the row. An export writes the slug and the major currency unit, which is what lets a Kelpie export read straight back in with no mapping at all. A missing company fails a deal row rather than creating a stub, and an `owner_email` naming nobody in the workspace fails it too, rather than quietly reassigning the deal to whoever ran the import.
+
+**Over 500 rows a job runs in the background and the request answers `202`.** There is no durable queue: the work is a detached promise in the same process, the same way the event bus publishes. A crash mid-pass therefore strands a job in `validating` or `committing` with nothing to move it on, and the remedy is to upload the file again — which is safe, because a commit is idempotent. A real queue is the module system's job, not core's.
+
+Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with after-commit publication, the entitlements registry, 37 tables with migrations, and an integration harness that creates and truncates its own database.
 
 Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
 

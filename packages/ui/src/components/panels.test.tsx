@@ -95,6 +95,12 @@ function stubClient(stubs: Stubs): ApiClient {
 
       return Promise.resolve(decode(stubs.onPost(path, body)))
     },
+    getText: () => {
+      throw new Error('Unexpected getText call')
+    },
+    postForm: () => {
+      throw new Error('Unexpected postForm call')
+    },
     postEmpty: () => {
       throw new Error('Unexpected postEmpty call')
     },
