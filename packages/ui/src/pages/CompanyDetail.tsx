@@ -19,6 +19,7 @@ import {
   usePositions,
   useUpdatePositionTitle,
 } from '../api/resources/positions.ts'
+import { useRaises } from '../api/resources/raises.ts'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
@@ -177,14 +178,14 @@ function CompanyHeading({ company }: { readonly company: Company }): React.JSX.E
 /**
  * A summary, the plan items needing attention, and the latest activity.
  *
- * The plan rolls up from this company's deals, opportunities and partnerships.
- * The mockup also rolls up its raises, which have no endpoint yet, so nothing
- * in the workspace can carry a plan item against one.
+ * The plan rolls up from this company's deals, opportunities, raises and
+ * partnerships, the mockup's whole roll-up for a company.
  */
 function CompanyOverview({ company }: { readonly company: Company }): React.JSX.Element {
   const patch = useCompanyPatch(company)
   const deals = useDeals({ companyIds: [company.id] })
   const opportunities = useOpportunities({ companyIds: [company.id] })
+  const raises = useRaises({ companyIds: [company.id] })
   const partnerships = usePartnerships({ companyIds: [company.id] })
 
   return (
@@ -198,8 +199,11 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
       <RelatedPlanAttention
         deals={deals.records}
         opportunities={opportunities.records}
+        raises={raises.records}
         partnerships={partnerships.records}
-        isLoading={deals.isLoading || opportunities.isLoading || partnerships.isLoading}
+        isLoading={
+          deals.isLoading || opportunities.isLoading || raises.isLoading || partnerships.isLoading
+        }
       />
       <LatestActivity targetType="company" targetId={company.id} />
     </div>

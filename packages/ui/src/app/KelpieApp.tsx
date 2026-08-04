@@ -8,6 +8,7 @@ import { DealDetail } from '../pages/DealDetail.tsx'
 import { DealStageSettingsPage } from '../pages/DealStageSettingsPage.tsx'
 import { DealsPage } from '../pages/DealsPage.tsx'
 import { DecisionsPage } from '../pages/DecisionsPage.tsx'
+import { FundraisingPage } from '../pages/FundraisingPage.tsx'
 import { OpportunitiesPage } from '../pages/OpportunitiesPage.tsx'
 import { OpportunityDetail } from '../pages/OpportunityDetail.tsx'
 import { OpportunityStageSettingsPage } from '../pages/OpportunityStageSettingsPage.tsx'
@@ -17,6 +18,8 @@ import { PartnershipsPage } from '../pages/PartnershipsPage.tsx'
 import { PeoplePage } from '../pages/PeoplePage.tsx'
 import { PersonDetail } from '../pages/PersonDetail.tsx'
 import { PlanningPage } from '../pages/PlanningPage.tsx'
+import { RaiseDetail } from '../pages/RaiseDetail.tsx'
+import { RaiseStageSettingsPage } from '../pages/RaiseStageSettingsPage.tsx'
 import { CreateWorkspacePage } from '../pages/auth/CreateWorkspacePage.tsx'
 import { SignInPage } from '../pages/auth/SignInPage.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
@@ -74,6 +77,9 @@ function AppRoutes(): React.JSX.Element {
           <Route path="opportunities" element={<OpportunitiesPage />} />
           <Route path="opportunities/settings" element={<OpportunityStageSettingsPage />} />
           <Route path="opportunities/:id" element={<OpportunityDetail />} />
+          <Route path="fundraising" element={<FundraisingPage />} />
+          <Route path="fundraising/settings" element={<RaiseStageSettingsPage />} />
+          <Route path="fundraising/:id" element={<RaiseDetail />} />
           <Route path="partnerships" element={<PartnershipsPage />} />
           <Route path="partnerships/settings" element={<PartnershipStageSettingsPage />} />
           <Route path="partnerships/:id" element={<PartnershipDetail />} />

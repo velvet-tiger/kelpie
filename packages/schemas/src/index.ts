@@ -71,6 +71,9 @@ export type { Opportunity, OpportunityInput } from './opportunity.ts'
 export { partnershipBody, partnershipSchema } from './partnership.ts'
 export type { Partnership, PartnershipInput } from './partnership.ts'
 
+export { raiseBody, raiseSchema } from './raise.ts'
+export type { Raise, RaiseInput } from './raise.ts'
+
 export {
   createPipelineStageBody,
   pipelineStageSchema,
