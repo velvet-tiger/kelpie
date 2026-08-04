@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -89,6 +89,32 @@ export async function listMembers(db: Queryable, workspaceId: string): Promise<M
     .innerJoin(users, eq(users.id, workspaceMembers.userId))
     .where(eq(workspaceMembers.workspaceId, workspaceId))
     .orderBy(workspaceMembers.joinedAt)
+}
+
+/**
+ * The member a record is assigned to when nobody chose one.
+ *
+ * A public form submit has no actor, so a Deal it creates has no natural owner
+ * and `forms.md` gives it the workspace's default member. That is the owner: the
+ * account that created the workspace, and the one person guaranteed to be able
+ * to reassign it. Earliest-joined breaks a tie between two owners, so the answer
+ * does not move when a second owner is promoted.
+ *
+ * @returns undefined only for a workspace with no members, which membership
+ *   creation makes unreachable through the API.
+ */
+export async function findDefaultMember(
+  db: Queryable,
+  workspaceId: string,
+): Promise<MemberRecord | undefined> {
+  const [found] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.role, 'owner')))
+    .orderBy(asc(workspaceMembers.joinedAt), asc(workspaceMembers.id))
+    .limit(1)
+
+  return found
 }
 
 /**

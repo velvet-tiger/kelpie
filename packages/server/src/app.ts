@@ -1,7 +1,9 @@
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 
 import type { DatabaseProbe } from './lib/database.ts'
 import { AppError, internalErrorBody, toErrorBody } from './lib/errors.ts'
+import { PUBLIC_ROUTE_PREFIX } from './lib/http.ts'
 import type { Logger } from './lib/logger.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 
@@ -29,6 +31,23 @@ export interface AppBindings {
 
 const REQUEST_ID_HEADER = 'X-Request-Id'
 
+/**
+ * Any origin, because a public endpoint exists to be called from a customer's
+ * own website and Kelpie does not know that site's address.
+ *
+ * `credentials` stays off, which is what keeps this safe: a browser will not
+ * attach the session cookie to these requests, so an embedded form on an
+ * attacker's page cannot borrow a signed-in reader's identity. A public handler
+ * has no `Actor` in any case (`runtime/module.ts`).
+ */
+const PUBLIC_CORS = cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'OPTIONS'],
+  allowHeaders: ['Content-Type'],
+  credentials: false,
+  maxAge: 86_400,
+})
+
 export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   const generateRequestId = dependencies.generateRequestId ?? (() => crypto.randomUUID())
   const app = new Hono<AppBindings>()
@@ -51,6 +70,15 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
       durationMs: Math.round(performance.now() - startedAt),
     })
   })
+
+  // Public first. `/v1/public/...` cannot collide with a `/v1` route unless a
+  // module names a resource `public`, and mounting in this order means the CORS
+  // middleware is attached before anything can answer under the prefix.
+  app.use(`${PUBLIC_ROUTE_PREFIX}/*`, PUBLIC_CORS)
+
+  for (const { router } of dependencies.contributions.publicRouters) {
+    app.route(PUBLIC_ROUTE_PREFIX, router)
+  }
 
   for (const { router } of dependencies.contributions.routers) {
     app.route('/v1', router)

@@ -23,6 +23,8 @@ import { ModuleBootError, orderModules } from './order.ts'
  */
 export interface ModuleContributions {
   readonly routers: readonly ModuleRouter[]
+  /** Routers for `/v1/public`: no credentials, CORS open. `architecture.md` boot step 5. */
+  readonly publicRouters: readonly ModuleRouter[]
   readonly schemas: readonly SchemaContribution[]
   readonly mcpTools: readonly McpTool[]
   readonly webhookEvents: readonly string[]
@@ -53,6 +55,7 @@ export interface ModuleRuntimeOptions {
 /** Contributions accumulate here, one mutable set per registration pass. */
 interface Accumulator {
   readonly routers: ModuleRouter[]
+  readonly publicRouters: ModuleRouter[]
   readonly schemas: SchemaContribution[]
   readonly mcpTools: McpTool[]
   readonly webhookEvents: Set<string>
@@ -72,6 +75,12 @@ function createModuleContext(
       const router = new Hono()
       mount(router)
       accumulator.routers.push({ moduleId: module.id, router })
+    },
+
+    publicRoutes(mount) {
+      const router = new Hono()
+      mount(router)
+      accumulator.publicRouters.push({ moduleId: module.id, router })
     },
 
     schema(tables, migrationsDir) {
@@ -144,6 +153,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   const entitlements = options.entitlements ?? createEntitlementRegistry()
   const accumulator: Accumulator = {
     routers: [],
+    publicRouters: [],
     schemas: [],
     mcpTools: [],
     webhookEvents: new Set<string>(),
@@ -174,6 +184,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
 
   return {
     routers: accumulator.routers,
+    publicRouters: accumulator.publicRouters,
     schemas: accumulator.schemas,
     mcpTools: accumulator.mcpTools,
     webhookEvents: [...accumulator.webhookEvents],

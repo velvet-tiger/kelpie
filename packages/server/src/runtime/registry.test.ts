@@ -41,6 +41,29 @@ const greetingModule: KelpieModule = {
   },
 }
 
+/**
+ * A module contributing one endpoint of each kind.
+ *
+ * Both on the same module on purpose: what decides whether an endpoint is public
+ * is which method registered it, not which module it came from. Whether a
+ * credentialled endpoint answers 401 is the route's own business and is asserted
+ * against real auth in the forms suite.
+ */
+const doorwayModule: KelpieModule = {
+  id: 'doorway',
+  register(context) {
+    context.routes((router) => {
+      router.get('/doorway/inside', (requestContext) => requestContext.json({ inside: true }))
+    })
+
+    context.publicRoutes((router) => {
+      router.get('/doorway/open', (requestContext) => requestContext.json({ open: true }))
+    })
+
+    return Promise.resolve()
+  },
+}
+
 function silentLogger(): ReturnType<typeof createLogger> {
   return createLogger('error', () => undefined)
 }
@@ -68,6 +91,69 @@ describe('module routes', () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: { code: 'not_found', message: 'Not found' } })
+  })
+})
+
+describe('module public routes', () => {
+  const openApp = (): ReturnType<typeof createTestApp> => createTestApp({ modules: [doorwayModule] })
+
+  it('serves a public route under /v1/public', async () => {
+    const { app } = await openApp()
+    const response = await app.request('/v1/public/doorway/open')
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ open: true })
+  })
+
+  /** One prefix answers "is this endpoint public?", so a public route is only there. */
+  it('does not also serve the public route under /v1', async () => {
+    const { app } = await openApp()
+
+    expect((await app.request('/v1/doorway/open')).status).toBe(404)
+  })
+
+  it('leaves the module credentialled route where it was', async () => {
+    const { app } = await openApp()
+    const response = await app.request('/v1/doorway/inside')
+
+    expect(response.status).toBe(200)
+    expect((await app.request('/v1/public/doorway/inside')).status).toBe(404)
+  })
+
+  it('answers a CORS preflight on a public route', async () => {
+    const { app } = await openApp()
+    const response = await app.request('/v1/public/doorway/open', {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://example.com', 'Access-Control-Request-Method': 'GET' },
+    })
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*')
+  })
+
+  /**
+   * No `Allow-Credentials` on the public prefix, so a browser never attaches a
+   * reader's session cookie to a cross-origin call, and nothing under `/v1` is
+   * reachable cross-origin at all.
+   */
+  it('opens up nothing beyond the public prefix', async () => {
+    const { app } = await openApp()
+    const open = await app.request('/v1/public/doorway/open', {
+      headers: { Origin: 'https://example.com' },
+    })
+    const inside = await app.request('/v1/doorway/inside', {
+      headers: { Origin: 'https://example.com' },
+    })
+
+    expect(open.headers.get('Access-Control-Allow-Credentials')).toBeNull()
+    expect(inside.headers.get('Access-Control-Allow-Origin')).toBeNull()
+  })
+
+  it('collects public routers apart from the rest', async () => {
+    const { contributions } = await openApp()
+
+    expect(contributions.publicRouters.map((entry) => entry.moduleId)).toEqual(['doorway'])
+    expect(contributions.routers.map((entry) => entry.moduleId)).toEqual(['doorway'])
   })
 })
 
@@ -278,6 +364,7 @@ describe('an assembly with no modules', () => {
     const { app, contributions } = await createTestApp()
 
     expect(contributions.routers).toEqual([])
+    expect(contributions.publicRouters).toEqual([])
     expect(contributions.schemas).toEqual([])
     expect(contributions.mcpTools).toEqual([])
     expect(contributions.webhookEvents).toEqual([])

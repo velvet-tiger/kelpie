@@ -20,6 +20,11 @@ export {
   CANDIDATE_STATUSES,
   COMPANY_STAGES,
   FIRST_INTERVIEW_STAGE,
+  FORM_FIELD_MAP_TARGET_LABELS,
+  FORM_FIELD_MAP_TARGETS,
+  FORM_FIELD_TYPES,
+  FORM_OPTION_VALUE_TYPES,
+  FORM_STATUSES,
   ICP_FITS,
   IN_PROCESS,
   INFLUENCE_LEVELS,
@@ -27,6 +32,7 @@ export {
   INTERVIEW_STAGES,
   MEMBER_ROLES,
   OPEN_PLAN_ITEM_STATUSES,
+  PERSON_EMAIL_TARGET,
   PIPELINE_KIND_LABELS,
   PIPELINE_KINDS,
   PLAN_ITEM_STATUS_LABELS,
@@ -46,6 +52,10 @@ export type {
   ActivityKind,
   CandidateStatus,
   CompanyStage,
+  FormFieldMapTarget,
+  FormFieldType,
+  FormOptionValueType,
+  FormStatus,
   IcpFit,
   Influence,
   InterviewStage,
@@ -122,6 +132,20 @@ export type {
   HandbookPage,
   HandbookPageInput,
 } from './handbookPage.ts'
+
+export { createFormBody, formBody, formSchema } from './form.ts'
+export type {
+  CreateFormInput,
+  Form,
+  FormField,
+  FormFieldInput,
+  FormFieldOption,
+  FormFieldOptionInput,
+  FormInput,
+} from './form.ts'
+
+export { formSubmissionSchema, formSubmitResultSchema } from './formSubmission.ts'
+export type { FormSubmission, FormSubmitResult } from './formSubmission.ts'
 
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'

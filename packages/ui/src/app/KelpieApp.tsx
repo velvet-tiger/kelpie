@@ -8,6 +8,8 @@ import { DealDetail } from '../pages/DealDetail.tsx'
 import { DealStageSettingsPage } from '../pages/DealStageSettingsPage.tsx'
 import { DealsPage } from '../pages/DealsPage.tsx'
 import { DecisionsPage } from '../pages/DecisionsPage.tsx'
+import { FormDetail } from '../pages/FormDetail.tsx'
+import { FormsPage } from '../pages/FormsPage.tsx'
 import { FundraisingPage } from '../pages/FundraisingPage.tsx'
 import { HiringPage } from '../pages/HiringPage.tsx'
 import { OpportunitiesPage } from '../pages/OpportunitiesPage.tsx'
@@ -90,6 +92,8 @@ function AppRoutes(): React.JSX.Element {
           <Route path="partnerships/:id" element={<PartnershipDetail />} />
           <Route path="planning" element={<PlanningPage />} />
           <Route path="decisions" element={<DecisionsPage />} />
+          <Route path="forms" element={<FormsPage />} />
+          <Route path="forms/:id" element={<FormDetail />} />
           {/* The optional segment is the mockup's: /handbook opens the first page. */}
           <Route path="handbook" element={<HandbookLayout />} />
           <Route path="handbook/:pageId" element={<HandbookLayout />} />

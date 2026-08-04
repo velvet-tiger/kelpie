@@ -1,13 +1,53 @@
-import { sql } from 'drizzle-orm'
-import { boolean, check, index, integer, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
+import { FORM_FIELD_MAP_TARGETS, FORM_FIELD_TYPES, FORM_STATUSES } from '@kelpie/schemas'
+import type { FormOptionValueType } from '@kelpie/schemas'
+import { boolean, index, integer, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { people } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { positions } from '../positions/schema.ts'
 import { workspaces } from '../workspace/schema.ts'
+
+/**
+ * The fixed value sets come from `@kelpie/schemas`, so these tables' check
+ * constraints, this module's Zod enums, and the browser's decoder are one list
+ * rather than three copies. A value the boundary accepts and the check
+ * constraint refuses would be a 500 where a 422 belongs.
+ */
+export {
+  FORM_FIELD_MAP_TARGET_LABELS,
+  FORM_FIELD_MAP_TARGETS,
+  FORM_FIELD_TYPES,
+  FORM_OPTION_VALUE_TYPES,
+  FORM_STATUSES,
+  PERSON_EMAIL_TARGET,
+} from '@kelpie/schemas'
+export type {
+  FormFieldMapTarget,
+  FormFieldType,
+  FormOptionValueType,
+  FormStatus,
+} from '@kelpie/schemas'
+
+/**
+ * A select choice as it is stored.
+ *
+ * jsonb rather than a fourth table: nothing queries into an option, and the set
+ * is only ever read, written, and replaced along with the field that owns it.
+ * Typed rather than left as `unknown`, and the route layer parses what goes in,
+ * so a row read back is the shape it claims to be.
+ *
+ * No id. `key` is what a stored answer holds and what a submit is validated
+ * against, so it is already the handle; a second identifier would be one nothing
+ * addresses and one more thing to keep unique.
+ */
+export interface StoredFormFieldOption {
+  readonly key: string
+  readonly value: string
+  readonly valueType: FormOptionValueType
+}
 
 /**
  * Embeddable inbound forms. `public_key` is globally unique because the public
@@ -33,7 +73,7 @@ export const forms = pgTable(
   },
   (table) => [
     index('forms_workspace_idx').on(table.workspaceId),
-    check('forms_status_check', sql`${table.status} in ('active', 'paused')`),
+    checkOneOf('forms_status_check', table.status, FORM_STATUSES),
   ],
 )
 
@@ -56,7 +96,7 @@ export const formFields = pgTable(
     type: text('type').notNull(),
     required: boolean('required').notNull().default(false),
     mapTo: text('map_to').notNull(),
-    options: jsonb('options').notNull().default([]),
+    options: jsonb('options').$type<readonly StoredFormFieldOption[]>().notNull().default([]),
     placeholder: text('placeholder'),
     sortOrder: integer('sort_order').notNull(),
     createdAt: createdAt(),
@@ -64,11 +104,8 @@ export const formFields = pgTable(
   },
   (table) => [
     index('form_fields_form_idx').on(table.formId),
-    check('form_fields_type_check', sql`${table.type} in ('text', 'email', 'textarea', 'select')`),
-    check(
-      'form_fields_map_to_check',
-      sql`${table.mapTo} in ('person.name', 'person.email', 'company.name', 'company.domain', 'position.title', 'deal.name', 'submission')`,
-    ),
+    checkOneOf('form_fields_type_check', table.type, FORM_FIELD_TYPES),
+    checkOneOf('form_fields_map_to_check', table.mapTo, FORM_FIELD_MAP_TARGETS),
   ],
 )
 
@@ -87,7 +124,7 @@ export const formSubmissions = pgTable(
       .notNull()
       .references(() => forms.id, { onDelete: 'cascade' }),
     submittedAt: moment('submitted_at').notNull().defaultNow(),
-    answers: jsonb('answers').notNull(),
+    answers: jsonb('answers').$type<Readonly<Record<string, string>>>().notNull(),
     personId: text('person_id').references(() => people.id, { onDelete: 'set null' }),
     companyId: text('company_id').references(() => companies.id, { onDelete: 'set null' }),
     positionId: text('position_id').references(() => positions.id, { onDelete: 'set null' }),

@@ -251,6 +251,8 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | Candidates | `GET`, `POST /v1/candidates`, `GET`, `PATCH`, `DELETE /v1/candidates/:id`. Filters `?role_id=`, `?person_id=` and `?status=` |
 | Decisions | `GET`, `POST /v1/decisions`, `GET`, `PATCH`, `DELETE /v1/decisions/:id`. Filters `?q=`, `?target_type=` and `?target_id=` |
 | Handbook | `GET`, `POST /v1/handbook_pages`, `GET`, `PATCH`, `DELETE /v1/handbook_pages/:id`. Filters `?q=` and `?slug=` |
+| Forms | `GET`, `POST /v1/forms`, `GET`, `PATCH`, `DELETE /v1/forms/:id`. Filters `?q=` and `?status=`. Plus `GET /v1/forms/:id/submissions` and `GET /v1/forms/:id/embed` |
+| Public forms | `POST /v1/public/forms/:public_key/submit` and `GET /v1/public/forms/:public_key/embed`. No credentials, any origin |
 
 Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
 
@@ -260,17 +262,25 @@ A job title lives on Position and nowhere else, so a person can hold one at more
 
 Hiring state lives on Candidate, the Person↔Role link, for the same reason: one person can be interviewing for one role and in the nurture pile for another. `interview_stage` is null unless the status is `in_process`, and the API keeps that true — leaving the process clears the stage, rejoining it restores the first one, and a stage that contradicts the status is a `422`.
 
+Forms are the one public surface. Managing them takes credentials like everything else; submitting one takes nothing but the form's `public_key`, because the caller is a stranger's browser on a stranger's website. Everything under `/v1/public` is mounted outside the credentialled routes and answers any origin without allowing credentials, so a browser never attaches a signed-in reader's session cookie to one. A submit upserts the Person by email, the Company by domain and then by name, the Position that carries the title, and optionally a Deal. The merge fills blanks and never overwrites: an inbound "Alex" does not replace the "Alex Rivera" the team recorded. A paused form answers `409`, and answers without a usable address answer `422`. `GET /v1/forms/:id/embed` hands back the iframe and script snippets to paste into a site; the page they point at is server-rendered from the form itself, so embedding it does not pull the CRM bundle into somebody else's marketing site.
+
+**A company is never inferred from an email domain.** Only a field mapped to `company.domain` sets one. An email domain is not a company identifier: one company sends from several, a consumer address belongs to none, and two people at unrelated businesses can share one, so inferring it merges records that were never the same company. A Deal belongs to a Company, so a form with `create_deal` on and no `company.name` or `company.domain` field is refused at `422` rather than left to quietly never create the deals it promises.
+
+A form carries its fields, and a write replaces the whole list — field ids never appear in a request, and positions come from the array's order. A list identical to the stored one is not a write, so ids survive a save that changed nothing, which matters because a stored answer is keyed by field id.
+
 The handbook is a tree the caller rebuilds from `parent_id` and `sort_order`; a page's `sort_order` positions it among its siblings and means nothing across the whole set, so the list sorts by title. `PATCH` with a `parent_id` or a `sort_order` is a move, and the API renumbers both sibling sets so positions stay contiguous from 0. In the sidebar one gesture does both: dragging a page sideways indents or lifts it where it stands, and a drag that ends where it started writes nothing. It nests five levels, and a move that would push a page *or its own subpages* past that is a `422`, as is nesting a page under itself or one of its subpages. A page's `slug` is the stable handle `agent-tasks.md` names pages by, so renaming a page leaves it alone; moving it on purpose is a separate field, and a collision is a `409`. Deleting a page deletes every page under it.
 
-Underneath: the module runtime, a typed event bus with after-commit publication, the entitlements registry, 36 tables with migrations, and an integration harness that creates and truncates its own database.
+Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with after-commit publication, the entitlements registry, 36 tables with migrations, and an integration harness that creates and truncates its own database.
 
 Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
 
 In the browser: People and Companies, list and detail, against those endpoints. Filtering, inline editing, creating, deleting, and linking a person to a company through a Position all work end to end. Detail pages render the `person` and `company` record-tab slots, and the sidebar renders module nav items, so a UI module has somewhere to land from the start.
 
+Forms have a list and a four-tab detail page: submissions with links to what each one created, a drag-ordered field builder, settings, and the embed snippets. The builder is the one screen in the app that saves explicitly rather than per keystroke, because a write replaces the whole field list and committing on every character would reissue every field id. It refuses to send a list the API would reject, and shows why beside the field responsible.
+
 ## Not here yet
 
-- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning and Decisions are ported. Everything else in `mockups/` is not: the dashboard, search, forms, admin and account pages all wait for their endpoints.
+- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions and Forms are ported. Everything else in `mockups/` is not: the dashboard, search, admin and account pages all wait for their endpoints.
 - **Agent tasks on a handbook page.** The mockup's handbook header carries an Agent tasks button. It arrives with the agent task registry in Phase 3, like every other record's.
 - **The rest of the auth pages.** Sign-in and first-workspace exist as placeholders so the CRM pages can be reached. Signup, password reset, the onboarding wizard, and the account security page are a separate feature and replace them.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.

@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
@@ -65,6 +65,33 @@ export async function findPosition(
     .limit(1)
 
   return found
+}
+
+/**
+ * Every title a person holds at one company, oldest first.
+ *
+ * A form submit needs the whole set rather than one row: a person may hold two
+ * titles at the same company, and the submit prefers the one whose title
+ * matches before it falls back to filling in a blank on any of them
+ * (`forms.md` submit rule 5).
+ */
+export function listPositionsAt(
+  db: Queryable,
+  workspaceId: string,
+  personId: string,
+  companyId: string,
+): Promise<PositionRecord[]> {
+  return db
+    .select()
+    .from(positions)
+    .where(
+      and(
+        eq(positions.workspaceId, workspaceId),
+        eq(positions.personId, personId),
+        eq(positions.companyId, companyId),
+      ),
+    )
+    .orderBy(asc(positions.createdAt), asc(positions.id))
 }
 
 export async function insertPosition(

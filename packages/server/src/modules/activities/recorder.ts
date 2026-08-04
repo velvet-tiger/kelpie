@@ -29,22 +29,41 @@ export interface ActivityDraft extends ActivityWording {
 }
 
 /**
- * @param workspaceId Passed rather than read off the actor. Every caller has
- *   already resolved it through `requireWorkspaceId`, and reaching for a
- *   nullable field here would need a default that silently mis-files a row.
+ * Something that acts on the workspace without being anybody in it.
+ *
+ * A public form submit is the case this exists for: the request carries no
+ * credentials, so there is no `Actor` to resolve and no member to attribute the
+ * row to, but the timeline still has to say where it came from. `kind` keeps it
+ * a discriminated union with `Actor`, whose members are `session` and `api_key`.
+ */
+export interface SystemActor {
+  readonly kind: 'system'
+  /** What the timeline prints in place of a member's name: `Form`, `Gmail`. */
+  readonly label: string
+}
+
+/** Who a timeline row is attributed to. */
+export type ActivityAuthor = Actor | SystemActor
+
+/**
+ * @param workspaceId Passed rather than read off the author. Every caller has
+ *   already resolved it — through `requireWorkspaceId`, or from a form's
+ *   `publicKey` — and reaching for a nullable field here would need a default
+ *   that silently mis-files a row.
  */
 export type ActivityRecorder = (
   db: Queryable,
   workspaceId: string,
-  actor: Actor,
+  author: ActivityAuthor,
   draft: ActivityDraft,
 ) => Promise<void>
 
 /**
- * The display name to show when no member is behind an action.
+ * The display name to show for a workspace key.
  *
  * A workspace key belongs to the workspace rather than to a person, so there is
- * no member row to name. Integrations set their own label here: `Form`, `Gmail`.
+ * no member row to name. Anything else with no member behind it says so through
+ * a `SystemActor` and its own label.
  */
 const WORKSPACE_KEY_LABEL = 'API key'
 
@@ -53,11 +72,25 @@ export interface ActivityRecorderDependencies {
   readonly now: () => Date
 }
 
+/** The member row and the fallback label, exactly one of which is set. */
+function attribute(author: ActivityAuthor): {
+  readonly memberId: string | null
+  readonly label: string | null
+} {
+  if (author.kind === 'system') {
+    return { memberId: null, label: author.label }
+  }
+
+  const memberId = actorMemberId(author)
+
+  return { memberId, label: memberId === null ? WORKSPACE_KEY_LABEL : null }
+}
+
 export function createActivityRecorder(
   dependencies: ActivityRecorderDependencies,
 ): ActivityRecorder {
-  return async (db, workspaceId, actor, draft) => {
-    const memberId = actorMemberId(actor)
+  return async (db, workspaceId, author, draft) => {
+    const { memberId, label } = attribute(author)
 
     await repository.insertActivity(db, {
       id: dependencies.createId('activity'),
@@ -66,7 +99,7 @@ export function createActivityRecorder(
       targetId: draft.targetId,
       kind: draft.kind,
       actorMemberId: memberId,
-      actorLabel: memberId === null ? WORKSPACE_KEY_LABEL : null,
+      actorLabel: label,
       action: draft.action,
       detail: draft.detail,
       createdAt: dependencies.now(),

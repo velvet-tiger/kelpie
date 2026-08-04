@@ -58,6 +58,22 @@ export function describeCreation(objectLabel: string): ActivityWording {
 }
 
 /**
+ * `Submitted via Website contact`, with the first answers beneath it.
+ *
+ * Reads as the submitter's own action rather than as "created Person", because
+ * the row lands on a person's timeline and the person is usually not new: a
+ * returning lead filling the form in again is the same sentence either way.
+ */
+export function describeFormSubmission(formName: string, answers: string | null): ActivityWording {
+  return { action: `Submitted via ${formName}`, detail: answers }
+}
+
+/** `created Deal via Website contact`. The deal side of the same submit. */
+export function describeCreationVia(objectLabel: string, formName: string): ActivityWording {
+  return { action: `created ${objectLabel} via ${formName}`, detail: null }
+}
+
+/**
  * One changed field reads as itself; several read as a count.
  *
  * `changed Influence` with `influencer → decision_maker` says more than

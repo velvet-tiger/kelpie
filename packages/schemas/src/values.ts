@@ -228,3 +228,59 @@ export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 export const MEMBER_ROLES = ['owner', 'admin', 'member'] as const
 
 export type MemberRole = (typeof MEMBER_ROLES)[number]
+
+/** A paused form still exists and still renders; its submit answers 409 (`forms.md`). */
+export const FORM_STATUSES = ['active', 'paused'] as const
+
+export type FormStatus = (typeof FORM_STATUSES)[number]
+
+/**
+ * What a field renders as in the embed. Deliberately short: `forms.md` puts file
+ * uploads, multi-page forms and branching out of scope, and every type here is
+ * one `<input>`, `<textarea>` or `<select>`.
+ */
+export const FORM_FIELD_TYPES = ['text', 'email', 'textarea', 'select'] as const
+
+export type FormFieldType = (typeof FORM_FIELD_TYPES)[number]
+
+/**
+ * Where a field's answer lands on submit.
+ *
+ * `position.title` rather than a person field, because a job title belongs to the
+ * Person↔Company link and nowhere else. `submission` stores the answer without
+ * writing any CRM record, which is what a free-text "How can we help?" wants.
+ */
+export const FORM_FIELD_MAP_TARGETS = [
+  'person.name',
+  'person.email',
+  'company.name',
+  'company.domain',
+  'position.title',
+  'deal.name',
+  'submission',
+] as const
+
+export type FormFieldMapTarget = (typeof FORM_FIELD_MAP_TARGETS)[number]
+
+export const FORM_FIELD_MAP_TARGET_LABELS: Readonly<Record<FormFieldMapTarget, string>> = {
+  'person.name': 'Person · name',
+  'person.email': 'Person · email',
+  'company.name': 'Company · name',
+  'company.domain': 'Company · domain',
+  'position.title': 'Position · title',
+  'deal.name': 'Deal · name',
+  submission: 'Submission only',
+}
+
+/** The one mapping a form cannot process without, and may carry at most once. */
+export const PERSON_EMAIL_TARGET: FormFieldMapTarget = 'person.email'
+
+/**
+ * How a select option's stored key should be read back.
+ *
+ * The answer map is `fieldId → string` on the wire either way; this says what
+ * the string means, so a consumer knows `"true"` was a checkbox and not a word.
+ */
+export const FORM_OPTION_VALUE_TYPES = ['string', 'number', 'boolean'] as const
+
+export type FormOptionValueType = (typeof FORM_OPTION_VALUE_TYPES)[number]

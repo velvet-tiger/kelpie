@@ -74,6 +74,19 @@ export interface ModuleServices {
 export interface ModuleContext extends ModuleServices {
   /** Registers routes. They mount under `/v1` and are public API like any other. */
   routes(mount: (router: Hono) => void): void
+  /**
+   * Registers routes that mount under `/v1/public`, take no credentials, and
+   * answer cross-origin requests from any site.
+   *
+   * A second method rather than an argument to `routes`, because the auth
+   * boundary is then visible at the call site: a reader of a module's `register`
+   * can see which of its endpoints anyone on the internet may call.
+   *
+   * A handler here has no `Actor` and therefore no workspace. It must resolve one
+   * from something in the request that identifies it — a form's `publicKey` — and
+   * scope every query to that. There is no other way in.
+   */
+  publicRoutes(mount: (router: Hono) => void): void
   schema(tables: Readonly<Record<string, unknown>>, migrationsDir: string): void
   readonly mcp: McpToolRegistry
   /**

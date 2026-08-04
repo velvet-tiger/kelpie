@@ -110,6 +110,28 @@ export async function findPerson(
   return found
 }
 
+/**
+ * The one person in this workspace holding an address, for the upsert a form
+ * submit does.
+ *
+ * `email` is unique per workspace and the column is `citext`, so the comparison
+ * matches whatever case arrived. Callers still normalise first; the column type
+ * is the second line of defence described in `lib/normalisation.ts`.
+ */
+export async function findPersonByEmail(
+  db: Queryable,
+  workspaceId: string,
+  email: string,
+): Promise<PersonRecord | undefined> {
+  const [found] = await db
+    .select()
+    .from(people)
+    .where(and(eq(people.workspaceId, workspaceId), eq(people.email, email)))
+    .limit(1)
+
+  return found
+}
+
 export async function insertPerson(db: Queryable, values: PersonColumns): Promise<PersonRecord> {
   const [created] = await db.insert(people).values(values).returning()
 

@@ -1,4 +1,4 @@
-import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
@@ -91,6 +91,56 @@ export async function findCompany(
     .select()
     .from(companies)
     .where(and(eq(companies.workspaceId, workspaceId), eq(companies.id, id)))
+    .limit(1)
+
+  return found
+}
+
+/**
+ * The one company in this workspace on a domain. `domain` is unique per
+ * workspace and `citext`, so the comparison matches whatever case arrived.
+ */
+export async function findCompanyByDomain(
+  db: Queryable,
+  workspaceId: string,
+  domain: string,
+): Promise<CompanyRecord | undefined> {
+  const [found] = await db
+    .select()
+    .from(companies)
+    .where(and(eq(companies.workspaceId, workspaceId), eq(companies.domain, domain)))
+    .limit(1)
+
+  return found
+}
+
+/**
+ * A company matched by name, for a form submit that was given a name and no
+ * domain.
+ *
+ * Names are not unique, so this is a weaker match than the domain one and is
+ * only ever tried second (`forms.md` submit rule 4). The oldest row wins, which
+ * makes a repeat submission attach to the same company every time rather than
+ * following whichever duplicate was edited last.
+ *
+ * `lower(…) = lower(…)` rather than `ilike`: the name is caller data, and
+ * `ilike` would read a `%` or `_` inside it as a wildcard.
+ */
+export async function findCompanyByName(
+  db: Queryable,
+  workspaceId: string,
+  name: string,
+): Promise<CompanyRecord | undefined> {
+  const [found] = await db
+    .select()
+    .from(companies)
+    .where(
+      and(
+        eq(companies.workspaceId, workspaceId),
+        sql`lower(${companies.name}) = lower(${sql.param(name, companies.name)})`,
+      ),
+    )
+    .orderBy(asc(companies.createdAt), asc(companies.id))
     .limit(1)
 
   return found

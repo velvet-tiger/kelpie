@@ -25,6 +25,7 @@ const CORE_NAV: readonly NavItem[] = [
   { id: 'opportunities', label: 'Opportunities', to: '/opportunities', order: 350 },
   { id: 'fundraising', label: 'Fundraising', to: '/fundraising', order: 360 },
   { id: 'partnerships', label: 'Partnerships', to: '/partnerships', order: 375 },
+  { id: 'forms', label: 'Forms', to: '/forms', order: 380 },
   { id: 'handbook', label: 'Handbook', to: '/handbook', order: 390 },
   { id: 'planning', label: 'Planning', to: '/planning', order: 400 },
   { id: 'decisions', label: 'Decisions', to: '/decisions', order: 500 },
