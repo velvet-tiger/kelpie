@@ -69,7 +69,17 @@ export {
 } from './api/resources/decisions.ts'
 export type { DecisionFilters } from './api/resources/decisions.ts'
 
-export { useCreateWorkspace, useLogIn, useLogOut, useSession } from './api/resources/session.ts'
+export {
+  resetUrlTemplate,
+  useAcceptInvite,
+  useConfirmPasswordReset,
+  useCreateWorkspace,
+  useLogIn,
+  useLogOut,
+  useRequestPasswordReset,
+  useSession,
+  useSignUp,
+} from './api/resources/session.ts'
 export type { SessionState } from './api/resources/session.ts'
 
 export { fetchServiceHealth } from './api/health.ts'
@@ -115,8 +125,14 @@ export { DecisionsPage } from './pages/DecisionsPage.tsx'
 export { PeoplePage } from './pages/PeoplePage.tsx'
 export { PersonDetail } from './pages/PersonDetail.tsx'
 export { PlanningPage } from './pages/PlanningPage.tsx'
-export { CreateWorkspacePage } from './pages/auth/CreateWorkspacePage.tsx'
+export { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage.tsx'
+export { JoinPage } from './pages/auth/JoinPage.tsx'
+export { ResetPasswordPage } from './pages/auth/ResetPasswordPage.tsx'
 export { SignInPage } from './pages/auth/SignInPage.tsx'
+export { SignUpPage } from './pages/auth/SignUpPage.tsx'
+export { HandbookStepPage } from './pages/onboarding/HandbookStepPage.tsx'
+export { InvitesStepPage } from './pages/onboarding/InvitesStepPage.tsx'
+export { WorkspaceStepPage } from './pages/onboarding/WorkspaceStepPage.tsx'
 
 export {
   DUE_BUCKETS,

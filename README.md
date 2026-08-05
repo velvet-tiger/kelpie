@@ -70,18 +70,27 @@ Run these in order from the repository root.
 
    Expected: `{"status":"ok","database":"up"}`. A `503` with `{"status":"degraded","database":"down"}` means the API is up but Postgres is not. Run `make up` and restart `make dev`; the database port changes whenever the container is recreated, and `.env.local` is only rewritten by `make up`.
 
-4. Create an account. There is no signup form yet — that page belongs to the auth
-   UI port — so the first account is made through the API.
+4. Open http://localhost:5173/signup and create an account. Passwords are at
+   least 12 characters; a shorter one is refused.
+
+   Signup lands on onboarding: name the workspace, invite anyone you want or
+   skip, then finish. Creating the workspace seeds the starter handbook and the
+   pipeline stages for all four boards in one request.
+
+   Expected: the last step lands on People, and the sidebar has People and
+   Companies. An address that is already registered answers `409` on the form;
+   sign in at http://localhost:5173/login instead.
+
+   The same account can be made through the API, which is what an agent or a
+   seeding script would do:
 
    ```bash
-   curl -s -X POST http://localhost:5173/v1/auth/signup -H 'Content-Type: application/json' -d '{"email":"you@example.com","name":"Your Name","password":"a-real-password"}'
+   curl -s -X POST http://localhost:5173/v1/auth/signup -H 'Content-Type: application/json' -d '{"email":"you@example.com","name":"Your Name","password":"a real long password"}'
    ```
 
-   Expected: `{"account":{...},"active_workspace_id":null}`. A `409` means the
-   address is already registered; sign in with it instead.
-
-5. Open http://localhost:5173, sign in with that address, and create a workspace
-   when asked. That lands on People, and the sidebar has People and Companies.
+5. Sending mail is a v0 non-goal, so the `log` email provider prints invitation
+   and password-reset links to the API's output instead of mailing them. Copy
+   the URL out of the log to follow either flow locally.
 
 ## Layout
 

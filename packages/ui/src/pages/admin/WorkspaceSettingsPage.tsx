@@ -214,7 +214,7 @@ function DangerZone({ slug }: { readonly slug: string }): React.JSX.Element {
       .runAsync({ slug: confirmation.trim() })
       // Nothing left to render here: the workspace this page describes is gone,
       // and the account is back to having none.
-      .then(() => navigate('/create-workspace', { replace: true }))
+      .then(() => navigate('/onboarding/workspace', { replace: true }))
       .catch(() => undefined)
   }
 

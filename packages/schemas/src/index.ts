@@ -226,17 +226,23 @@ export { createInviteBody, inviteSchema, resendInviteBody } from './invite.ts'
 export type { CreateInviteInput, Invite, ResendInviteInput } from './invite.ts'
 
 export {
+  confirmPasswordResetBody,
   createWorkspaceBody,
   logInBody,
+  requestPasswordResetBody,
   sessionSchema,
+  signUpBody,
   signedInAccountSchema,
   updateWorkspaceBody,
   workspaceSchema,
 } from './session.ts'
 export type {
+  ConfirmPasswordResetInput,
   CreateWorkspaceInput,
   LogInInput,
+  RequestPasswordResetInput,
   Session,
+  SignUpInput,
   SignedInAccount,
   UpdateWorkspaceInput,
   Workspace,

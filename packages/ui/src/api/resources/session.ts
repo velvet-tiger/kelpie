@@ -1,14 +1,20 @@
 import {
+  confirmPasswordResetBody,
   createWorkspaceBody,
   logInBody,
+  requestPasswordResetBody,
   sessionSchema,
+  signUpBody,
   signedInAccountSchema,
   workspaceSchema,
 } from '@kelpie/schemas'
 import type {
+  ConfirmPasswordResetInput,
   CreateWorkspaceInput,
   LogInInput,
+  RequestPasswordResetInput,
   Session,
+  SignUpInput,
   SignedInAccount,
   Workspace,
 } from '@kelpie/schemas'
@@ -89,6 +95,28 @@ export function useLogIn(): MutationResult<LogInInput, SignedInAccount> {
   return asMutationResult(mutation)
 }
 
+/**
+ * Creates the account and signs the browser in, because `POST /v1/auth/signup`
+ * sets the session cookie itself.
+ *
+ * The cache is cleared for the same reason sign-in clears it: whatever is in it
+ * belongs to whoever was here before.
+ */
+export function useSignUp(): MutationResult<SignUpInput, SignedInAccount> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (input: SignUpInput) =>
+      client.post('/auth/signup', signUpBody(input), signedInAccountSchema.parse),
+    onSuccess: async () => {
+      queryClient.clear()
+      await queryClient.fetchQuery(sessionQuery(client))
+    },
+  })
+
+  return asMutationResult(mutation)
+}
+
 export function useLogOut(): MutationResult<void, void> {
   const client = useApiClient()
   const queryClient = useQueryClient()
@@ -97,6 +125,50 @@ export function useLogOut(): MutationResult<void, void> {
     // No refetch afterwards. The caller sends the browser to the sign-in page,
     // and the next protected route asks for the session itself.
     onSettled: () => {
+      queryClient.clear()
+    },
+  })
+
+  return asMutationResult(mutation)
+}
+
+/** Where a reset email lands. `ResetPasswordPage` reads the token out of the query string. */
+export function resetUrlTemplate(origin: string): string {
+  return `${origin}/reset-password?token={token}`
+}
+
+/**
+ * Asks for a reset link.
+ *
+ * Answers `202` whether or not the address is registered, and the page says the
+ * same thing either way. A caller that could tell the difference would have an
+ * account-existence oracle.
+ *
+ * Nothing in the cache changes: this signs nobody in and ends no session.
+ */
+export function useRequestPasswordReset(): MutationResult<RequestPasswordResetInput, void> {
+  const client = useApiClient()
+  const mutation = useMutation({
+    mutationFn: (input: RequestPasswordResetInput) =>
+      client.postEmpty('/auth/password-reset', requestPasswordResetBody(input)),
+  })
+
+  return asMutationResult(mutation)
+}
+
+/**
+ * Spends a reset token on a new password.
+ *
+ * The service ends every session the account had, this browser included, so the
+ * caller sends the reader to sign in rather than into the app.
+ */
+export function useConfirmPasswordReset(): MutationResult<ConfirmPasswordResetInput, void> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (input: ConfirmPasswordResetInput) =>
+      client.postEmpty('/auth/password-reset/confirm', confirmPasswordResetBody(input)),
+    onSuccess: () => {
       queryClient.clear()
     },
   })

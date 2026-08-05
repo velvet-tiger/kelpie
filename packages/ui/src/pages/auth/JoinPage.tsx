@@ -32,7 +32,7 @@ export function JoinPage(): React.JSX.Element {
   }
 
   // The token rides along so signing in comes back here rather than to the CRM.
-  const signInHere = `/sign-in?next=${encodeURIComponent(`/join?token=${token}`)}`
+  const signInHere = `/login?next=${encodeURIComponent(`/join?token=${token}`)}`
 
   if (isSignedOut) {
     return <Navigate to={signInHere} replace />
