@@ -141,6 +141,38 @@ export async function moveJobStatus(
   return moved
 }
 
+/**
+ * Removes a job that is in one of `deletableStatuses`, taking its rows with it
+ * through the `import_job_rows` cascade.
+ *
+ * The status lives in the predicate for the same reason it does in
+ * `moveJobStatus`: reading the status and then deleting would leave the window
+ * between the two open, and what fits in that window is a commit claiming the
+ * job and starting to write records against it.
+ *
+ * @returns How many jobs matched, which is 0 or 1. Zero means the job is gone or
+ *   is in a status this delete may not touch, and the caller tells those apart.
+ */
+export async function deleteJob(
+  db: Queryable,
+  workspaceId: string,
+  id: string,
+  deletableStatuses: readonly string[],
+): Promise<number> {
+  const deleted = await db
+    .delete(importJobs)
+    .where(
+      and(
+        eq(importJobs.workspaceId, workspaceId),
+        eq(importJobs.id, id),
+        inArray(importJobs.status, [...deletableStatuses]),
+      ),
+    )
+    .returning({ id: importJobs.id })
+
+  return deleted.length
+}
+
 export async function insertRows(
   db: Queryable,
   values: readonly ImportJobRowColumns[],

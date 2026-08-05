@@ -17,6 +17,7 @@ import { deals } from '../deals/schema.ts'
 import { people } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { positions } from '../positions/schema.ts'
+import { importJobRows } from './schema.ts'
 
 /**
  * `/v1/import` and `/v1/export` against real Postgres.
@@ -392,6 +393,74 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
   })
 
   /**
+   * A corrected mapping is a new job over the same file, so nothing removes the
+   * one it replaced. This is the way out, per `import-export.md`.
+   */
+  describe('deleting a job', () => {
+    function remove(jobId: string, cookie = acme.cookie): Promise<Response> {
+      return client.send('DELETE', `/v1/import/jobs/${jobId}`, { cookie })
+    }
+
+    function storedRows(jobId: string): Promise<{ jobId: string }[]> {
+      return database.db
+        .select({ jobId: importJobRows.jobId })
+        .from(importJobRows)
+        .where(eq(importJobRows.jobId, jobId))
+    }
+
+    it('answers 204 and takes the stored rows with it', async () => {
+      const jobId = readString(await createJob(COMPANIES_CSV), 'id')
+
+      expect(await storedRows(jobId)).toHaveLength(2)
+
+      const response = await remove(jobId)
+
+      expect(response.status).toBe(204)
+      expect(await response.text()).toBe('')
+      expect(await storedRows(jobId)).toHaveLength(0)
+    })
+
+    it('is how correcting a mapping three times stops leaving three files behind', async () => {
+      const first = readString(await createJob(COMPANIES_CSV), 'id')
+      const second = readString(
+        await createJob(COMPANIES_CSV, { column_map: '{"name":"name","domain":"domain"}' }),
+        'id',
+      )
+
+      expect((await remove(first)).status).toBe(204)
+
+      // The replacement is untouched: deleting a superseded job is not deleting
+      // the file it was read from.
+      expect(await storedRows(second)).toHaveLength(2)
+      expect((await client.send('GET', `/v1/import/jobs/${second}`, { cookie: acme.cookie })).status).toBe(200)
+    })
+
+    it('leaves the records a completed job wrote', async () => {
+      const jobId = readString(await importCsv(COMPANIES_CSV), 'id')
+
+      expect((await remove(jobId)).status).toBe(204)
+      expect(
+        await database.db.select().from(companies).where(eq(companies.workspaceId, acme.workspaceId)),
+      ).toHaveLength(2)
+    })
+
+    it('answers 404 for a job that is already gone', async () => {
+      const jobId = readString(await createJob(COMPANIES_CSV), 'id')
+
+      expect((await remove(jobId)).status).toBe(204)
+      expect((await remove(jobId)).status).toBe(404)
+    })
+
+    it('answers 404 for a job in another workspace, and leaves its rows alone', async () => {
+      const jobId = readString(await createJob(COMPANIES_CSV), 'id')
+      const other = await client.owner('grace@example.com', 'harbour')
+
+      expect((await remove(jobId, other.cookie)).status).toBe(404)
+      expect(await storedRows(jobId)).toHaveLength(2)
+    })
+  })
+
+  /**
    * A dry run is a forecast against the workspace as it was. The commit
    * re-resolves, which is the whole reason it can be re-run and the reason a
    * file listing one company twice creates it once.
@@ -511,6 +580,29 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
       expect(second.status).toBe(409)
       await settle(jobId)
+    }, 120_000)
+
+    /**
+     * The pass is reading the rows it is being asked to drop, and it would carry
+     * on writing records against a job that had gone.
+     */
+    it('refuses to delete a job while it is committing', async () => {
+      const jobId = readString(readRecord(await (await upload(bigCsv)).json()), 'id')
+
+      await settle(jobId)
+      await client.send('POST', `/v1/import/jobs/${jobId}/commit`, { cookie: acme.cookie })
+
+      const response = await client.send('DELETE', `/v1/import/jobs/${jobId}`, {
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(409)
+
+      // And once it settles, the same delete goes through.
+      await settle(jobId)
+      expect(
+        (await client.send('DELETE', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })).status,
+      ).toBe(204)
     }, 120_000)
 
     it('refuses a file over the row limit', async () => {

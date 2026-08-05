@@ -11,6 +11,7 @@ import type {
   ImportColumnMap,
   ImportConflictMode,
   ImportCounts,
+  ImportJobStatus,
   ImportObject,
   ImportPreviewRow,
   ImportRowError,
@@ -92,12 +93,29 @@ export interface ImportExportService {
   createJob(actor: Actor, input: CreateImportJobInput): Promise<ImportJobView>
   getJob(actor: Actor, id: string): Promise<ImportJobView>
   commit(actor: Actor, id: string): Promise<ImportJobView>
+  deleteJob(actor: Actor, id: string): Promise<void>
   /** CSV lines for a whole object, a page of records at a time. */
   exportCsv(actor: Actor, object: ImportObject): AsyncGenerator<string>
   templateCsv(object: ImportObject): string
 }
 
 const EMPTY_COUNTS: ImportCounts = { total: 0, create: 0, update: 0, skip: 0, error: 0 }
+
+/**
+ * The statuses a job may be deleted in: everything except the two a background
+ * pass is working through.
+ *
+ * `pending` is here because a job stranded in it by a crash is exactly the
+ * unreachable garbage this delete exists to clear. `validating` and
+ * `committing` are not, because the detached pass holds the rows and would carry
+ * on writing records against a job that is no longer there.
+ */
+const DELETABLE_STATUSES: readonly ImportJobStatus[] = [
+  'pending',
+  'ready',
+  'completed',
+  'failed',
+]
 
 /** Rows committed between two writes of the job's running counts, so polling shows progress. */
 const COMMIT_PROGRESS_INTERVAL = 100
@@ -704,6 +722,38 @@ export function createImportExportService(
       detach(workspaceId, id, () => runCommit(workspaceId, actor, id))
 
       return viewOf(claimed)
+    },
+
+    /**
+     * Deletes a job and its stored rows.
+     *
+     * The delete carries the status predicate rather than checking first, so a
+     * commit arriving in between claims the job and this finds nothing to
+     * remove. Only then is the job read again, to answer with the reason: gone
+     * is a `404` and in-flight is a `409`, and one query on the happy path tells
+     * neither of those stories wrongly.
+     */
+    async deleteJob(actor, id) {
+      const workspaceId = requireWorkspaceId(actor)
+      const removed = await repository.deleteJob(
+        dependencies.db,
+        workspaceId,
+        id,
+        DELETABLE_STATUSES,
+      )
+
+      if (removed > 0) {
+        return
+      }
+
+      const job = await requireJob(workspaceId, id)
+
+      throw AppError.conflict(`An import job in status "${job.status}" cannot be deleted`, [
+        {
+          field: 'status',
+          message: 'Wait for the pass working through it to finish, then delete it',
+        },
+      ])
     },
 
     exportCsv(actor, object) {

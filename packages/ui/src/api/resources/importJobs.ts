@@ -109,6 +109,32 @@ export function useCommitImportJob(): MutationResult<string, ImportJob> {
 }
 
 /**
+ * Deletes a job and the rows stored against it.
+ *
+ * What a wizard calls on the job it is walking away from. Correcting a mapping
+ * uploads the same file again as a new job, so without this a caller who
+ * corrects a ten thousand row map three times leaves three files stored.
+ *
+ * No CRM list is invalidated: a job that never committed wrote nothing, and one
+ * that did keeps the records it wrote.
+ */
+export function useDeleteImportJob(): MutationResult<string, void> {
+  const client = useApiClient()
+  const cache = useQueryClient()
+
+  return asMutationResult(
+    useMutation({
+      mutationFn: (id: string) => client.delete(`/import/jobs/${id}`),
+      onSuccess: (_result, id) => {
+        // Dropped rather than invalidated. Refetching a deleted job is a 404,
+        // and the watcher would report it as one.
+        cache.removeQueries({ queryKey: jobKey(id) })
+      },
+    }),
+  )
+}
+
+/**
  * Watches one job, asking again while it is still working.
  *
  * A file over the synchronous limit validates and commits in the background, so

@@ -250,6 +250,12 @@ export function mountImportExportRoutes(
     return context.json(importJobResponse(job))
   })
 
+  router.delete('/import/jobs/:id', async (context) => {
+    await dependencies.service.deleteJob(await requireActor(context), context.req.param('id'))
+
+    return context.body(null, 204)
+  })
+
   router.post('/import/jobs/:id/commit', async (context) => {
     const job = await dependencies.service.commit(
       await requireActor(context),

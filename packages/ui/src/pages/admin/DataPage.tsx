@@ -27,6 +27,7 @@ import {
   saveCsv,
   useCommitImportJob,
   useCreateImportJob,
+  useDeleteImportJob,
   useExportCsv,
   useImportJob,
 } from '../../api/resources/importJobs.ts'
@@ -70,12 +71,46 @@ export function DataPage(): ReactNode {
   const exportCsv = useExportCsv()
   const createJob = useCreateImportJob()
   const commitJob = useCommitImportJob()
+  const deleteJob = useDeleteImportJob()
   const watched = useImportJob(jobId)
   const job = watched.record
 
   const failure = problem ?? messageOf(exportCsv.error ?? createJob.error ?? commitJob.error ?? watched.error)
 
+  /**
+   * Drops a job the wizard is walking away from, so the file stored against it
+   * goes too.
+   *
+   * Every path out of a job leads here, because each one is the same thing: a
+   * correction that uploads the file again, a step back, or starting over. None
+   * of them can reach the old job afterwards.
+   *
+   * Fire and forget, and `deleteJob.error` is deliberately left out of `failure`
+   * above. The caller has already got what they asked for, and tidying up is not
+   * theirs to fix. The one refusal the server makes is a job still committing,
+   * and that one settles on its own.
+   */
+  function discardJob(id: string | undefined): void {
+    if (id !== undefined) {
+      deleteJob.run(id)
+    }
+  }
+
+  /**
+   * Starts a step that talks to the API and drops its rejection.
+   *
+   * These steps use `runAsync` because they chain: a refused mapping must not
+   * advance the wizard, and only a rejection stops the lines after the await.
+   * The failure is already on screen through `failure` above, so the rejection
+   * has nothing left to say, and discarding it with a bare `void` would leave an
+   * unhandled rejection behind every refused upload.
+   */
+  function runStep(work: Promise<unknown>): void {
+    void work.catch(() => undefined)
+  }
+
   function resetWizard(): void {
+    discardJob(jobId)
     setStep('source')
     setFile(null)
     setColumnMap({})
@@ -92,6 +127,7 @@ export function DataPage(): ReactNode {
 
   /** Uploads the file and reads back the headers, the derived map, and the forecast. */
   async function runDryRun(next: File, map: ImportColumnMap | undefined): Promise<ImportJob> {
+    const superseded = jobId
     const created = await createJob.runAsync({
       file: next,
       source,
@@ -102,6 +138,11 @@ export function DataPage(): ReactNode {
     })
 
     setJobId(created.id)
+
+    // After the create rather than before it. A map the server rejects throws
+    // out of `runAsync`, and the caller is still reading the old job's headers
+    // in the mapping table it has to correct.
+    discardJob(superseded)
 
     return created
   }
@@ -198,7 +239,7 @@ export function DataPage(): ReactNode {
           </Field>
           <button
             type="button"
-            onClick={() => void onDownload(exportObject, false)}
+            onClick={() => runStep(onDownload(exportObject, false))}
             disabled={exportCsv.isPending}
             className="rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
           >
@@ -276,7 +317,7 @@ export function DataPage(): ReactNode {
               </p>
               <button
                 type="button"
-                onClick={() => void onDownload(object, true)}
+                onClick={() => runStep(onDownload(object, true))}
                 className="mt-3 rounded-md border border-border bg-surface px-3.5 py-2 text-[12px] font-semibold text-ink transition hover:border-accent"
               >
                 Download template
@@ -311,7 +352,7 @@ export function DataPage(): ReactNode {
                 accept=".csv,text/csv"
                 className="sr-only"
                 disabled={createJob.isPending}
-                onChange={(event) => void onFileChange(event)}
+                onChange={(event) => runStep(onFileChange(event))}
               />
             </label>
             <button
@@ -335,8 +376,9 @@ export function DataPage(): ReactNode {
             onColumnMapChange={setColumnMap}
             onConflictModeChange={setConflictMode}
             onMatchKeyChange={setMatchKeyId}
-            onSubmit={(event) => void onRerun(event)}
+            onSubmit={(event) => runStep(onRerun(event))}
             onBack={() => {
+              discardJob(jobId)
               setFile(null)
               setJobId(undefined)
               setStep('upload')
