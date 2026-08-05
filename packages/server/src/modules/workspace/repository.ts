@@ -307,6 +307,33 @@ export async function updateInvite(
   return updated
 }
 
+/**
+ * Every invitation to this address in this workspace, expired ones included.
+ *
+ * The column is `citext`, so an address invited as `Grace@Example.com` is found
+ * by `grace@example.com` and the caller does not have to case-fold twice.
+ */
+export async function listInvitesForEmail(
+  db: Queryable,
+  workspaceId: string,
+  email: string,
+): Promise<InviteRecord[]> {
+  return db
+    .select()
+    .from(invites)
+    .where(and(eq(invites.workspaceId, workspaceId), eq(invites.email, email)))
+    .orderBy(invites.createdAt)
+}
+
+/** The same set, removed. Expiry is not a filter: a dead invitation is still noise. */
+export async function deleteInvitesForEmail(
+  db: Queryable,
+  workspaceId: string,
+  email: string,
+): Promise<void> {
+  await db.delete(invites).where(and(eq(invites.workspaceId, workspaceId), eq(invites.email, email)))
+}
+
 export async function findInviteByTokenHash(
   db: Queryable,
   tokenHash: string,

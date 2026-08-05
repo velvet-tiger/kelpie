@@ -240,6 +240,31 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
   }
 
   /**
+   * Refuses an address that already belongs to a member of this workspace.
+   *
+   * The question has to be asked through `users`, because membership is held by
+   * account and an account is identified by its address; `invites` has never met
+   * the member. Without this the Team page lists one person twice, once as a
+   * member and once as an invitation whose emailed link works right up until an
+   * accept that can only ever fail.
+   */
+  async function requireStranger(workspaceId: string, address: string): Promise<void> {
+    const user = await authRepository.findUserByEmail(dependencies.db, address)
+
+    if (user === undefined) {
+      return
+    }
+
+    const membership = await authRepository.findMembership(dependencies.db, workspaceId, user.id)
+
+    if (membership !== undefined) {
+      throw AppError.conflict('That address already belongs to a member of this workspace', [
+        { field: 'email', message: 'Already a member' },
+      ])
+    }
+  }
+
+  /**
    * The membership being acted on.
    *
    * A member of another workspace is not found rather than forbidden, for the
@@ -538,16 +563,39 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
     async invite(actor, workspaceId, email, role, urlTemplate) {
       const inviter = await requireMembership(actor, workspaceId, 'admin')
+      const address = email.trim().toLowerCase()
+      const now = dependencies.now()
+
+      // Both refusals come before the seat check, so an address that could never
+      // be invited is told that rather than told the workspace is full.
+      await requireStranger(workspaceId, address)
+
+      const existing = await repository.listInvitesForEmail(dependencies.db, workspaceId, address)
+
+      // Open, not merely present: an expired invitation cannot be accepted, so
+      // refusing on one would leave an address permanently un-invitable by
+      // anyone who did not think to look for the Resend button.
+      if (existing.some((invitation) => invitation.expiresAt > now)) {
+        throw AppError.conflict('That address has already been invited to this workspace', [
+          { field: 'email', message: 'Already invited' },
+        ])
+      }
 
       await requireSeat(workspaceId)
 
-      const now = dependencies.now()
       const token = newToken()
       const invite = await dependencies.transaction(async ({ tx, events }) => {
+        // The expired invitations this one replaces. Kept to one row per address
+        // so the list never shows the same person twice, which is the confusion
+        // the guards above exist to remove.
+        if (existing.length > 0) {
+          await repository.deleteInvitesForEmail(tx, workspaceId, address)
+        }
+
         const created = await repository.insertInvite(tx, {
           id: dependencies.createId('invite'),
           workspaceId,
-          email: email.trim().toLowerCase(),
+          email: address,
           role,
           invitedBy: inviter.memberId,
           status: 'pending',
@@ -615,6 +663,26 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         throw AppError.unauthorized('That invitation is invalid or has expired')
       }
 
+      const existing = await authRepository.findMembership(
+        dependencies.db,
+        invite.workspaceId,
+        actor.userId,
+      )
+
+      // The invitation is left alone. A link is forwarded often enough that the
+      // address on this one may not be the caller's, and revoking somebody
+      // else's invitation because you clicked their link would be worse than
+      // the refusal.
+      if (existing !== undefined) {
+        throw AppError.conflict('You already belong to that workspace')
+      }
+
+      const joiner = await authRepository.findUserById(dependencies.db, actor.userId)
+
+      if (joiner === undefined) {
+        throw new Error(`Session ${actor.sessionId} outlived the user row behind it`)
+      }
+
       // Ownership is never invited, only created or transferred. The column's
       // check constraint says the same; this is the service-side half of it.
       const role: MemberRole = invite.role === 'admin' ? 'admin' : 'member'
@@ -630,14 +698,24 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
             joinedAt: now,
           })
         } catch (error: unknown) {
+          // The membership check above answers this for every caller who is not
+          // racing a second accept of their own. This is what catches that one.
           if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
-            throw AppError.conflict('You are already a member of that workspace')
+            throw AppError.conflict('You already belong to that workspace')
           }
 
           throw error
         }
 
         await repository.deleteInvite(tx, invite.id)
+
+        // Any other invitation to the joiner's own address, which their joining
+        // has just killed: accepting one is now the refusal above, and until it
+        // expires it holds a seat and lists them beside their own membership.
+        // Accepting a token addressed to somebody else is how one survives the
+        // line before it.
+        await repository.deleteInvitesForEmail(tx, invite.workspaceId, joiner.email)
+
         await authRepository.setActiveWorkspace(tx, actor.sessionId, invite.workspaceId)
 
         const workspace = await repository.findWorkspace(tx, invite.workspaceId)
