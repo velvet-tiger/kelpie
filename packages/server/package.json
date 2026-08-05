@@ -12,7 +12,7 @@
     "typecheck": "tsc --project tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:generate": "node --env-file=../../.env ../../node_modules/drizzle-kit/bin.cjs generate"
+    "db:generate": "node --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local ../../node_modules/drizzle-kit/bin.cjs generate"
   },
   "dependencies": {
     "@kelpie/schemas": "^0.0.0",

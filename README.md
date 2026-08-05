@@ -8,36 +8,46 @@ This repository is the production service. The clickable prototype stays in `moc
 
 - Node 24 or newer. The server runs TypeScript directly through Node's type stripping, so there is no build step for it.
 - Docker, for the local Postgres.
+- `make`, which is how local development is driven.
 
 ## Setup
 
 Run these in order from the repository root.
 
-1. Install dependencies.
+1. Install dependencies, create your environment file, and start Postgres.
 
    ```bash
-   npm install
+   make setup
    ```
 
-2. Create your environment file.
+   That runs `npm install`, copies `.env.example` to `.env` with a generated
+   `SECRET_ENCRYPTION_KEY`, and starts the database. It leaves an existing `.env`
+   alone. `make` on its own lists every target.
+
+   Postgres is published on whichever host port Docker had free, so a second
+   checkout, or another project's Postgres, cannot collide with it. `make up`
+   reads that port back and writes `.env.local`:
+
+   ```
+   db   localhost:61572 (written to .env.local)
+   ```
+
+   `.env.local` is generated, git-ignored, and rewritten by every `make up`. It
+   holds `DATABASE_URL` and `TEST_DATABASE_URL` and nothing else. Everything that
+   reads the database prefers it to `.env`, so the port lives in exactly one
+   place. A real environment variable still beats both, which is how CI points
+   the suite at its own database.
+
+   Run your own Postgres instead if you would rather: skip `make up`, delete
+   `.env.local`, and the URLs in `.env` apply.
+
+2. Start the API and the UI together.
 
    ```bash
-   cp .env.example .env
+   make dev
    ```
 
-3. Start Postgres and wait for it to report healthy.
-
-   ```bash
-   npm run db:up && docker compose ps
-   ```
-
-   The `db` row should read `Up (healthy)`.
-
-4. Start the API and the UI together.
-
-   ```bash
-   npm run dev
-   ```
+   This starts the database first if it is not already up, then runs `npm run dev`.
 
    The API listens on the `PORT` from `.env` (3000 by default) and the UI on 5173, and the UI proxies `/v1` and `/healthz` to the API, so the browser only ever talks to one origin.
 
@@ -52,15 +62,15 @@ Run these in order from the repository root.
 
    The steps below use 5173. Use whichever web port it printed.
 
-5. Confirm the whole chain.
+3. Confirm the whole chain.
 
    ```bash
    curl -s http://localhost:5173/healthz
    ```
 
-   Expected: `{"status":"ok","database":"up"}`. A `503` with `{"status":"degraded","database":"down"}` means the API is up but Postgres is not; go back to step 3.
+   Expected: `{"status":"ok","database":"up"}`. A `503` with `{"status":"degraded","database":"down"}` means the API is up but Postgres is not. Run `make up` and restart `make dev`; the database port changes whenever the container is recreated, and `.env.local` is only rewritten by `make up`.
 
-6. Create an account. There is no signup form yet — that page belongs to the auth
+4. Create an account. There is no signup form yet — that page belongs to the auth
    UI port — so the first account is made through the API.
 
    ```bash
@@ -70,7 +80,7 @@ Run these in order from the repository root.
    Expected: `{"account":{...},"active_workspace_id":null}`. A `409` means the
    address is already registered; sign in with it instead.
 
-7. Open http://localhost:5173, sign in with that address, and create a workspace
+5. Open http://localhost:5173, sign in with that address, and create a workspace
    when asked. That lands on People, and the sidebar has People and Companies.
 
 ## Layout
@@ -211,7 +221,46 @@ Open source ships no UI modules. Every slot renders nothing, which is how core p
 
 MCP tools share the input schema with their REST route, and the runtime parses arguments before the tool body runs. A bad argument fails with the same `validation_failed` error the REST surface returns.
 
-## Scripts
+## Commands
+
+`make` lists every target. The ones you want day to day:
+
+| Command | Does |
+| --- | --- |
+| `make setup` | Installs dependencies, creates `.env` if it is missing, and starts the database |
+| `make dev` | Starts the database if it is down, then the API and the UI |
+| `make test` | Starts the database, then runs every suite |
+| `make up` / `make down` | Starts Postgres and writes `.env.local` / stops it, keeping the data |
+| `make reset` | Deletes the local database and starts an empty one. Asks first |
+| `make psql` | A `psql` shell on the development database |
+| `make status` | The database container, as `docker compose ps` |
+
+Each `make` target that needs the database depends on `up`, so the port in
+`.env.local` is refreshed before anything reads it. The npm scripts below assume
+the database is already running.
+
+### Environment file precedence
+
+Two files, and every entry point reads them in the same order: `.env` first for
+the checked-in defaults, then `.env.local` for the database port `make up`
+resolved. A variable already in the environment beats both files, which is what
+CI relies on.
+
+The mechanism differs by loader, and one of them has a trap in it:
+
+- `process.loadEnvFile` keeps the **first** value it sees, so `.env.local` is
+  loaded first (`vitest.config.ts`, `apps/kelpie/src/dev.ts`).
+- `--env-file` takes the **last** file given, so `.env.local` is passed last.
+- Under `--watch`, mixing `--env-file` with `--env-file-if-exists` inverts that:
+  both files load, but the plain `--env-file` wins whatever the order. Keep every
+  flag in one command the same variant. The `dev` script uses
+  `--env-file-if-exists` for both, which is why `.env` is optional there; a
+  missing one surfaces as a config error listing the variables, not a Node crash.
+
+`apps/kelpie/src/dev.ts` loads both files itself before spawning, because a
+variable it holds is inherited by the API child, and an inherited variable beats
+`--env-file`. Loading `.env` first there would pin the child to a stale database
+port no matter what its own flags say.
 
 | Command | Does |
 | --- | --- |
@@ -221,7 +270,7 @@ MCP tools share the input schema with their REST route, and the runtime parses a
 | `npm run lint` | oxlint across the repository. Silent means clean |
 | `npm run typecheck` | `tsc` over every workspace |
 | `npm test` | Vitest unit tests |
-| `npm run db:up` / `npm run db:down` | Local Postgres container |
+| `npm run db:up` / `npm run db:down` | Local Postgres container. Both call the matching `make` target, so `db:up` also refreshes `.env.local` |
 
 ## Configuration
 
@@ -233,7 +282,7 @@ Every variable the service reads is required. There are no silent defaults; a mi
 | `PORT` | API listen port. The API binds it or fails; it never picks another. `npm run dev` treats the value in `.env` as a preference and scans up from it for a free one |
 | `API_PORT` | The same number again, for the Vite dev server's `/v1` proxy. It needs its own name because a launcher sets `PORT` to the port it wants Vite on, and Vite would then proxy to itself. `npm run dev` sets it |
 | `WEB_PORT` | Optional, development only. The Vite dev server's own port, preferred rather than fixed: `npm run dev` scans up from it, or from 5173 when it is unset |
-| `DATABASE_URL` | `postgres://` or `postgresql://` connection string |
+| `DATABASE_URL` | `postgres://` or `postgresql://` connection string. `make up` overrides the port in `.env.local`; see [Environment file precedence](#environment-file-precedence) |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
 | `EMAIL_PROVIDER` | `log`. Writes invites and password resets to the log instead of sending them. Real providers ship as modules |
 | `EMAIL_FROM` | The address transactional mail comes from |

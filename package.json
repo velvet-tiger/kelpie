@@ -18,8 +18,8 @@
     "lint": "oxlint",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "db:up": "docker compose up --detach db",
-    "db:down": "docker compose down",
+    "db:up": "make up",
+    "db:down": "make down",
     "db:generate": "npm run db:generate --workspace packages/server"
   },
   "devDependencies": {

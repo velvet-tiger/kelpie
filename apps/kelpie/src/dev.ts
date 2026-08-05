@@ -19,6 +19,7 @@ import { NoFreePortError, findFreePort } from './devPorts.ts'
 
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const environmentFile = fileURLToPath(new URL('../../../.env', import.meta.url))
+const localEnvironmentFile = fileURLToPath(new URL('../../../.env.local', import.meta.url))
 
 /** Vite's own default, and the address the README tells people to open. */
 const DEFAULT_WEB_PORT = 5173
@@ -74,8 +75,19 @@ function reportAssignment(name: string, port: number, preferred: number): void {
 }
 
 async function main(): Promise<void> {
-  // The API child reads `.env` itself. The launcher reads it too, because the
+  // The API child reads these itself. The launcher reads them too, because the
   // preferred ports live there and the scan has to start somewhere.
+  //
+  // `.env.local` first, and that ordering is load-bearing in two ways.
+  // `loadEnvFile` keeps the first value it sees, so reading it first is what
+  // makes it win. And whatever the launcher ends up holding is inherited by the
+  // child, where an inherited variable beats `--env-file` — so loading `.env`
+  // first here would pin the child to the stale database port no matter what
+  // its own `--env-file-if-exists` flag says.
+  if (existsSync(localEnvironmentFile)) {
+    process.loadEnvFile(localEnvironmentFile)
+  }
+
   if (existsSync(environmentFile)) {
     process.loadEnvFile(environmentFile)
   }

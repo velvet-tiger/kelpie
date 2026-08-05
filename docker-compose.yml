@@ -8,8 +8,11 @@ services:
       POSTGRES_USER: kelpie
       POSTGRES_PASSWORD: kelpie
       POSTGRES_DB: kelpie_dev
+    # No fixed host port. Docker publishes 5432 on a free ephemeral one, so a
+    # second checkout, or another project's Postgres, cannot collide with this.
+    # `make up` reads the assigned port back and writes it into `.env.local`.
     ports:
-      - "5432:5432"
+      - "5432"
     # Postgres 18 images want the whole directory mounted, not the data
     # subdirectory, so that a later pg_upgrade can cross versions in place.
     volumes:
