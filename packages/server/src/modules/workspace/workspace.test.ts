@@ -631,6 +631,68 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(response.status).toBe(422)
     })
 
+    it('refuses an address that already belongs to a member', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      // Mixed case on purpose: the address is normalised before the lookup, and
+      // `users.email` is citext, so neither half can be fooled by capitals.
+      const response = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'Ada@Example.com', role: 'admin', invite_url_template: INVITE_TEMPLATE },
+        cookie,
+      )
+
+      expect(response.status).toBe(409)
+      expect(readErrorFields(await response.json())).toEqual(['email'])
+
+      // Nothing was written and nothing was sent: the refusal is the whole of it.
+      const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)
+      expect(readList(await listed.json())).toHaveLength(0)
+      expect(harness.services.sentEmails).toHaveLength(0)
+    })
+
+    it('refuses an address that is already invited', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const body = { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE }
+
+      expect((await send('POST', `/v1/workspaces/${workspaceId}/invites`, body, cookie)).status).toBe(201)
+
+      const repeated = await send('POST', `/v1/workspaces/${workspaceId}/invites`, body, cookie)
+
+      expect(repeated.status).toBe(409)
+      expect(readErrorFields(await repeated.json())).toEqual(['email'])
+      expect(harness.services.sentEmails).toHaveLength(1)
+    })
+
+    it('replaces an expired invitation rather than listing the address twice', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const body = { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE }
+      const first = await send('POST', `/v1/workspaces/${workspaceId}/invites`, body, cookie)
+      const staleToken = lastInviteToken()
+
+      // Aged in place: no endpoint makes an invitation old.
+      await database.db
+        .update(invites)
+        .set({ expiresAt: new Date('2026-01-01T00:00:00.000Z') })
+        .where(eq(invites.id, readString(await first.json(), 'id')))
+
+      const again = await send('POST', `/v1/workspaces/${workspaceId}/invites`, body, cookie)
+      expect(again.status).toBe(201)
+
+      const listed = readList(
+        await (await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)).json(),
+      )
+      expect(listed).toHaveLength(1)
+      expect(readString(listed[0], 'status')).toBe('pending')
+
+      const stale = await send('POST', '/v1/invites/accept', { token: staleToken }, await signUp('grace@example.com'))
+      expect(stale.status).toBe(401)
+    })
+
     it('refuses an outsider trying to invite', async () => {
       const workspaceId = await createWorkspace(await signUp('ada@example.com'))
 
@@ -911,6 +973,62 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const replay = await send('POST', '/v1/invites/accept', { token }, await signUp('mallory@example.com'))
 
       expect(replay.status).toBe(401)
+    })
+
+    it('refuses a token from somebody who already belongs, and leaves the invitation alive', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      const invited = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'henry@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
+        owner,
+      )
+      expect(invited.status).toBe(201)
+
+      const response = await send('POST', '/v1/invites/accept', { token: lastInviteToken() }, grace.cookie)
+
+      expect(response.status).toBe(409)
+
+      // Henry's, not Grace's. Her clicking his link must not take it from him.
+      const listed = readList(
+        await (await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, owner)).json(),
+      )
+      expect(listed).toHaveLength(1)
+      expect(readString(listed[0], 'email')).toBe('henry@example.com')
+    })
+
+    it('sweeps a pending invitation to the address that has just joined', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
+        owner,
+      )
+      const graceToken = lastInviteToken()
+      await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'henry@example.com', role: 'admin', invite_url_template: INVITE_TEMPLATE },
+        owner,
+      )
+      const henryToken = lastInviteToken()
+
+      // Grace accepts the link addressed to Henry, which the API allows: a token
+      // says which workspace, never who. She is a member either way, so her own
+      // invitation is now dead and goes with his.
+      const joiner = await signUp('grace@example.com')
+      expect((await send('POST', '/v1/invites/accept', { token: henryToken }, joiner)).status).toBe(200)
+
+      const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, owner)
+      expect(readList(await listed.json())).toHaveLength(0)
+
+      const stale = await send('POST', '/v1/invites/accept', { token: graceToken }, await signUp('gracie@example.com'))
+      expect(stale.status).toBe(401)
     })
 
     it('refuses a token nobody issued', async () => {
