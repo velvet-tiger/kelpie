@@ -309,3 +309,47 @@ export const PERSON_EMAIL_TARGET: FormFieldMapTarget = 'person.email'
 export const FORM_OPTION_VALUE_TYPES = ['string', 'number', 'boolean'] as const
 
 export type FormOptionValueType = (typeof FORM_OPTION_VALUE_TYPES)[number]
+
+/**
+ * The domain events a webhook can subscribe to.
+ *
+ * A subset of the server's event catalog on purpose: the ticket's minimum
+ * viable set, and the events whose payloads describe something a receiver
+ * outside Kelpie can act on. The rest of the catalog (`stage.changed`,
+ * `note.added`, membership and workspace events) is not deliverable yet, so it
+ * is not offered rather than accepted and silently never sent.
+ */
+export const WEBHOOK_EVENTS = [
+  'record.created',
+  'record.updated',
+  'record.deleted',
+  'form.submitted',
+] as const
+
+export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number]
+
+/**
+ * `failing` is the delivery engine's, not the customer's: it means the last
+ * delivery exhausted its attempts. `paused` is the customer's, and stops
+ * delivery entirely. A failing webhook keeps being tried, which is what lets it
+ * return to `active` on its own once the endpoint recovers.
+ */
+export const WEBHOOK_STATUSES = ['active', 'failing', 'paused'] as const
+
+export type WebhookStatus = (typeof WEBHOOK_STATUSES)[number]
+
+/** What a `PATCH` may set. `failing` is a report on the endpoint, not a request. */
+export const WEBHOOK_SETTABLE_STATUSES = ['active', 'paused'] as const
+
+export type WebhookSettableStatus = (typeof WEBHOOK_SETTABLE_STATUSES)[number]
+
+/** A delivery is only logged once it has settled, so there is no pending value. */
+export const WEBHOOK_DELIVERY_STATUSES = ['success', 'failed'] as const
+
+export type WebhookDeliveryStatus = (typeof WEBHOOK_DELIVERY_STATUSES)[number]
+
+export const WEBHOOK_STATUS_LABELS: Readonly<Record<WebhookStatus, string>> = {
+  active: 'Active',
+  failing: 'Failing',
+  paused: 'Paused',
+}

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { hashToken } from '../../lib/tokens.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
+import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
@@ -54,7 +55,7 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
     await database.truncateAll()
     harness = await createTestApp({
       modules: coreModules,
-      environment: { NODE_ENV: 'test' },
+      environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
     })
   })

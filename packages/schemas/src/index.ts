@@ -49,6 +49,11 @@ export {
   SOCIAL_NETWORK_IDS,
   SOCIAL_NETWORK_LABELS,
   THEME_PREFERENCES,
+  WEBHOOK_DELIVERY_STATUSES,
+  WEBHOOK_EVENTS,
+  WEBHOOK_SETTABLE_STATUSES,
+  WEBHOOK_STATUS_LABELS,
+  WEBHOOK_STATUSES,
 } from './values.ts'
 export type {
   AccountType,
@@ -75,6 +80,10 @@ export type {
   SizeBand,
   SocialNetworkId,
   ThemePreference,
+  WebhookDeliveryStatus,
+  WebhookEvent,
+  WebhookSettableStatus,
+  WebhookStatus,
 } from './values.ts'
 
 export { definedFields, idSchema, nullableTimestampSchema, timestampSchema } from './wire.ts'
@@ -191,6 +200,21 @@ export type {
   MatchKeyOption,
   SettledRowAction,
 } from './importExport.ts'
+
+export {
+  createWebhookBody,
+  createdWebhookSchema,
+  webhookBody,
+  webhookDeliverySchema,
+  webhookSchema,
+} from './webhook.ts'
+export type {
+  CreateWebhookInput,
+  CreatedWebhook,
+  Webhook,
+  WebhookDelivery,
+  WebhookInput,
+} from './webhook.ts'
 
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'

@@ -12,7 +12,8 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently --names api,web --prefix-colors blue,magenta \"npm run dev --workspace apps/kelpie\" \"npm run dev:web --workspace apps/kelpie\"",
+    "dev": "node apps/kelpie/src/dev.ts",
+    "dev:processes": "concurrently --names api,web --prefix-colors blue,magenta \"npm run dev --workspace apps/kelpie\" \"npm run dev:web --workspace apps/kelpie\"",
     "build": "npm run build --workspaces --if-present",
     "lint": "oxlint",
     "typecheck": "npm run typecheck --workspaces --if-present",

@@ -10,6 +10,7 @@
     "start": "node src/server.ts",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "typecheck": "tsc --project tsconfig.server.json && tsc --project tsconfig.web.json"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.2",
     "@vitejs/plugin-react": "^6.0.5",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
   }
 }

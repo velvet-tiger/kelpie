@@ -30,6 +30,7 @@ import { ProfilePage } from '../pages/account/ProfilePage.tsx'
 import { SecurityPage } from '../pages/account/SecurityPage.tsx'
 import { DataPage } from '../pages/admin/DataPage.tsx'
 import { TeamPage } from '../pages/admin/TeamPage.tsx'
+import { WebhooksPage } from '../pages/admin/WebhooksPage.tsx'
 import { WorkspaceSettingsPage } from '../pages/admin/WorkspaceSettingsPage.tsx'
 import { CreateWorkspacePage } from '../pages/auth/CreateWorkspacePage.tsx'
 import { JoinPage } from '../pages/auth/JoinPage.tsx'
@@ -111,6 +112,7 @@ function AppRoutes(): React.JSX.Element {
           <Route path="admin/workspace" element={<WorkspaceSettingsPage />} />
           <Route path="admin/team" element={<TeamPage />} />
           <Route path="admin/data" element={<DataPage />} />
+          <Route path="admin/webhooks" element={<WebhooksPage />} />
           {/* The mockup's own shape: /account opens the first tab. */}
           <Route path="account" element={<AccountLayout />}>
             <Route index element={<Navigate to="/account/profile" replace />} />

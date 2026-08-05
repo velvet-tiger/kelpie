@@ -39,7 +39,18 @@ Run these in order from the repository root.
    npm run dev
    ```
 
-   The API listens on the `PORT` from `.env` (3000 by default). The UI runs on http://localhost:5173 and proxies `/v1` and `/healthz` to the API, so the browser only ever talks to one origin.
+   The API listens on the `PORT` from `.env` (3000 by default) and the UI on 5173, and the UI proxies `/v1` and `/healthz` to the API, so the browser only ever talks to one origin.
+
+   `npm run dev` finds a free port for each process before starting either one, so a second checkout or a stale process on 3000 does not stop this one. It prints what it chose:
+
+   ```
+   api  http://localhost:3001 (3000 was in use)
+   web  http://localhost:5173
+   ```
+
+   Only the launcher moves. The API binds the `PORT` it is given and fails when that port is taken, in development and in production alike.
+
+   The steps below use 5173. Use whichever web port it printed.
 
 5. Confirm the whole chain.
 
@@ -204,7 +215,8 @@ MCP tools share the input schema with their REST route, and the runtime parses a
 
 | Command | Does |
 | --- | --- |
-| `npm run dev` | API with file watching plus the Vite dev server |
+| `npm run dev` | Picks a free port for each process, then starts the API with file watching plus the Vite dev server |
+| `npm run dev:processes` | The two processes on their own, on whatever ports the environment already names. `npm run dev` runs this once it has chosen them |
 | `npm run build` | Production build of the web bundle |
 | `npm run lint` | oxlint across the repository. Silent means clean |
 | `npm run typecheck` | `tsc` over every workspace |
@@ -213,17 +225,19 @@ MCP tools share the input schema with their REST route, and the runtime parses a
 
 ## Configuration
 
-Every variable is required. There are no silent defaults; a missing or malformed value stops boot and prints the full list of problems.
+Every variable the service reads is required. There are no silent defaults; a missing or malformed value stops boot and prints the full list of problems. `WEB_PORT` is the one exception, and the service never reads it: it belongs to the dev launcher.
 
 | Variable | Values |
 | --- | --- |
 | `NODE_ENV` | `development`, `test`, or `production` |
-| `PORT` | API listen port |
-| `API_PORT` | The same number again, for the Vite dev server's `/v1` proxy. It needs its own name because a launcher sets `PORT` to the port it wants Vite on, and Vite would then proxy to itself |
+| `PORT` | API listen port. The API binds it or fails; it never picks another. `npm run dev` treats the value in `.env` as a preference and scans up from it for a free one |
+| `API_PORT` | The same number again, for the Vite dev server's `/v1` proxy. It needs its own name because a launcher sets `PORT` to the port it wants Vite on, and Vite would then proxy to itself. `npm run dev` sets it |
+| `WEB_PORT` | Optional, development only. The Vite dev server's own port, preferred rather than fixed: `npm run dev` scans up from it, or from 5173 when it is unset |
 | `DATABASE_URL` | `postgres://` or `postgresql://` connection string |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
 | `EMAIL_PROVIDER` | `log`. Writes invites and password resets to the log instead of sending them. Real providers ship as modules |
 | `EMAIL_FROM` | The address transactional mail comes from |
+| `SECRET_ENCRYPTION_KEY` | 32 bytes of base64: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Seals secrets the service has to read back, which today means webhook signing secrets. Changing it makes everything sealed under the old key unreadable |
 
 `TEST_DATABASE_URL` is separate: it is read only by the test harness, and only the integration suites use it. Without it they skip.
 
@@ -257,6 +271,7 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | Public forms | `POST /v1/public/forms/:public_key/submit` and `GET /v1/public/forms/:public_key/embed`. No credentials, any origin |
 | Export | `GET /v1/export/{people,companies,positions,deals}.csv` and `GET /v1/export/templates/{object}.csv` |
 | Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit` |
+| Webhooks | `GET`, `POST /v1/webhooks`, `GET`, `PATCH`, `DELETE /v1/webhooks/:id`. Filter `?status=`. Plus `GET /v1/webhooks/:id/deliveries`, filter `?status=`. Admin only, reads included |
 
 Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
 
@@ -282,9 +297,15 @@ A deal's stage resolves against this workspace's own pipeline — its slug, then
 
 **Over 500 rows a job runs in the background and the request answers `202`.** There is no durable queue: the work is a detached promise in the same process, the same way the event bus publishes. A crash mid-pass therefore strands a job in `validating` or `committing` with nothing to move it on, and the remedy is to upload the file again — which is safe, because a commit is idempotent. A real queue is the module system's job, not core's.
 
+**Webhooks are the event bus reaching outside the process.** Registering one mints a signing secret, answers with it once, and never returns it again. Every delivery is a `POST` carrying `Kelpie-Signature: sha256=…`, an HMAC-SHA256 of the exact request body under that secret, plus `Kelpie-Event` to route on and `Kelpie-Delivery` to dedupe on. Delivery is at-least-once with no durable queue, the same caveat the bus itself carries, and a retry reuses its delivery id so a receiver can recognise one.
+
+A non-2xx fails, and so does a redirect, which is never followed: an endpoint that moved should be seen and corrected rather than have workspace data quietly posted wherever the old address now points. Failures retry three times over about twenty seconds, and then the registration reads `failing` until an attempt lands. `paused` is the customer's own switch. `failing` is not settable — it is what the engine found, and a `PATCH` claiming it answers `422`.
+
+Every verb needs the admin role, **including the reads**. A webhook URL routinely carries its own credential in the path, so listing registrations discloses a secret rather than describing a setting. That is why the Webhooks page tells a member the list is not theirs instead of showing them an empty one.
+
 Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with after-commit publication, the entitlements registry, 37 tables with migrations, and an integration harness that creates and truncates its own database.
 
-Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
+Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. A webhook signing secret is the one credential that is encrypted rather than hashed, because signing a delivery needs it back; `lib/secrets.ts` seals it with AES-256-GCM under `SECRET_ENCRYPTION_KEY`. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
 
 In the browser: People and Companies, list and detail, against those endpoints. Filtering, inline editing, creating, deleting, and linking a person to a company through a Position all work end to end. Detail pages render the `person` and `company` record-tab slots, and the sidebar renders module nav items, so a UI module has somewhere to land from the start.
 
@@ -300,7 +321,7 @@ The emailed invitation lands on `/join?token=…`, which accepts as the signed-i
 
 ## Not here yet
 
-- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, the Workspace and Team admin pages, and the account's own Profile, Security and Preferences pages are ported. Everything else in `mockups/` is not: the dashboard, search, the remaining admin pages, and the account's integrations and personal API key tabs all wait for their endpoints.
+- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, the Workspace, Team and Webhooks admin pages, and the account's own Profile, Security and Preferences pages are ported. Everything else in `mockups/` is not: the dashboard, search, the remaining admin pages, and the account's integrations and personal API key tabs all wait for their endpoints.
 - **Role enforcement outside workspace administration.** Administration is gated at `admin`, and API keys already were. Every CRM resource is open to any member, which is what the specs describe; no document defines a read-only role. Narrowing that is a product decision, not a missing check.
 - **Agent tasks on a handbook page.** The mockup's handbook header carries an Agent tasks button. It arrives with the agent task registry in Phase 3, like every other record's.
 - **The rest of the auth pages.** Sign-in, first-workspace and join exist so the CRM pages can be reached and an invitation can be accepted. Signup, password reset and the onboarding wizard are a separate feature and replace the first two. Changing a password while signed in is on the account's Security page and does exist.
@@ -310,6 +331,9 @@ The emailed invitation lands on `/join?token=…`, which accepts as the signed-i
 - **Leaving a workspace, and the last owner.** An admin can remove themselves; the owner cannot, and has to hand ownership over first. An owner who is the only member has no way out except deleting the workspace.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
+- **Webhook polish**, which `brief.md` defers. Four events are deliverable and the rest of the catalogue is not offered, rather than accepted and never sent. There is no delivery-log UI (the endpoint exists), no secret rotation short of deleting and re-registering, no re-sealing after a `SECRET_ENCRYPTION_KEY` change, and no retention pruner for `webhook_deliveries` even though `schema.md` calls the table retention-pruned. Retries live in the process, so a crash mid-backoff loses that delivery.
+- **`webhookEvents()` reaching the engine.** A module can add a name to the deliverable list and nothing reads it. The engine subscribes to a fixed four, and the bus is typed on `DomainEvents`, so a module's own event has no payload type to publish under either. Both halves are one piece of work; see `modules.md`.
+- **Outbound egress filtering.** A delivery URL may name any host, including a private one, because a self-hosted install legitimately posts to `http://automation.internal`. A hosted deployment needs that filter at its egress rather than in this check.
 - **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.
 - **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.
 - **A CI workflow.** The scripts are ready; nothing runs them on push.

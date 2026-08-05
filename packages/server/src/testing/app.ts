@@ -9,6 +9,7 @@ import type { KelpieModule } from '../runtime/module.ts'
 import type { ModuleContributions } from '../runtime/registry.ts'
 import type { EntitlementRegistry } from '../runtime/entitlements.ts'
 import { registerModules } from '../runtime/registry.ts'
+import { TEST_ENVIRONMENT } from './environment.ts'
 import { createTestServices } from './services.ts'
 import type { TestServices } from './services.ts'
 
@@ -20,6 +21,7 @@ import type { TestServices } from './services.ts'
 
 export interface TestAppOptions {
   readonly modules?: readonly KelpieModule[]
+  /** Defaults to `TEST_ENVIRONMENT`: enough for every core module to configure itself. */
   readonly environment?: Environment
   readonly probeDatabase?: () => Promise<DatabaseProbe>
   readonly generateRequestId?: () => string
@@ -46,7 +48,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   const services = options.services ?? createTestServices()
   const contributions = await registerModules({
     modules: options.modules ?? [],
-    environment: options.environment ?? {},
+    environment: options.environment ?? TEST_ENVIRONMENT,
     logger,
     events: services.events,
     ...(options.entitlements === undefined ? {} : { entitlements: options.entitlements }),
