@@ -32,10 +32,15 @@ import { DataPage } from '../pages/admin/DataPage.tsx'
 import { TeamPage } from '../pages/admin/TeamPage.tsx'
 import { WebhooksPage } from '../pages/admin/WebhooksPage.tsx'
 import { WorkspaceSettingsPage } from '../pages/admin/WorkspaceSettingsPage.tsx'
-import { CreateWorkspacePage } from '../pages/auth/CreateWorkspacePage.tsx'
+import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage.tsx'
 import { JoinPage } from '../pages/auth/JoinPage.tsx'
+import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage.tsx'
 import { SignInPage } from '../pages/auth/SignInPage.tsx'
+import { SignUpPage } from '../pages/auth/SignUpPage.tsx'
 import { HandbookLayout } from '../pages/handbook/HandbookPage.tsx'
+import { HandbookStepPage } from '../pages/onboarding/HandbookStepPage.tsx'
+import { InvitesStepPage } from '../pages/onboarding/InvitesStepPage.tsx'
+import { WorkspaceStepPage } from '../pages/onboarding/WorkspaceStepPage.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
 import { useModuleRoutes } from '../registry/context.ts'
 import type { UiExtensions } from '../registry/registry.ts'
@@ -75,13 +80,25 @@ function AppRoutes(): React.JSX.Element {
 
   return (
     <Routes>
-      <Route path="/sign-in" element={<SignInPage />} />
-      <Route path="/create-workspace" element={<CreateWorkspacePage />} />
+      {/* Signed out, or on the way to being signed in. Route names are the
+          mockup's. */}
+      <Route path="/login" element={<SignInPage />} />
+      <Route path="/signup" element={<SignUpPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       {/* Outside the gate: an invitee may have no workspace yet, and this is how
-          they get one. */}
+          they get one. Same for the first onboarding step, which is what the
+          gate sends an account with no workspace to. */}
       <Route path="/join" element={<JoinPage />} />
+      <Route path="/onboarding/workspace" element={<WorkspaceStepPage />} />
 
       <Route element={<SessionGate />}>
+        {/* Inside the gate and outside the Shell: both steps need the workspace
+            that step 1 created, and neither is a place to start navigating the
+            app from. */}
+        <Route path="/onboarding/invites" element={<InvitesStepPage />} />
+        <Route path="/onboarding/handbook" element={<HandbookStepPage />} />
+
         <Route element={<Shell />}>
           <Route index element={<Navigate to="/people" replace />} />
           <Route path="people" element={<PeoplePage />} />

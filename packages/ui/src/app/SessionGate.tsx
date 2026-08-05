@@ -19,7 +19,7 @@ export function SessionGate(): React.JSX.Element {
   const { isLoading, isSignedOut, needsWorkspace, error } = useSession()
 
   if (isSignedOut) {
-    return <Navigate to="/sign-in" replace />
+    return <Navigate to="/login" replace />
   }
 
   if (error !== null) {
@@ -35,7 +35,7 @@ export function SessionGate(): React.JSX.Element {
   }
 
   if (needsWorkspace) {
-    return <Navigate to="/create-workspace" replace />
+    return <Navigate to="/onboarding/workspace" replace />
   }
 
   return <Outlet />

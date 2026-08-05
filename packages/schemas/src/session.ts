@@ -6,12 +6,16 @@ import type { MemberRole } from './values.ts'
 import { definedFields, idSchema } from './wire.ts'
 
 /**
- * Wire shapes for the endpoints a signed-in browser needs before it can render
- * anything: who the session belongs to, and which workspace it is in.
+ * Wire shapes for `/v1/auth/*` and `/v1/workspaces`: how a browser gets a
+ * session, and which workspace that session is in.
  *
  * `workspaceId` is nullable because signup creates an account and nothing else.
  * Every CRM endpoint answers `403` until a workspace exists, so the shell has to
  * be able to tell "signed out" from "signed in, no workspace yet".
+ *
+ * The password-reset pair belongs here rather than in `account.ts` for the same
+ * reason sign-in does: a caller running them has no account context yet. What
+ * `account.ts` holds is the signed-in person.
  */
 
 export interface Session {
@@ -126,4 +130,48 @@ export interface LogInInput {
 
 export function logInBody(input: LogInInput): Record<string, unknown> {
   return { email: input.email, password: input.password }
+}
+
+/**
+ * Creating an account. It answers the same shape sign-in does, with
+ * `activeWorkspaceId` null: signup makes the user and stops there.
+ */
+export interface SignUpInput {
+  readonly name: string
+  readonly email: string
+  readonly password: string
+}
+
+export function signUpBody(input: SignUpInput): Record<string, unknown> {
+  return { name: input.name, email: input.email, password: input.password }
+}
+
+/**
+ * Asking for a reset link.
+ *
+ * `resetUrlTemplate` carries the literal `{token}`, which the email replaces.
+ * The caller supplies it for the same reason an invitation does: the service
+ * sends the mail and has no idea what address the browser reached it at.
+ */
+export interface RequestPasswordResetInput {
+  readonly email: string
+  readonly resetUrlTemplate: string
+}
+
+export function requestPasswordResetBody(
+  input: RequestPasswordResetInput,
+): Record<string, unknown> {
+  return { email: input.email, reset_url_template: input.resetUrlTemplate }
+}
+
+/** Spending the token from that email. Answers `204`; it does not sign anyone in. */
+export interface ConfirmPasswordResetInput {
+  readonly token: string
+  readonly password: string
+}
+
+export function confirmPasswordResetBody(
+  input: ConfirmPasswordResetInput,
+): Record<string, unknown> {
+  return { token: input.token, password: input.password }
 }

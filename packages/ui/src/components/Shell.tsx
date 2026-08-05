@@ -210,7 +210,7 @@ export function Shell(): React.JSX.Element {
                       .runAsync()
                       .catch(() => undefined)
                       .finally(() => {
-                        void navigate('/sign-in', { replace: true })
+                        void navigate('/login', { replace: true })
                       })
                   }}
                   className="block w-full px-3 py-1.5 text-left text-[13px] text-ink hover:bg-surface-sunken"
