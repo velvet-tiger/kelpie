@@ -49,12 +49,11 @@ export interface StoredRowError {
  * `column_map`, `counts`, `errors` and `preview` are jsonb because their shape
  * follows the object being imported and nothing queries into them.
  *
- * `csv` is the file exactly as it arrived, and it is the only copy of it before
- * a commit. Nothing is exploded into `import_job_rows` until an import actually
- * runs: a dry run is a forecast, and a forecast that stored ten thousand rows
- * per corrected mapping was charging a caller for work nobody asked to keep. The
- * dry run parses this column, plans in memory, and writes back the three things
- * a caller reads — `counts`, `errors` and `preview`.
+ * A job stores no part of the file. The upload plans it in memory and keeps
+ * `counts`, `errors`, `preview` and `file_sha256`; the caller keeps the file and
+ * hands it back at commit. That is what makes an abandoned dry run cost one row
+ * rather than a copy of a ten megabyte upload, and it is why nothing is exploded
+ * into `import_job_rows` until an import actually runs.
  *
  * `file_name` is what the uploader called the file, for the mapping screen.
  */
@@ -78,11 +77,15 @@ export const importJobs = pgTable(
     /** The first `IMPORT_PREVIEW_ROWS` rows, mapped as Kelpie read them. */
     preview: jsonb('preview').$type<readonly ImportPreviewRow[]>().notNull().default([]),
     /**
-     * The uploaded file, verbatim. Null only on a job created before imports
-     * stopped storing their rows up front; such a job cannot be committed, and
+     * SHA-256 of the file this job forecast, hex.
+     *
+     * The file itself is not kept. The commit carries it back and is refused if
+     * it hashes to anything else, which buys the same "this is the file you
+     * approved" guarantee as storing it for 64 characters instead of up to ten
+     * megabytes. Null only on a job from before this, which cannot be committed;
      * the remedy is the one `import-export.md` already gives — upload it again.
      */
-    csv: text('csv'),
+    fileSha256: text('file_sha256'),
     fileName: text('file_name'),
     /** Why a background pass gave up. Null unless `status` is `failed`. */
     failureReason: text('failure_reason'),

@@ -107,10 +107,26 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
     return readRecord(await response.json())
   }
 
-  async function commit(jobId: string): Promise<Record<string, unknown>> {
-    const response = await client.send('POST', `/v1/import/jobs/${jobId}/commit`, {
-      cookie: acme.cookie,
-    })
+  /**
+   * Posts a commit, carrying the file back. A job keeps only the digest of the
+   * file it forecast, so the bytes travel with the commit.
+   */
+  function sendCommit(jobId: string, csv: string, cookie = acme.cookie): Promise<Response> {
+    const form = new FormData()
+
+    form.set('file', new File([csv], 'upload.csv', { type: 'text/csv' }))
+
+    return Promise.resolve(
+      harness.app.request(`/v1/import/jobs/${jobId}/commit`, {
+        method: 'POST',
+        headers: { Cookie: cookie },
+        body: form,
+      }),
+    )
+  }
+
+  async function commit(jobId: string, csv: string): Promise<Record<string, unknown>> {
+    const response = await sendCommit(jobId, csv)
 
     if (response.status !== 200) {
       throw new Error(`Committing answered ${String(response.status)}: ${await response.text()}`)
@@ -121,7 +137,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
   /** Creates a job and commits it, which is the whole two-step flow. */
   async function importCsv(csv: string, fields: JobFields = {}): Promise<Record<string, unknown>> {
-    return commit(readString(await createJob(csv, fields), 'id'))
+    return commit(readString(await createJob(csv, fields), 'id'), csv)
   }
 
   /** The field-level `details` of a 422, which is where the useful part of one is. */
@@ -345,8 +361,8 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
     it('is idempotent: re-committing writes nothing and answers the same job', async () => {
       const jobId = readString(await createJob(COMPANIES_CSV), 'id')
 
-      await commit(jobId)
-      const second = await commit(jobId)
+      await commit(jobId, COMPANIES_CSV)
+      const second = await commit(jobId, COMPANIES_CSV)
 
       expect(second).toMatchObject({ status: 'completed', counts: { create: 2 } })
       expect(
@@ -372,10 +388,39 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
     it('refuses to commit a job that has not been dry-run', async () => {
       const jobId = readString(await createJob(COMPANIES_CSV), 'id')
 
-      await commit(jobId)
+      await commit(jobId, COMPANIES_CSV)
       // A completed job is the no-op case; a committing one is somebody else's.
-      const response = await client.send('POST', `/v1/import/jobs/${jobId}/commit`, {
-        cookie: acme.cookie,
+      const response = await sendCommit(jobId, COMPANIES_CSV)
+
+      expect(response.status).toBe(200)
+    })
+
+    /**
+     * The counts a caller approved describe one file. Committing a different one
+     * would apply it and report it under a forecast taken from something else.
+     */
+    it('refuses a file that is not the one it dry-ran', async () => {
+      const jobId = readString(await createJob(COMPANIES_CSV), 'id')
+      const response = await sendCommit(jobId, 'name,domain\nSomething Else,elsewhere.test')
+
+      expect(response.status).toBe(409)
+      expect(
+        await database.db.select().from(companies).where(eq(companies.workspaceId, acme.workspaceId)),
+      ).toHaveLength(0)
+    })
+
+    it('takes the same file back whatever it was called on the way in', async () => {
+      const jobId = readString(await createJob(COMPANIES_CSV), 'id')
+      const form = new FormData()
+
+      // The digest is over the bytes. A caller who renamed the file on disk
+      // between the two calls is still committing the file that was forecast.
+      form.set('file', new File([COMPANIES_CSV], 'renamed.csv', { type: 'text/csv' }))
+
+      const response = await harness.app.request(`/v1/import/jobs/${jobId}/commit`, {
+        method: 'POST',
+        headers: { Cookie: acme.cookie },
+        body: form,
       })
 
       expect(response.status).toBe(200)
@@ -437,7 +482,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       // The replacement is untouched: deleting a superseded job is not deleting
       // the file it was read from.
       expect((await client.send('GET', `/v1/import/jobs/${second}`, { cookie: acme.cookie })).status).toBe(200)
-      expect(await commit(second)).toMatchObject({ counts: { total: 2, create: 2 } })
+      expect(await commit(second, COMPANIES_CSV)).toMatchObject({ counts: { total: 2, create: 2 } })
     })
 
     it('leaves the records a completed job wrote', async () => {
@@ -504,7 +549,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       const jobId = readString(await createJob(COMPANIES_CSV), 'id')
 
       expect(await rowsOf(jobId)).toHaveLength(0)
-      await commit(jobId)
+      await commit(jobId, COMPANIES_CSV)
       expect(await rowsOf(jobId)).toHaveLength(2)
     })
 
@@ -532,11 +577,12 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
    */
   describe('when the workspace changes between the dry run and the commit', () => {
     it('skips a row whose record somebody else created in the meantime', async () => {
-      const jobId = readString(await createJob('name,domain\nAcme,acme.com'), 'id')
+      const csv = 'name,domain\nAcme,acme.com'
+      const jobId = readString(await createJob(csv), 'id')
 
       await importCsv('name,domain\nAcme via another route,acme.com')
 
-      const committed = await commit(jobId)
+      const committed = await commit(jobId, csv)
 
       // The dry run forecast one create. By the time it ran there was a company
       // on that domain, so it skipped rather than colliding with the unique key.
@@ -551,17 +597,13 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
     it('fails only the rows whose reference disappeared, and commits the rest', async () => {
       await importCsv(COMPANIES_CSV)
 
-      const jobId = readString(
-        await createJob(
-          'name,company_domain,stage,value,external_id\nOne,acme.com,qualifying,10,a\nTwo,harbour.io,qualifying,20,b',
-          { object: 'deals' },
-        ),
-        'id',
-      )
+      const csv =
+        'name,company_domain,stage,value,external_id\nOne,acme.com,qualifying,10,a\nTwo,harbour.io,qualifying,20,b'
+      const jobId = readString(await createJob(csv, { object: 'deals' }), 'id')
 
       await database.db.delete(companies).where(eq(companies.domain, 'harbour.io'))
 
-      const committed = await commit(jobId)
+      const committed = await commit(jobId, csv)
 
       expect(committed).toMatchObject({ counts: { total: 2, create: 1, error: 1 } })
       expect(committed.errors).toMatchObject([{ row: 3, field: 'company_domain' }])
@@ -617,9 +659,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
       await settle(jobId)
 
-      const response = await client.send('POST', `/v1/import/jobs/${jobId}/commit`, {
-        cookie: acme.cookie,
-      })
+      const response = await sendCommit(jobId, bigCsv)
 
       expect(response.status).toBe(202)
       expect(readRecord(await response.json())).toMatchObject({ status: 'committing' })
@@ -637,11 +677,9 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       const jobId = readString(readRecord(await (await upload(bigCsv)).json()), 'id')
 
       await settle(jobId)
-      await client.send('POST', `/v1/import/jobs/${jobId}/commit`, { cookie: acme.cookie })
+      await sendCommit(jobId, bigCsv)
 
-      const second = await client.send('POST', `/v1/import/jobs/${jobId}/commit`, {
-        cookie: acme.cookie,
-      })
+      const second = await sendCommit(jobId, bigCsv)
 
       expect(second.status).toBe(409)
       await settle(jobId)
@@ -655,7 +693,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       const jobId = readString(readRecord(await (await upload(bigCsv)).json()), 'id')
 
       await settle(jobId)
-      await client.send('POST', `/v1/import/jobs/${jobId}/commit`, { cookie: acme.cookie })
+      await sendCommit(jobId, bigCsv)
 
       const response = await client.send('DELETE', `/v1/import/jobs/${jobId}`, {
         cookie: acme.cookie,

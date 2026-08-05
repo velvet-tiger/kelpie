@@ -43,6 +43,8 @@ interface Harness {
   readonly deleted: string[]
   /** The id each successive upload answers with. */
   readonly uploaded: string[]
+  /** Each commit the page sent: the path, and the file body that went with it. */
+  readonly committed: { path: string; file: string }[]
 }
 
 interface Stubs {
@@ -66,7 +68,18 @@ function stubClient(stubs: Stubs, harness: Harness): ApiClient {
         ? Promise.resolve(decode(wireJob(id)))
         : unexpected(`get ${path}`)
     },
-    postForm: (path, _form, decode) => {
+    postForm: async (path, form, decode) => {
+      if (path.endsWith('/commit')) {
+        const sent = form.get('file')
+
+        harness.committed.push({
+          path,
+          file: sent instanceof File ? await sent.text() : String(sent),
+        })
+
+        return decode({ ...wireJob(path.split('/')[3] ?? ''), status: 'completed' })
+      }
+
       if (path !== '/import/jobs') {
         return unexpected(`postForm ${path}`)
       }
@@ -96,7 +109,7 @@ function stubClient(stubs: Stubs, harness: Harness): ApiClient {
 }
 
 function renderPage(stubs: Stubs = {}): Harness {
-  const harness: Harness = { deleted: [], uploaded: [] }
+  const harness: Harness = { deleted: [], uploaded: [], committed: [] }
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -112,15 +125,15 @@ function renderPage(stubs: Stubs = {}): Harness {
   return harness
 }
 
+const CSV = 'name,domain\nAcme,acme.com'
+
 /** Walks the wizard from the source step to a job on the mapping step. */
 async function uploadFile(): Promise<void> {
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
   const input = await screen.findByLabelText(/Drop a CSV here/u)
 
-  fireEvent.change(input, {
-    target: { files: [new File(['name,domain\nAcme,acme.com'], 'companies.csv')] },
-  })
+  fireEvent.change(input, { target: { files: [new File([CSV], 'companies.csv')] } })
 
   await screen.findByRole('button', { name: 'Run dry-run' })
 }
@@ -160,6 +173,24 @@ describe('DataPage import wizard', () => {
 
     await waitFor(() => {
       expect(harness.deleted).toEqual(['/import/jobs/imp_a'])
+    })
+  })
+
+  /**
+   * The server keeps the digest of the file it forecast, not the file. The
+   * wizard has held the `File` since the upload, and this is what it is for.
+   */
+  it('sends the file back with the commit', async () => {
+    const harness = renderPage()
+
+    await uploadFile()
+    fireEvent.click(screen.getByRole('button', { name: 'Run dry-run' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Commit import/u }))
+
+    await waitFor(() => {
+      expect(harness.committed).toEqual([
+        { path: '/import/jobs/imp_b/commit', file: CSV },
+      ])
     })
   })
 

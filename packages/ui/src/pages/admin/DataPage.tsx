@@ -194,12 +194,14 @@ export function DataPage(): ReactNode {
   }
 
   function onCommit(): void {
-    if (jobId === undefined) {
+    // The file goes back with the commit: the server kept its digest, not its
+    // bytes. This is the same `File` every dry run was run against.
+    if (jobId === undefined || file === null) {
       return
     }
 
     setProblem(null)
-    commitJob.run(jobId)
+    commitJob.run({ id: jobId, file })
   }
 
   return (

@@ -79,22 +79,37 @@ export function useCreateImportJob(): MutationResult<CreateImportJobInput, Impor
   )
 }
 
+export interface CommitImportJobInput {
+  readonly id: string
+  /**
+   * The same file the dry run read. A job keeps only its digest, so the bytes
+   * come back here and the server refuses anything that hashes differently.
+   * The wizard has held this `File` since the upload for exactly this reason.
+   */
+  readonly file: File
+}
+
 /**
- * Commits a job.
+ * Commits a job, sending back the file it forecast.
  *
  * The response replaces the cached job, which is what restarts polling: the
  * watcher stops while a job sits in `ready`, and a commit moves it to
  * `committing` or `completed`. It also invalidates every CRM list, because the
  * records this just wrote are in all of them.
  */
-export function useCommitImportJob(): MutationResult<string, ImportJob> {
+export function useCommitImportJob(): MutationResult<CommitImportJobInput, ImportJob> {
   const client = useApiClient()
   const cache = useQueryClient()
 
   return asMutationResult(
     useMutation({
-      mutationFn: (id: string) =>
-        client.post(`/import/jobs/${id}/commit`, undefined, importJobSchema.parse),
+      mutationFn: ({ id, file }: CommitImportJobInput) => {
+        const form = new FormData()
+
+        form.set('file', file)
+
+        return client.postForm(`/import/jobs/${id}/commit`, form, importJobSchema.parse)
+      },
       onSuccess: async (job) => {
         cache.setQueryData(jobKey(job.id), job)
 

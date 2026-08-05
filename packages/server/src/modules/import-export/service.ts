@@ -28,8 +28,8 @@ import type { Queryable, TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
-import { CsvFormatError, csvLine, parseCsv } from './csv.ts'
-import type { CsvRow } from './csv.ts'
+import { CsvFormatError, csvLine, fileDigest, parseCsv } from './csv.ts'
+import type { CsvRow, ParsedCsv } from './csv.ts'
 import { headersFor } from './exportRows.ts'
 import { buildMatchKey, mapRow, splitList } from './mapping.ts'
 import { applyWrite } from './writes.ts'
@@ -99,7 +99,11 @@ export interface CreateImportJobInput {
 export interface ImportExportService {
   createJob(actor: Actor, input: CreateImportJobInput): Promise<ImportJobView>
   getJob(actor: Actor, id: string): Promise<ImportJobView>
-  commit(actor: Actor, id: string): Promise<ImportJobView>
+  /**
+   * @param csv The same file the dry run read. A job holds only its digest, so
+   *   the caller brings the bytes back and a different file is refused.
+   */
+  commit(actor: Actor, id: string, csv: string): Promise<ImportJobView>
   deleteJob(actor: Actor, id: string): Promise<void>
   /** CSV lines for a whole object, a page of records at a time. */
   exportCsv(actor: Actor, object: ImportObject): AsyncGenerator<string>
@@ -127,12 +131,12 @@ const DELETABLE_STATUSES: readonly ImportJobStatus[] = [
 /** Rows committed between two writes of the job's running counts, so polling shows progress. */
 const COMMIT_PROGRESS_INTERVAL = 100
 
-/** The stored job minus tenancy, the failure reason, and the file itself. */
+/** The stored job minus tenancy, the failure reason, and the file digest. */
 function toView(job: ImportJobRecord): ImportJobView {
   const {
     workspaceId: _workspaceId,
     failureReason: _failureReason,
-    csv: _csv,
+    fileSha256: _fileSha256,
     ...rest
   } = job
 
@@ -358,25 +362,41 @@ export function createImportExportService(
     }
   }
 
+  /** A parsed file, mapped to Kelpie columns through the job's own column map. */
+  function readFile(
+    job: ImportJobRecord,
+    parsed: ParsedCsv,
+  ): { rows: MappedRow[]; values: Map<number, CsvRow> } {
+    return {
+      rows: parsed.rows.map((row) => ({ row: row.number, mapped: mapRow(row.values, job.columnMap) })),
+      values: new Map(parsed.rows.map((row) => [row.number, row])),
+    }
+  }
+
   /**
-   * The lines of a job's stored file, mapped to Kelpie columns.
+   * Checks a file handed back at commit against the one the dry run forecast.
    *
-   * @throws AppError 409 for a job stored before the file was kept. Its lines
-   *   are gone and only a fresh upload brings them back, which is the same
-   *   remedy `import-export.md` gives for a job a crash stranded.
+   * The counts a caller approved describe one particular file. Without this the
+   * commit would apply whatever arrived and report it under a forecast taken
+   * from something else.
+   *
+   * @throws AppError 409 when it is a different file, or when the job predates
+   *   the digest and there is nothing to compare against.
    */
-  function readFile(job: ImportJobRecord): { rows: MappedRow[]; values: Map<number, CsvRow> } {
-    if (job.csv === null) {
-      throw AppError.conflict('This job was created before its file was kept', [
+  function requireForecastFile(job: ImportJobRecord, csv: string): void {
+    if (job.fileSha256 === null) {
+      throw AppError.conflict('This job was created before its file was fingerprinted', [
         { field: 'file', message: 'Upload the file again as a new job' },
       ])
     }
 
-    const parsed = parseCsv(job.csv)
-
-    return {
-      rows: parsed.rows.map((row) => ({ row: row.number, mapped: mapRow(row.values, job.columnMap) })),
-      values: new Map(parsed.rows.map((row) => [row.number, row])),
+    if (fileDigest(csv) !== job.fileSha256) {
+      throw AppError.conflict('That is not the file this job dry-ran', [
+        {
+          field: 'file',
+          message: 'Commit the file the dry run read, or upload this one as a new job',
+        },
+      ])
     }
   }
 
@@ -427,10 +447,14 @@ export function createImportExportService(
    * caller reads off it are the counts, the first errors and the preview. Runs
    * inside the request for a small file and detached for a large one, which is
    * the only difference between the two paths.
+   *
+   * Takes the parse rather than reading it back, because the job does not hold
+   * the file. The detached path closes over it for as long as it runs, which is
+   * the same lifetime the request would have had.
    */
-  async function runDryRun(workspaceId: string, jobId: string): Promise<void> {
+  async function runDryRun(workspaceId: string, jobId: string, parsed: ParsedCsv): Promise<void> {
     const job = await requireJob(workspaceId, jobId)
-    const { rows } = readFile(job)
+    const { rows } = readFile(job, parsed)
     const lookups = await buildLookups(
       dependencies.db,
       workspaceId,
@@ -567,9 +591,14 @@ export function createImportExportService(
    * hundred. Containment is worth the commits here: this already runs in the
    * background for anything large.
    */
-  async function runCommit(workspaceId: string, actor: Actor, jobId: string): Promise<void> {
+  async function runCommit(
+    workspaceId: string,
+    actor: Actor,
+    jobId: string,
+    parsed: ParsedCsv,
+  ): Promise<void> {
     const job = await requireJob(workspaceId, jobId)
-    const { rows, values } = readFile(job)
+    const { rows, values } = readFile(job, parsed)
     const counts = { ...EMPTY_COUNTS, total: rows.length }
     const outcomes: repository.RowOutcome[] = []
     let sinceProgress = 0
@@ -679,10 +708,9 @@ export function createImportExportService(
       const id = dependencies.createId('importJob')
       const now = dependencies.now()
 
-      // One row, and the file in it. Nothing is exploded into `import_job_rows`
-      // until a commit runs, so a caller correcting a mapping over a ten
-      // thousand line file leaves one row behind per attempt rather than ten
-      // thousand.
+      // One row, and no part of the file in it. A caller correcting a mapping
+      // over a ten thousand line file leaves one row per attempt rather than ten
+      // thousand rows or ten megabytes.
       const job = await repository.insertJob(dependencies.db, {
         id,
         workspaceId,
@@ -696,7 +724,7 @@ export function createImportExportService(
         counts: { ...EMPTY_COUNTS, total: parsed.rows.length },
         errors: [],
         preview: [],
-        csv: input.csv,
+        fileSha256: fileDigest(input.csv),
         fileName: input.fileName,
         failureReason: null,
         createdAt: now,
@@ -704,7 +732,7 @@ export function createImportExportService(
       })
 
       if (parsed.rows.length <= SYNC_IMPORT_ROWS) {
-        await runDryRun(workspaceId, id)
+        await runDryRun(workspaceId, id, parsed)
 
         return viewOf(await requireJob(workspaceId, id))
       }
@@ -714,7 +742,7 @@ export function createImportExportService(
         updatedAt: dependencies.now(),
       })
 
-      detach(workspaceId, id, () => runDryRun(workspaceId, id))
+      detach(workspaceId, id, () => runDryRun(workspaceId, id, parsed))
 
       return viewOf(validating ?? job)
     },
@@ -724,20 +752,27 @@ export function createImportExportService(
     },
 
     /**
-     * Commits a job that a dry run left `ready`.
+     * Commits a job that a dry run left `ready`, applying the file handed back.
      *
      * Re-committing a `completed` job answers with it and writes nothing, per
-     * `import-export.md`. Anything else is a conflict: a job still validating has
-     * no plan to apply, one already committing is being applied by somebody
-     * else, and a failed one has nothing to apply.
+     * `import-export.md`, and does not need the file to do so. Anything else is
+     * a conflict: a job still validating has no plan to apply, one already
+     * committing is being applied by somebody else, and a failed one has nothing
+     * to apply.
      */
-    async commit(actor, id) {
+    async commit(actor, id, csv) {
       const workspaceId = requireWorkspaceId(actor)
       const job = await requireJob(workspaceId, id)
 
+      // Checked before the file, so a caller re-POSTing a finished job gets the
+      // documented no-op whether or not they still have it.
       if (job.status === 'completed') {
         return viewOf(job)
       }
+
+      requireForecastFile(job, csv)
+
+      const parsed = parseCsv(csv)
 
       // Compare-and-set rather than a check followed by a write: two commits
       // arriving together both read `ready`, and only the one whose update
@@ -754,12 +789,12 @@ export function createImportExportService(
       }
 
       if (claimed.counts.total <= SYNC_IMPORT_ROWS) {
-        await runCommit(workspaceId, actor, id)
+        await runCommit(workspaceId, actor, id, parsed)
 
         return viewOf(await requireJob(workspaceId, id))
       }
 
-      detach(workspaceId, id, () => runCommit(workspaceId, actor, id))
+      detach(workspaceId, id, () => runCommit(workspaceId, actor, id, parsed))
 
       return viewOf(claimed)
     },

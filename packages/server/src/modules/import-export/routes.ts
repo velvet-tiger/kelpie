@@ -256,10 +256,19 @@ export function mountImportExportRoutes(
     return context.body(null, 204)
   })
 
+  /**
+   * Commits a job, applying the file sent with it.
+   *
+   * Multipart like the create, and for the same reason: a job keeps only the
+   * digest of the file it forecast, so the bytes come back here rather than
+   * sitting in a column between the two calls.
+   */
   router.post('/import/jobs/:id/commit', async (context) => {
+    const { file } = await readUpload(context)
     const job = await dependencies.service.commit(
       await requireActor(context),
       context.req.param('id'),
+      await file.text(),
     )
 
     return context.json(importJobResponse(job), job.status === 'committing' ? 202 : 200)
