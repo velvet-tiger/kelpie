@@ -408,15 +408,20 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
         .where(eq(importJobRows.jobId, jobId))
     }
 
-    it('answers 204 and takes the stored rows with it', async () => {
+    it('answers 204', async () => {
       const jobId = readString(await createJob(COMPANIES_CSV), 'id')
-
-      expect(await storedRows(jobId)).toHaveLength(2)
-
       const response = await remove(jobId)
 
       expect(response.status).toBe(204)
       expect(await response.text()).toBe('')
+      expect((await client.send('GET', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })).status).toBe(404)
+    })
+
+    it('takes the rows a commit wrote with it', async () => {
+      const jobId = readString(await importCsv(COMPANIES_CSV), 'id')
+
+      expect(await storedRows(jobId)).toHaveLength(2)
+      expect((await remove(jobId)).status).toBe(204)
       expect(await storedRows(jobId)).toHaveLength(0)
     })
 
@@ -431,8 +436,8 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
       // The replacement is untouched: deleting a superseded job is not deleting
       // the file it was read from.
-      expect(await storedRows(second)).toHaveLength(2)
       expect((await client.send('GET', `/v1/import/jobs/${second}`, { cookie: acme.cookie })).status).toBe(200)
+      expect(await commit(second)).toMatchObject({ counts: { total: 2, create: 2 } })
     })
 
     it('leaves the records a completed job wrote', async () => {
@@ -451,12 +456,72 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       expect((await remove(jobId)).status).toBe(404)
     })
 
-    it('answers 404 for a job in another workspace, and leaves its rows alone', async () => {
+    it('answers 404 for a job in another workspace, and leaves it alone', async () => {
       const jobId = readString(await createJob(COMPANIES_CSV), 'id')
       const other = await client.owner('grace@example.com', 'harbour')
 
       expect((await remove(jobId, other.cookie)).status).toBe(404)
-      expect(await storedRows(jobId)).toHaveLength(2)
+      expect((await client.send('GET', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })).status).toBe(200)
+    })
+  })
+
+  /**
+   * A dry run is a forecast. Storing the file as one row per line before anybody
+   * committed anything charged a caller ten thousand rows for a mapping they
+   * were still correcting.
+   */
+  describe('what a dry run stores', () => {
+    function rowsOf(jobId: string): Promise<{ jobId: string }[]> {
+      return database.db
+        .select({ jobId: importJobRows.jobId })
+        .from(importJobRows)
+        .where(eq(importJobRows.jobId, jobId))
+    }
+
+    it('stores no rows at all', async () => {
+      const jobId = readString(await createJob(COMPANIES_CSV), 'id')
+
+      expect(await rowsOf(jobId)).toHaveLength(0)
+    })
+
+    it('still reports the counts, errors and preview off the job', async () => {
+      const job = await createJob('name,domain\nAcme,acme.com\n,missing.test')
+
+      expect(job).toMatchObject({
+        status: 'ready',
+        counts: { total: 2, create: 1, error: 1 },
+        errors: [{ row: 3, field: 'name' }],
+      })
+      // The preview is the first rows as Kelpie read them, whatever happened to
+      // them, so the failing line appears here as well as in `errors`.
+      expect(job.preview).toMatchObject([
+        { row: 2, action: 'create', values: { name: 'Acme', domain: 'acme.com' } },
+        { row: 3, action: 'error', values: { name: '', domain: 'missing.test' } },
+      ])
+    })
+
+    it('writes one row per line once the import actually runs', async () => {
+      const jobId = readString(await createJob(COMPANIES_CSV), 'id')
+
+      expect(await rowsOf(jobId)).toHaveLength(0)
+      await commit(jobId)
+      expect(await rowsOf(jobId)).toHaveLength(2)
+    })
+
+    it('correcting a mapping four times leaves four jobs and no rows', async () => {
+      const ids = []
+
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        ids.push(readString(await createJob(COMPANIES_CSV), 'id'))
+      }
+
+      const rows = await database.db
+        .select({ jobId: importJobRows.jobId })
+        .from(importJobRows)
+        .where(eq(importJobRows.workspaceId, acme.workspaceId))
+
+      expect(ids).toHaveLength(4)
+      expect(rows).toHaveLength(0)
     })
   })
 

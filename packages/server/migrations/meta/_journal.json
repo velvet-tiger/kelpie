@@ -57,6 +57,13 @@
       "when": 1785883949172,
       "tag": "0007_add_webhook_secret_encrypted",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785909185173,
+      "tag": "0008_rich_mister_sinister",
+      "breakpoints": true
     }
   ]
 }

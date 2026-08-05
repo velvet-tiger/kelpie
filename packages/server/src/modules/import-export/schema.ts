@@ -5,7 +5,12 @@ import {
   IMPORT_ROW_ACTIONS,
   IMPORT_SOURCES,
 } from '@kelpie/schemas'
-import type { ImportColumnMap, ImportCounts } from '@kelpie/schemas'
+import type {
+  ImportColumnMap,
+  ImportCounts,
+  ImportPreviewRow,
+  ImportRowError,
+} from '@kelpie/schemas'
 import { index, integer, jsonb, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
@@ -41,15 +46,17 @@ export interface StoredRowError {
 /**
  * A CSV import, from upload through dry run to commit.
  *
- * `column_map` and `counts` are jsonb because their shape follows the object
- * being imported and nothing queries into them. The row errors and the mapping
- * preview are **not** stored here: both are derived from `import_job_rows`, so
- * there is one account of what happened to a row rather than two that can
- * disagree.
+ * `column_map`, `counts`, `errors` and `preview` are jsonb because their shape
+ * follows the object being imported and nothing queries into them.
  *
- * `file_name` is what the uploader called the file, for the mapping screen. The
- * file body itself is not kept — the parsed rows are, which is what a commit
- * replays.
+ * `csv` is the file exactly as it arrived, and it is the only copy of it before
+ * a commit. Nothing is exploded into `import_job_rows` until an import actually
+ * runs: a dry run is a forecast, and a forecast that stored ten thousand rows
+ * per corrected mapping was charging a caller for work nobody asked to keep. The
+ * dry run parses this column, plans in memory, and writes back the three things
+ * a caller reads — `counts`, `errors` and `preview`.
+ *
+ * `file_name` is what the uploader called the file, for the mapping screen.
  */
 export const importJobs = pgTable(
   'import_jobs',
@@ -66,6 +73,16 @@ export const importJobs = pgTable(
     columnMap: jsonb('column_map').$type<ImportColumnMap>().notNull().default({}),
     sourceHeaders: jsonb('source_headers').$type<readonly string[]>().notNull().default([]),
     counts: jsonb('counts').$type<ImportCounts>().notNull(),
+    /** The first `IMPORT_REPORTED_ERRORS` failing rows. `counts.error` is the true number. */
+    errors: jsonb('errors').$type<readonly ImportRowError[]>().notNull().default([]),
+    /** The first `IMPORT_PREVIEW_ROWS` rows, mapped as Kelpie read them. */
+    preview: jsonb('preview').$type<readonly ImportPreviewRow[]>().notNull().default([]),
+    /**
+     * The uploaded file, verbatim. Null only on a job created before imports
+     * stopped storing their rows up front; such a job cannot be committed, and
+     * the remedy is the one `import-export.md` already gives — upload it again.
+     */
+    csv: text('csv'),
     fileName: text('file_name'),
     /** Why a background pass gave up. Null unless `status` is `failed`. */
     failureReason: text('failure_reason'),
@@ -82,16 +99,17 @@ export const importJobs = pgTable(
 )
 
 /**
- * One data row of the uploaded file.
+ * What an import did to one line of the file.
  *
- * `values` holds the row as it arrived — **source header → cell** — not the
- * mapped Kelpie columns. Mapping is applied on every read, so the job's
- * `column_map` stays the single account of how the file is being read, and a
- * corrected mapping is a fresh job over the same file rather than two stored
- * shapes that can disagree.
+ * Written by the commit, one row at a time, in the same transaction as the
+ * record that row wrote. Nothing here exists before then: a dry run forecasts
+ * without storing, so a caller who corrects a mapping four times leaves four
+ * jobs and no rows rather than four copies of the file.
  *
- * `action` is a forecast until the job commits, at which point the commit writes
- * back what it actually did.
+ * `action` is therefore always what happened, never a forecast. `values` holds
+ * the line as it arrived — **source header → cell** — so the row says what it
+ * acted on without the reader having to go back to `import_jobs.csv` and count
+ * lines.
  */
 export const importJobRows = pgTable(
   'import_job_rows',
