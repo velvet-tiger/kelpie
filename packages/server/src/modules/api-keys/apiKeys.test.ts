@@ -104,6 +104,32 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
     return readString(await response.json(), 'secret')
   }
 
+  /** Invites an address at `role` and accepts it as a fresh account. */
+  async function addMember(
+    account: { cookie: string; workspaceId: string },
+    email: string,
+    role: 'admin' | 'member',
+  ): Promise<string> {
+    const invited = await send('POST', `/v1/workspaces/${account.workspaceId}/invites`, {
+      body: { email, role, invite_url_template: 'https://app.example.com/join?token={token}' },
+      cookie: account.cookie,
+    })
+    expect(invited.status).toBe(201)
+
+    const body = harness.services.sentEmails.at(-1)?.body ?? ''
+    const token = /token=(?<token>[\w-]+)/u.exec(body)?.groups?.token
+
+    if (token === undefined) {
+      throw new Error(`No invite token in the sent email: ${body}`)
+    }
+
+    const cookie = await signUp(email)
+    const accepted = await send('POST', '/v1/invites/accept', { body: { token }, cookie })
+    expect(accepted.status).toBe(200)
+
+    return cookie
+  }
+
   describe('creating a key', () => {
     it('returns the secret once, with the documented prefix', async () => {
       const { cookie } = await owner()
@@ -312,6 +338,83 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
       )
 
       expect(theirs).toHaveLength(0)
+    })
+  })
+
+  /**
+   * A workspace key is workspace-wide authority, so every verb over one needs
+   * the admin role. A personal key belongs to its holder and needs none.
+   */
+  describe('workspace keys need admin', () => {
+    it('refuses a plain member creating one', async () => {
+      const account = await owner()
+      const member = await addMember(account, 'grace@example.com', 'member')
+
+      const response = await send('POST', '/v1/api-keys', {
+        body: { name: 'CI', kind: 'workspace' },
+        cookie: member,
+      })
+
+      expect(response.status).toBe(403)
+    })
+
+    it('refuses a plain member listing them', async () => {
+      const account = await owner()
+      await mint(account.cookie, 'workspace')
+      const member = await addMember(account, 'grace@example.com', 'member')
+
+      expect((await send('GET', '/v1/api-keys?kind=workspace', { cookie: member })).status).toBe(403)
+    })
+
+    it('refuses a plain member revoking one', async () => {
+      const account = await owner()
+      await mint(account.cookie, 'workspace')
+      const listed = readList(
+        await (await send('GET', '/v1/api-keys?kind=workspace', { cookie: account.cookie })).json(),
+      )
+      const member = await addMember(account, 'grace@example.com', 'member')
+
+      const response = await send('DELETE', `/v1/api-keys/${String(listed[0]?.id)}`, {
+        cookie: member,
+      })
+
+      expect(response.status).toBe(403)
+    })
+
+    it('is open to an admin', async () => {
+      const account = await owner()
+      const admin = await addMember(account, 'grace@example.com', 'admin')
+
+      expect(await mint(admin, 'workspace')).toMatch(/^kp_live_/u)
+      expect((await send('GET', '/v1/api-keys?kind=workspace', { cookie: admin })).status).toBe(200)
+    })
+
+    it('leaves a plain member their own personal keys', async () => {
+      const account = await owner()
+      const member = await addMember(account, 'grace@example.com', 'member')
+
+      expect(await mint(member, 'personal')).toMatch(/^kp_user_/u)
+      expect((await send('GET', '/v1/api-keys?kind=personal', { cookie: member })).status).toBe(200)
+    })
+
+    it('reads the role of the member behind a personal key, not the key itself', async () => {
+      const account = await owner()
+      const member = await addMember(account, 'grace@example.com', 'member')
+      const secret = await mint(member, 'personal')
+
+      expect((await send('GET', '/v1/api-keys?kind=workspace', { bearer: secret })).status).toBe(403)
+    })
+
+    it('lets a workspace key mint another, acting with admin authority', async () => {
+      const { cookie } = await owner()
+      const secret = await mint(cookie, 'workspace')
+
+      const response = await send('POST', '/v1/api-keys', {
+        body: { name: 'Second', kind: 'workspace' },
+        bearer: secret,
+      })
+
+      expect(response.status).toBe(201)
     })
   })
 

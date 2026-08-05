@@ -2,8 +2,7 @@ import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Actor } from '../auth/actor.ts'
-import * as authRepository from '../auth/repository.ts'
-import { parseMemberRole, roleAllows } from '../workspace/roles.ts'
+import { roleAllows } from '../workspace/roles.ts'
 import { mintKey } from './keys.ts'
 import type { KeyKind } from './keys.ts'
 import * as repository from './repository.ts'
@@ -68,23 +67,17 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
     return actor.workspaceId
   }
 
-  async function requireAdmin(actor: Actor, workspaceId: string): Promise<void> {
-    if (actor.kind === 'api_key' && actor.userId === null) {
-      if (!roleAllows(actor.role, 'admin')) {
-        throw new AppError('forbidden', 'This action needs the admin role')
-      }
-
-      return
-    }
-
-    if (actor.userId === null) {
-      throw new AppError('forbidden', 'This action needs the admin role')
-    }
-
-    const membership = await authRepository.findMembership(dependencies.db, workspaceId, actor.userId)
-    const role = membership === undefined ? undefined : parseMemberRole(membership.role)
-
-    if (role === undefined || !roleAllows(role, 'admin')) {
+  /**
+   * Reads the role off the actor rather than re-querying the membership.
+   * `credentials.ts` resolves it from the live `workspace_members` row on every
+   * request, so it is already as fresh as a query here would be. A workspace key
+   * has no member row and carries `admin` by definition.
+   *
+   * `role` is null only for a session with no membership, which `requireWorkspace`
+   * has already refused: a session's workspace comes from that same row.
+   */
+  function requireAdmin(actor: Actor): void {
+    if (actor.role === null || !roleAllows(actor.role, 'admin')) {
       throw new AppError('forbidden', 'This action needs the admin role')
     }
   }
@@ -104,7 +97,7 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
       const userId = kind === 'workspace' ? null : requireUser(actor)
 
       if (kind === 'workspace') {
-        await requireAdmin(actor, workspaceId)
+        requireAdmin(actor)
       }
 
       const minted = mintKey(kind, dependencies.newToken)
@@ -125,7 +118,7 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
       const workspaceId = requireWorkspace(actor)
 
       if (kind === 'workspace') {
-        await requireAdmin(actor, workspaceId)
+        requireAdmin(actor)
 
         return (await repository.listWorkspaceKeys(dependencies.db, workspaceId)).map(toView)
       }
@@ -146,7 +139,7 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
       }
 
       if (record.userId === null) {
-        await requireAdmin(actor, workspaceId)
+        requireAdmin(actor)
       } else if (record.userId !== actor.userId) {
         // An admin can see a colleague's personal key exists but cannot revoke it;
         // removing their membership is how you cut off their access.
