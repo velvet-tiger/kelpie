@@ -36,9 +36,11 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
     },
     server: {
-      // Honour an assigned port, and refuse rather than silently taking the next
-      // one: a launcher that told us 5173 and got 5174 proxies nothing.
-      port: Number(process.env.PORT ?? 5173),
+      // `WEB_PORT` is what `npm run dev` assigns, having found a free one first.
+      // `PORT` is what a hosted launcher assigns. Honour either, and refuse
+      // rather than silently taking the next one: a launcher that told us 5173
+      // and got 5174 proxies nothing.
+      port: Number(process.env.WEB_PORT ?? process.env.PORT ?? 5173),
       strictPort: true,
       proxy: {
         '/v1': { target: apiOrigin, changeOrigin: false },

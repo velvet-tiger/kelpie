@@ -39,7 +39,18 @@ Run these in order from the repository root.
    npm run dev
    ```
 
-   The API listens on the `PORT` from `.env` (3000 by default). The UI runs on http://localhost:5173 and proxies `/v1` and `/healthz` to the API, so the browser only ever talks to one origin.
+   The API listens on the `PORT` from `.env` (3000 by default) and the UI on 5173, and the UI proxies `/v1` and `/healthz` to the API, so the browser only ever talks to one origin.
+
+   `npm run dev` finds a free port for each process before starting either one, so a second checkout or a stale process on 3000 does not stop this one. It prints what it chose:
+
+   ```
+   api  http://localhost:3001 (3000 was in use)
+   web  http://localhost:5173
+   ```
+
+   Only the launcher moves. The API binds the `PORT` it is given and fails when that port is taken, in development and in production alike.
+
+   The steps below use 5173. Use whichever web port it printed.
 
 5. Confirm the whole chain.
 
@@ -204,7 +215,8 @@ MCP tools share the input schema with their REST route, and the runtime parses a
 
 | Command | Does |
 | --- | --- |
-| `npm run dev` | API with file watching plus the Vite dev server |
+| `npm run dev` | Picks a free port for each process, then starts the API with file watching plus the Vite dev server |
+| `npm run dev:processes` | The two processes on their own, on whatever ports the environment already names. `npm run dev` runs this once it has chosen them |
 | `npm run build` | Production build of the web bundle |
 | `npm run lint` | oxlint across the repository. Silent means clean |
 | `npm run typecheck` | `tsc` over every workspace |
@@ -213,13 +225,14 @@ MCP tools share the input schema with their REST route, and the runtime parses a
 
 ## Configuration
 
-Every variable is required. There are no silent defaults; a missing or malformed value stops boot and prints the full list of problems.
+Every variable the service reads is required. There are no silent defaults; a missing or malformed value stops boot and prints the full list of problems. `WEB_PORT` is the one exception, and the service never reads it: it belongs to the dev launcher.
 
 | Variable | Values |
 | --- | --- |
 | `NODE_ENV` | `development`, `test`, or `production` |
-| `PORT` | API listen port |
-| `API_PORT` | The same number again, for the Vite dev server's `/v1` proxy. It needs its own name because a launcher sets `PORT` to the port it wants Vite on, and Vite would then proxy to itself |
+| `PORT` | API listen port. The API binds it or fails; it never picks another. `npm run dev` treats the value in `.env` as a preference and scans up from it for a free one |
+| `API_PORT` | The same number again, for the Vite dev server's `/v1` proxy. It needs its own name because a launcher sets `PORT` to the port it wants Vite on, and Vite would then proxy to itself. `npm run dev` sets it |
+| `WEB_PORT` | Optional, development only. The Vite dev server's own port, preferred rather than fixed: `npm run dev` scans up from it, or from 5173 when it is unset |
 | `DATABASE_URL` | `postgres://` or `postgresql://` connection string |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
 | `EMAIL_PROVIDER` | `log`. Writes invites and password resets to the log instead of sending them. Real providers ship as modules |
