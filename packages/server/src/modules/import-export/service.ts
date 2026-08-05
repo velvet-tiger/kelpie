@@ -11,6 +11,7 @@ import type {
   ImportColumnMap,
   ImportConflictMode,
   ImportCounts,
+  ImportJobStatus,
   ImportObject,
   ImportPreviewRow,
   ImportRowError,
@@ -27,7 +28,8 @@ import type { Queryable, TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
-import { CsvFormatError, csvLine, parseCsv } from './csv.ts'
+import { CsvFormatError, csvLine, fileDigest, parseCsv } from './csv.ts'
+import type { CsvRow, ParsedCsv } from './csv.ts'
 import { headersFor } from './exportRows.ts'
 import { buildMatchKey, mapRow, splitList } from './mapping.ts'
 import { applyWrite } from './writes.ts'
@@ -35,19 +37,25 @@ import { countPlans, planRow, planRows } from './plan.ts'
 import type { ImportLookups, MappedRow, PlanContext, PlannedRow } from './plan.ts'
 import { defaultColumnMap } from './presets.ts'
 import * as repository from './repository.ts'
-import type { ImportJobRecord, ImportJobRowRecord, KeyedRecord } from './repository.ts'
+import type { ImportJobRecord, KeyedRecord } from './repository.ts'
 import { streamExport } from './streams.ts'
 
 /**
  * CSV import jobs and CSV export, per `import-export.md`.
  *
- * The shape of a job is: upload, which parses and stores every row as it
- * arrived; a dry run, which plans each row against the workspace and reports
- * what would happen; then a commit, which replays that plan while re-resolving
- * every match. Re-resolving is the point — the workspace can change between the
- * two calls, and rows earlier in the same file create records later rows must
- * match against. It is also what makes a commit idempotent: run it twice and the
- * second pass finds the records the first one made.
+ * The shape of a job is: upload, which stores the file; a dry run, which plans
+ * each line against the workspace and reports what would happen; then a commit,
+ * which applies the file while re-resolving every match. Re-resolving is the
+ * point — the workspace can change between the two calls, and lines earlier in
+ * the same file create records later lines must match against. It is also what
+ * makes a commit idempotent: run it twice and the second pass finds the records
+ * the first one made.
+ *
+ * Only the commit writes `import_job_rows`. A dry run plans from the stored file
+ * in memory and keeps nothing but its counts, its first errors and its preview,
+ * because a forecast nobody committed is not a thing to store ten thousand rows
+ * for. That is also why a corrected mapping — which is a new job over the same
+ * file — costs one row rather than the file again.
  */
 
 export interface ImportExportDependencies {
@@ -91,7 +99,12 @@ export interface CreateImportJobInput {
 export interface ImportExportService {
   createJob(actor: Actor, input: CreateImportJobInput): Promise<ImportJobView>
   getJob(actor: Actor, id: string): Promise<ImportJobView>
-  commit(actor: Actor, id: string): Promise<ImportJobView>
+  /**
+   * @param csv The same file the dry run read. A job holds only its digest, so
+   *   the caller brings the bytes back and a different file is refused.
+   */
+  commit(actor: Actor, id: string, csv: string): Promise<ImportJobView>
+  deleteJob(actor: Actor, id: string): Promise<void>
   /** CSV lines for a whole object, a page of records at a time. */
   exportCsv(actor: Actor, object: ImportObject): AsyncGenerator<string>
   templateCsv(object: ImportObject): string
@@ -99,23 +112,39 @@ export interface ImportExportService {
 
 const EMPTY_COUNTS: ImportCounts = { total: 0, create: 0, update: 0, skip: 0, error: 0 }
 
+/**
+ * The statuses a job may be deleted in: everything except the two a background
+ * pass is working through.
+ *
+ * `pending` is here because a job stranded in it by a crash is exactly the
+ * unreachable garbage this delete exists to clear. `validating` and
+ * `committing` are not, because the detached pass holds the rows and would carry
+ * on writing records against a job that is no longer there.
+ */
+const DELETABLE_STATUSES: readonly ImportJobStatus[] = [
+  'pending',
+  'ready',
+  'completed',
+  'failed',
+]
+
 /** Rows committed between two writes of the job's running counts, so polling shows progress. */
 const COMMIT_PROGRESS_INTERVAL = 100
 
-function toView(
-  job: ImportJobRecord,
-  errors: readonly ImportRowError[],
-  preview: readonly ImportPreviewRow[],
-): ImportJobView {
-  const { workspaceId: _workspaceId, failureReason: _failureReason, ...rest } = job
+/** The stored job minus tenancy, the failure reason, and the file digest. */
+function toView(job: ImportJobRecord): ImportJobView {
+  const {
+    workspaceId: _workspaceId,
+    failureReason: _failureReason,
+    fileSha256: _fileSha256,
+    ...rest
+  } = job
 
   return {
     ...rest,
     source: rest.source as ImportSource,
     object: rest.object as ImportObject,
     conflictMode: rest.conflictMode as ImportConflictMode,
-    errors,
-    preview,
   }
 }
 
@@ -333,40 +362,99 @@ export function createImportExportService(
     }
   }
 
-  function mapStored(job: ImportJobRecord, rows: readonly ImportJobRowRecord[]): MappedRow[] {
-    return rows.map((row) => ({ row: row.rowNumber, mapped: mapRow(row.values, job.columnMap) }))
-  }
-
-  /** Every stored row of a job, in file order. */
-  async function readAllRows(job: ImportJobRecord): Promise<ImportJobRowRecord[]> {
-    const all: ImportJobRowRecord[] = []
-    let after = 0
-
-    for (;;) {
-      const page = await repository.listRows(dependencies.db, job.id, after, repository.EXPORT_PAGE)
-
-      all.push(...page)
-
-      const last = page.at(-1)
-
-      if (last === undefined || page.length < repository.EXPORT_PAGE) {
-        return all
-      }
-
-      after = last.rowNumber
+  /** A parsed file, mapped to Kelpie columns through the job's own column map. */
+  function readFile(
+    job: ImportJobRecord,
+    parsed: ParsedCsv,
+  ): { rows: MappedRow[]; values: Map<number, CsvRow> } {
+    return {
+      rows: parsed.rows.map((row) => ({ row: row.number, mapped: mapRow(row.values, job.columnMap) })),
+      values: new Map(parsed.rows.map((row) => [row.number, row])),
     }
   }
 
   /**
-   * Plans every row of a stored job and records the forecast.
+   * Checks a file handed back at commit against the one the dry run forecast.
    *
-   * Runs inside the request for a small file and detached for a large one, which
-   * is the only difference between the two paths.
+   * The counts a caller approved describe one particular file. Without this the
+   * commit would apply whatever arrived and report it under a forecast taken
+   * from something else.
+   *
+   * @throws AppError 409 when it is a different file, or when the job predates
+   *   the digest and there is nothing to compare against.
    */
-  async function runDryRun(workspaceId: string, jobId: string): Promise<void> {
+  function requireForecastFile(job: ImportJobRecord, csv: string): void {
+    if (job.fileSha256 === null) {
+      throw AppError.conflict('This job was created before its file was fingerprinted', [
+        { field: 'file', message: 'Upload the file again as a new job' },
+      ])
+    }
+
+    if (fileDigest(csv) !== job.fileSha256) {
+      throw AppError.conflict('That is not the file this job dry-ran', [
+        {
+          field: 'file',
+          message: 'Commit the file the dry run read, or upload this one as a new job',
+        },
+      ])
+    }
+  }
+
+  function toOutcome(planned: PlannedRow): repository.RowOutcome {
+    return {
+      rowNumber: planned.row,
+      action: planned.plan.action,
+      errors: planned.plan.action === 'error' ? planned.plan.errors : [],
+    }
+  }
+
+  /**
+   * The first errors and the first preview rows, as a caller reads them off a
+   * job.
+   *
+   * Takes outcomes rather than plans, because the dry run and the commit produce
+   * the same three facts about a line and the job reports whichever ran last.
+   */
+  function reportOf(
+    outcomes: readonly repository.RowOutcome[],
+    mapped: readonly MappedRow[],
+  ): { errors: readonly ImportRowError[]; preview: readonly ImportPreviewRow[] } {
+    const byRow = new Map(mapped.map((row) => [row.row, row.mapped]))
+
+    return {
+      errors: outcomes
+        .filter((outcome) => outcome.action === 'error')
+        .slice(0, IMPORT_REPORTED_ERRORS)
+        .flatMap((outcome) =>
+          outcome.errors.map((problem) => ({
+            row: outcome.rowNumber,
+            field: problem.field,
+            message: problem.message,
+          })),
+        ),
+      preview: outcomes.slice(0, IMPORT_PREVIEW_ROWS).map((outcome) => ({
+        row: outcome.rowNumber,
+        action: outcome.action,
+        values: byRow.get(outcome.rowNumber) ?? {},
+      })),
+    }
+  }
+
+  /**
+   * Plans every line of a job's file and records the forecast on the job.
+   *
+   * Writes no `import_job_rows`: a dry run is a forecast, and the three things a
+   * caller reads off it are the counts, the first errors and the preview. Runs
+   * inside the request for a small file and detached for a large one, which is
+   * the only difference between the two paths.
+   *
+   * Takes the parse rather than reading it back, because the job does not hold
+   * the file. The detached path closes over it for as long as it runs, which is
+   * the same lifetime the request would have had.
+   */
+  async function runDryRun(workspaceId: string, jobId: string, parsed: ParsedCsv): Promise<void> {
     const job = await requireJob(workspaceId, jobId)
-    const stored = await readAllRows(job)
-    const rows = mapStored(job, stored)
+    const { rows } = readFile(job, parsed)
     const lookups = await buildLookups(
       dependencies.db,
       workspaceId,
@@ -376,25 +464,12 @@ export function createImportExportService(
     )
     const planned = planRows(contextFor(job, lookups), rows)
 
-    await repository.applyRowOutcomes(
-      dependencies.db,
-      jobId,
-      planned.map(toOutcome),
-      dependencies.now(),
-    )
     await repository.updateJob(dependencies.db, workspaceId, jobId, {
       status: 'ready',
       counts: countPlans(planned),
+      ...reportOf(planned.map(toOutcome), rows),
       updatedAt: dependencies.now(),
     })
-  }
-
-  function toOutcome(planned: PlannedRow): repository.RowOutcome {
-    return {
-      rowNumber: planned.row,
-      action: planned.plan.action,
-      errors: planned.plan.action === 'error' ? planned.plan.errors : [],
-    }
   }
 
   /**
@@ -435,17 +510,17 @@ export function createImportExportService(
     void work().catch((error: unknown) => failJob(workspaceId, jobId, error))
   }
 
-  /** Applies one row, in its own transaction, and returns what it did. */
+  /** Applies one line, in its own transaction, and returns what it did. */
   async function commitRow(
     workspaceId: string,
     actor: Actor,
     job: ImportJobRecord,
-    stored: ImportJobRowRecord,
+    line: CsvRow,
   ): Promise<repository.RowOutcome> {
     const object = job.object as ImportObject
     const matchKey = requireMatchKey(object, job.matchKey)
-    const mapped = mapRow(stored.values, job.columnMap)
-    const row: MappedRow = { row: stored.rowNumber, mapped }
+    const mapped = mapRow(line.values, job.columnMap)
+    const row: MappedRow = { row: line.number, mapped }
 
     return dependencies.transaction(async ({ tx, events }) => {
       // Resolved inside the transaction, against the rows this commit has
@@ -454,11 +529,8 @@ export function createImportExportService(
       const lookups = await buildLookups(tx, workspaceId, object, matchKey, [row])
       const plan = planRow(contextFor(job, lookups), mapped)
 
-      // Recorded before the write so every path leaves the same trail: a row
-      // whose reference vanished since the dry run has to say so on the row, not
-      // only in the counts.
       const outcome: repository.RowOutcome = {
-        rowNumber: stored.rowNumber,
+        rowNumber: line.number,
         action: plan.action,
         errors: plan.action === 'error' ? plan.errors : [],
       }
@@ -495,7 +567,16 @@ export function createImportExportService(
         }
       }
 
-      await repository.applyRowOutcomes(tx, job.id, [outcome], dependencies.now())
+      // In the same transaction as the record it wrote, so the account of the
+      // line and the record it made either both land or neither does.
+      await repository.recordRowOutcome(
+        tx,
+        workspaceId,
+        job.id,
+        line.values,
+        outcome,
+        dependencies.now(),
+      )
 
       return outcome
     })
@@ -510,29 +591,51 @@ export function createImportExportService(
    * hundred. Containment is worth the commits here: this already runs in the
    * background for anything large.
    */
-  async function runCommit(workspaceId: string, actor: Actor, jobId: string): Promise<void> {
+  async function runCommit(
+    workspaceId: string,
+    actor: Actor,
+    jobId: string,
+    parsed: ParsedCsv,
+  ): Promise<void> {
     const job = await requireJob(workspaceId, jobId)
-    const stored = await readAllRows(job)
-    const counts = { ...EMPTY_COUNTS, total: stored.length }
+    const { rows, values } = readFile(job, parsed)
+    const counts = { ...EMPTY_COUNTS, total: rows.length }
+    const outcomes: repository.RowOutcome[] = []
     let sinceProgress = 0
 
-    for (const row of stored) {
-      // A row that throws is a row error, not the end of the import. The other
+    for (const row of rows) {
+      const line = values.get(row.row)
+
+      if (line === undefined) {
+        throw new Error(`unreachable: line ${String(row.row)} is missing from its own parse`)
+      }
+
+      // A line that throws is a row error, not the end of the import. The other
       // nine thousand have nothing to do with it.
-      const outcome = await commitRow(workspaceId, actor, job, row).catch(
+      const outcome = await commitRow(workspaceId, actor, job, line).catch(
         async (error: unknown): Promise<repository.RowOutcome> => {
           const failure = {
-            rowNumber: row.rowNumber,
+            rowNumber: row.row,
             action: 'error' as const,
             errors: [{ field: '', message: describeThrown(error) }],
           }
 
-          await repository.applyRowOutcomes(dependencies.db, jobId, [failure], dependencies.now())
+          // Its own statement: the transaction that would have carried this one
+          // is the one that just rolled back.
+          await repository.recordRowOutcome(
+            dependencies.db,
+            workspaceId,
+            jobId,
+            line.values,
+            failure,
+            dependencies.now(),
+          )
 
           return failure
         },
       )
 
+      outcomes.push({ ...outcome })
       counts[outcome.action] += 1
       sinceProgress += 1
 
@@ -548,6 +651,9 @@ export function createImportExportService(
     await repository.updateJob(dependencies.db, workspaceId, jobId, {
       status: 'completed',
       counts,
+      // Replaced with what actually happened. A dry run's forecast and a
+      // commit's outcome can differ, and the job reports the later one.
+      ...reportOf(outcomes, rows),
       updatedAt: dependencies.now(),
     })
 
@@ -558,23 +664,15 @@ export function createImportExportService(
     })
   }
 
-  /** The job body: the stored row, its first failing rows, and its first mapped rows. */
-  async function viewOf(job: ImportJobRecord): Promise<ImportJobView> {
-    const [failed, first] = await Promise.all([
-      repository.listFailedRows(dependencies.db, job.id, IMPORT_REPORTED_ERRORS),
-      repository.listRows(dependencies.db, job.id, 0, IMPORT_PREVIEW_ROWS),
-    ])
-
-    const errors = failed.flatMap((row) =>
-      row.errors.map((error) => ({ row: row.rowNumber, field: error.field, message: error.message })),
-    )
-    const preview = first.map((row) => ({
-      row: row.rowNumber,
-      action: row.action as ImportPreviewRow['action'],
-      values: mapRow(row.values, job.columnMap),
-    }))
-
-    return toView(job, errors, preview)
+  /**
+   * The job body.
+   *
+   * Everything a caller reads is on the job itself, so this is one row and no
+   * query over `import_job_rows`. A job with no pass behind it yet reports empty
+   * errors and an empty preview, which is what its columns default to.
+   */
+  function viewOf(job: ImportJobRecord): ImportJobView {
+    return toView(job)
   }
 
   return {
@@ -610,43 +708,31 @@ export function createImportExportService(
       const id = dependencies.createId('importJob')
       const now = dependencies.now()
 
-      const job = await dependencies.transaction(async ({ tx }) => {
-        const created = await repository.insertJob(tx, {
-          id,
-          workspaceId,
-          source: input.source,
-          object: input.object,
-          status: 'pending',
-          conflictMode: input.conflictMode,
-          matchKey: matchKey.id,
-          columnMap,
-          sourceHeaders: parsed.headers,
-          counts: { ...EMPTY_COUNTS, total: parsed.rows.length },
-          fileName: input.fileName,
-          failureReason: null,
-          createdAt: now,
-          updatedAt: now,
-        })
-
-        await repository.insertRows(
-          tx,
-          parsed.rows.map((row) => ({
-            workspaceId,
-            jobId: id,
-            rowNumber: row.number,
-            values: row.values,
-            action: 'pending',
-            errors: [],
-            createdAt: now,
-            updatedAt: now,
-          })),
-        )
-
-        return created
+      // One row, and no part of the file in it. A caller correcting a mapping
+      // over a ten thousand line file leaves one row per attempt rather than ten
+      // thousand rows or ten megabytes.
+      const job = await repository.insertJob(dependencies.db, {
+        id,
+        workspaceId,
+        source: input.source,
+        object: input.object,
+        status: 'pending',
+        conflictMode: input.conflictMode,
+        matchKey: matchKey.id,
+        columnMap,
+        sourceHeaders: parsed.headers,
+        counts: { ...EMPTY_COUNTS, total: parsed.rows.length },
+        errors: [],
+        preview: [],
+        fileSha256: fileDigest(input.csv),
+        fileName: input.fileName,
+        failureReason: null,
+        createdAt: now,
+        updatedAt: now,
       })
 
       if (parsed.rows.length <= SYNC_IMPORT_ROWS) {
-        await runDryRun(workspaceId, id)
+        await runDryRun(workspaceId, id, parsed)
 
         return viewOf(await requireJob(workspaceId, id))
       }
@@ -656,7 +742,7 @@ export function createImportExportService(
         updatedAt: dependencies.now(),
       })
 
-      detach(workspaceId, id, () => runDryRun(workspaceId, id))
+      detach(workspaceId, id, () => runDryRun(workspaceId, id, parsed))
 
       return viewOf(validating ?? job)
     },
@@ -666,20 +752,27 @@ export function createImportExportService(
     },
 
     /**
-     * Commits a job that a dry run left `ready`.
+     * Commits a job that a dry run left `ready`, applying the file handed back.
      *
      * Re-committing a `completed` job answers with it and writes nothing, per
-     * `import-export.md`. Anything else is a conflict: a job still validating has
-     * no plan to apply, one already committing is being applied by somebody
-     * else, and a failed one has nothing to apply.
+     * `import-export.md`, and does not need the file to do so. Anything else is
+     * a conflict: a job still validating has no plan to apply, one already
+     * committing is being applied by somebody else, and a failed one has nothing
+     * to apply.
      */
-    async commit(actor, id) {
+    async commit(actor, id, csv) {
       const workspaceId = requireWorkspaceId(actor)
       const job = await requireJob(workspaceId, id)
 
+      // Checked before the file, so a caller re-POSTing a finished job gets the
+      // documented no-op whether or not they still have it.
       if (job.status === 'completed') {
         return viewOf(job)
       }
+
+      requireForecastFile(job, csv)
+
+      const parsed = parseCsv(csv)
 
       // Compare-and-set rather than a check followed by a write: two commits
       // arriving together both read `ready`, and only the one whose update
@@ -696,14 +789,46 @@ export function createImportExportService(
       }
 
       if (claimed.counts.total <= SYNC_IMPORT_ROWS) {
-        await runCommit(workspaceId, actor, id)
+        await runCommit(workspaceId, actor, id, parsed)
 
         return viewOf(await requireJob(workspaceId, id))
       }
 
-      detach(workspaceId, id, () => runCommit(workspaceId, actor, id))
+      detach(workspaceId, id, () => runCommit(workspaceId, actor, id, parsed))
 
       return viewOf(claimed)
+    },
+
+    /**
+     * Deletes a job and its stored rows.
+     *
+     * The delete carries the status predicate rather than checking first, so a
+     * commit arriving in between claims the job and this finds nothing to
+     * remove. Only then is the job read again, to answer with the reason: gone
+     * is a `404` and in-flight is a `409`, and one query on the happy path tells
+     * neither of those stories wrongly.
+     */
+    async deleteJob(actor, id) {
+      const workspaceId = requireWorkspaceId(actor)
+      const removed = await repository.deleteJob(
+        dependencies.db,
+        workspaceId,
+        id,
+        DELETABLE_STATUSES,
+      )
+
+      if (removed > 0) {
+        return
+      }
+
+      const job = await requireJob(workspaceId, id)
+
+      throw AppError.conflict(`An import job in status "${job.status}" cannot be deleted`, [
+        {
+          field: 'status',
+          message: 'Wait for the pass working through it to finish, then delete it',
+        },
+      ])
     },
 
     exportCsv(actor, object) {

@@ -36,9 +36,6 @@ export type ImportJobRowColumns = typeof importJobRows.$inferInsert
  */
 const LOOKUP_CHUNK = 1_000
 
-/** Rows written per insert. Same reasoning as `LOOKUP_CHUNK`, on the way in. */
-const INSERT_CHUNK = 500
-
 /** How many records an export reads per round trip. */
 export const EXPORT_PAGE = 500
 
@@ -141,45 +138,39 @@ export async function moveJobStatus(
   return moved
 }
 
-export async function insertRows(
+/**
+ * Removes a job that is in one of `deletableStatuses`, taking its rows with it
+ * through the `import_job_rows` cascade.
+ *
+ * The status lives in the predicate for the same reason it does in
+ * `moveJobStatus`: reading the status and then deleting would leave the window
+ * between the two open, and what fits in that window is a commit claiming the
+ * job and starting to write records against it.
+ *
+ * @returns How many jobs matched, which is 0 or 1. Zero means the job is gone or
+ *   is in a status this delete may not touch, and the caller tells those apart.
+ */
+export async function deleteJob(
   db: Queryable,
-  values: readonly ImportJobRowColumns[],
-): Promise<void> {
-  for (const chunk of chunked(values, INSERT_CHUNK)) {
-    await db.insert(importJobRows).values([...chunk])
-  }
+  workspaceId: string,
+  id: string,
+  deletableStatuses: readonly string[],
+): Promise<number> {
+  const deleted = await db
+    .delete(importJobs)
+    .where(
+      and(
+        eq(importJobs.workspaceId, workspaceId),
+        eq(importJobs.id, id),
+        inArray(importJobs.status, [...deletableStatuses]),
+      ),
+    )
+    .returning({ id: importJobs.id })
+
+  return deleted.length
 }
 
-/** A job's rows in file order, from `after` exclusive. `after` of 0 starts at the top. */
-export function listRows(
-  db: Queryable,
-  jobId: string,
-  after: number,
-  limit: number,
-): Promise<ImportJobRowRecord[]> {
-  return db
-    .select()
-    .from(importJobRows)
-    .where(and(eq(importJobRows.jobId, jobId), gt(importJobRows.rowNumber, after)))
-    .orderBy(asc(importJobRows.rowNumber))
-    .limit(limit)
-}
-
-/** The first `limit` rows that failed, in file order, for the job's error list. */
-export function listFailedRows(
-  db: Queryable,
-  jobId: string,
-  limit: number,
-): Promise<ImportJobRowRecord[]> {
-  return db
-    .select()
-    .from(importJobRows)
-    .where(and(eq(importJobRows.jobId, jobId), eq(importJobRows.action, 'error')))
-    .orderBy(asc(importJobRows.rowNumber))
-    .limit(limit)
-}
-
-/** What a dry run or a commit decided about one row. Never `pending`: it has been planned. */
+/** What a commit did to one line. Never `pending`: it has been applied. */
 export interface RowOutcome {
   readonly rowNumber: number
   readonly action: SettledRowAction
@@ -187,26 +178,37 @@ export interface RowOutcome {
 }
 
 /**
- * Writes back what each row turned out to be.
+ * Records what the commit did to one line, as it does it.
  *
- * One statement per row. A `case` expression over the whole set would be one
- * round trip, and the readable version is fast enough for a background pass that
- * has already spent a query per row resolving it.
+ * `onConflictDoUpdate` on the job and line, so re-running an interrupted commit
+ * overwrites the outcome of a line it already reached rather than failing on the
+ * primary key. That is the same idempotency the writes themselves have, and
+ * without it a commit could not be re-run at all.
  */
-export async function applyRowOutcomes(
+export async function recordRowOutcome(
   db: Queryable,
+  workspaceId: string,
   jobId: string,
-  outcomes: readonly RowOutcome[],
+  values: Readonly<Record<string, string>>,
+  outcome: RowOutcome,
   now: Date,
 ): Promise<void> {
-  for (const outcome of outcomes) {
-    await db
-      .update(importJobRows)
-      .set({ action: outcome.action, errors: outcome.errors, updatedAt: now })
-      .where(
-        and(eq(importJobRows.jobId, jobId), eq(importJobRows.rowNumber, outcome.rowNumber)),
-      )
-  }
+  await db
+    .insert(importJobRows)
+    .values({
+      workspaceId,
+      jobId,
+      rowNumber: outcome.rowNumber,
+      values,
+      action: outcome.action,
+      errors: outcome.errors,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [importJobRows.jobId, importJobRows.rowNumber],
+      set: { action: outcome.action, errors: outcome.errors, updatedAt: now },
+    })
 }
 
 /** A stored record reduced to what a match key is built from. */

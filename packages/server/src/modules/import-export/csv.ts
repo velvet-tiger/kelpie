@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 /**
  * RFC 4180 CSV, read and written.
  *
@@ -10,6 +12,21 @@
  *
  * Pure: no I/O, no clock. The whole of it is unit-tested.
  */
+
+/**
+ * The digest a job keeps instead of the file.
+ *
+ * A dry run records this, and the commit that carries the file back is checked
+ * against it. Storing 64 characters rather than up to ten megabytes is the
+ * point: a forecast nobody committed should not cost a workspace the file.
+ *
+ * Not a security control. It answers "is this the file I forecast", not "who
+ * sent it", so a plain digest is right and `lib/tokens.ts` — which is about
+ * bearer secrets — is not the place for it.
+ */
+export function fileDigest(csv: string): string {
+  return createHash('sha256').update(csv, 'utf8').digest('hex')
+}
 
 export interface CsvRow {
   /** The line in the file, counting the header as line 1. */

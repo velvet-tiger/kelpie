@@ -79,22 +79,37 @@ export function useCreateImportJob(): MutationResult<CreateImportJobInput, Impor
   )
 }
 
+export interface CommitImportJobInput {
+  readonly id: string
+  /**
+   * The same file the dry run read. A job keeps only its digest, so the bytes
+   * come back here and the server refuses anything that hashes differently.
+   * The wizard has held this `File` since the upload for exactly this reason.
+   */
+  readonly file: File
+}
+
 /**
- * Commits a job.
+ * Commits a job, sending back the file it forecast.
  *
  * The response replaces the cached job, which is what restarts polling: the
  * watcher stops while a job sits in `ready`, and a commit moves it to
  * `committing` or `completed`. It also invalidates every CRM list, because the
  * records this just wrote are in all of them.
  */
-export function useCommitImportJob(): MutationResult<string, ImportJob> {
+export function useCommitImportJob(): MutationResult<CommitImportJobInput, ImportJob> {
   const client = useApiClient()
   const cache = useQueryClient()
 
   return asMutationResult(
     useMutation({
-      mutationFn: (id: string) =>
-        client.post(`/import/jobs/${id}/commit`, undefined, importJobSchema.parse),
+      mutationFn: ({ id, file }: CommitImportJobInput) => {
+        const form = new FormData()
+
+        form.set('file', file)
+
+        return client.postForm(`/import/jobs/${id}/commit`, form, importJobSchema.parse)
+      },
       onSuccess: async (job) => {
         cache.setQueryData(jobKey(job.id), job)
 
@@ -103,6 +118,32 @@ export function useCommitImportJob(): MutationResult<string, ImportJob> {
             cache.invalidateQueries({ queryKey: [name] }),
           ),
         )
+      },
+    }),
+  )
+}
+
+/**
+ * Deletes a job and the rows stored against it.
+ *
+ * What a wizard calls on the job it is walking away from. Correcting a mapping
+ * uploads the same file again as a new job, so without this a caller who
+ * corrects a ten thousand row map three times leaves three files stored.
+ *
+ * No CRM list is invalidated: a job that never committed wrote nothing, and one
+ * that did keeps the records it wrote.
+ */
+export function useDeleteImportJob(): MutationResult<string, void> {
+  const client = useApiClient()
+  const cache = useQueryClient()
+
+  return asMutationResult(
+    useMutation({
+      mutationFn: (id: string) => client.delete(`/import/jobs/${id}`),
+      onSuccess: (_result, id) => {
+        // Dropped rather than invalidated. Refetching a deleted job is a 404,
+        // and the watcher would report it as one.
+        cache.removeQueries({ queryKey: jobKey(id) })
       },
     }),
   )
