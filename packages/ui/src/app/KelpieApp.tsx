@@ -38,6 +38,7 @@ import { JoinPage } from '../pages/auth/JoinPage.tsx'
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage.tsx'
 import { SignInPage } from '../pages/auth/SignInPage.tsx'
 import { SignUpPage } from '../pages/auth/SignUpPage.tsx'
+import { DashboardPage } from '../pages/dashboard/DashboardPage.tsx'
 import { HandbookLayout } from '../pages/handbook/HandbookPage.tsx'
 import { HandbookStepPage } from '../pages/onboarding/HandbookStepPage.tsx'
 import { InvitesStepPage } from '../pages/onboarding/InvitesStepPage.tsx'
@@ -101,7 +102,9 @@ function AppRoutes(): React.JSX.Element {
         <Route path="/onboarding/handbook" element={<HandbookStepPage />} />
 
         <Route element={<Shell />}>
-          <Route index element={<Navigate to="/people" replace />} />
+          {/* The mockup's default route, and where the shell's wordmark goes. */}
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
           <Route path="people" element={<PeoplePage />} />
           <Route path="people/:id" element={<PersonDetail />} />
           <Route path="hiring" element={<HiringPage />} />
@@ -145,7 +148,7 @@ function AppRoutes(): React.JSX.Element {
         </Route>
       </Route>
 
-      <Route path="*" element={<Navigate to="/people" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
 }

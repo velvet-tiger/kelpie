@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 
 import type { Queryable } from '../runtime/transaction.ts'
@@ -30,19 +30,40 @@ interface TargetTable {
   readonly table: PgTable
   readonly id: PgColumn
   readonly workspaceId: PgColumn
+  /**
+   * The column holding the record's display name, absent when the record has no
+   * name of its own. A Candidate is the only such type: it is a Person-to-Role
+   * link, so what a reader calls it lives on two other rows.
+   */
+  readonly name?: PgColumn
 }
 
-function targetTable(table: PgTable, id: PgColumn, workspaceId: PgColumn): TargetTable {
-  return { table, id, workspaceId }
+function targetTable(
+  table: PgTable,
+  id: PgColumn,
+  workspaceId: PgColumn,
+  name?: PgColumn,
+): TargetTable {
+  return { table, id, workspaceId, ...(name === undefined ? {} : { name }) }
 }
 
 const TABLES: Readonly<Record<RecordTargetType, TargetTable>> = {
-  person: targetTable(people, people.id, people.workspaceId),
-  company: targetTable(companies, companies.id, companies.workspaceId),
-  deal: targetTable(deals, deals.id, deals.workspaceId),
-  opportunity: targetTable(opportunities, opportunities.id, opportunities.workspaceId),
-  partnership: targetTable(partnerships, partnerships.id, partnerships.workspaceId),
-  raise: targetTable(raises, raises.id, raises.workspaceId),
+  person: targetTable(people, people.id, people.workspaceId, people.name),
+  company: targetTable(companies, companies.id, companies.workspaceId, companies.name),
+  deal: targetTable(deals, deals.id, deals.workspaceId, deals.name),
+  opportunity: targetTable(
+    opportunities,
+    opportunities.id,
+    opportunities.workspaceId,
+    opportunities.name,
+  ),
+  partnership: targetTable(
+    partnerships,
+    partnerships.id,
+    partnerships.workspaceId,
+    partnerships.name,
+  ),
+  raise: targetTable(raises, raises.id, raises.workspaceId, raises.name),
   candidate: targetTable(candidates, candidates.id, candidates.workspaceId),
 }
 
@@ -94,4 +115,80 @@ export async function targetExists(
   targetId: string,
 ): Promise<boolean> {
   return (await missingTargets(db, workspaceId, targetType, [targetId])).length === 0
+}
+
+/** A polymorphic reference, as notes, activities, decisions and plan items carry one. */
+export interface RecordTarget {
+  readonly targetType: RecordTargetType
+  readonly targetId: string
+}
+
+/** The key `resolveTargetNames` returns names under. Type and id together, because ids are unique only within a type. */
+export function targetKey(target: RecordTarget): string {
+  return `${target.targetType}:${target.targetId}`
+}
+
+async function namesOfType(
+  db: Queryable,
+  workspaceId: string,
+  targetType: RecordTargetType,
+  targetIds: readonly string[],
+): Promise<readonly { readonly id: string; readonly name: string }[]> {
+  const target = TABLES[targetType]
+
+  // A Candidate's label is the person's name. The role it is for is the other
+  // half of the answer, but a timeline row already says which record it is on,
+  // so repeating the title in the name would read as "Ada Lovelace" twice over.
+  if (target.name === undefined) {
+    return db
+      .select({ id: candidates.id, name: people.name })
+      .from(candidates)
+      .innerJoin(people, eq(candidates.personId, people.id))
+      .where(and(eq(candidates.workspaceId, workspaceId), inArray(candidates.id, [...targetIds])))
+  }
+
+  // `sql<string>` rather than the columns alone: `TargetTable` holds them as the
+  // generic `PgColumn`, whose data type is `unknown`, so a plain select of one
+  // widens the result. Both are `text` columns in every table above.
+  return db
+    .select({ id: sql<string>`${target.id}`, name: sql<string>`${target.name}` })
+    .from(target.table)
+    .where(and(eq(target.workspaceId, workspaceId), inArray(target.id, [...targetIds])))
+}
+
+/**
+ * What to call each of a mixed set of records.
+ *
+ * One query per distinct type however many ids are asked about, which is what
+ * lets a cross-record list name its rows without a request per row. A page
+ * showing one record's own notes has no use for this; a workspace-wide feed,
+ * where every row points somewhere different, cannot render without it.
+ *
+ * @returns Names keyed by `targetKey`. A target that resolved to nothing is
+ *   absent rather than present as a placeholder, so a caller decides for itself
+ *   whether to render the type alone or drop the row.
+ */
+export async function resolveTargetNames(
+  db: Queryable,
+  workspaceId: string,
+  targets: readonly RecordTarget[],
+): Promise<ReadonlyMap<string, string>> {
+  const idsByType = new Map<RecordTargetType, Set<string>>()
+
+  for (const target of targets) {
+    const ids = idsByType.get(target.targetType) ?? new Set<string>()
+
+    ids.add(target.targetId)
+    idsByType.set(target.targetType, ids)
+  }
+
+  const names = new Map<string, string>()
+
+  for (const [targetType, ids] of idsByType) {
+    for (const row of await namesOfType(db, workspaceId, targetType, [...ids])) {
+      names.set(targetKey({ targetType, targetId: row.id }), row.name)
+    }
+  }
+
+  return names
 }

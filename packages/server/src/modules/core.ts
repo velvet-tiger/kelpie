@@ -6,6 +6,7 @@ import * as agentTasks from './agent-tasks/schema.ts'
 import { createApiKeysModule } from './api-keys/index.ts'
 import { createAuthModule } from './auth/index.ts'
 import { createCompaniesModule } from './companies/index.ts'
+import { createDashboardModule } from './dashboard/index.ts'
 import { createDealsModule } from './deals/index.ts'
 import { createDecisionsModule } from './decisions/index.ts'
 import { createFormsModule } from './forms/index.ts'
@@ -72,6 +73,8 @@ export const coreModules: readonly KelpieModule[] = [
   createPlansModule(coreMigrationsDirectory),
   createDecisionsModule(coreMigrationsDirectory),
   createHandbookModule(coreMigrationsDirectory),
+  // No migrations directory: it owns no tables and reads ten other modules'.
+  createDashboardModule(),
   createFormsModule(coreMigrationsDirectory),
   createImportExportModule(coreMigrationsDirectory),
   createWebhooksModule(coreMigrationsDirectory),

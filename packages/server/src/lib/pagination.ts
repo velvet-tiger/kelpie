@@ -144,7 +144,16 @@ function decodeCursor(raw: string): z.infer<typeof cursorSchema> {
   return parsed.data
 }
 
-function readLimit(raw: string | undefined): number {
+/**
+ * Reads `?limit=` against the `api.md` range.
+ *
+ * Exported for the endpoints that take the same parameter without being paged
+ * lists. The dashboard is the case: it caps several embedded lists at once and
+ * issues no cursor, but the ceiling a caller may ask for is the same one.
+ *
+ * @throws AppError 422 for anything but a whole number in range.
+ */
+export function readPageSize(raw: string | undefined): number {
   if (raw === undefined) {
     return DEFAULT_PAGE_SIZE
   }
@@ -205,7 +214,7 @@ export function readListWindow<TRecord>(
     return { value: field.parse(decoded.value), id: decoded.id }
   })()
 
-  const limit = readLimit(query.limit)
+  const limit = readPageSize(query.limit)
 
   return { limit, fetchLimit: limit + 1, sort, field, descending, position }
 }

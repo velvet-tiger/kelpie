@@ -27,6 +27,7 @@ const CORE_ADMIN_NAV: readonly NavItem[] = [
 ]
 
 const CORE_NAV: readonly NavItem[] = [
+  { id: 'dashboard', label: 'Dashboard', to: '/dashboard', order: 50 },
   { id: 'people', label: 'People', to: '/people', order: 100 },
   { id: 'hiring', label: 'Hiring', to: '/hiring', order: 150 },
   { id: 'companies', label: 'Companies', to: '/companies', order: 200 },
@@ -106,7 +107,7 @@ export function Shell(): React.JSX.Element {
     <div className="flex min-h-screen bg-surface">
       <aside className="flex w-[200px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
         <div className="px-3 py-4">
-          <NavLink to="/people" className="group block px-2">
+          <NavLink to="/dashboard" className="group block px-2">
             <div className="text-[15px] font-semibold tracking-tight text-sidebar-ink transition-opacity group-hover:opacity-80">
               Kelpie
             </div>
