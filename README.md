@@ -282,7 +282,7 @@ port no matter what its own flags say.
 
 ## Configuration
 
-Every variable the service reads is required. There are no silent defaults; a missing or malformed value stops boot and prints the full list of problems. `WEB_PORT` is the one exception, and the service never reads it: it belongs to the dev launcher.
+Every variable the service reads is required unless its row below says optional, and an optional variable's default is stated in the table rather than silent. A missing required value or a malformed value of any kind stops boot and prints the full list of problems. `WEB_PORT` the service never reads: it belongs to the dev launcher.
 
 | Variable | Values |
 | --- | --- |
@@ -296,6 +296,7 @@ Every variable the service reads is required. There are no silent defaults; a mi
 | `EMAIL_FROM` | The address transactional mail comes from |
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Seals secrets the service has to read back, which today means webhook signing secrets |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional, and only while rotating the key above. See below |
+| `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional; unset means 30. How many days of webhook delivery log to keep. A whole number, at least 1; a webhook's expired rows are deleted when its next delivery is recorded |
 
 `TEST_DATABASE_URL` is separate: it is read only by the test harness, and only the integration suites use it. Without it they skip.
 
@@ -404,7 +405,7 @@ The emailed invitation lands on `/join?token=…`, which accepts as the signed-i
 - **Leaving a workspace, and the last owner.** An admin can remove themselves; the owner cannot, and has to hand ownership over first. An owner who is the only member has no way out except deleting the workspace.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
-- **Webhook polish**, which `brief.md` defers. Four events are deliverable and the rest of the catalogue is not offered, rather than accepted and never sent. Retries live in the process, so a crash mid-backoff loses that delivery. The delivery log keeps 30 days (`WEBHOOK_DELIVERY_RETENTION_DAYS`), pruned in the transaction that records the webhook's next delivery because there is no scheduler in core — so a hook that stops delivering keeps its last window of rows until the hook or workspace is deleted. The log is on the Webhooks page, but `payload` is a `jsonb` column and Postgres reorders its keys, so it shows the content of a body and not the exact text `Kelpie-Signature` was computed over.
+- **Webhook polish**, which `brief.md` defers. Four events are deliverable and the rest of the catalogue is not offered, rather than accepted and never sent. Retries live in the process, so a crash mid-backoff loses that delivery. The delivery log keeps `WEBHOOK_DELIVERY_RETENTION_DAYS` of history (30 unless set), pruned in the transaction that records the webhook's next delivery because there is no scheduler in core — so a hook that stops delivering keeps its last window of rows until the hook or workspace is deleted. The log is on the Webhooks page, but `payload` is a `jsonb` column and Postgres reorders its keys, so it shows the content of a body and not the exact text `Kelpie-Signature` was computed over.
 - **A module making its own event deliverable.** The engine subscribes to a fixed four, each with a payload builder. A module cannot add a fifth: the bus is typed on `DomainEvents`, so an event a module defines has no payload type to publish under, and the engine has no builder to render it with. `ModuleContext` used to carry a `webhookEvents(names)` method for this and nothing read the names it collected; it was removed, because the contribution the mechanism needs is a builder rather than a name. See `modules.md`.
 - **Outbound egress filtering.** A delivery URL may name any host, including a private one, because a self-hosted install legitimately posts to `http://automation.internal`. A hosted deployment needs that filter at its egress rather than in this check.
 - **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.

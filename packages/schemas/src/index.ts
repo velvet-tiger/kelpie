@@ -202,7 +202,6 @@ export type {
 } from './importExport.ts'
 
 export {
-  WEBHOOK_DELIVERY_RETENTION_DAYS,
   WEBHOOK_SECRET_OVERLAP_HOURS,
   createWebhookBody,
   createdWebhookSchema,

@@ -1,10 +1,5 @@
 import { createHmac } from 'node:crypto'
-import {
-  WEBHOOK_DELIVERY_RETENTION_DAYS,
-  createdWebhookSchema,
-  webhookDeliverySchema,
-  webhookSchema,
-} from '@kelpie/schemas'
+import { createdWebhookSchema, webhookDeliverySchema, webhookSchema } from '@kelpie/schemas'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -17,7 +12,11 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
-import { MAX_DELIVERY_ATTEMPTS, RETRY_DELAYS_MS } from './delivery.ts'
+import {
+  DEFAULT_DELIVERY_RETENTION_DAYS,
+  MAX_DELIVERY_ATTEMPTS,
+  RETRY_DELAYS_MS,
+} from './delivery.ts'
 import type { AttemptOutcome, DeliveryRequest, SendDelivery, Sleep } from './delivery.ts'
 import { createWebhooksModule } from './index.ts'
 import { webhookDeliveries, webhooks } from './schema.ts'
@@ -556,7 +555,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
     it('prunes rows that have outlived the window when the next delivery is recorded', async () => {
       const id = readString(await createWebhook(), 'id')
       await createPerson('Ada Lovelace')
-      await backdateDeliveries(id, daysAgo(WEBHOOK_DELIVERY_RETENTION_DAYS + 1))
+      await backdateDeliveries(id, daysAgo(DEFAULT_DELIVERY_RETENTION_DAYS + 1))
 
       await createPerson('Grace Hopper')
 
@@ -571,7 +570,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
     it('keeps rows still inside the window', async () => {
       const id = readString(await createWebhook(), 'id')
       await createPerson('Ada Lovelace')
-      await backdateDeliveries(id, daysAgo(WEBHOOK_DELIVERY_RETENTION_DAYS - 1))
+      await backdateDeliveries(id, daysAgo(DEFAULT_DELIVERY_RETENTION_DAYS - 1))
 
       await createPerson('Grace Hopper')
 
@@ -581,7 +580,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
     it('prunes a failed delivery in, and an expired row out, the same way', async () => {
       const id = readString(await createWebhook(), 'id')
       await createPerson('Ada Lovelace')
-      await backdateDeliveries(id, daysAgo(WEBHOOK_DELIVERY_RETENTION_DAYS + 1))
+      await backdateDeliveries(id, daysAgo(DEFAULT_DELIVERY_RETENTION_DAYS + 1))
 
       outcome = REFUSED
       await createPerson('Grace Hopper')
@@ -597,7 +596,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       const paused = readString(await createWebhook({ url: 'https://example.com/paused' }), 'id')
       await createPerson('Ada Lovelace')
 
-      const expiredAt = daysAgo(WEBHOOK_DELIVERY_RETENTION_DAYS + 1)
+      const expiredAt = daysAgo(DEFAULT_DELIVERY_RETENTION_DAYS + 1)
       await backdateDeliveries(active, expiredAt)
       await backdateDeliveries(paused, expiredAt)
       await client.send('PATCH', `/v1/webhooks/${paused}`, {
@@ -618,6 +617,53 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       expect(new Date(readString(residue.at(0) ?? {}, 'created_at')).getTime()).toBe(
         expiredAt.getTime(),
       )
+    })
+
+    /**
+     * The window is deployment configuration, so the wiring from environment
+     * to engine is what this proves: under a seven-day window, a ten-day-old
+     * row — safe under the thirty-day default — is pruned.
+     */
+    it('reads the window from the environment', async () => {
+      const scoped = await createTestApp({
+        modules: [
+          ...coreModules.filter((module) => module.id !== 'webhooks'),
+          createWebhooksModule(coreMigrationsDirectory, { send, sleep }),
+        ],
+        environment: { ...TEST_ENVIRONMENT, WEBHOOK_DELIVERY_RETENTION_DAYS: '7' },
+        services: createTestServices({ db: database.db }),
+      })
+      const scopedClient = createTestClient(scoped.app)
+      const owner = await scopedClient.owner('narrow@example.com', 'narrow')
+
+      const created = await scopedClient.send('POST', '/v1/webhooks', {
+        body: { url: 'https://example.com/hooks/narrow', events: ['record.created'] },
+        cookie: owner.cookie,
+      })
+      expect(created.status).toBe(201)
+      const id = readString(readRecord(await created.json()), 'id')
+
+      const first = await scopedClient.send('POST', '/v1/people', {
+        body: { name: 'Ada Lovelace', email: 'ada@example.com' },
+        cookie: owner.cookie,
+      })
+      expect(first.status).toBe(201)
+      await scoped.services.events.drain()
+
+      await backdateDeliveries(id, daysAgo(10))
+
+      const second = await scopedClient.send('POST', '/v1/people', {
+        body: { name: 'Grace Hopper', email: 'grace@example.com' },
+        cookie: owner.cookie,
+      })
+      expect(second.status).toBe(201)
+      await scoped.services.events.drain()
+
+      const listed = await scopedClient.send('GET', `/v1/webhooks/${id}/deliveries`, {
+        cookie: owner.cookie,
+      })
+
+      expect(readList(await listed.json())).toHaveLength(1)
     })
   })
 

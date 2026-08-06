@@ -1,4 +1,4 @@
-import { WEBHOOK_DELIVERY_RETENTION_DAYS } from '@kelpie/schemas'
+import { z } from 'zod'
 
 import type { Database } from '../../lib/database.ts'
 import { describeThrown } from '../../lib/errors.ts'
@@ -45,9 +45,39 @@ export function retryDelayAfter(attempts: number): number | undefined {
 
 const DAY_MS = 86_400_000
 
+/** What an unset `WEBHOOK_DELIVERY_RETENTION_DAYS` means. */
+export const DEFAULT_DELIVERY_RETENTION_DAYS = 30
+
+/**
+ * The environment slice for the delivery log's retention window. Validated at
+ * boot through `context.config`, so a malformed value stops the service with
+ * the module named rather than quietly pruning by the wrong window.
+ *
+ * Optional with a stated default, unlike most of the environment: absence is
+ * the normal state for an operator who does not care how long the log is, and
+ * the README's configuration table carries the default so it is not silent.
+ * Blank counts as absent, the `SECRET_ENCRYPTION_KEY_PREVIOUS` rule: operators
+ * empty a line far more often than they delete it.
+ */
+export const deliveryRetentionConfigSchema = z.object({
+  WEBHOOK_DELIVERY_RETENTION_DAYS: z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined || value.trim().length === 0 ? undefined : value))
+    .refine(
+      (value) => value === undefined || (Number.isInteger(Number(value)) && Number(value) >= 1),
+      { message: 'must be a whole number of days, at least 1' },
+    )
+    .transform((value) =>
+      value === undefined ? DEFAULT_DELIVERY_RETENTION_DAYS : Number(value),
+    ),
+})
+
+export type DeliveryRetentionConfig = z.infer<typeof deliveryRetentionConfigSchema>
+
 /** The moment a log row written before has outlived its retention. */
-export function retentionCutoff(at: Date): Date {
-  return new Date(at.getTime() - WEBHOOK_DELIVERY_RETENTION_DAYS * DAY_MS)
+export function retentionCutoff(at: Date, retentionDays: number): Date {
+  return new Date(at.getTime() - retentionDays * DAY_MS)
 }
 
 export interface DeliveryRequest {
@@ -120,6 +150,8 @@ export interface DeliveryDependencies {
   readonly send: SendDelivery
   /** Injected so tests do not spend the retry budget in real time. */
   readonly sleep: Sleep
+  /** From `deliveryRetentionConfigSchema`, validated at boot. */
+  readonly retentionDays: number
   readonly log: Logger
 }
 
@@ -178,7 +210,7 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
       const expired = await repository.deleteExpiredDeliveries(
         tx,
         webhook.id,
-        retentionCutoff(dependencies.now()),
+        retentionCutoff(dependencies.now(), dependencies.retentionDays),
       )
 
       // A paused webhook is never selected for delivery, so the only statuses
