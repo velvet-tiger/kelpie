@@ -2,6 +2,7 @@ import type { KelpieModule } from '../../runtime/module.ts'
 import { mountHandbookRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createHandbookService } from './service.ts'
+import { registerHandbookTools } from './tools.ts'
 
 /**
  * The handbook: the workspace's own narrative, as nested markdown pages.
@@ -33,6 +34,8 @@ export function createHandbookModule(migrationsDirectory: string): KelpieModule 
       context.routes((router) => {
         mountHandbookRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerHandbookTools(context.mcp, service)
 
       return Promise.resolve()
     },

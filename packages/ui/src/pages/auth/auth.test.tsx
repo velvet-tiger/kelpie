@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../../api/ApiProvider.tsx'
 import { ApiError } from '../../api/client.ts'
 import type { ApiClient } from '../../api/client.ts'
+import { setInputValue } from '../../testing/inputs.ts'
+import { stubClient } from '../../testing/stubClient.ts'
 import { ForgotPasswordPage } from './ForgotPasswordPage.tsx'
 import { ResetPasswordPage } from './ResetPasswordPage.tsx'
 import { SignUpPage } from './SignUpPage.tsx'
@@ -32,46 +34,35 @@ interface Stubs {
   readonly writeFails?: ApiError
 }
 
-function stubClient(calls: Calls, stubs: Stubs = {}): ApiClient {
-  const unexpected = (what: string): never => {
-    throw new Error(`Unexpected ${what}`)
-  }
+function authClient(calls: Calls, stubs: Stubs = {}): ApiClient {
+  return stubClient({
+    get: (path) => {
+      if (path !== '/auth/me') {
+        throw new Error(`Unexpected get ${path}`)
+      }
 
-  return {
-    get: (path, decode) =>
-      path === '/auth/me' ? Promise.resolve(decode(SESSION)) : unexpected(`get ${path}`),
-    post: (path, body, decode) => {
+      return SESSION
+    },
+    post: (path, body) => {
       calls.posted.push({ path, body })
 
       if (stubs.writeFails !== undefined) {
         return Promise.reject(stubs.writeFails)
       }
 
-      return Promise.resolve(
-        decode({ account: { id: 'usr_1', email: 'ada@example.com', name: 'Ada' }, active_workspace_id: null }),
-      )
+      return {
+        account: { id: 'usr_1', email: 'ada@example.com', name: 'Ada' },
+        active_workspace_id: null,
+      }
     },
     postEmpty: (path, body) => {
       calls.posted.push({ path, body })
 
-      return stubs.writeFails === undefined ? Promise.resolve() : Promise.reject(stubs.writeFails)
+      if (stubs.writeFails !== undefined) {
+        return Promise.reject(stubs.writeFails)
+      }
     },
-    list: () => unexpected('list'),
-    patch: () => unexpected('patch'),
-    patchEmpty: () => unexpected('patchEmpty'),
-    delete: () => unexpected('delete'),
-    getText: () => unexpected('getText'),
-    postForm: () => unexpected('postForm'),
-  }
-}
-
-/** React tracks the value on the node, so a plain assignment is not seen. */
-function setInputValue(input: HTMLElement, value: string): void {
-  Object.getOwnPropertyDescriptor(globalThis.HTMLInputElement.prototype, 'value')?.set?.call(
-    input,
-    value,
-  )
-  input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
 }
 
 /**
@@ -104,7 +95,7 @@ function renderAt(
 
   render(
     <MemoryRouter initialEntries={[path]}>
-      <ApiProvider client={stubClient(calls, stubs)} queryClient={queryClient}>
+      <ApiProvider client={authClient(calls, stubs)} queryClient={queryClient}>
         <Routes>
           <Route path={path.split('?')[0]} element={element} />
           {/* Standing in for the pages this one hands off to, so a redirect is

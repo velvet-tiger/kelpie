@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
@@ -21,7 +21,11 @@ export const DEFAULT_NOTE_SORT = '-created_at'
 
 export interface NoteFilters {
   readonly targetType: RecordTargetType
-  readonly targetId: string
+  /**
+   * `?target_id=`, repeatable per `api.md`. Never empty: a note list always
+   * names the records it is for, and an omitted filter is a 422 at the route.
+   */
+  readonly targetIds: readonly string[]
   /** `?pinned=`. Absent returns both. Pinned notes are what agents read first. */
   readonly pinned?: boolean | undefined
 }
@@ -30,7 +34,7 @@ function conditionsFor(workspaceId: string, filters: NoteFilters): (SQL | undefi
   return [
     eq(notes.workspaceId, workspaceId),
     eq(notes.targetType, filters.targetType),
-    eq(notes.targetId, filters.targetId),
+    inArray(notes.targetId, [...filters.targetIds]),
     filters.pinned === undefined ? undefined : eq(notes.pinned, filters.pinned),
   ]
 }

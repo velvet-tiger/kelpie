@@ -58,7 +58,12 @@ async function start(): Promise<void> {
     await runMigrations(database.db, contributions.schemas, logger)
   }
 
-  const app = createApp({ logger, probeDatabase: database.probe, contributions })
+  const app = createApp({
+    logger,
+    probeDatabase: database.probe,
+    contributions,
+    credentials: { db: database.db, now: () => new Date() },
+  })
 
   const server = serve({ fetch: app.fetch, port: config.port }, (address) => {
     logger.info('listening', { port: address.port, runtimeMode: config.runtimeMode })

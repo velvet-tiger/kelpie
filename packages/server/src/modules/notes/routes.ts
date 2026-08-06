@@ -2,14 +2,14 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError } from '../../lib/errors.ts'
-import { pageBody, readJsonBody, readListParameters } from '../../lib/http.ts'
+import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { isRecordTargetType } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import { RECORD_TARGET_TYPES } from './schema.ts'
-import type { NoteView, NotesService } from './service.ts'
+import type { CreateNoteInput, NoteView, NotesService, UpdateNoteInput } from './service.ts'
 
 /**
  * Wire shapes for `/v1/notes`.
@@ -18,7 +18,7 @@ import type { NoteView, NotesService } from './service.ts'
  * dropped in silence.
  */
 
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   target_type: z.enum(RECORD_TARGET_TYPES),
   target_id: z.string().min(1),
   body: z.string().min(1),
@@ -26,7 +26,7 @@ const createBody = z.strictObject({
 })
 
 /** The target never moves. Re-filing a note under another record is a delete and a create. */
-const updateBody = z
+export const updateBody = z
   .strictObject({
     body: z.string().min(1),
     pinned: z.boolean(),
@@ -35,6 +35,22 @@ const updateBody = z
 
 export interface NotesRoutesDependencies extends CredentialDependencies {
   readonly service: NotesService
+}
+
+export function toCreateInput(body: z.infer<typeof createBody>): CreateNoteInput {
+  return {
+    targetType: body.target_type,
+    targetId: body.target_id,
+    body: body.body,
+    pinned: body.pinned,
+  }
+}
+
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateNoteInput {
+  return {
+    ...(body.body === undefined ? {} : { body: body.body }),
+    ...(body.pinned === undefined ? {} : { pinned: body.pinned }),
+  }
 }
 
 export function noteResponse(note: NoteView): Record<string, unknown> {
@@ -51,23 +67,30 @@ export function noteResponse(note: NoteView): Record<string, unknown> {
 }
 
 /**
- * A note list always names the record it belongs to. There is no workspace-wide
+ * A note list always names the records it belongs to. There is no workspace-wide
  * note list in the mockup, and answering one by accident through an omitted
  * filter would page a workspace's entire note history to render one panel.
  *
- * @throws AppError 422 when either half is missing, the type is unknown, or
- *   `?pinned=` is a word that is not true or false.
+ * `?target_id=` repeats to name a set, per `api.md`, so a page rendering a note
+ * per row resolves them in one request instead of one per row. `?target_type=`
+ * stays single: the ids in one set are all the same kind of record, and a
+ * request mixing them would need the type paired with each id rather than
+ * alongside them.
+ *
+ * @throws AppError 422 when either half is missing, the type is unknown, an id
+ *   is blank or there are more than `MAX_FILTER_IDS`, or `?pinned=` is a word
+ *   that is not true or false.
  */
 function readFilters(context: Context): {
   targetType: RecordTargetType
-  targetId: string
+  targetIds: readonly string[]
   pinned: boolean | undefined
 } {
   const targetType = context.req.query('target_type')
-  const targetId = context.req.query('target_id')
+  const targetIds = readIdFilter(context, 'target_id')
 
-  if (targetType === undefined || targetId === undefined || targetId.length === 0) {
-    throw AppError.validationFailed('A note list is always a list for one record', [
+  if (targetType === undefined || targetIds === undefined) {
+    throw AppError.validationFailed('A note list always names the records it is for', [
       { field: 'target_type', message: 'Required' },
       { field: 'target_id', message: 'Required' },
     ])
@@ -79,7 +102,7 @@ function readFilters(context: Context): {
     ])
   }
 
-  return { targetType, targetId, pinned: readPinned(context.req.query('pinned')) }
+  return { targetType, targetIds, pinned: readPinned(context.req.query('pinned')) }
 }
 
 function readPinned(raw: string | undefined): boolean | undefined {
@@ -117,12 +140,7 @@ export function mountNotesRoutes(router: Hono, dependencies: NotesRoutesDependen
 
   router.post('/notes', async (context) => {
     const body = await readJsonBody(context, createBody)
-    const note = await dependencies.service.create(await requireActor(context), {
-      targetType: body.target_type,
-      targetId: body.target_id,
-      body: body.body,
-      pinned: body.pinned,
-    })
+    const note = await dependencies.service.create(await requireActor(context), toCreateInput(body))
 
     return context.json(noteResponse(note), 201)
   })
@@ -138,10 +156,7 @@ export function mountNotesRoutes(router: Hono, dependencies: NotesRoutesDependen
     const note = await dependencies.service.update(
       await requireActor(context),
       context.req.param('id'),
-      {
-        ...(body.body === undefined ? {} : { body: body.body }),
-        ...(body.pinned === undefined ? {} : { pinned: body.pinned }),
-      },
+      toUpdateInput(body),
     )
 
     return context.json(noteResponse(note))

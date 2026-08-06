@@ -33,7 +33,7 @@ const slugField = z
  * is the rule pipeline stages already follow: the label renames, the import alias
  * does not. Moving a slug on purpose is a separate field in the same request.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   title: z.string().min(1),
   body: z.string().default(''),
   slug: slugField.optional(),
@@ -44,7 +44,7 @@ const createBody = z.strictObject({
  * `parent_id` and `sort_order` are the move. `null` on `parent_id` lifts a page
  * to the top level, which is what `api.md` says null means on a nullable field.
  */
-const updateBody = z
+export const updateBody = z
   .strictObject({
     title: z.string().min(1),
     body: z.string(),
@@ -58,7 +58,7 @@ export interface HandbookRoutesDependencies extends CredentialDependencies {
   readonly service: HandbookService
 }
 
-function toCreateInput(body: z.infer<typeof createBody>): CreateHandbookPageInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreateHandbookPageInput {
   return {
     title: body.title,
     body: body.body,
@@ -67,7 +67,7 @@ function toCreateInput(body: z.infer<typeof createBody>): CreateHandbookPageInpu
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdateHandbookPageInput {
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateHandbookPageInput {
   return {
     ...(body.title === undefined ? {} : { title: body.title }),
     ...(body.body === undefined ? {} : { body: body.body }),

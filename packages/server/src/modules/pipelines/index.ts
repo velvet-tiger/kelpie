@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountPipelinesRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createPipelineStagesService } from './service.ts'
+import { registerPipelineTools } from './tools.ts'
 
 /**
  * Pipeline stage configuration: the board columns of the four pipelines.
@@ -32,6 +33,8 @@ export function createPipelinesModule(migrationsDirectory: string): KelpieModule
       context.routes((router) => {
         mountPipelinesRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerPipelineTools(context.mcp, service)
 
       return Promise.resolve()
     },

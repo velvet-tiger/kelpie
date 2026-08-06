@@ -19,6 +19,7 @@ export {
   CANDIDATE_STATUS_LABELS,
   CANDIDATE_STATUSES,
   COMPANY_STAGES,
+  EXTENSIBLE_RECORD_TYPES,
   FIRST_INTERVIEW_STAGE,
   FORM_FIELD_MAP_TARGET_LABELS,
   FORM_FIELD_MAP_TARGETS,
@@ -40,7 +41,6 @@ export {
   PLAN_ITEM_STATUS_LABELS,
   PLAN_ITEM_STATUSES,
   PREFERRED_CHANNELS,
-  RECORD_OBJECT_TYPES,
   RECORD_TARGET_TYPES,
   RELATIONSHIP_LEVELS,
   ROLE_STATUS_LABELS,
@@ -60,6 +60,7 @@ export type {
   ActivityKind,
   CandidateStatus,
   CompanyStage,
+  ExtensibleRecordType,
   FormFieldMapTarget,
   FormFieldType,
   FormOptionValueType,
@@ -73,7 +74,6 @@ export type {
   PipelineKind,
   PlanItemStatus,
   PreferredChannel,
-  RecordObjectType,
   RecordTargetType,
   Relationship,
   RoleStatus,
@@ -224,6 +224,9 @@ export type { Activity } from './activity.ts'
 
 export { memberSchema, updateMemberRoleBody } from './member.ts'
 export type { Member, UpdateMemberRoleInput } from './member.ts'
+
+export { mcpToolSchema } from './mcpTool.ts'
+export type { McpTool } from './mcpTool.ts'
 
 export { createInviteBody, inviteSchema, resendInviteBody } from './invite.ts'
 export type { CreateInviteInput, Invite, ResendInviteInput } from './invite.ts'

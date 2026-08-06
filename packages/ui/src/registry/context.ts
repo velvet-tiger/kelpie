@@ -3,10 +3,10 @@ import type { ComponentType } from 'react'
 
 import type {
   DashboardCard,
+  ExtensibleRecordType,
   IntegrationProvider,
   NavItem,
   NavSlot,
-  RecordObjectType,
   RecordSidebarCard,
   RecordTab,
   RouteContribution,
@@ -42,11 +42,11 @@ export function useModuleRoutes(): readonly RouteContribution[] {
   return useUiExtensions().routes()
 }
 
-export function useRecordTabs(objectType: RecordObjectType): readonly RecordTab[] {
+export function useRecordTabs(objectType: ExtensibleRecordType): readonly RecordTab[] {
   return useUiExtensions().recordTabs(objectType)
 }
 
-export function useRecordSidebarCards(objectType: RecordObjectType): readonly RecordSidebarCard[] {
+export function useRecordSidebarCards(objectType: ExtensibleRecordType): readonly RecordSidebarCard[] {
   return useUiExtensions().recordSidebarCards(objectType)
 }
 

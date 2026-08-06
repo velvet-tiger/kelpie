@@ -1,4 +1,4 @@
-import type { RecordObjectType } from '@kelpie/schemas'
+import type { ExtensibleRecordType } from '@kelpie/schemas'
 import type { ComponentType, ReactNode } from 'react'
 
 /**
@@ -40,12 +40,12 @@ export interface RouteContribution {
  * part of the contribution vocabulary, and a module author reading this file
  * should not have to follow an import to learn what a record type is.
  */
-export { RECORD_OBJECT_TYPES } from '@kelpie/schemas'
-export type { RecordObjectType }
+export { EXTENSIBLE_RECORD_TYPES } from '@kelpie/schemas'
+export type { ExtensibleRecordType }
 
 /** What a tab or card is rendering against. Ids, not records: the contributor fetches its own data. */
 export interface RecordContext {
-  readonly objectType: RecordObjectType
+  readonly objectType: ExtensibleRecordType
   readonly recordId: string
 }
 

@@ -23,6 +23,7 @@ const CORE_ADMIN_NAV: readonly NavItem[] = [
   { id: 'team', label: 'Team', to: '/admin/team', order: 200 },
   { id: 'data', label: 'Data', to: '/admin/data', order: 300 },
   { id: 'webhooks', label: 'Webhooks', to: '/admin/webhooks', order: 400 },
+  { id: 'mcp', label: 'MCP', to: '/admin/mcp', order: 500 },
 ]
 
 const CORE_NAV: readonly NavItem[] = [

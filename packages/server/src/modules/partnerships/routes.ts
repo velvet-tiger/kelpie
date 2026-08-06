@@ -38,7 +38,7 @@ const partnershipShape = {
  * mockup's invented "Other" and today; a fabricated value is worse than an
  * absent one for agents.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   ...partnershipShape,
   stage_id: partnershipShape.stage_id.optional(),
   kind: partnershipShape.kind.default(''),
@@ -51,13 +51,13 @@ const createBody = z.strictObject({
   tags: partnershipShape.tags.default([]),
 })
 
-const updateBody = z.strictObject(partnershipShape).partial()
+export const updateBody = z.strictObject(partnershipShape).partial()
 
 export interface PartnershipsRoutesDependencies extends CredentialDependencies {
   readonly service: PartnershipsService
 }
 
-function toCreateInput(body: z.infer<typeof createBody>): CreatePartnershipInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreatePartnershipInput {
   return {
     name: body.name,
     companyId: body.company_id,
@@ -73,7 +73,7 @@ function toCreateInput(body: z.infer<typeof createBody>): CreatePartnershipInput
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePartnershipInput {
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePartnershipInput {
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
     ...(body.company_id === undefined ? {} : { companyId: body.company_id }),

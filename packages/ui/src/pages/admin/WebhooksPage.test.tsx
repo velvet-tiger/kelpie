@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../../api/ApiProvider.tsx'
 import { ApiError } from '../../api/client.ts'
 import type { ApiClient } from '../../api/client.ts'
+import { setInputValue } from '../../testing/inputs.ts'
+import { stubClient } from '../../testing/stubClient.ts'
 import { WebhooksPage } from './WebhooksPage.tsx'
 
 afterEach(cleanup)
@@ -68,11 +70,7 @@ interface Stubs {
   readonly onRotate?: (body: unknown) => unknown
 }
 
-function stubClient(stubs: Stubs): ApiClient {
-  const unexpected = (what: string): never => {
-    throw new Error(`Unexpected ${what}`)
-  }
-
+function webhooksClient(stubs: Stubs): ApiClient {
   // A write is followed by a list invalidation, so the stub has to remember
   // what it was told. A static list would answer the refetch with the row as it
   // was before the request, and the assertion would be about the stub.
@@ -80,71 +78,62 @@ function stubClient(stubs: Stubs): ApiClient {
     WEBHOOK,
   ]) as readonly Record<string, unknown>[]
 
-  return {
-    get: (path, decode) =>
-      path === '/auth/me'
-        ? Promise.resolve(decode(session(stubs.role ?? 'owner')))
-        : unexpected(`get ${path}`),
-    list: (path, decodeItem, query) => {
+  return stubClient({
+    get: (path) => {
+      if (path !== '/auth/me') {
+        throw new Error(`Unexpected get ${path}`)
+      }
+
+      return session(stubs.role ?? 'owner')
+    },
+    list: (path, query) => {
       if (path === '/webhooks/wh_1/deliveries') {
         if (stubs.onDeliveries === undefined) {
-          return unexpected(`list ${path}`)
+          throw new Error(`Unexpected list ${path}`)
         }
 
-        const page = stubs.onDeliveries({
+        return stubs.onDeliveries({
           status: query?.status as string | undefined,
           cursor: query?.cursor as string | undefined,
         })
-
-        return Promise.resolve({ items: page.items.map(decodeItem), nextCursor: page.nextCursor })
       }
 
       if (path !== '/webhooks') {
-        return unexpected(`list ${path}`)
+        throw new Error(`Unexpected list ${path}`)
       }
 
       if (stubs.listFails !== undefined) {
         return Promise.reject(stubs.listFails)
       }
 
-      return Promise.resolve({ items: stored.map(decodeItem), nextCursor: null })
+      return { items: stored, nextCursor: null }
     },
-    post: (path, body, decode) => {
+    post: (path, body) => {
       if (path === '/webhooks/wh_1/rotate_secret') {
-        return stubs.onRotate === undefined
-          ? unexpected(`post ${path}`)
-          : Promise.resolve(decode(stubs.onRotate(body)))
+        if (stubs.onRotate === undefined) {
+          throw new Error(`Unexpected post ${path}`)
+        }
+
+        return stubs.onRotate(body)
       }
 
-      return stubs.onPost === undefined || path !== '/webhooks'
-        ? unexpected(`post ${path}`)
-        : Promise.resolve(decode(stubs.onPost(body)))
+      if (stubs.onPost === undefined || path !== '/webhooks') {
+        throw new Error(`Unexpected post ${path}`)
+      }
+
+      return stubs.onPost(body)
     },
-    patch: (path, body, decode) => {
+    patch: (path, body) => {
       if (stubs.onPatch === undefined) {
-        return unexpected(`patch ${path}`)
+        throw new Error(`Unexpected patch ${path}`)
       }
 
       const updated = stubs.onPatch(path, body) as Record<string, unknown>
       stored = stored.map((row) => (row.id === updated.id ? updated : row))
 
-      return Promise.resolve(decode(updated))
+      return updated
     },
-    delete: () => unexpected('delete'),
-    getText: () => unexpected('getText'),
-    postForm: () => unexpected('postForm'),
-    postEmpty: () => unexpected('postEmpty'),
-    patchEmpty: () => unexpected('patchEmpty'),
-  }
-}
-
-/** React tracks the value on the node, so a plain assignment is not seen. */
-function setInputValue(input: HTMLElement, value: string): void {
-  Object.getOwnPropertyDescriptor(globalThis.HTMLInputElement.prototype, 'value')?.set?.call(
-    input,
-    value,
-  )
-  input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
 }
 
 function renderPage(stubs: Stubs = {}): void {
@@ -154,7 +143,7 @@ function renderPage(stubs: Stubs = {}): void {
 
   render(
     <MemoryRouter>
-      <ApiProvider client={stubClient(stubs)} queryClient={queryClient}>
+      <ApiProvider client={webhooksClient(stubs)} queryClient={queryClient}>
         <WebhooksPage />
       </ApiProvider>
     </MemoryRouter>,

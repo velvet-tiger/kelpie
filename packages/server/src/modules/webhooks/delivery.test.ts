@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  DEFAULT_DELIVERY_RETENTION_DAYS,
   MAX_DELIVERY_ATTEMPTS,
   RETRY_DELAYS_MS,
   createHttpSender,
+  deliveryRetentionConfigSchema,
+  retentionCutoff,
   retryDelayAfter,
 } from './delivery.ts'
 import type { DeliveryRequest } from './delivery.ts'
@@ -40,6 +43,44 @@ describe('retryDelayAfter', () => {
     const total = RETRY_DELAYS_MS.reduce((sum, delay) => sum + delay, 0)
 
     expect(total).toBeLessThan(60_000)
+  })
+})
+
+describe('deliveryRetentionConfigSchema', () => {
+  function windowFrom(environment: Record<string, string>): number {
+    return deliveryRetentionConfigSchema.parse(environment).WEBHOOK_DELIVERY_RETENTION_DAYS
+  }
+
+  it('defaults when the variable is unset, and when it is blank', () => {
+    expect(windowFrom({})).toBe(DEFAULT_DELIVERY_RETENTION_DAYS)
+    // Blank counts as absent: operators empty a line rather than delete it.
+    expect(windowFrom({ WEBHOOK_DELIVERY_RETENTION_DAYS: '  ' })).toBe(
+      DEFAULT_DELIVERY_RETENTION_DAYS,
+    )
+  })
+
+  it('reads a whole number of days', () => {
+    expect(windowFrom({ WEBHOOK_DELIVERY_RETENTION_DAYS: '7' })).toBe(7)
+    expect(windowFrom({ WEBHOOK_DELIVERY_RETENTION_DAYS: '365' })).toBe(365)
+  })
+
+  /** A malformed value stops boot rather than pruning by the wrong window. */
+  it('refuses zero, negatives, fractions, and words', () => {
+    for (const value of ['0', '-1', '7.5', 'monthly', 'NaN']) {
+      expect(
+        deliveryRetentionConfigSchema.safeParse({ WEBHOOK_DELIVERY_RETENTION_DAYS: value })
+          .success,
+      ).toBe(false)
+    }
+  })
+})
+
+describe('retentionCutoff', () => {
+  it('reaches back exactly the window', () => {
+    const at = new Date('2026-08-06T00:00:00Z')
+
+    expect(retentionCutoff(at, 30)).toEqual(new Date('2026-07-07T00:00:00Z'))
+    expect(retentionCutoff(at, 1)).toEqual(new Date('2026-08-05T00:00:00Z'))
   })
 })
 

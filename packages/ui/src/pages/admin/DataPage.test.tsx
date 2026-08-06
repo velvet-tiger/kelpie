@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../../api/ApiProvider.tsx'
 import { ApiError } from '../../api/client.ts'
 import type { ApiClient } from '../../api/client.ts'
+import { stubClient } from '../../testing/stubClient.ts'
 import { DataPage } from './DataPage.tsx'
 
 afterEach(cleanup)
@@ -54,21 +55,18 @@ interface Stubs {
   readonly failUpload?: number
 }
 
-function stubClient(stubs: Stubs, harness: Harness): ApiClient {
-  const unexpected = (what: string): never => {
-    throw new Error(`Unexpected ${what}`)
-  }
+function dataClient(stubs: Stubs, harness: Harness): ApiClient {
   const ids = stubs.jobIds ?? ['imp_a', 'imp_b']
 
-  return {
-    get: (path, decode) => {
-      const id = path.replace('/import/jobs/', '')
+  return stubClient({
+    get: (path) => {
+      if (!path.startsWith('/import/jobs/')) {
+        throw new Error(`Unexpected get ${path}`)
+      }
 
-      return path.startsWith('/import/jobs/')
-        ? Promise.resolve(decode(wireJob(id)))
-        : unexpected(`get ${path}`)
+      return wireJob(path.replace('/import/jobs/', ''))
     },
-    postForm: async (path, form, decode) => {
+    postForm: async (path, form) => {
       if (path.endsWith('/commit')) {
         const sent = form.get('file')
 
@@ -77,11 +75,11 @@ function stubClient(stubs: Stubs, harness: Harness): ApiClient {
           file: sent instanceof File ? await sent.text() : String(sent),
         })
 
-        return decode({ ...wireJob(path.split('/')[3] ?? ''), status: 'completed' })
+        return { ...wireJob(path.split('/')[3] ?? ''), status: 'completed' }
       }
 
       if (path !== '/import/jobs') {
-        return unexpected(`postForm ${path}`)
+        throw new Error(`Unexpected postForm ${path}`)
       }
 
       harness.uploaded.push(ids[harness.uploaded.length] ?? 'imp_overflow')
@@ -92,20 +90,12 @@ function stubClient(stubs: Stubs, harness: Harness): ApiClient {
         )
       }
 
-      return Promise.resolve(decode(wireJob(harness.uploaded[harness.uploaded.length - 1] ?? '')))
+      return wireJob(harness.uploaded[harness.uploaded.length - 1] ?? '')
     },
     delete: (path) => {
       harness.deleted.push(path)
-
-      return Promise.resolve()
     },
-    list: (path) => unexpected(`list ${path}`),
-    post: (path) => unexpected(`post ${path}`),
-    postEmpty: (path) => unexpected(`postEmpty ${path}`),
-    patch: (path) => unexpected(`patch ${path}`),
-    patchEmpty: (path) => unexpected(`patchEmpty ${path}`),
-    getText: (path) => unexpected(`getText ${path}`),
-  }
+  })
 }
 
 function renderPage(stubs: Stubs = {}): Harness {
@@ -116,7 +106,7 @@ function renderPage(stubs: Stubs = {}): Harness {
 
   render(
     <MemoryRouter>
-      <ApiProvider client={stubClient(stubs, harness)} queryClient={queryClient}>
+      <ApiProvider client={dataClient(stubs, harness)} queryClient={queryClient}>
         <DataPage />
       </ApiProvider>
     </MemoryRouter>,

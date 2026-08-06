@@ -4,6 +4,7 @@ import type { ActivityDraft, ActivityRecorder } from './recorder.ts'
 import { mountActivitiesRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createActivitiesService } from './service.ts'
+import { registerActivitiesTools } from './tools.ts'
 
 /**
  * Activities: the history every other module writes into.
@@ -29,6 +30,8 @@ export function createActivitiesModule(migrationsDirectory: string): KelpieModul
       context.routes((router) => {
         mountActivitiesRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerActivitiesTools(context.mcp, service)
 
       return Promise.resolve()
     },

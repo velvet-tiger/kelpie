@@ -5,6 +5,7 @@ import { mountFormsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createFormsService } from './service.ts'
 import { createFormSubmitService } from './submission.ts'
+import { registerFormsTools } from './tools.ts'
 
 /**
  * Forms: embeddable inbound capture, per `forms.md`.
@@ -51,6 +52,8 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
       context.publicRoutes((router) => {
         mountPublicFormRoutes(router, { db: context.db, submissions })
       })
+
+      registerFormsTools(context.mcp, service)
 
       return Promise.resolve()
     },

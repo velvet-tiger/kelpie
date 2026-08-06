@@ -229,6 +229,8 @@ Open source ships no UI modules. Every slot renders nothing, which is how core p
 
 MCP tools share the input schema with their REST route, and the runtime parses arguments before the tool body runs. A bad argument fails with the same `validation_failed` error the REST surface returns.
 
+`invoke` is handed the caller as its second argument, the way a route handler resolves one, because every service call is authorized against an actor and scoped to its workspace. The `/mcp` endpoint resolves it once per request from the bearer key. A tool that a resource can build the ordinary way should go through `registerCrudTools` in `packages/server/src/modules/crudTools.ts`, which turns a service and the pieces its routes already carry into the five verbs; the ones written out by hand are the resources whose shape does not fit, and each says why at the top of its `tools.ts`.
+
 ## Commands
 
 `make` lists every target. The ones you want day to day:
@@ -282,7 +284,7 @@ port no matter what its own flags say.
 
 ## Configuration
 
-Every variable the service reads is required. There are no silent defaults; a missing or malformed value stops boot and prints the full list of problems. `WEB_PORT` is the one exception, and the service never reads it: it belongs to the dev launcher.
+Every variable the service reads is required unless its row below says optional, and an optional variable's default is stated in the table rather than silent. A missing required value or a malformed value of any kind stops boot and prints the full list of problems. `WEB_PORT` the service never reads: it belongs to the dev launcher.
 
 | Variable | Values |
 | --- | --- |
@@ -296,6 +298,7 @@ Every variable the service reads is required. There are no silent defaults; a mi
 | `EMAIL_FROM` | The address transactional mail comes from |
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Seals secrets the service has to read back, which today means webhook signing secrets |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional, and only while rotating the key above. See below |
+| `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional; unset means 30. How many days of webhook delivery log to keep. A whole number, at least 1; a webhook's expired rows are deleted when its next delivery is recorded |
 
 `TEST_DATABASE_URL` is separate: it is read only by the test harness, and only the integration suites use it. Without it they skip.
 
@@ -333,18 +336,24 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
 | Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |
 | Positions | `GET`, `POST /v1/positions`, `GET`, `PATCH`, `DELETE /v1/positions/:id`. Filters `?person_id=` and `?company_id=` |
+| Deals | `GET`, `POST /v1/deals`, `GET`, `PATCH`, `DELETE /v1/deals/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
 | Opportunities | `GET`, `POST /v1/opportunities`, `GET`, `PATCH`, `DELETE /v1/opportunities/:id`. Filters `?q=`, `?kind=`, `?company_id=` and `?stage_id=` |
 | Partnerships | `GET`, `POST /v1/partnerships`, `GET`, `PATCH`, `DELETE /v1/partnerships/:id`. Filters `?q=`, `?kind=`, `?company_id=`, `?stage_id=` and `?person_id=` |
 | Raises | `GET`, `POST /v1/raises`, `GET`, `PATCH`, `DELETE /v1/raises/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
+| Pipeline stages | `GET`, `POST /v1/pipeline_stages`, `GET`, `PATCH`, `DELETE /v1/pipeline_stages/:id?move_to=`. Filter `?kind=` |
 | Roles | `GET`, `POST /v1/roles`, `GET`, `PATCH`, `DELETE /v1/roles/:id`. Filters `?q=` and `?status=` |
 | Candidates | `GET`, `POST /v1/candidates`, `GET`, `PATCH`, `DELETE /v1/candidates/:id`. Filters `?role_id=`, `?person_id=` and `?status=` |
 | Decisions | `GET`, `POST /v1/decisions`, `GET`, `PATCH`, `DELETE /v1/decisions/:id`. Filters `?q=`, `?target_type=` and `?target_id=` |
+| Plan items | `GET`, `POST /v1/plan_items`, `GET`, `PATCH`, `DELETE /v1/plan_items/:id`. Filters `?target_type=`, `?target_id=`, `?status=`, `?from=` and `?to=` |
+| Notes | `GET`, `POST /v1/notes`, `GET`, `PATCH`, `DELETE /v1/notes/:id`. `?target_type=` and `?target_id=` are required, and `?target_id=` repeats to name a set; filter `?pinned=true` or `false` |
+| Activities | `GET /v1/activities`. Read-only: the timeline is written by the writes it describes. `?target_type=` and `?target_id=` are required |
 | Handbook | `GET`, `POST /v1/handbook_pages`, `GET`, `PATCH`, `DELETE /v1/handbook_pages/:id`. Filters `?q=` and `?slug=` |
 | Forms | `GET`, `POST /v1/forms`, `GET`, `PATCH`, `DELETE /v1/forms/:id`. Filters `?q=` and `?status=`. Plus `GET /v1/forms/:id/submissions` and `GET /v1/forms/:id/embed` |
 | Public forms | `POST /v1/public/forms/:public_key/submit` and `GET /v1/public/forms/:public_key/embed`. No credentials, any origin |
 | Export | `GET /v1/export/{people,companies,positions,deals}.csv` and `GET /v1/export/templates/{object}.csv` |
-| Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit` |
-| Webhooks | `GET`, `POST /v1/webhooks`, `GET`, `PATCH`, `DELETE /v1/webhooks/:id`. Filter `?status=`. Plus `GET /v1/webhooks/:id/deliveries`, filter `?status=`. Admin only, reads included |
+| Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit`, `DELETE /v1/import/jobs/:id` |
+| Webhooks | `GET`, `POST /v1/webhooks`, `GET`, `PATCH`, `DELETE /v1/webhooks/:id`. Filter `?status=`. Plus `POST /v1/webhooks/:id/rotate_secret` and `GET /v1/webhooks/:id/deliveries`, filter `?status=`. Admin only, reads included |
+| MCP | `POST /mcp`, Streamable HTTP, bearer key only. Speaks `2026-07-28` and the two `initialize`-based revisions before it. `GET /v1/mcp/tools` lists the same tools over ordinary credentials |
 
 Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
 
@@ -376,6 +385,20 @@ A non-2xx fails, and so does a redirect, which is never followed: an endpoint th
 
 Every verb needs the admin role, **including the reads**. A webhook URL routinely carries its own credential in the path, so listing registrations discloses a secret rather than describing a setting. That is why the Webhooks page tells a member the list is not theirs instead of showing them an empty one.
 
+**MCP is the same API through a second door.** `POST /mcp` speaks Streamable HTTP, and every tool on it is built from the Zod body, the wire mapper and the service its REST endpoint uses, so the two cannot answer differently. A tool that fails answers with the `api.md` error body — the same `404`, the same `422` and its field-level `details` — carried as a tool result rather than a protocol error, because a call that ran and refused is an answer the model should see. 98 tools today: the five verbs for each CRM resource, the handbook, forms and their submissions, workspace settings, team and invitations, webhooks, and the four import/export tools `import-export.md` names.
+
+The endpoint takes **bearer keys only**, and deliberately not the session cookie the REST surface accepts. Three things keep a cross-origin browser out: a present `Origin` that is not this deployment's own answers `403`, no CORS headers are sent, and there is no ambient credential to spend even if one got through. There is no session id and no server-initiated stream, so `GET` and `DELETE` answer `405` and any instance can answer any request.
+
+**It speaks `2026-07-28`, `2025-06-18` and `2025-03-26`, and serves two eras on the one endpoint.** `2026-07-28` removed the `initialize` handshake: a modern client puts its protocol version, identity and capabilities in every request's `_meta`, mirrors the method and tool name into `Mcp-Method` and `Mcp-Name` headers, and gets back `resultType: "complete"`, the server's identity in the result's `_meta`, and `ttlMs`/`cacheScope` on anything cacheable. Everything before that revision opens with `initialize`, and the spec calls those *legacy*.
+
+The endpoint decides which it is being asked for from the request itself: a `_meta` protocol version or a `server/discover` means modern, anything else means legacy. A legacy client keeps `initialize`, `ping` and its JSON-RPC batches; a modern one gets `server/discover`, which the revision makes mandatory, and none of those three, which it removed. A version Kelpie does not speak is refused with `-32022` carrying the list it does, so a client can pick another and retry rather than being told only that it failed.
+
+For a modern request the mirrored headers **must** agree with the body — `MCP-Protocol-Version` with the `_meta` version, `Mcp-Method` with the method, `Mcp-Name` with the tool — and a disagreement is `400` with `-32020`. The point is that an intermediary routes on the header while the server executes the body, so the two differing is the bug worth refusing. `Mcp-Name` is decoded from the `=?base64?…?=` sentinel before the comparison. A method the revision does not have answers `404` rather than `200`, which is how a client tells a modern server lacking a method from a legacy server that does not host the endpoint at all.
+
+Three REST operations have no tool. Creating a workspace and accepting an invitation both need a browser session, and a key issued for one workspace could not act on the new one anyway. Deleting a workspace destroys everything the calling key is scoped to, and its slug confirmation is no safeguard against an agent that can read the slug. API keys have no tools at all: a key that can mint keys is an escalation nothing in the brief asks for.
+
+`export_csv` inlines the file and refuses over 256 KB, naming `GET /v1/export/{object}.csv` instead. A truncated CSV looks exactly like a whole one, and an agent would draw conclusions from the rows that were not there.
+
 Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with after-commit publication, the entitlements registry, 37 tables with migrations, and an integration harness that creates and truncates its own database.
 
 Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. A webhook signing secret is the one credential that is encrypted rather than hashed, because signing a delivery needs it back; `lib/secrets.ts` seals it with AES-256-GCM under `SECRET_ENCRYPTION_KEY`. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
@@ -394,8 +417,9 @@ The emailed invitation lands on `/join?token=…`, which accepts as the signed-i
 
 ## Not here yet
 
-- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, the Workspace, Team and Webhooks admin pages, and the account's own Profile, Security and Preferences pages are ported. Everything else in `mockups/` is not: the dashboard, search, the remaining admin pages, and the account's integrations and personal API key tabs all wait for their endpoints.
+- **Most of the UI.** People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, the Workspace, Team, Webhooks and MCP admin pages, and the account's own Profile, Security and Preferences pages are ported. Everything else in `mockups/` is not: the dashboard, search, the remaining admin pages, and the account's integrations and personal API key tabs all wait for their endpoints.
 - **Role enforcement outside workspace administration.** Administration is gated at `admin`, and API keys already were. Every CRM resource is open to any member, which is what the specs describe; no document defines a read-only role. Narrowing that is a product decision, not a missing check.
+- **Registered agents and their run log.** The mockup's MCP page lists both under the connection details. They belong to agent tasks, which is the next Phase 3 feature, so the ported page stops at the endpoint, the config snippet and the tool list.
 - **Agent tasks on a handbook page.** The mockup's handbook header carries an Agent tasks button. It arrives with the agent task registry in Phase 3, like every other record's.
 - **The rest of the auth pages.** Sign-in, first-workspace and join exist so the CRM pages can be reached and an invitation can be accepted. Signup, password reset and the onboarding wizard are a separate feature and replace the first two. Changing a password while signed in is on the account's Security page and does exist.
 - **Notification email.** The Preferences page stores a weekly digest, mention and product-update choice per account, and nothing sends any of them: email sending is a v0 non-goal (`brief.md`), and the port `EMAIL_PROVIDER=log` serves password reset only. The page says so on screen rather than leaving a reader to infer a capability from a toggle.
@@ -404,10 +428,9 @@ The emailed invitation lands on `/join?token=…`, which accepts as the signed-i
 - **Leaving a workspace, and the last owner.** An admin can remove themselves; the owner cannot, and has to hand ownership over first. An owner who is the only member has no way out except deleting the workspace.
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
-- **Webhook polish**, which `brief.md` defers. Four events are deliverable and the rest of the catalogue is not offered, rather than accepted and never sent. There is no retention pruner for `webhook_deliveries` even though `schema.md` calls the table retention-pruned. Retries live in the process, so a crash mid-backoff loses that delivery. The delivery log is on the Webhooks page, but `payload` is a `jsonb` column and Postgres reorders its keys, so it shows the content of a body and not the exact text `Kelpie-Signature` was computed over.
+- **Webhook polish**, which `brief.md` defers. Four events are deliverable and the rest of the catalogue is not offered, rather than accepted and never sent. Retries live in the process, so a crash mid-backoff loses that delivery. The delivery log keeps `WEBHOOK_DELIVERY_RETENTION_DAYS` of history (30 unless set), pruned in the transaction that records the webhook's next delivery because there is no scheduler in core — so a hook that stops delivering keeps its last window of rows until the hook or workspace is deleted. The log is on the Webhooks page, but `payload` is a `jsonb` column and Postgres reorders its keys, so it shows the content of a body and not the exact text `Kelpie-Signature` was computed over.
 - **A module making its own event deliverable.** The engine subscribes to a fixed four, each with a payload builder. A module cannot add a fifth: the bus is typed on `DomainEvents`, so an event a module defines has no payload type to publish under, and the engine has no builder to render it with. `ModuleContext` used to carry a `webhookEvents(names)` method for this and nothing read the names it collected; it was removed, because the contribution the mechanism needs is a builder rather than a name. See `modules.md`.
 - **Outbound egress filtering.** A delivery URL may name any host, including a private one, because a self-hosted install legitimately posts to `http://automation.internal`. A hosted deployment needs that filter at its egress rather than in this check.
-- **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.
 - **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.
 - **A CI workflow.** The scripts are ready; nothing runs them on push.
 - **A copyright holder.** `LICENSE` is the verbatim AGPL-3.0 text, but no file states who holds the copyright. `modules.md` depends on that: proprietary cloud modules are only possible while we own the core copyright, and external contributions need a CLA before the first outside PR.

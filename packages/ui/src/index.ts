@@ -153,15 +153,15 @@ export type { DueBucketId, PlanAttention as PlanAttentionSummary } from './lib/p
 export { applyTheme, getStoredTheme, resolveTheme, setStoredTheme, watchSystemTheme } from './lib/theme.ts'
 export type { ThemePreference } from './lib/theme.ts'
 
-export { INTEGRATION_CATEGORIES, NAV_SLOTS, RECORD_OBJECT_TYPES } from './registry/contributions.ts'
+export { EXTENSIBLE_RECORD_TYPES, INTEGRATION_CATEGORIES, NAV_SLOTS } from './registry/contributions.ts'
 export type {
   DashboardCard,
+  ExtensibleRecordType,
   IntegrationCategory,
   IntegrationProvider,
   NavItem,
   NavSlot,
   RecordContext,
-  RecordObjectType,
   RecordSidebarCard,
   RecordTab,
   RouteContribution,

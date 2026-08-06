@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../../api/ApiProvider.tsx'
 import { ApiError } from '../../api/client.ts'
 import type { ApiClient } from '../../api/client.ts'
+import { stubClient } from '../../testing/stubClient.ts'
 import { HandbookStepPage } from './HandbookStepPage.tsx'
 import { InvitesStepPage } from './InvitesStepPage.tsx'
 import { WorkspaceStepPage } from './WorkspaceStepPage.tsx'
@@ -69,11 +70,7 @@ interface Stubs {
   readonly signedOut?: boolean
 }
 
-function stubClient(calls: Calls, stubs: Stubs = {}): ApiClient {
-  const unexpected = (what: string): never => {
-    throw new Error(`Unexpected ${what}`)
-  }
-
+function onboardingClient(calls: Calls, stubs: Stubs = {}): ApiClient {
   const session = {
     user_id: 'usr_1',
     session_id: 'ses_1',
@@ -81,28 +78,28 @@ function stubClient(calls: Calls, stubs: Stubs = {}): ApiClient {
     role: 'owner',
   }
 
-  return {
-    get: (path, decode) => {
+  return stubClient({
+    get: (path) => {
       if (path !== '/auth/me') {
-        return unexpected(`get ${path}`)
+        throw new Error(`Unexpected get ${path}`)
       }
 
       return stubs.signedOut === true
         ? Promise.reject(new ApiError(401, 'unauthorized', 'Sign in to continue'))
-        : Promise.resolve(decode(session))
+        : session
     },
-    list: (path, decodeItem) =>
-      path === '/handbook_pages'
-        ? Promise.resolve({
-            items: (stubs.pages ?? []).map(decodeItem),
-            nextCursor: null,
-          })
-        : unexpected(`list ${path}`),
-    post: (path, body, decode) => {
+    list: (path) => {
+      if (path !== '/handbook_pages') {
+        throw new Error(`Unexpected list ${path}`)
+      }
+
+      return { items: stubs.pages ?? [], nextCursor: null }
+    },
+    post: (path, body) => {
       calls.posted.push({ path, body })
 
       if (path === '/workspaces') {
-        return Promise.resolve(decode(WORKSPACE))
+        return WORKSPACE
       }
 
       const sent = body as { email: string; role: string }
@@ -111,15 +108,9 @@ function stubClient(calls: Calls, stubs: Stubs = {}): ApiClient {
         return Promise.reject(new ApiError(409, 'conflict', 'That person is already a member'))
       }
 
-      return Promise.resolve(decode(invite(sent.email, sent.role)))
+      return invite(sent.email, sent.role)
     },
-    postEmpty: () => unexpected('postEmpty'),
-    patch: () => unexpected('patch'),
-    patchEmpty: () => unexpected('patchEmpty'),
-    delete: () => unexpected('delete'),
-    getText: () => unexpected('getText'),
-    postForm: () => unexpected('postForm'),
-  }
+  })
 }
 
 /** React tracks the value on the node, so a plain assignment is not seen. */
@@ -146,7 +137,7 @@ function renderStep(element: React.JSX.Element, calls: Calls, stubs: Stubs = {})
 
   render(
     <MemoryRouter initialEntries={['/step']}>
-      <ApiProvider client={stubClient(calls, stubs)} queryClient={queryClient}>
+      <ApiProvider client={onboardingClient(calls, stubs)} queryClient={queryClient}>
         <Routes>
           <Route path="/step" element={element} />
           {/* Standing in for what each step hands off to, so moving on is

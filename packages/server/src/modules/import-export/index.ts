@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountImportExportRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createImportExportService } from './service.ts'
+import { registerImportExportTools } from './tools.ts'
 
 /**
  * Import and export: CSV in and out, per `import-export.md`.
@@ -39,6 +40,8 @@ export function createImportExportModule(migrationsDirectory: string): KelpieMod
       context.routes((router) => {
         mountImportExportRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerImportExportTools(context.mcp, service)
 
       return Promise.resolve()
     },

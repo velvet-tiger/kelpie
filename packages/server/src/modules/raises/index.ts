@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountRaisesRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createRaisesService } from './service.ts'
+import { registerRaisesTools } from './tools.ts'
 
 /**
  * Raises: fundraising processes, one per firm per round.
@@ -34,6 +35,8 @@ export function createRaisesModule(migrationsDirectory: string): KelpieModule {
       context.routes((router) => {
         mountRaisesRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerRaisesTools(context.mcp, service)
 
       return Promise.resolve()
     },

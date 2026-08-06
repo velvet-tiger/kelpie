@@ -109,7 +109,13 @@ export function WebhookDeliveries({ webhookId }: { readonly webhookId: string })
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-[12px] font-semibold text-ink">Deliveries</h3>
+        <h3 className="text-[12px] font-semibold text-ink">
+          Deliveries
+          {/* No number: the window is `WEBHOOK_DELIVERY_RETENTION_DAYS`, a
+              deployment setting this client cannot read, and naming the default
+              here would promise history an operator's override has deleted. */}
+          <span className="ml-2 font-normal text-ink-faint">older rows are pruned</span>
+        </h3>
         <SegmentedControl
           value={status}
           onChange={(next) => {

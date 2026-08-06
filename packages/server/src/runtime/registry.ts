@@ -97,7 +97,7 @@ function createModuleContext(
           inputSchema: definition.inputSchema,
           // Parsing here is what keeps MCP and REST from drifting: both surfaces
           // validate with the module's schema and fail with the same api.md error.
-          invoke: async (rawInput) => {
+          invoke: async (rawInput, actor) => {
             const parsed = definition.inputSchema.safeParse(rawInput)
 
             if (!parsed.success) {
@@ -107,7 +107,7 @@ function createModuleContext(
               )
             }
 
-            return definition.invoke(parsed.data)
+            return definition.invoke(parsed.data, actor)
           },
         })
       },

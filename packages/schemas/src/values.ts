@@ -77,8 +77,13 @@ export const SOCIAL_NETWORK_LABELS: Readonly<Record<SocialNetworkId, string>> = 
  * The record types a detail page exists for, and therefore the ones a UI module
  * can add a tab or a sidebar card to. Lived in `@kelpie/ui` until this package
  * gave it a home both the UI and the cloud repo can import.
+ *
+ * Narrower than the server's `RECORD_OBJECT_TYPES`, which is the list a
+ * `record.*` event may carry. A Position, a Form, and a Handbook page are all
+ * written and all publish events, but none of them has a detail page for a
+ * module to hang anything off.
  */
-export const RECORD_OBJECT_TYPES = [
+export const EXTENSIBLE_RECORD_TYPES = [
   'person',
   'company',
   'deal',
@@ -89,12 +94,12 @@ export const RECORD_OBJECT_TYPES = [
   'candidate',
 ] as const
 
-export type RecordObjectType = (typeof RECORD_OBJECT_TYPES)[number]
+export type ExtensibleRecordType = (typeof EXTENSIBLE_RECORD_TYPES)[number]
 
 /**
  * The record types a note, activity, decision, or plan item attaches to.
  *
- * Not the same list as `RECORD_OBJECT_TYPES`: a Role is a detail page a UI
+ * Not the same list as `EXTENSIBLE_RECORD_TYPES`: a Role is a detail page a UI
  * module can extend, but nothing attaches a note to it. Interview notes go on
  * the Candidate, which is the person-and-role link.
  */

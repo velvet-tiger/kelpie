@@ -60,7 +60,11 @@ export interface PipelineStagesService {
   get(actor: Actor, id: string): Promise<PipelineStageView>
   create(actor: Actor, input: CreateStageInput): Promise<PipelineStageView>
   update(actor: Actor, id: string, changes: UpdateStageInput): Promise<PipelineStageView>
-  remove(actor: Actor, id: string, moveToId: string | undefined): Promise<void>
+  /**
+   * @param moveToId Where the records standing in the removed stage go. Omitted
+   *   is the same as absent: the removal refuses if the stage still holds any.
+   */
+  remove(actor: Actor, id: string, moveToId?: string | undefined): Promise<void>
 }
 
 function toView(record: PipelineStageRecord): PipelineStageView {

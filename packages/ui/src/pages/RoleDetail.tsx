@@ -5,7 +5,7 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { useCandidates, useCreateCandidate, useDeleteCandidate } from '../api/resources/candidates.ts'
-import { useCreateNote, useDeleteNote, useNotes, useUpdateNote } from '../api/resources/notes.ts'
+import { useCreateNote, useDeleteNote, useUpdateNote } from '../api/resources/notes.ts'
 import { useCreatePerson, usePeople } from '../api/resources/people.ts'
 import { useDeleteRole, useRole, useUpdateRole } from '../api/resources/roles.ts'
 import { Chip } from '../components/Chip.tsx'
@@ -19,7 +19,7 @@ import {
   CandidateStageField,
   CandidateStatusField,
 } from './candidateFields.tsx'
-import { usePersonNames } from './hiringDirectory.ts'
+import { useCandidateNotes, usePersonNames } from './hiringDirectory.ts'
 
 /**
  * One role, and the people up for it.
@@ -138,6 +138,7 @@ function RoleStatusField({ role }: { readonly role: Role }): React.JSX.Element {
 function RoleCandidates({ role }: { readonly role: Role }): React.JSX.Element {
   const candidates = useCandidates({ roleIds: [role.id] })
   const names = usePersonNames()
+  const notes = useCandidateNotes(candidates.records.map((candidate) => candidate.id))
   const createCandidate = useCreateCandidate()
   const createPerson = useCreatePerson()
 
@@ -242,6 +243,8 @@ function RoleCandidates({ role }: { readonly role: Role }): React.JSX.Element {
                   ? undefined
                   : names.nameFor(candidate.referrerPersonId)
               }
+              note={notes.noteFor(candidate.id)}
+              noteResolved={notes.isComplete || notes.noteFor(candidate.id) !== undefined}
             />
           ))}
         </ul>
@@ -265,10 +268,14 @@ function CandidateRow({
   candidate,
   personName,
   referrerName,
+  note,
+  noteResolved,
 }: {
   readonly candidate: Candidate
   readonly personName: string | undefined
   readonly referrerName: string | undefined
+  readonly note: Note | undefined
+  readonly noteResolved: boolean
 }): React.JSX.Element {
   const removeCandidate = useDeleteCandidate()
 
@@ -316,7 +323,7 @@ function CandidateRow({
             Note
           </dt>
           <dd>
-            <CandidateNote candidate={candidate} />
+            <CandidateNote candidate={candidate} existing={note} resolved={noteResolved} />
           </dd>
         </div>
       </dl>
@@ -328,18 +335,28 @@ function CandidateRow({
  * The candidate's most recent interview note, editable in place.
  *
  * The mockup edits one note here and shows the full panel on the person's Hiring
- * tab, and this reproduces that. One request per row: `?target_id=` on notes
- * names one record, so a list of candidates cannot resolve its notes in a single
- * call the way the id-set filters elsewhere do. A role's pipeline is short enough
- * for that to be the right trade against widening the notes filter.
+ * tab, and this reproduces that. The note arrives from the page rather than
+ * being fetched here: `?target_id=` names a set, so the whole pipeline's notes
+ * come back in one request with the candidates.
+ *
+ * `resolved` false means the pipeline holds more notes than one page returns and
+ * this candidate was not among them, so whether they have one is unknown. It
+ * renders as unknown rather than as "Add note…", because offering to write is
+ * offering to write over a note nobody looked at.
  */
-function CandidateNote({ candidate }: { readonly candidate: Candidate }): React.JSX.Element {
-  const notes = useNotes({ targetType: 'candidate', targetId: candidate.id })
+function CandidateNote({
+  candidate,
+  existing,
+  resolved,
+}: {
+  readonly candidate: Candidate
+  readonly existing: Note | undefined
+  readonly resolved: boolean
+}): React.JSX.Element {
   const createNote = useCreateNote()
   const updateNote = useUpdateNote()
   const deleteNote = useDeleteNote()
 
-  const existing: Note | undefined = notes.records[0]
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(existing?.body ?? '')
 
@@ -365,6 +382,10 @@ function CandidateNote({ candidate }: { readonly candidate: Candidate }): React.
     }
 
     setEditing(false)
+  }
+
+  if (!resolved) {
+    return <p className="text-[12px] text-ink-faint">Not loaded on this page.</p>
   }
 
   if (editing) {

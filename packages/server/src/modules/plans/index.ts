@@ -2,6 +2,7 @@ import type { KelpieModule } from '../../runtime/module.ts'
 import { mountPlansRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createPlansService } from './service.ts'
+import { registerPlansTools } from './tools.ts'
 
 /**
  * Plan items: the dated next steps on the four pipelines.
@@ -28,6 +29,8 @@ export function createPlansModule(migrationsDirectory: string): KelpieModule {
       context.routes((router) => {
         mountPlansRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerPlansTools(context.mcp, service)
 
       return Promise.resolve()
     },

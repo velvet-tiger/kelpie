@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountPositionsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createPositionsService } from './service.ts'
+import { registerPositionsTools } from './tools.ts'
 
 /**
  * Position: the person-to-company link, and the only place a job title lives.
@@ -32,6 +33,8 @@ export function createPositionsModule(migrationsDirectory: string): KelpieModule
       context.routes((router) => {
         mountPositionsRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerPositionsTools(context.mcp, service)
 
       return Promise.resolve()
     },

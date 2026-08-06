@@ -2,9 +2,11 @@ import { QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { stubClient } from '../testing/stubClient.ts'
+import type { ClientStubs, WirePage } from '../testing/stubClient.ts'
 import { ApiProvider } from './ApiProvider.tsx'
 import { ApiError } from './client.ts'
-import type { ApiClient, QueryParameters } from './client.ts'
+import type { ApiClient } from './client.ts'
 import { createResourceHooks } from './resource.ts'
 
 afterEach(cleanup)
@@ -51,59 +53,6 @@ function deferred<T>(): {
 
 function page(items: readonly Widget[], nextCursor: string | null = null): WirePage {
   return { items, nextCursor }
-}
-
-/**
- * A client whose stubs answer with wire data rather than records, so the
- * decoder each hook passes runs the way it does in the browser. Anything a test
- * does not stub throws when it is called, which turns an unexpected request into
- * a named failure instead of a hang.
- */
-interface StubParts {
-  readonly get?: (path: string) => Promise<unknown>
-  readonly list?: (path: string, query?: QueryParameters) => Promise<WirePage>
-  readonly post?: (path: string, body: unknown) => Promise<unknown>
-  readonly patch?: (path: string, body: unknown) => Promise<unknown>
-  readonly delete?: (path: string) => Promise<void>
-}
-
-interface WirePage {
-  readonly items: readonly unknown[]
-  readonly nextCursor: string | null
-}
-
-function required<TPart>(part: TPart | undefined, name: string): TPart {
-  if (part === undefined) {
-    throw new Error(`Unexpected ${name} call`)
-  }
-
-  return part
-}
-
-function stubClient(parts: StubParts): ApiClient {
-  return {
-    get: (path, decode) => required(parts.get, 'get')(path).then(decode),
-    list: async (path, decodeItem, query) => {
-      const wire = await required(parts.list, 'list')(path, query)
-
-      return { items: wire.items.map(decodeItem), nextCursor: wire.nextCursor }
-    },
-    getText: () => {
-      throw new Error('Unexpected getText call')
-    },
-    post: (path, body, decode) => required(parts.post, 'post')(path, body).then(decode),
-    postForm: () => {
-      throw new Error('Unexpected postForm call')
-    },
-    postEmpty: () => {
-      throw new Error('Unexpected postEmpty call')
-    },
-    patchEmpty: () => {
-      throw new Error('Unexpected patchEmpty call')
-    },
-    patch: (path, body, decode) => required(parts.patch, 'patch')(path, body).then(decode),
-    delete: (path) => required(parts.delete, 'delete')(path),
-  }
 }
 
 function renderWithClient(client: ApiClient, element: React.JSX.Element): void {
@@ -281,7 +230,7 @@ describe('createResourceHooks', () => {
     })
 
     const widgetList = vi
-      .fn<NonNullable<StubParts['list']>>()
+      .fn<NonNullable<ClientStubs['list']>>()
       .mockResolvedValueOnce(page([]))
       .mockResolvedValue(page([{ id: 'w_1', name: 'First' }]))
 
@@ -322,7 +271,7 @@ describe('createResourceHooks', () => {
 
   it('pages through a list rather than showing the first page as the whole of it', async () => {
     const list = vi
-      .fn<NonNullable<StubParts['list']>>()
+      .fn<NonNullable<ClientStubs['list']>>()
       .mockResolvedValueOnce(page([{ id: 'w_1', name: 'First' }], 'cursor_2'))
       .mockResolvedValueOnce(page([{ id: 'w_2', name: 'Second' }]))
 

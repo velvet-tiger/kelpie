@@ -8,6 +8,7 @@ export type ErrorCode =
   | 'unauthorized'
   | 'forbidden'
   | 'not_found'
+  | 'method_not_allowed'
   | 'conflict'
   | 'entitlement_required'
   | 'validation_failed'
@@ -19,6 +20,10 @@ const statusByCode = {
   unauthorized: 401,
   forbidden: 403,
   not_found: 404,
+  // Extends the api.md status list, for the MCP transport. Its Streamable HTTP
+  // spec fixes 405 as the answer a server gives for the methods it does not
+  // offer, and a client reads it as "stop trying" rather than "try again".
+  method_not_allowed: 405,
   conflict: 409,
   // Extends the api.md status list: the plan does not include this, which is
   // neither a role problem nor a conflict. 402 would imply Kelpie takes payment,

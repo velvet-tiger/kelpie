@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountOpportunitiesRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createOpportunitiesService } from './service.ts'
+import { registerOpportunitiesTools } from './tools.ts'
 
 /**
  * Opportunities: the non-sales pipeline.
@@ -34,6 +35,8 @@ export function createOpportunitiesModule(migrationsDirectory: string): KelpieMo
       context.routes((router) => {
         mountOpportunitiesRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerOpportunitiesTools(context.mcp, service)
 
       return Promise.resolve()
     },

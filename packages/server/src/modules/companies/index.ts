@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountCompaniesRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createCompaniesService } from './service.ts'
+import { registerCompaniesTools } from './tools.ts'
 
 /**
  * Companies: the organisations behind the people.
@@ -32,6 +33,8 @@ export function createCompaniesModule(migrationsDirectory: string): KelpieModule
       context.routes((router) => {
         mountCompaniesRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerCompaniesTools(context.mcp, service)
 
       return Promise.resolve()
     },
