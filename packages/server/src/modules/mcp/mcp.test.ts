@@ -9,7 +9,7 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
-import { LATEST_PROTOCOL_VERSION } from './protocol.ts'
+import { LATEST_LEGACY_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION } from './protocol.ts'
 
 /**
  * `/mcp` against real Postgres: the transport, and enough of the tool surface to
@@ -142,13 +142,20 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       expect(String(result.instructions)).toContain('snake_case')
     })
 
-    it('answers an unknown protocol version with the newest it speaks', async () => {
+    /**
+     * The newest *legacy* revision, not the newest overall. Answering a
+     * handshake with `2026-07-28` would name a revision in which the handshake
+     * the client just completed does not exist.
+     */
+    it('answers an unknown protocol version with the newest handshake revision', async () => {
       const response = await post(request(1, 'initialize', { protocolVersion: '2019-01-01' }))
 
-      expect(readRecord((await envelope(response)).result).protocolVersion).toBe(LATEST_PROTOCOL_VERSION)
+      expect(readRecord((await envelope(response)).result).protocolVersion).toBe(
+        LATEST_LEGACY_PROTOCOL_VERSION,
+      )
     })
 
-    it('refuses a protocol version header it does not speak', async () => {
+    it('refuses a version it does not speak with the list it does', async () => {
       const response = await harness.app.request('/mcp', {
         method: 'POST',
         headers: {
@@ -160,7 +167,17 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       })
 
       expect(response.status).toBe(400)
-      expect(readRecord(readRecord(await response.json()).error).code).toBe('bad_request')
+
+      const error = readRecord(readRecord(await response.json()).error)
+
+      expect(error.code).toBe(-32_022)
+
+      // The list is the point: without it a client has nothing to retry with.
+      const data = readRecord(error.data)
+
+      expect(data.requested).toBe('1999-12-31')
+      expect(data.supported).toContain(LATEST_PROTOCOL_VERSION)
+      expect(data.supported).toContain(LATEST_LEGACY_PROTOCOL_VERSION)
     })
 
     it('answers a notification with 202 and no body', async () => {
@@ -262,6 +279,254 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
 
       expect(body.error?.code).toBe(-32_700)
       expect(body.id).toBeNull()
+    })
+  })
+
+  /**
+   * The revision with no handshake. A modern client never sends `initialize`; it
+   * puts the version in every request's `_meta`, mirrors three body fields into
+   * headers, and expects `resultType` back.
+   */
+  describe('modern era (2026-07-28)', () => {
+    /** The `_meta` a modern client attaches to every request. */
+    function modernParams(params: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        ...params,
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': LATEST_PROTOCOL_VERSION,
+          'io.modelcontextprotocol/clientInfo': { name: 'test-client', version: '1.0.0' },
+          'io.modelcontextprotocol/clientCapabilities': {},
+        },
+      }
+    }
+
+    /**
+     * A conforming modern POST. `headers` overrides one of the three the
+     * transport requires; an explicit `null` removes it.
+     */
+    function postModern(
+      method: string,
+      params: Record<string, unknown> = {},
+      headers: Record<string, string | null> = {},
+    ): Promise<Response> {
+      const name = params.name
+      const sent: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        Authorization: `Bearer ${workspaceKey}`,
+        'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+        'Mcp-Method': method,
+        ...(typeof name === 'string' ? { 'Mcp-Name': name } : {}),
+      }
+
+      for (const [key, value] of Object.entries(headers)) {
+        if (value === null) {
+          delete sent[key]
+        } else {
+          sent[key] = value
+        }
+      }
+
+      return Promise.resolve(
+        harness.app.request('/mcp', {
+          method: 'POST',
+          headers: sent,
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: modernParams(params) }),
+        }),
+      )
+    }
+
+    it('implements server/discover, which the revision makes mandatory', async () => {
+      const response = await postModern('server/discover')
+
+      expect(response.status).toBe(200)
+
+      const result = readRecord((await envelope(response)).result)
+
+      expect(result.resultType).toBe('complete')
+      expect(result.supportedVersions).toContain(LATEST_PROTOCOL_VERSION)
+      // The legacy revisions are named too: that is how a dual-era client learns
+      // it may fall back to the handshake.
+      expect(result.supportedVersions).toContain(LATEST_LEGACY_PROTOCOL_VERSION)
+      expect(result.capabilities).toEqual({ tools: {} })
+      expect(String(result.instructions)).toContain('snake_case')
+      expect(result.cacheScope).toBe('public')
+      expect(Number(result.ttlMs)).toBeGreaterThan(0)
+
+      const meta = readRecord(result._meta)
+
+      expect(readRecord(meta['io.modelcontextprotocol/serverInfo']).name).toBe('kelpie')
+    })
+
+    it('calls a tool with no handshake at all', async () => {
+      const created = await postModern('tools/call', {
+        name: 'people_create',
+        arguments: { name: 'Ada Lovelace' },
+      })
+
+      expect(created.status).toBe(200)
+
+      const result = readRecord((await envelope(created)).result)
+
+      expect(result.resultType).toBe('complete')
+      expect(result.isError).toBe(false)
+      expect(readRecord(result._meta)['io.modelcontextprotocol/serverInfo']).toBeDefined()
+
+      const content = result.content as { text: string }[]
+
+      expect(readRecord(JSON.parse(content[0]?.text ?? 'null')).name).toBe('Ada Lovelace')
+    })
+
+    it('carries caching hints on tools/list, and legacy carries none', async () => {
+      const modern = readRecord((await envelope(await postModern('tools/list'))).result)
+
+      expect(modern.resultType).toBe('complete')
+      expect(modern.cacheScope).toBe('public')
+      expect(Number(modern.ttlMs)).toBeGreaterThan(0)
+
+      const legacy = readRecord((await envelope(await post(request(1, 'tools/list')))).result)
+
+      // A legacy client's revision never defined any of these, so it is not sent
+      // fields it has no rule for.
+      expect(legacy.resultType).toBeUndefined()
+      expect(legacy.ttlMs).toBeUndefined()
+      expect(legacy._meta).toBeUndefined()
+      expect(legacy.tools).toEqual(modern.tools)
+    })
+
+    it('lists tools in a fixed order, so a client may cache the listing', async () => {
+      const first = readRecord((await envelope(await postModern('tools/list'))).result)
+      const second = readRecord((await envelope(await postModern('tools/list'))).result)
+
+      expect((first.tools as { name: string }[]).map((tool) => tool.name)).toEqual(
+        (second.tools as { name: string }[]).map((tool) => tool.name),
+      )
+    })
+
+    describe('header validation', () => {
+      async function mismatch(response: Response): Promise<string> {
+        expect(response.status).toBe(400)
+
+        const error = readRecord(readRecord(await response.json()).error)
+
+        expect(error.code).toBe(-32_020)
+
+        return String(error.message)
+      }
+
+      it('refuses a missing protocol version header', async () => {
+        expect(await mismatch(await postModern('tools/list', {}, { 'MCP-Protocol-Version': null })))
+          .toContain('MCP-Protocol-Version is required')
+      })
+
+      it('refuses a protocol version header that disagrees with the body', async () => {
+        const response = await postModern('tools/list', {}, { 'MCP-Protocol-Version': '2025-06-18' })
+
+        // Not a version error: both are versions Kelpie speaks. The fault is that
+        // a router and the server would act on different ones.
+        expect(await mismatch(response)).toContain('io.modelcontextprotocol/protocolVersion')
+      })
+
+      it('refuses a method header that disagrees with the body', async () => {
+        expect(await mismatch(await postModern('tools/list', {}, { 'Mcp-Method': 'tools/call' })))
+          .toContain('Mcp-Method')
+      })
+
+      it('refuses a tools/call with no name header', async () => {
+        const response = await postModern(
+          'tools/call',
+          { name: 'people_list', arguments: {} },
+          { 'Mcp-Name': null },
+        )
+
+        expect(await mismatch(response)).toContain('Mcp-Name is required')
+      })
+
+      it('refuses a name header naming a different tool', async () => {
+        const response = await postModern(
+          'tools/call',
+          { name: 'people_list', arguments: {} },
+          { 'Mcp-Name': 'companies_list' },
+        )
+
+        expect(await mismatch(response)).toContain('companies_list')
+      })
+
+      /**
+       * A tool name outside plain ASCII travels Base64-wrapped. Kelpie's own names
+       * never need it, so the check is that the sentinel is decoded before the
+       * comparison rather than compared as written.
+       */
+      it('decodes a Base64 sentinel before comparing it', async () => {
+        const encoded = `=?base64?${Buffer.from('people_list', 'utf8').toString('base64')}?=`
+        const response = await postModern(
+          'tools/call',
+          { name: 'people_list', arguments: { limit: 1 } },
+          { 'Mcp-Name': encoded },
+        )
+
+        expect(response.status).toBe(200)
+        expect(readRecord((await envelope(response)).result).isError).toBe(false)
+      })
+    })
+
+    it('answers an unknown method with 404, which is how a client tells the eras apart', async () => {
+      const response = await postModern('resources/list')
+
+      expect(response.status).toBe(404)
+      expect((await envelope(response)).error?.code).toBe(-32_601)
+    })
+
+    it('does not offer the methods this revision removed', async () => {
+      for (const method of ['ping', 'initialize']) {
+        const response = await postModern(method)
+
+        expect(response.status, method).toBe(404)
+        expect((await envelope(response)).error?.code, method).toBe(-32_601)
+      }
+    })
+
+    /**
+     * A bare `server/discover` is a modern request missing its headers, not an
+     * unknown legacy method, and the difference matters to the one caller that
+     * sends it. A dual-era client detects the era by making a modern request and
+     * reading the body of a `400`: a recognised modern error means "modern
+     * server, correct the request", while a `-32601` would send it back to the
+     * handshake it did not need.
+     */
+    it('treats a bare server/discover as a modern request, not an unknown method', async () => {
+      const response = await post(request(1, 'server/discover'))
+      const body = await envelope(response)
+
+      expect(response.status).toBe(400)
+      expect(body.error?.code).toBe(-32_020)
+      expect(String(body.error?.message)).toContain('MCP-Protocol-Version is required')
+    })
+
+    it('refuses a batch, which this revision removed', async () => {
+      const response = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${workspaceKey}`,
+          'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+          'Mcp-Method': 'tools/list',
+        },
+        body: JSON.stringify([
+          { jsonrpc: '2.0', id: 1, method: 'tools/list', params: modernParams() },
+          { jsonrpc: '2.0', id: 2, method: 'tools/list', params: modernParams() },
+        ]),
+      })
+
+      expect(response.status).toBe(400)
+      expect((await envelope(response)).error?.code).toBe(-32_600)
+    })
+
+    it('still refuses a caller with no key', async () => {
+      const response = await postModern('server/discover', {}, { Authorization: null })
+
+      expect(response.status).toBe(401)
+      expect(response.headers.get('WWW-Authenticate')).toBe('Bearer')
     })
   })
 
