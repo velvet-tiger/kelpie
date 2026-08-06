@@ -165,6 +165,39 @@ describe.skipIf(connectionString === undefined)('notes', () => {
       expect(notes.map((note) => note.body)).toEqual(['Hers'])
     })
 
+    it('returns the notes on every record the filter names, and nothing else', async () => {
+      const second = await createPerson('Grace Hopper')
+      const unasked = await createPerson('Katherine Johnson')
+
+      await noteOn(personId, 'Hers')
+      await noteOn(second, 'Theirs')
+      await noteOn(unasked, 'Nobody asked')
+
+      const notes = readList(
+        await (
+          await listNotes(`target_type=person&target_id=${personId}&target_id=${second}`)
+        ).json(),
+      )
+
+      expect(notes.map((note) => note.body)).toEqual(['Theirs', 'Hers'])
+    })
+
+    it('resolves a set in one request whether or not every record has a note', async () => {
+      const silent = await createPerson('Grace Hopper')
+
+      await noteOn(personId, 'Hers')
+
+      const notes = readList(
+        await (
+          await listNotes(`target_type=person&target_id=${personId}&target_id=${silent}`)
+        ).json(),
+      )
+
+      // The empty record is not an error. It is the answer: a page asking about
+      // five rows gets the notes that exist and renders the rest as empty.
+      expect(notes.map((note) => note.body)).toEqual(['Hers'])
+    })
+
     it('filters on pinned', async () => {
       await addNote({ target_type: 'person', target_id: personId, body: 'Pinned', pinned: true })
       await noteOn(personId, 'Ordinary')
@@ -186,11 +219,31 @@ describe.skipIf(connectionString === undefined)('notes', () => {
       expect((await listNotes(`target_type=person&target_id=${personId}&pinned=yes`)).status).toBe(422)
     })
 
+    it('answers 422 for a blank id, and for more than 200 of them', async () => {
+      const tooMany = Array.from({ length: 201 }, (_, index) => `target_id=per_${String(index)}`)
+
+      expect((await listNotes('target_type=person&target_id=')).status).toBe(422)
+      expect((await listNotes(`target_type=person&${tooMany.join('&')}`)).status).toBe(422)
+    })
+
     it('answers 404 for a target in another workspace', async () => {
       const other = await client.owner('grace@example.com', 'other')
       const theirs = await createPerson('Grace Hopper', other.cookie)
 
       expect((await listNotes(`target_type=person&target_id=${theirs}`)).status).toBe(404)
+    })
+
+    it('answers 404 when any one id in the set is outside the workspace', async () => {
+      const other = await client.owner('grace@example.com', 'other')
+      const theirs = await createPerson('Grace Hopper', other.cookie)
+
+      await noteOn(personId, 'Hers')
+
+      // Not a partial answer. A caller that asked about two records and got one
+      // record's notes cannot tell which of the two it named was the empty one.
+      expect(
+        (await listNotes(`target_type=person&target_id=${personId}&target_id=${theirs}`)).status,
+      ).toBe(404)
     })
   })
 

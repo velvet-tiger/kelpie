@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 
 import type { Queryable } from '../runtime/transaction.ts'
@@ -51,6 +51,37 @@ export function isRecordTargetType(value: string): value is RecordTargetType {
 }
 
 /**
+ * Which of `targetIds` do not name a record of `targetType` in this workspace.
+ *
+ * One query however many ids are asked about, which is what lets a list filtered
+ * by a set of targets validate them without a round trip per id.
+ *
+ * @returns The ids that resolved to nothing, in the order they were given. An id
+ *   in another workspace is indistinguishable from one that never existed, so it
+ *   comes back here too and the caller turns either into the same 404.
+ */
+export async function missingTargets(
+  db: Queryable,
+  workspaceId: string,
+  targetType: RecordTargetType,
+  targetIds: readonly string[],
+): Promise<readonly string[]> {
+  if (targetIds.length === 0) {
+    return []
+  }
+
+  const target = TABLES[targetType]
+  const found = await db
+    .select({ id: target.id })
+    .from(target.table)
+    .where(and(eq(target.workspaceId, workspaceId), inArray(target.id, [...targetIds])))
+
+  const existing = new Set(found.map((row) => row.id))
+
+  return targetIds.filter((id) => !existing.has(id))
+}
+
+/**
  * Whether a target exists inside one workspace.
  *
  * @returns false both for a target that never existed and for one in another
@@ -62,12 +93,5 @@ export async function targetExists(
   targetType: RecordTargetType,
   targetId: string,
 ): Promise<boolean> {
-  const target = TABLES[targetType]
-  const [found] = await db
-    .select({ id: target.id })
-    .from(target.table)
-    .where(and(eq(target.workspaceId, workspaceId), eq(target.id, targetId)))
-    .limit(1)
-
-  return found !== undefined
+  return (await missingTargets(db, workspaceId, targetType, [targetId])).length === 0
 }

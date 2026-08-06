@@ -25,7 +25,7 @@ export interface NotesPanelProps {
 }
 
 export function NotesPanel({ targetType, targetId }: NotesPanelProps): React.JSX.Element {
-  const notes = useNotes({ targetType, targetId })
+  const notes = useNotes({ targetType, targetIds: [targetId] })
   const members = useMembers()
   const createNote = useCreateNote()
   const [adding, setAdding] = useState(false)

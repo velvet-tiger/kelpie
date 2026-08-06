@@ -1,6 +1,8 @@
+import type { Note } from '@kelpie/schemas'
 import { useMemo } from 'react'
 
 import { useCandidates } from '../api/resources/candidates.ts'
+import { useNotes } from '../api/resources/notes.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { useRoles } from '../api/resources/roles.ts'
 
@@ -44,6 +46,56 @@ export function useRoleCandidateCounts(roleIds: readonly string[]): RoleCandidat
     countFor: (roleId) => countByRole.get(roleId) ?? 0,
     isLoading: candidates.isLoading,
     isComplete: !candidates.hasMore,
+  }
+}
+
+export interface CandidateNotes {
+  /** The candidate's most recent note, or undefined when they have none. */
+  noteFor(candidateId: string): Note | undefined
+  readonly isLoading: boolean
+  /**
+   * False when these candidates hold more notes than one page could return.
+   *
+   * A candidate whose note is in the answer is showing their newest one: the
+   * list arrives newest first across the whole set, so a truncated page cannot
+   * hold an older note of theirs without the newer one. Only an *absent*
+   * candidate is ambiguous, and the caller says so rather than offering to
+   * write a second note over the one it did not fetch.
+   */
+  readonly isComplete: boolean
+}
+
+/**
+ * The most recent note on each candidate in a pipeline.
+ *
+ * One request for the whole list rather than one per row. `?target_id=` on notes
+ * repeats to name a set, so a page rendering a note per candidate resolves them
+ * the way every other related column here does.
+ */
+export function useCandidateNotes(candidateIds: readonly string[]): CandidateNotes {
+  const notes = useNotes(
+    { targetType: 'candidate', targetIds: candidateIds, limit: MAX_PAGE },
+    { enabled: candidateIds.length > 0 },
+  )
+
+  const newestByCandidate = useMemo(() => {
+    const newest = new Map<string, Note>()
+
+    // `-created_at` is the default sort, so the first note seen for a candidate
+    // is theirs to show and anything later is older.
+    for (const note of notes.records) {
+      if (!newest.has(note.targetId)) {
+        newest.set(note.targetId, note)
+      }
+    }
+
+    return newest
+  }, [notes.records])
+
+  return {
+    noteFor: (candidateId) => newestByCandidate.get(candidateId),
+    isLoading: notes.isLoading,
+    isComplete: !notes.hasMore,
   }
 }
 

@@ -9,7 +9,7 @@ import { describeNote } from '../activities/wording.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
-import { targetExists } from '../recordTargets.ts'
+import { missingTargets } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_NOTE_SORT, NOTE_SORTS } from './repository.ts'
@@ -79,14 +79,20 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
     return note
   }
 
-  async function requireTarget(
+  /**
+   * Every id has to resolve. One that does not fails the whole list rather than
+   * being dropped from the set: a caller asking about five records and getting
+   * four records' notes back has no way to tell which of the five it asked about
+   * was the empty one.
+   */
+  async function requireTargets(
     workspaceId: string,
     targetType: RecordTargetType,
-    targetId: string,
+    targetIds: readonly string[],
   ): Promise<void> {
-    const exists = await targetExists(dependencies.db, workspaceId, targetType, targetId)
+    const missing = await missingTargets(dependencies.db, workspaceId, targetType, targetIds)
 
-    if (!exists) {
+    if (missing.length > 0) {
       throw AppError.notFound('Record not found')
     }
   }
@@ -95,7 +101,7 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
     async list(actor, filters, query) {
       const workspaceId = requireWorkspaceId(actor)
 
-      await requireTarget(workspaceId, filters.targetType, filters.targetId)
+      await requireTargets(workspaceId, filters.targetType, filters.targetIds)
 
       const window = readListWindow(query, NOTE_SORTS, DEFAULT_NOTE_SORT)
       const rows = await repository.listNotes(dependencies.db, workspaceId, filters, window)
@@ -113,7 +119,7 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
     async create(actor, input) {
       const workspaceId = requireWorkspaceId(actor)
 
-      await requireTarget(workspaceId, input.targetType, input.targetId)
+      await requireTargets(workspaceId, input.targetType, [input.targetId])
 
       const id = dependencies.createId('note')
 
