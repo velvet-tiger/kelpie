@@ -67,7 +67,7 @@ describe('signDeliveryBody', () => {
 
 describe('deliveryHeaders', () => {
   it('sends JSON, the signature, and the two headers a receiver routes and dedupes on', () => {
-    const headers = deliveryHeaders(envelope, 'sha256=deadbeef')
+    const headers = deliveryHeaders(envelope, ['sha256=deadbeef'])
 
     expect(headers).toEqual({
       'Content-Type': 'application/json',
@@ -75,5 +75,21 @@ describe('deliveryHeaders', () => {
       [DELIVERY_HEADER]: 'whd_01',
       [EVENT_HEADER]: 'record.created',
     })
+  })
+
+  /**
+   * The format a receiver has to be written against from the start. It only
+   * carries two values during a rotation overlap, and a receiver that compared
+   * the whole header would fail exactly then.
+   */
+  it('joins two signatures with a comma, and one renders as it always has', () => {
+    expect(deliveryHeaders(envelope, ['sha256=new', 'sha256=old'])[SIGNATURE_HEADER]).toBe(
+      'sha256=new,sha256=old',
+    )
+    expect(deliveryHeaders(envelope, ['sha256=only'])[SIGNATURE_HEADER]).toBe('sha256=only')
+  })
+
+  it('refuses to send a delivery with no signature at all', () => {
+    expect(() => deliveryHeaders(envelope, [])).toThrow(/at least one signature/u)
   })
 })

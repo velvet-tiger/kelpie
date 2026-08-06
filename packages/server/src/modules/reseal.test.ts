@@ -204,9 +204,10 @@ describe.skipIf(connectionString === undefined)('re-sealing stored secrets', () 
   })
 
   /**
-   * Two of the three columns exist with nothing writing to them yet. They must
-   * report zero rather than be skipped, because "examined 0" is what tells an
-   * operator the column was covered at all.
+   * Most sealed columns hold nothing yet: a webhook that has never rotated has
+   * no previous secret, and two modules have the column but write no secret at
+   * all. They must report zero rather than be skipped, because "examined 0" is
+   * what tells an operator the column was covered.
    */
   it('reports a column whose rows all hold no secret', async () => {
     await insertWebhook('whsec_rotate_me', underPrevious)
@@ -214,7 +215,9 @@ describe.skipIf(connectionString === undefined)('re-sealing stored secrets', () 
     const outcome = await resealStoredSecrets(database.db, rotating)
     const empty = outcome.columns.filter((column) => column.label !== 'webhooks.secret_encrypted')
 
-    expect(empty).toHaveLength(2)
+    // Derived, not a literal: adding a sealed column should not fail this test
+    // for the wrong reason. `coverage of every sealed column` owns the count.
+    expect(empty).toHaveLength(RESEALED_COLUMNS.length - 1)
     expect(empty.every((column) => column.examined === 0 && column.resealed === 0)).toBe(true)
   })
 
@@ -230,6 +233,38 @@ describe.skipIf(connectionString === undefined)('re-sealing stored secrets', () 
 
     expect(outcome.resealed).toBe(0)
     expect(outcome.unreadable).toBe(1)
+  })
+
+  /**
+   * A webhook mid-rotation holds two sealed secrets. Both have to survive a
+   * `SECRET_ENCRYPTION_KEY` change, or the overlap window silently stops
+   * covering the receiver it was opened for.
+   */
+  it('re-seals a previous secret alongside the current one', async () => {
+    const id = await insertWebhook('whsec_current', underPrevious)
+
+    await database.db
+      .update(webhooks)
+      .set({
+        previousSecretEncrypted: underPrevious.seal('whsec_retired'),
+        previousSecretExpiresAt: new Date(Date.now() + 60_000),
+      })
+      .where(eq(webhooks.id, id))
+
+    const outcome = await resealStoredSecrets(database.db, rotating)
+
+    expect(outcome.resealed).toBe(2)
+
+    const [row] = await database.db
+      .select({
+        current: webhooks.secretEncrypted,
+        previous: webhooks.previousSecretEncrypted,
+      })
+      .from(webhooks)
+      .where(eq(webhooks.id, id))
+
+    expect(settled.open(row?.current ?? '')).toBe('whsec_current')
+    expect(settled.open(row?.previous ?? '')).toBe('whsec_retired')
   })
 
   it('handles an empty table', async () => {

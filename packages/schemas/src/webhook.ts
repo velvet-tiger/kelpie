@@ -126,6 +126,35 @@ export interface WebhookInput {
   readonly status?: WebhookSettableStatus
 }
 
+/**
+ * How long a rotation may sign under both secrets.
+ *
+ * Long enough to cover a working day, because the window has to span a customer
+ * noticing, changing their configuration and getting a deploy out, and short
+ * enough that a leaked secret is not honoured for a week.
+ *
+ * Shared rather than duplicated: the service computes the expiry from it and the
+ * browser tells the customer what they are choosing, and the two disagreeing
+ * would mean a checkbox that promises a window nothing implements.
+ */
+export const WEBHOOK_SECRET_OVERLAP_HOURS = 24
+
+/**
+ * Replacing a webhook's signing secret.
+ *
+ * `overlap` keeps the old secret valid for a further
+ * `WEBHOOK_SECRET_OVERLAP_HOURS`, so a delivery is signed under both and an
+ * endpoint that has not been redeployed still verifies. Off means the old secret
+ * stops working at once, and deliveries fail until the new one is live.
+ */
+export interface RotateWebhookSecretInput {
+  readonly overlap: boolean
+}
+
+export function rotateWebhookSecretBody(input: RotateWebhookSecretInput): unknown {
+  return { overlap: input.overlap }
+}
+
 export function createWebhookBody(input: CreateWebhookInput): unknown {
   return { url: input.url, events: input.events }
 }

@@ -202,8 +202,10 @@ export type {
 } from './importExport.ts'
 
 export {
+  WEBHOOK_SECRET_OVERLAP_HOURS,
   createWebhookBody,
   createdWebhookSchema,
+  rotateWebhookSecretBody,
   webhookBody,
   webhookDeliverySchema,
   webhookSchema,
@@ -211,6 +213,7 @@ export {
 export type {
   CreateWebhookInput,
   CreatedWebhook,
+  RotateWebhookSecretInput,
   Webhook,
   WebhookDelivery,
   WebhookInput,

@@ -32,6 +32,17 @@ export const webhooks = pgTable(
      */
     secretEncrypted: text('secret_encrypted').notNull(),
     secretPrefix: text('secret_prefix').notNull(),
+    /**
+     * The secret this one replaced, kept only while a rotation overlaps.
+     *
+     * Set when a customer rotates and asks for an overlap window, so a delivery
+     * carries a signature under both secrets and an endpoint that has not been
+     * redeployed yet still verifies. Null the rest of the time, which is every
+     * webhook that has never rotated and every rotation taken immediately.
+     */
+    previousSecretEncrypted: text('previous_secret_encrypted'),
+    /** When the value above stops being signed with. Null together with it. */
+    previousSecretExpiresAt: moment('previous_secret_expires_at'),
     status: text('status').$type<WebhookStatus>().notNull().default('active'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

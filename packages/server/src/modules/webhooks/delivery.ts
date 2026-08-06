@@ -190,6 +190,32 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
     }
   }
 
+  /**
+   * Every secret this delivery should be signed under, newest first.
+   *
+   * A secret that will not decrypt throws, and the caller logs it against this
+   * webhook. Deliberately not recorded as a failed delivery: the endpoint did
+   * nothing wrong, Kelpie's key did, and marking the registration `failing`
+   * would send the customer debugging their own server while the real fault is
+   * `SECRET_ENCRYPTION_KEY`.
+   *
+   * The expiry is read here rather than swept by a job. There is no scheduler in
+   * the service, and an overlap that has run out simply stops being signed with;
+   * the column is cleared by the next rotation or by deleting the registration.
+   */
+  function signaturesFor(webhook: WebhookRecord, text: string, at: Date): readonly string[] {
+    const signatures = [signDeliveryBody(dependencies.cipher.open(webhook.secretEncrypted), text)]
+    const expiresAt = webhook.previousSecretExpiresAt
+
+    if (webhook.previousSecretEncrypted !== null && expiresAt !== null && expiresAt > at) {
+      signatures.push(
+        signDeliveryBody(dependencies.cipher.open(webhook.previousSecretEncrypted), text),
+      )
+    }
+
+    return signatures
+  }
+
   async function deliverTo(webhook: WebhookRecord, payload: WebhookEventPayload): Promise<void> {
     const deliveryId = dependencies.createId('webhookDelivery')
     const envelope: DeliveryEnvelope = {
@@ -201,16 +227,10 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
     }
     const body = deliveryBody(envelope)
     const text = renderDeliveryBody(body)
-    // A secret that will not decrypt throws, and the caller logs it against
-    // this webhook. Deliberately not recorded as a failed delivery: the
-    // endpoint did nothing wrong, Kelpie's key did, and marking the
-    // registration `failing` would send the customer debugging their own
-    // server while the real fault is `SECRET_ENCRYPTION_KEY`.
-    const secret = dependencies.cipher.open(webhook.secretEncrypted)
     const { attempts, outcome } = await attemptUntilDelivered({
       url: webhook.url,
       body: text,
-      headers: deliveryHeaders(envelope, signDeliveryBody(secret, text)),
+      headers: deliveryHeaders(envelope, signaturesFor(webhook, text, envelope.sentAt)),
     })
 
     if (!outcome.delivered) {

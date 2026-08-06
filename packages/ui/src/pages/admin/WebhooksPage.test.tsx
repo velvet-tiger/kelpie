@@ -64,6 +64,8 @@ interface Stubs {
   readonly onPatch?: (path: string, body: unknown) => unknown
   /** Answers `/webhooks/:id/deliveries`. Absent means the page must never ask. */
   readonly onDeliveries?: (request: DeliveryRequest) => { items: unknown[]; nextCursor: string | null }
+  /** Answers `/webhooks/:id/rotate_secret`. */
+  readonly onRotate?: (body: unknown) => unknown
 }
 
 function stubClient(stubs: Stubs): ApiClient {
@@ -107,10 +109,17 @@ function stubClient(stubs: Stubs): ApiClient {
 
       return Promise.resolve({ items: stored.map(decodeItem), nextCursor: null })
     },
-    post: (path, body, decode) =>
-      stubs.onPost === undefined || path !== '/webhooks'
+    post: (path, body, decode) => {
+      if (path === '/webhooks/wh_1/rotate_secret') {
+        return stubs.onRotate === undefined
+          ? unexpected(`post ${path}`)
+          : Promise.resolve(decode(stubs.onRotate(body)))
+      }
+
+      return stubs.onPost === undefined || path !== '/webhooks'
         ? unexpected(`post ${path}`)
-        : Promise.resolve(decode(stubs.onPost(body))),
+        : Promise.resolve(decode(stubs.onPost(body)))
+    },
     patch: (path, body, decode) => {
       if (stubs.onPatch === undefined) {
         return unexpected(`patch ${path}`)
@@ -274,6 +283,108 @@ describe('WebhooksPage', () => {
     renderPage({ listFails: new ApiError(403, 'forbidden', 'This action needs the admin role', []) })
 
     expect(await screen.findByText(/admin role|not available/u)).toBeTruthy()
+  })
+})
+
+/**
+ * Replacing a leaked secret without deleting the registration. The choice on
+ * offer is a security one, so the page has to be unambiguous about which way
+ * the checkbox cuts.
+ */
+describe('WebhooksPage secret rotation', () => {
+  function rotateStubs(): { bodies: unknown[]; stubs: Stubs } {
+    const bodies: unknown[] = []
+
+    return {
+      bodies,
+      stubs: {
+        onRotate: (body) => {
+          bodies.push(body)
+
+          return { ...WEBHOOK, secret_prefix: 'whsec_…aa11', secret: 'whsec_rotatedvalue' }
+        },
+      },
+    }
+  }
+
+  async function openRotatePanel(): Promise<void> {
+    const toggle = await screen.findByRole('button', { name: 'Rotate secret' })
+
+    await act(async () => {
+      toggle.click()
+    })
+  }
+
+  /** The panel's own button carries the same label, so this picks the last one. */
+  async function confirmRotation(): Promise<void> {
+    const buttons = await screen.findAllByRole('button', { name: 'Rotate secret' })
+
+    await act(async () => {
+      buttons.at(-1)?.click()
+    })
+  }
+
+  it('asks nothing until the panel is opened', async () => {
+    const { bodies, stubs } = rotateStubs()
+    renderPage(stubs)
+
+    await screen.findByText('https://example.com/hooks/kelpie')
+    expect(bodies).toHaveLength(0)
+  })
+
+  it('rotates without an overlap by default', async () => {
+    const { bodies, stubs } = rotateStubs()
+    renderPage(stubs)
+    await openRotatePanel()
+    await confirmRotation()
+
+    await waitFor(() => {
+      expect(bodies).toEqual([{ overlap: false }])
+    })
+  })
+
+  it('sends the overlap when the box is ticked', async () => {
+    const { bodies, stubs } = rotateStubs()
+    renderPage(stubs)
+    await openRotatePanel()
+
+    const overlap = await screen.findByRole('checkbox', { name: /Keep accepting the old secret/u })
+
+    await act(async () => {
+      ;(overlap as HTMLInputElement).click()
+    })
+    await confirmRotation()
+
+    await waitFor(() => {
+      expect(bodies).toEqual([{ overlap: true }])
+    })
+  })
+
+  /** The response is the only place the replacement secret ever appears. */
+  it('shows the new secret once, in the same panel a registration uses', async () => {
+    const { stubs } = rotateStubs()
+    renderPage(stubs)
+    await openRotatePanel()
+    await confirmRotation()
+
+    expect(await screen.findByText('whsec_rotatedvalue')).toBeTruthy()
+    expect(screen.getByText(/not shown again/u)).toBeTruthy()
+  })
+
+  /**
+   * The default is the tighter answer, and the copy has to say what it costs.
+   * A customer rotating a leaked secret needs to know deliveries will fail.
+   */
+  it('says what each choice does before the button is pressed', async () => {
+    const { stubs } = rotateStubs()
+    renderPage(stubs)
+    await openRotatePanel()
+
+    const overlap = await screen.findByRole('checkbox', { name: /Keep accepting the old secret/u })
+
+    expect((overlap as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByText(/keeps its id, its events and its delivery log/u)).toBeTruthy()
+    expect(screen.getByText(/stops working immediately/u)).toBeTruthy()
   })
 })
 

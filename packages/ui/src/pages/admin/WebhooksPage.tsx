@@ -1,4 +1,8 @@
-import { WEBHOOK_EVENTS, WEBHOOK_STATUS_LABELS } from '@kelpie/schemas'
+import {
+  WEBHOOK_EVENTS,
+  WEBHOOK_SECRET_OVERLAP_HOURS,
+  WEBHOOK_STATUS_LABELS,
+} from '@kelpie/schemas'
 import type { CreatedWebhook, Webhook, WebhookEvent, WebhookStatus } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
@@ -7,6 +11,7 @@ import { useSession } from '../../api/resources/session.ts'
 import {
   useCreateWebhook,
   useDeleteWebhook,
+  useRotateWebhookSecret,
   useUpdateWebhook,
   useWebhooks,
 } from '../../api/resources/webhooks.ts'
@@ -91,7 +96,7 @@ function WebhookAdmin(): React.JSX.Element {
       ) : (
         <ul className="space-y-3">
           {records.map((webhook) => (
-            <WebhookRow key={webhook.id} webhook={webhook} />
+            <WebhookRow key={webhook.id} webhook={webhook} onRotated={setMinted} />
           ))}
         </ul>
       )}
@@ -235,12 +240,20 @@ function SecretOnce({
   )
 }
 
-function WebhookRow({ webhook }: { readonly webhook: Webhook }): React.JSX.Element {
+function WebhookRow({
+  webhook,
+  onRotated,
+}: {
+  readonly webhook: Webhook
+  readonly onRotated: (webhook: CreatedWebhook) => void
+}): React.JSX.Element {
   const updateWebhook = useUpdateWebhook()
   const deleteWebhook = useDeleteWebhook()
+  const rotateSecret = useRotateWebhookSecret()
   const [isConfirmingRemoval, setIsConfirmingRemoval] = useState(false)
   const [isShowingDeliveries, setIsShowingDeliveries] = useState(false)
-  const failure = updateWebhook.error ?? deleteWebhook.error
+  const [isRotating, setIsRotating] = useState(false)
+  const failure = updateWebhook.error ?? deleteWebhook.error ?? rotateSecret.error
 
   return (
     <li className="rounded-md border border-border p-4">
@@ -317,7 +330,32 @@ function WebhookRow({ webhook }: { readonly webhook: Webhook }): React.JSX.Eleme
         >
           {isShowingDeliveries ? 'Hide deliveries' : 'Deliveries'}
         </button>
+        <button
+          type="button"
+          aria-expanded={isRotating}
+          onClick={() => {
+            setIsRotating((current) => !current)
+          }}
+          className="font-medium text-accent hover:underline"
+        >
+          {isRotating ? 'Cancel rotation' : 'Rotate secret'}
+        </button>
       </div>
+
+      {isRotating && (
+        <RotatePanel
+          isPending={rotateSecret.isPending}
+          onRotate={(overlap) => {
+            rotateSecret
+              .runAsync({ id: webhook.id, overlap })
+              .then((rotated) => {
+                setIsRotating(false)
+                onRotated(rotated)
+              })
+              .catch(() => undefined)
+          }}
+        />
+      )}
 
       {/* Mounted rather than hidden, so an unopened row costs no request. */}
       {isShowingDeliveries && (
@@ -332,6 +370,66 @@ function WebhookRow({ webhook }: { readonly webhook: Webhook }): React.JSX.Eleme
         </div>
       )}
     </li>
+  )
+}
+
+/**
+ * The one choice a rotation offers, and it is worth a panel rather than a
+ * confirm dialog.
+ *
+ * Rotating with no overlap replaces the secret the instant it is pressed, so
+ * every delivery fails until the new one is live on the customer's server. The
+ * checkbox is off by default because it is the tighter security answer: it is
+ * the right choice for a secret that has actually leaked, where honouring the
+ * old one for another day is the thing you are trying to stop.
+ */
+function RotatePanel({
+  isPending,
+  onRotate,
+}: {
+  readonly isPending: boolean
+  readonly onRotate: (overlap: boolean) => void
+}): React.JSX.Element {
+  const [overlap, setOverlap] = useState(false)
+
+  return (
+    <div className="mt-3 rounded-md border border-border bg-surface-sunken p-3">
+      <p className="text-[12px] font-medium text-ink">Replace the signing secret</p>
+      <p className="mt-1 text-[11px] text-ink-muted">
+        The webhook keeps its id, its events and its delivery log. The new secret is shown once.
+      </p>
+
+      <label className="mt-3 flex cursor-pointer items-start gap-2">
+        <input
+          type="checkbox"
+          checked={overlap}
+          onChange={(event) => {
+            setOverlap(event.target.checked)
+          }}
+          className="mt-0.5"
+        />
+        <span className="text-[11px] text-ink-muted">
+          <span className="font-medium text-ink">
+            Keep accepting the old secret for {WEBHOOK_SECRET_OVERLAP_HOURS} hours
+          </span>
+          <br />
+          Each delivery is signed with both, so nothing fails while you roll the new secret out.
+          Leave this off if the old secret has leaked: it stops working immediately, and deliveries
+          fail until you have deployed the new one.
+        </span>
+      </label>
+
+      <button
+        type="button"
+        disabled={isPending}
+        onClick={() => {
+          onRotate(overlap)
+        }}
+        className="mt-3 rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
+      >
+        {isPending ? 'Rotating…' : 'Rotate secret'}
+      </button>
+    </div>
   )
 }
 

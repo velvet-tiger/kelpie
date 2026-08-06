@@ -1,3 +1,4 @@
+import { WEBHOOK_SECRET_OVERLAP_HOURS } from '@kelpie/schemas'
 import type { WebhookEvent, WebhookSettableStatus, WebhookStatus } from '@kelpie/schemas'
 
 import { changedKeys } from '../../lib/changes.ts'
@@ -38,6 +39,8 @@ import type {
 
 /** `whsec_` is what a leak scanner greps for, so it lives in the secret itself. */
 const SECRET_PREFIX = 'whsec_'
+
+const SECRET_OVERLAP_MS = WEBHOOK_SECRET_OVERLAP_HOURS * 60 * 60 * 1000
 
 export interface WebhooksDependencies {
   readonly db: Database
@@ -80,11 +83,24 @@ export interface UpdateWebhookInput {
   readonly status?: WebhookSettableStatus | undefined
 }
 
+export interface RotateSecretInput {
+  /**
+   * Keep signing under the old secret for `SECRET_OVERLAP_HOURS` as well.
+   *
+   * Off by default, which replaces the secret at once and means deliveries fail
+   * until the endpoint is redeployed. On, a receiver holding either secret
+   * verifies, so nothing fails while the customer rolls the new one out.
+   */
+  readonly overlap: boolean
+}
+
 export interface WebhooksService {
   list(actor: Actor, filters: WebhookFilters, query: ListQueryParameters): Promise<Page<WebhookView>>
   get(actor: Actor, id: string): Promise<WebhookView>
   create(actor: Actor, input: CreateWebhookInput): Promise<CreatedWebhookView>
   update(actor: Actor, id: string, changes: UpdateWebhookInput): Promise<WebhookView>
+  /** Mints a replacement signing secret, answering with it exactly once. */
+  rotateSecret(actor: Actor, id: string, input: RotateSecretInput): Promise<CreatedWebhookView>
   remove(actor: Actor, id: string): Promise<void>
   listDeliveries(
     actor: Actor,
@@ -248,6 +264,50 @@ export function createWebhooksService(dependencies: WebhooksDependencies): Webho
       })
 
       return toView(updated)
+    },
+
+    /**
+     * The registration keeps its id, its subscriptions and its delivery log.
+     * Only the secret moves, which is the whole point: deleting and re-creating
+     * loses the log and forces the customer to re-subscribe.
+     *
+     * The status is left alone. A hook is `failing` because the engine found it
+     * failing, and rotating does not fix the endpoint; the next delivery is what
+     * decides whether it recovered.
+     */
+    async rotateSecret(actor, id, input) {
+      const workspaceId = requireAdminWorkspace(actor)
+      const existing = await require(workspaceId, id)
+      const { secret, secretPrefix } = mintSecret(newToken)
+      const now = dependencies.now()
+
+      const rotated = await dependencies.transaction(async ({ tx }) => {
+        const row = await repository.updateWebhook(tx, workspaceId, id, {
+          secretEncrypted: dependencies.cipher.seal(secret),
+          secretPrefix,
+          // The outgoing ciphertext is carried across as it is. It is already
+          // sealed under the current SECRET_ENCRYPTION_KEY, so re-sealing it
+          // would only spend a fresh IV to store the same plaintext.
+          //
+          // Without an overlap both columns are cleared, which is also what
+          // discards the previous secret from an earlier overlapping rotation
+          // rather than leaving its ciphertext at rest indefinitely.
+          previousSecretEncrypted: input.overlap ? existing.secretEncrypted : null,
+          previousSecretExpiresAt: input.overlap
+            ? new Date(now.getTime() + SECRET_OVERLAP_MS)
+            : null,
+          updatedAt: now,
+        })
+
+        if (row === undefined) {
+          throw AppError.notFound('Webhook not found')
+        }
+
+        return row
+      })
+
+      // The only time the new secret leaves this process. Nothing stores it.
+      return { ...(await toView(rotated)), secret }
     },
 
     async remove(actor, id) {

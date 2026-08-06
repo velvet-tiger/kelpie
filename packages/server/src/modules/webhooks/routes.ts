@@ -8,7 +8,7 @@ import type { WebhookDeliveryStatus, WebhookStatus } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
-import { AppError } from '../../lib/errors.ts'
+import { AppError, toErrorDetails } from '../../lib/errors.ts'
 import { pageBody, readJsonBody, readListParameters } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
@@ -59,8 +59,44 @@ const updateBody = z
   })
   .partial()
 
+/**
+ * Rotation takes no fields in the common case, so the body is optional and
+ * `overlap` defaults to off. Strict like every other body: a misspelled field
+ * is a `422` rather than a rotation that silently took effect at once.
+ */
+const rotateBody = z.strictObject({ overlap: z.boolean().optional() })
+
 export interface WebhooksRoutesDependencies extends CredentialDependencies {
   readonly service: WebhooksService
+}
+
+/**
+ * Reads a body that may be absent entirely.
+ *
+ * `POST …/rotate_secret` with nothing in it is the ordinary request, and
+ * `readJsonBody` answers `400` for an empty body. Local to this module rather
+ * than in `lib/http.ts` because it has one caller; it moves there when a second
+ * endpoint wants it.
+ */
+async function readOptionalJsonBody<T>(context: Context, schema: z.ZodType<T>): Promise<T> {
+  const text = await context.req.text()
+  let raw: unknown = {}
+
+  if (text.trim().length > 0) {
+    try {
+      raw = JSON.parse(text)
+    } catch {
+      throw new AppError('bad_request', 'Body must be valid JSON')
+    }
+  }
+
+  const parsed = schema.safeParse(raw)
+
+  if (!parsed.success) {
+    throw AppError.validationFailed('Request body is invalid', toErrorDetails(parsed.error.issues))
+  }
+
+  return parsed.data
 }
 
 export function webhookResponse(webhook: WebhookView): Record<string, unknown> {
@@ -163,6 +199,22 @@ export function mountWebhooksRoutes(router: Hono, dependencies: WebhooksRoutesDe
     )
 
     return context.json(webhookResponse(webhook))
+  })
+
+  /**
+   * Replaces the signing secret, answering with the new one exactly once. Same
+   * contract `POST /v1/webhooks` has, and the registration keeps its id, its
+   * subscriptions and its delivery log.
+   */
+  router.post('/webhooks/:id/rotate_secret', async (context) => {
+    const body = await readOptionalJsonBody(context, rotateBody)
+    const webhook = await dependencies.service.rotateSecret(
+      await requireActor(context),
+      context.req.param('id'),
+      { overlap: body.overlap ?? false },
+    )
+
+    return context.json(createdWebhookResponse(webhook))
   })
 
   router.delete('/webhooks/:id', async (context) => {

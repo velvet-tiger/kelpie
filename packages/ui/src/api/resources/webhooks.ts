@@ -1,6 +1,7 @@
 import {
   createWebhookBody,
   createdWebhookSchema,
+  rotateWebhookSecretBody,
   webhookBody,
   webhookDeliverySchema,
   webhookSchema,
@@ -8,6 +9,7 @@ import {
 import type {
   CreateWebhookInput,
   CreatedWebhook,
+  RotateWebhookSecretInput,
   Webhook,
   WebhookDelivery,
   WebhookInput,
@@ -117,6 +119,35 @@ export function useCreateWebhook(): MutationResult<CreateWebhookInput, CreatedWe
   const mutation = useMutation({
     mutationFn: (input: CreateWebhookInput) =>
       client.post('/webhooks', createWebhookBody(input), createdWebhookSchema.parse),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['webhooks', 'list'] })
+    },
+  })
+
+  return asMutationResult(mutation)
+}
+
+export interface RotateSecretArguments extends RotateWebhookSecretInput {
+  readonly id: string
+}
+
+/**
+ * Replaces a webhook's signing secret.
+ *
+ * Written out for the same reason `useCreateWebhook` is: the response carries
+ * the new secret, which no later request can retrieve, so it has to survive a
+ * decode that the shared `Webhook` schema would drop.
+ */
+export function useRotateWebhookSecret(): MutationResult<RotateSecretArguments, CreatedWebhook> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: ({ id, ...input }: RotateSecretArguments) =>
+      client.post(
+        `/webhooks/${id}/rotate_secret`,
+        rotateWebhookSecretBody(input),
+        createdWebhookSchema.parse,
+      ),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['webhooks', 'list'] })
     },

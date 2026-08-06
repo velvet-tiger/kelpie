@@ -52,19 +52,43 @@ export function renderDeliveryBody(body: Record<string, unknown>): string {
 
 /**
  * @param secret The plaintext signing secret, as the receiver holds it.
- * @returns `sha256=<hex>`, the value of `Kelpie-Signature`.
+ * @returns `sha256=<hex>`, one value of `Kelpie-Signature`.
  */
 export function signDeliveryBody(secret: string, body: string): string {
   return `sha256=${createHmac('sha256', secret).update(body, 'utf8').digest('hex')}`
 }
 
+/**
+ * Joins one or more signatures into the header value.
+ *
+ * A rotation with an overlap window signs under both the new secret and the old
+ * one, so an endpoint that has not been redeployed yet still finds a value it
+ * can verify. `api.md` therefore tells a receiver to split on `,` and accept if
+ * **any** value matches, rather than comparing the header to one expected
+ * string.
+ *
+ * That instruction has to hold outside a rotation too, which is why this is the
+ * only way the header is ever built. A receiver that compares the whole header
+ * would work perfectly until the first rotation and fail during it, which is
+ * precisely when a customer can least afford a surprise. One signature renders
+ * identically to the single value the header has always carried, so saying so
+ * costs nothing today and is what makes the overlap work at all.
+ */
+export function joinSignatures(signatures: readonly string[]): string {
+  if (signatures.length === 0) {
+    throw new Error('A delivery must carry at least one signature')
+  }
+
+  return signatures.join(',')
+}
+
 export function deliveryHeaders(
   envelope: DeliveryEnvelope,
-  signature: string,
+  signatures: readonly string[],
 ): Readonly<Record<string, string>> {
   return {
     'Content-Type': 'application/json',
-    [SIGNATURE_HEADER]: signature,
+    [SIGNATURE_HEADER]: joinSignatures(signatures),
     [DELIVERY_HEADER]: envelope.deliveryId,
     [EVENT_HEADER]: envelope.event,
   }

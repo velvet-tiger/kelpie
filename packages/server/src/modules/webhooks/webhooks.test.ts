@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { createdWebhookSchema, webhookDeliverySchema, webhookSchema } from '@kelpie/schemas'
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -14,6 +15,7 @@ import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import { MAX_DELIVERY_ATTEMPTS, RETRY_DELAYS_MS } from './delivery.ts'
 import type { AttemptOutcome, DeliveryRequest, SendDelivery, Sleep } from './delivery.ts'
 import { createWebhooksModule } from './index.ts'
+import { webhooks } from './schema.ts'
 import { DELIVERY_HEADER, EVENT_HEADER, SIGNATURE_HEADER } from './signing.ts'
 
 /**
@@ -518,6 +520,157 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       )
 
       expect(delivery?.payload).toEqual(JSON.parse(sent.at(0)?.body ?? '{}'))
+    })
+  })
+
+  /**
+   * Replacing a leaked secret without deleting the registration, which would
+   * take its subscriptions and its whole delivery log with it.
+   */
+  describe('rotating the signing secret', () => {
+    /** Every `sha256=…` value on the last delivery. */
+    function signaturesSent(): string[] {
+      return String(sent.at(-1)?.headers[SIGNATURE_HEADER] ?? '').split(',')
+    }
+
+    function signatureUnder(secret: string): string {
+      return `sha256=${createHmac('sha256', secret).update(sent.at(-1)?.body ?? '', 'utf8').digest('hex')}`
+    }
+
+    async function rotate(id: string, body?: Record<string, unknown>): Promise<Response> {
+      return client.send('POST', `/v1/webhooks/${id}/rotate_secret`, {
+        cookie: acme.cookie,
+        ...(body === undefined ? {} : { body }),
+      })
+    }
+
+    it('answers with a new secret, once, and keeps the registration', async () => {
+      const created = await createWebhook({ events: ['record.created', 'record.updated'] })
+      const id = readString(created, 'id')
+      const original = readString(created, 'secret')
+
+      const response = await rotate(id)
+      const rotated = readRecord(await response.json())
+
+      expect(response.status).toBe(200)
+      expect(readString(rotated, 'secret')).not.toBe(original)
+      expect(readString(rotated, 'secret').startsWith('whsec_')).toBe(true)
+      // The id, the events and the delivery log all survive. Deleting and
+      // re-registering is what this endpoint exists to avoid.
+      expect(rotated.id).toBe(id)
+      expect(rotated.events).toEqual(['record.created', 'record.updated'])
+      expect(readString(rotated, 'secret_prefix')).not.toBe(readString(created, 'secret_prefix'))
+
+      // And never again: the list carries a prefix and no secret.
+      expect((await listWebhooks()).at(0)).not.toHaveProperty('secret')
+    })
+
+    it('signs with the new secret and not the old one', async () => {
+      const created = await createWebhook()
+      const original = readString(created, 'secret')
+      const replacement = readString(readRecord(await (await rotate(readString(created, 'id'))).json()), 'secret')
+
+      await createPerson()
+
+      expect(signaturesSent()).toEqual([signatureUnder(replacement)])
+      expect(signaturesSent()).not.toContain(signatureUnder(original))
+    })
+
+    /**
+     * The whole point of the overlap: an endpoint still holding the old secret
+     * finds a value it can verify, so nothing fails while the customer deploys.
+     */
+    it('signs with both secrets during an overlap', async () => {
+      const created = await createWebhook()
+      const original = readString(created, 'secret')
+      const replacement = readString(
+        readRecord(await (await rotate(readString(created, 'id'), { overlap: true })).json()),
+        'secret',
+      )
+
+      await createPerson()
+
+      const signatures = signaturesSent()
+
+      expect(signatures).toHaveLength(2)
+      expect(signatures).toContain(signatureUnder(replacement))
+      expect(signatures).toContain(signatureUnder(original))
+      // Newest first, so a receiver that only reads the first value is on the
+      // secret it is being moved to rather than the one being retired.
+      expect(signatures.at(0)).toBe(signatureUnder(replacement))
+    })
+
+    it('stops signing with the old secret once the window has passed', async () => {
+      const created = await createWebhook()
+      const original = readString(created, 'secret')
+      await rotate(readString(created, 'id'), { overlap: true })
+
+      // Straight past the expiry the rotation wrote, rather than waiting a day.
+      await database.db
+        .update(webhooks)
+        .set({ previousSecretExpiresAt: new Date(Date.now() - 1_000) })
+        .where(eq(webhooks.id, readString(created, 'id')))
+
+      await createPerson()
+
+      expect(signaturesSent()).toHaveLength(1)
+      expect(signaturesSent()).not.toContain(signatureUnder(original))
+    })
+
+    it('discards a previous secret when rotating again without an overlap', async () => {
+      const created = await createWebhook()
+      const id = readString(created, 'id')
+      await rotate(id, { overlap: true })
+      await rotate(id)
+
+      const [row] = await database.db
+        .select({
+          previous: webhooks.previousSecretEncrypted,
+          expires: webhooks.previousSecretExpiresAt,
+        })
+        .from(webhooks)
+        .where(eq(webhooks.id, id))
+
+      // Not merely expired: the ciphertext is gone, so a retired secret is not
+      // left sitting at rest for the life of the registration.
+      expect(row?.previous).toBeNull()
+      expect(row?.expires).toBeNull()
+    })
+
+    it('keeps the delivery log across a rotation', async () => {
+      const id = readString(await createWebhook(), 'id')
+      await createPerson('Ada Lovelace')
+      await rotate(id, { overlap: true })
+      await createPerson('Grace Hopper')
+
+      const deliveries = readList(
+        await (await client.send('GET', `/v1/webhooks/${id}/deliveries`, { cookie: acme.cookie })).json(),
+      )
+
+      expect(deliveries).toHaveLength(2)
+    })
+
+    it('needs the admin role, like every other verb here', async () => {
+      const id = readString(await createWebhook(), 'id')
+      const member = await addMember('grace@example.com', 'member')
+
+      const response = await client.send('POST', `/v1/webhooks/${id}/rotate_secret`, {
+        cookie: member,
+      })
+
+      expect(response.status).toBe(403)
+    })
+
+    it('404s for a webhook in another workspace', async () => {
+      const response = await rotate('wh_01JZZZZZZZZZZZZZZZZZZZZZZZ')
+
+      expect(response.status).toBe(404)
+    })
+
+    it('refuses a field it does not know rather than rotating anyway', async () => {
+      const id = readString(await createWebhook(), 'id')
+
+      expect((await rotate(id, { overlap_hours: 72 })).status).toBe(422)
     })
   })
 })

@@ -59,6 +59,14 @@ const SEALED_COLUMNS: readonly SealedColumn[] = [
     },
   },
   {
+    label: 'webhooks.previous_secret_encrypted',
+    read: async (db) =>
+      db.select({ id: webhooks.id, sealed: webhooks.previousSecretEncrypted }).from(webhooks),
+    write: async (db, id, sealed) => {
+      await db.update(webhooks).set({ previousSecretEncrypted: sealed }).where(eq(webhooks.id, id))
+    },
+  },
+  {
     label: 'agent_registrations.auth_header_encrypted',
     read: async (db) =>
       db
