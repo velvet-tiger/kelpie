@@ -1,6 +1,11 @@
 import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secrets.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
-import { createDeliveryEngine, createHttpSender, sleepFor } from './delivery.ts'
+import {
+  createDeliveryEngine,
+  createHttpSender,
+  deliveryRetentionConfigSchema,
+  sleepFor,
+} from './delivery.ts'
 import type { SendDelivery, Sleep } from './delivery.ts'
 import { subscribeDeliverableEvents } from './payloads.ts'
 import { mountWebhooksRoutes } from './routes.ts'
@@ -38,8 +43,11 @@ export function createWebhooksModule(
     register(context) {
       // Validated at boot rather than on the first delivery: a missing or
       // malformed key means no webhook can ever be signed, and finding that out
-      // when a customer's endpoint goes quiet is far too late.
+      // when a customer's endpoint goes quiet is far too late. The retention
+      // window is validated the same way for the same reason — a bad value
+      // should stop boot, not prune by the wrong window.
       const cipher = createSecretCipher(context.config(secretEncryptionConfigSchema))
+      const retention = context.config(deliveryRetentionConfigSchema)
 
       const service = createWebhooksService({
         db: context.db,
@@ -57,6 +65,7 @@ export function createWebhooksModule(
         cipher,
         send: options.send ?? createHttpSender(),
         sleep: options.sleep ?? sleepFor,
+        retentionDays: retention.WEBHOOK_DELIVERY_RETENTION_DAYS,
         log: context.log,
       })
 

@@ -1,5 +1,5 @@
 import type { WebhookDeliveryStatus, WebhookEvent, WebhookStatus } from '@kelpie/schemas'
-import { and, arrayContains, desc, eq, inArray, ne } from 'drizzle-orm'
+import { and, arrayContains, desc, eq, inArray, lt, ne } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
@@ -197,6 +197,28 @@ export async function insertDelivery(
   }
 
   return created
+}
+
+/**
+ * Deletes this webhook's log rows older than the cutoff.
+ *
+ * Scoped to one webhook rather than the workspace so the delete walks
+ * `webhook_deliveries_webhook_idx` — the workspace column has no index here,
+ * and the engine calls this on every recorded delivery.
+ *
+ * @returns How many rows went, for the engine's log line.
+ */
+export async function deleteExpiredDeliveries(
+  db: Queryable,
+  webhookId: string,
+  before: Date,
+): Promise<number> {
+  const deleted = await db
+    .delete(webhookDeliveries)
+    .where(and(eq(webhookDeliveries.webhookId, webhookId), lt(webhookDeliveries.createdAt, before)))
+    .returning({ id: webhookDeliveries.id })
+
+  return deleted.length
 }
 
 export function listDeliveries(
