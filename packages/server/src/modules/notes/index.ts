@@ -28,7 +28,6 @@ export function createNotesModule(migrationsDirectory: string): KelpieModule {
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(['note.added'])
 
       context.routes((router) => {
         mountNotesRoutes(router, { db: context.db, now: context.now, service })

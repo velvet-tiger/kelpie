@@ -99,8 +99,6 @@ export interface ModuleContext extends ModuleServices {
    * until a module registers a provider.
    */
   readonly entitlements: EntitlementRegistry
-  /** Adds names to the list of events webhooks can subscribe to. */
-  webhookEvents(names: readonly string[]): void
   /** Validates this module's slice of the environment. Fails boot when invalid. */
   config<T>(schema: ZodType<T>): T
   readonly log: Logger

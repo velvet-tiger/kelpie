@@ -35,8 +35,6 @@ const greetingModule: KelpieModule = {
       invoke: (input) => Promise.resolve({ greeting: `${config.GREETING_WORD}, ${input.name}` }),
     })
 
-    context.webhookEvents(['greeting.said'])
-
     return Promise.resolve()
   },
 }
@@ -295,26 +293,6 @@ describe('module event subscriptions', () => {
   })
 })
 
-describe('module webhook events', () => {
-  it('collects declared names and drops duplicates', async () => {
-    const alsoSaying: KelpieModule = {
-      id: 'echo',
-      register(context) {
-        context.webhookEvents(['greeting.said', 'echo.repeated'])
-
-        return Promise.resolve()
-      },
-    }
-
-    const { contributions } = await createTestApp({
-      modules: [greetingModule, alsoSaying],
-      environment: { GREETING_WORD: 'Hello' },
-    })
-
-    expect(contributions.webhookEvents).toEqual(['greeting.said', 'echo.repeated'])
-  })
-})
-
 describe('registration failures', () => {
   it('wraps a module that throws, naming it and keeping the cause', async () => {
     const broken: KelpieModule = {
@@ -367,7 +345,6 @@ describe('an assembly with no modules', () => {
     expect(contributions.publicRouters).toEqual([])
     expect(contributions.schemas).toEqual([])
     expect(contributions.mcpTools).toEqual([])
-    expect(contributions.webhookEvents).toEqual([])
     expect((await app.request('/healthz')).status).toBe(200)
   })
 })

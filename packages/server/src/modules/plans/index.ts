@@ -24,7 +24,6 @@ export function createPlansModule(migrationsDirectory: string): KelpieModule {
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(['plan.completed'])
 
       context.routes((router) => {
         mountPlansRoutes(router, { db: context.db, now: context.now, service })

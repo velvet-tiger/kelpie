@@ -28,7 +28,6 @@ export function createPipelinesModule(migrationsDirectory: string): KelpieModule
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(['stage.changed'])
 
       context.routes((router) => {
         mountPipelinesRoutes(router, { db: context.db, now: context.now, service })

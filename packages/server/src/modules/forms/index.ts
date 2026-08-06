@@ -43,12 +43,6 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents([
-        'record.created',
-        'record.updated',
-        'record.deleted',
-        'form.submitted',
-      ])
 
       context.routes((router) => {
         mountFormsRoutes(router, { db: context.db, now: context.now, service })

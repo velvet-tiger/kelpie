@@ -30,7 +30,6 @@ export function createDealsModule(migrationsDirectory: string): KelpieModule {
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(['record.created', 'record.updated', 'record.deleted', 'stage.changed'])
 
       context.routes((router) => {
         mountDealsRoutes(router, { db: context.db, now: context.now, service })

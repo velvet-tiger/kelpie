@@ -29,7 +29,6 @@ export function createHandbookModule(migrationsDirectory: string): KelpieModule 
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(['record.created', 'record.updated', 'record.deleted'])
 
       context.routes((router) => {
         mountHandbookRoutes(router, { db: context.db, now: context.now, service })

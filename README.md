@@ -201,7 +201,6 @@ export const smtpEmail: KelpieModule = {
 
     context.schema(tables, '/abs/path/to/migrations')
     context.mcp.tool({ name: 'email.status', description: '…', inputSchema, invoke })
-    context.webhookEvents(['email.sent'])
   },
 }
 ```
@@ -390,7 +389,7 @@ The emailed invitation lands on `/join?token=…`, which accepts as the signed-i
 - **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
 - **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
 - **Webhook polish**, which `brief.md` defers. Four events are deliverable and the rest of the catalogue is not offered, rather than accepted and never sent. There is no delivery-log UI (the endpoint exists), no secret rotation short of deleting and re-registering, no re-sealing after a `SECRET_ENCRYPTION_KEY` change, and no retention pruner for `webhook_deliveries` even though `schema.md` calls the table retention-pruned. Retries live in the process, so a crash mid-backoff loses that delivery.
-- **`webhookEvents()` reaching the engine.** A module can add a name to the deliverable list and nothing reads it. The engine subscribes to a fixed four, and the bus is typed on `DomainEvents`, so a module's own event has no payload type to publish under either. Both halves are one piece of work; see `modules.md`.
+- **A module making its own event deliverable.** The engine subscribes to a fixed four, each with a payload builder. A module cannot add a fifth: the bus is typed on `DomainEvents`, so an event a module defines has no payload type to publish under, and the engine has no builder to render it with. `ModuleContext` used to carry a `webhookEvents(names)` method for this and nothing read the names it collected; it was removed, because the contribution the mechanism needs is a builder rather than a name. See `modules.md`.
 - **Outbound egress filtering.** A delivery URL may name any host, including a private one, because a self-hosted install legitimately posts to `http://automation.internal`. A hosted deployment needs that filter at its egress rather than in this check.
 - **The MCP endpoint** (Phase 3). Tools register into the runtime today and have no transport.
 - **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.

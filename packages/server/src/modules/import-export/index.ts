@@ -35,7 +35,6 @@ export function createImportExportModule(migrationsDirectory: string): KelpieMod
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(['record.created', 'record.updated', 'import.completed'])
 
       context.routes((router) => {
         mountImportExportRoutes(router, { db: context.db, now: context.now, service })

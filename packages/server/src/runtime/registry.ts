@@ -27,7 +27,6 @@ export interface ModuleContributions {
   readonly publicRouters: readonly ModuleRouter[]
   readonly schemas: readonly SchemaContribution[]
   readonly mcpTools: readonly McpTool[]
-  readonly webhookEvents: readonly string[]
   /** The bus every module subscribed to. Services publish through it after commit. */
   readonly events: EventBus
   /** Everything the modules declared, and any provider they registered. */
@@ -58,7 +57,6 @@ interface Accumulator {
   readonly publicRouters: ModuleRouter[]
   readonly schemas: SchemaContribution[]
   readonly mcpTools: McpTool[]
-  readonly webhookEvents: Set<string>
 }
 
 function createModuleContext(
@@ -115,12 +113,6 @@ function createModuleContext(
       },
     },
 
-    webhookEvents(names) {
-      for (const name of names) {
-        accumulator.webhookEvents.add(name)
-      }
-    },
-
     config(schema) {
       const result = schema.safeParse(options.environment)
 
@@ -156,7 +148,6 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     publicRouters: [],
     schemas: [],
     mcpTools: [],
-    webhookEvents: new Set<string>(),
   }
 
   for (const module of ordered) {
@@ -187,7 +178,6 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     publicRouters: accumulator.publicRouters,
     schemas: accumulator.schemas,
     mcpTools: accumulator.mcpTools,
-    webhookEvents: [...accumulator.webhookEvents],
     events,
     entitlements,
   }

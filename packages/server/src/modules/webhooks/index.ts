@@ -2,7 +2,7 @@ import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secr
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createDeliveryEngine, createHttpSender, sleepFor } from './delivery.ts'
 import type { SendDelivery, Sleep } from './delivery.ts'
-import { WEBHOOK_EVENTS, subscribeDeliverableEvents } from './payloads.ts'
+import { subscribeDeliverableEvents } from './payloads.ts'
 import { mountWebhooksRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createWebhooksService } from './service.ts'
@@ -61,7 +61,6 @@ export function createWebhooksModule(
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(WEBHOOK_EVENTS)
       subscribeDeliverableEvents(context.events, (payload) => engine.deliver(payload))
 
       context.routes((router) => {

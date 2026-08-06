@@ -1,4 +1,3 @@
-import { WEBHOOK_EVENTS } from '@kelpie/schemas'
 import type { WebhookEvent } from '@kelpie/schemas'
 
 import type { DomainEvents, EventBus } from '../../runtime/events.ts'
@@ -15,7 +14,6 @@ import type { DomainEvents, EventBus } from '../../runtime/events.ts'
  * surface it also calls.
  */
 
-export { WEBHOOK_EVENTS }
 export type { WebhookEvent }
 
 /** One event, resolved to the workspace it belongs to and the body to send. */

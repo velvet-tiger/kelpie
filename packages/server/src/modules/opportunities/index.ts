@@ -30,7 +30,6 @@ export function createOpportunitiesModule(migrationsDirectory: string): KelpieMo
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(['record.created', 'record.updated', 'record.deleted', 'stage.changed'])
 
       context.routes((router) => {
         mountOpportunitiesRoutes(router, { db: context.db, now: context.now, service })

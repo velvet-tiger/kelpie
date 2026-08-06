@@ -25,7 +25,6 @@ export function createDecisionsModule(migrationsDirectory: string): KelpieModule
       })
 
       context.schema(schema, migrationsDirectory)
-      context.webhookEvents(['decision.added'])
 
       context.routes((router) => {
         mountDecisionsRoutes(router, { db: context.db, now: context.now, service })
