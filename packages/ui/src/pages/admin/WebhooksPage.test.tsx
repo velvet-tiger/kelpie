@@ -33,12 +33,37 @@ function session(role: string): Record<string, unknown> {
   return { user_id: 'usr_1', session_id: 'ses_1', workspace_id: 'ws_1', role }
 }
 
+/** One settled delivery, as `GET /v1/webhooks/:id/deliveries` returns it. */
+const DELIVERY = {
+  id: 'whd_1',
+  webhook_id: 'wh_1',
+  event: 'record.created',
+  payload: {
+    id: 'whd_1',
+    event: 'record.created',
+    created_at: '2026-08-04T05:06:00.000Z',
+    workspace_id: 'ws_1',
+    data: { object_type: 'person', record_id: 'per_9' },
+  },
+  status: 'success',
+  attempts: 1,
+  delivered_at: '2026-08-04T05:06:01.000Z',
+  created_at: '2026-08-04T05:06:00.000Z',
+}
+
+interface DeliveryRequest {
+  readonly status: string | undefined
+  readonly cursor: string | undefined
+}
+
 interface Stubs {
   readonly role?: string
   readonly webhooks?: readonly unknown[]
   readonly listFails?: ApiError
   readonly onPost?: (body: unknown) => unknown
   readonly onPatch?: (path: string, body: unknown) => unknown
+  /** Answers `/webhooks/:id/deliveries`. Absent means the page must never ask. */
+  readonly onDeliveries?: (request: DeliveryRequest) => { items: unknown[]; nextCursor: string | null }
 }
 
 function stubClient(stubs: Stubs): ApiClient {
@@ -58,7 +83,20 @@ function stubClient(stubs: Stubs): ApiClient {
       path === '/auth/me'
         ? Promise.resolve(decode(session(stubs.role ?? 'owner')))
         : unexpected(`get ${path}`),
-    list: (path, decodeItem) => {
+    list: (path, decodeItem, query) => {
+      if (path === '/webhooks/wh_1/deliveries') {
+        if (stubs.onDeliveries === undefined) {
+          return unexpected(`list ${path}`)
+        }
+
+        const page = stubs.onDeliveries({
+          status: query?.status as string | undefined,
+          cursor: query?.cursor as string | undefined,
+        })
+
+        return Promise.resolve({ items: page.items.map(decodeItem), nextCursor: page.nextCursor })
+      }
+
       if (path !== '/webhooks') {
         return unexpected(`list ${path}`)
       }
@@ -236,5 +274,143 @@ describe('WebhooksPage', () => {
     renderPage({ listFails: new ApiError(403, 'forbidden', 'This action needs the admin role', []) })
 
     expect(await screen.findByText(/admin role|not available/u)).toBeTruthy()
+  })
+})
+
+/**
+ * The row above a delivery log says only when the newest one happened. These
+ * cover what it cannot: which event failed, how hard it was tried, and what the
+ * receiver was actually sent.
+ */
+describe('WebhooksPage delivery log', () => {
+  function recordingStubs(
+    pages: readonly { items: unknown[]; nextCursor: string | null }[],
+  ): { requests: DeliveryRequest[]; stubs: Stubs } {
+    const requests: DeliveryRequest[] = []
+
+    return {
+      requests,
+      stubs: {
+        onDeliveries: (request) => {
+          requests.push(request)
+
+          return pages[requests.length - 1] ?? { items: [], nextCursor: null }
+        },
+      },
+    }
+  }
+
+  async function expand(): Promise<void> {
+    const toggle = await screen.findByRole('button', { name: 'Deliveries' })
+
+    await act(async () => {
+      toggle.click()
+    })
+  }
+
+  /** Ten registrations must not mean ten delivery requests on page load. */
+  it('asks for nothing until the row is expanded', async () => {
+    const { requests, stubs } = recordingStubs([{ items: [DELIVERY], nextCursor: null }])
+    renderPage(stubs)
+
+    await screen.findByText('https://example.com/hooks/kelpie')
+    expect(requests).toHaveLength(0)
+
+    await expand()
+
+    await waitFor(() => {
+      expect(requests).toHaveLength(1)
+    })
+    expect(requests[0]?.status).toBeUndefined()
+  })
+
+  it('shows the event, attempt count and outcome of each delivery', async () => {
+    const { stubs } = recordingStubs([
+      {
+        items: [
+          { ...DELIVERY, id: 'whd_2', status: 'failed', attempts: 4, delivered_at: null },
+          DELIVERY,
+        ],
+        nextCursor: null,
+      },
+    ])
+    renderPage(stubs)
+    await expand()
+
+    expect(await screen.findByText('failed')).toBeTruthy()
+    expect(screen.getByText('success')).toBeTruthy()
+    // 4 attempts is the engine's whole retry budget, so this row is the one a
+    // customer opened the log to find.
+    expect(screen.getByText('4')).toBeTruthy()
+    // A delivery that never landed has no timestamp to show.
+    expect(screen.getByText('—')).toBeTruthy()
+  })
+
+  it('says nothing has been delivered rather than showing an empty table', async () => {
+    const { stubs } = recordingStubs([{ items: [], nextCursor: null }])
+    renderPage(stubs)
+    await expand()
+
+    expect(await screen.findByText('Nothing delivered yet.')).toBeTruthy()
+  })
+
+  /**
+   * The body is stored as `jsonb`, so Postgres reorders its keys. Showing it is
+   * how a customer sees what arrived; claiming it is the signed text would send
+   * them off to verify an HMAC against a string we never transmitted.
+   */
+  it('shows the delivery body without claiming it is the signed text', async () => {
+    const { stubs } = recordingStubs([{ items: [DELIVERY], nextCursor: null }])
+    renderPage(stubs)
+    await expand()
+
+    const view = await screen.findByRole('button', { name: 'View' })
+
+    await act(async () => {
+      view.click()
+    })
+
+    expect(screen.getByText(/object_type/u)).toBeTruthy()
+    expect(screen.getByText(/not the exact text the signature was computed over/u)).toBeTruthy()
+  })
+
+  it('asks the server for one status rather than filtering the page it has', async () => {
+    const { requests, stubs } = recordingStubs([
+      { items: [DELIVERY], nextCursor: null },
+      { items: [{ ...DELIVERY, id: 'whd_3', status: 'failed', delivered_at: null }], nextCursor: null },
+    ])
+    renderPage(stubs)
+    await expand()
+
+    const failed = await screen.findByRole('button', { name: 'Failed' })
+
+    await act(async () => {
+      failed.click()
+    })
+
+    await waitFor(() => {
+      expect(requests).toHaveLength(2)
+    })
+    expect(requests[1]?.status).toBe('failed')
+  })
+
+  it('pages with the cursor the previous page issued', async () => {
+    const { requests, stubs } = recordingStubs([
+      { items: [DELIVERY], nextCursor: 'cursor_2' },
+      { items: [{ ...DELIVERY, id: 'whd_4' }], nextCursor: null },
+    ])
+    renderPage(stubs)
+    await expand()
+
+    const loadMore = await screen.findByRole('button', { name: 'Load more' })
+
+    await act(async () => {
+      loadMore.click()
+    })
+
+    await waitFor(() => {
+      expect(requests).toHaveLength(2)
+    })
+    expect(requests[1]?.cursor).toBe('cursor_2')
   })
 })

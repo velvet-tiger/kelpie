@@ -15,6 +15,7 @@ import type { ChipTone } from '../../components/Chip.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { formatDateTime } from '../../lib/dates.ts'
+import { WebhookDeliveries } from './WebhookDeliveries.tsx'
 
 /**
  * Where a workspace points its event deliveries.
@@ -238,6 +239,7 @@ function WebhookRow({ webhook }: { readonly webhook: Webhook }): React.JSX.Eleme
   const updateWebhook = useUpdateWebhook()
   const deleteWebhook = useDeleteWebhook()
   const [isConfirmingRemoval, setIsConfirmingRemoval] = useState(false)
+  const [isShowingDeliveries, setIsShowingDeliveries] = useState(false)
   const failure = updateWebhook.error ?? deleteWebhook.error
 
   return (
@@ -302,10 +304,27 @@ function WebhookRow({ webhook }: { readonly webhook: Webhook }): React.JSX.Eleme
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-4 text-[11px] text-ink-faint">
+      <div className="mt-3 flex flex-wrap items-center gap-4 text-[11px] text-ink-faint">
         <span className="font-mono">Secret {webhook.secretPrefix}</span>
         <span>Last delivery: {describeLastDelivery(webhook)}</span>
+        <button
+          type="button"
+          aria-expanded={isShowingDeliveries}
+          onClick={() => {
+            setIsShowingDeliveries((current) => !current)
+          }}
+          className="font-medium text-accent hover:underline"
+        >
+          {isShowingDeliveries ? 'Hide deliveries' : 'Deliveries'}
+        </button>
       </div>
+
+      {/* Mounted rather than hidden, so an unopened row costs no request. */}
+      {isShowingDeliveries && (
+        <div className="mt-4 border-t border-border pt-4">
+          <WebhookDeliveries webhookId={webhook.id} />
+        </div>
+      )}
 
       {failure !== null && (
         <div className="mt-3">
