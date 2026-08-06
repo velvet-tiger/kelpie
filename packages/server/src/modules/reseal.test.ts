@@ -1,14 +1,15 @@
 import { randomBytes } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { Table, eq, getTableColumns, getTableName, is } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createIdFactory } from '../lib/ids.ts'
 import { SecretDecryptionError, createSecretCipher } from '../lib/secrets.ts'
 import type { SecretCipher } from '../lib/secrets.ts'
+import * as schema from '../schema/index.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../testing/database.ts'
 import type { TestDatabase } from '../testing/database.ts'
 import { insertWorkspaceFixture } from '../testing/fixtures.ts'
-import { resealStoredSecrets } from './reseal.ts'
+import { RESEALED_COLUMNS, resealStoredSecrets } from './reseal.ts'
 import { webhooks } from './webhooks/schema.ts'
 
 /**
@@ -21,6 +22,47 @@ import { webhooks } from './webhooks/schema.ts'
 
 const connectionString = testDatabaseUrl(process.env)
 const createId = createIdFactory()
+
+/**
+ * The guard on the whole mechanism, and the reason it needs no database: a
+ * sealed column missing from the pass costs nothing until a rotation a year
+ * later reports success while stranding the value in it forever. That is far too
+ * long a fuse to leave to a comment, so the schema is the source of truth and
+ * this fails the day a column is added rather than the day it matters.
+ */
+describe('coverage of every sealed column', () => {
+  /**
+   * `_encrypted` is the convention every sealed column already follows. A column
+   * sealed under another name would slip past, which is exactly what the message
+   * on the failing assertion is for: it tells the next person the name matters.
+   */
+  const sealedInSchema: string[] = []
+
+  // A for-loop rather than filter-then-map: the barrel exports plain string
+  // constants alongside its tables, and no hand-written type predicate can
+  // narrow that union to Table. Drizzle's own `is` narrows in an if.
+  for (const exported of Object.values(schema)) {
+    if (!is(exported, Table)) {
+      continue
+    }
+
+    for (const column of Object.values(getTableColumns(exported))) {
+      if (column.name.endsWith('_encrypted')) {
+        sealedInSchema.push(`${getTableName(exported)}.${column.name}`)
+      }
+    }
+  }
+
+  it('re-seals every _encrypted column in the schema', () => {
+    expect(RESEALED_COLUMNS.toSorted()).toEqual(sealedInSchema.toSorted())
+  })
+
+  /** Guards the guard: a scan that matched nothing would pass forever. */
+  it('finds the columns it is scanning for', () => {
+    expect(sealedInSchema).toContain('webhooks.secret_encrypted')
+    expect(sealedInSchema.length).toBeGreaterThanOrEqual(3)
+  })
+})
 
 const CURRENT_KEY = randomBytes(32).toString('base64')
 const PREVIOUS_KEY = randomBytes(32).toString('base64')
@@ -153,12 +195,27 @@ describe.skipIf(connectionString === undefined)('re-sealing stored secrets', () 
     expect(await storedSecret(lost)).toBe(before)
   })
 
-  it('names the column, so a report says where the trouble is', async () => {
+  it('names every column, so a report says where the trouble is', async () => {
     await insertWebhook('whsec_rotate_me', underPrevious)
 
     const outcome = await resealStoredSecrets(database.db, rotating)
 
-    expect(outcome.columns.map((column) => column.label)).toEqual(['webhooks.secret_encrypted'])
+    expect(outcome.columns.map((column) => column.label)).toEqual(RESEALED_COLUMNS)
+  })
+
+  /**
+   * Two of the three columns exist with nothing writing to them yet. They must
+   * report zero rather than be skipped, because "examined 0" is what tells an
+   * operator the column was covered at all.
+   */
+  it('reports a column whose rows all hold no secret', async () => {
+    await insertWebhook('whsec_rotate_me', underPrevious)
+
+    const outcome = await resealStoredSecrets(database.db, rotating)
+    const empty = outcome.columns.filter((column) => column.label !== 'webhooks.secret_encrypted')
+
+    expect(empty).toHaveLength(2)
+    expect(empty.every((column) => column.examined === 0 && column.resealed === 0)).toBe(true)
   })
 
   /**

@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm'
 import type { Database } from '../lib/database.ts'
 import { SecretDecryptionError } from '../lib/secrets.ts'
 import type { SecretCipher } from '../lib/secrets.ts'
+import { agentRegistrations } from './agent-tasks/schema.ts'
+import { integrationConnections } from './integrations/schema.ts'
 import { webhooks } from './webhooks/schema.ts'
 
 /**
@@ -26,25 +28,66 @@ import { webhooks } from './webhooks/schema.ts'
  * write lock across the lot.
  */
 
+/** One sealed column, and how to read and rewrite it. */
+interface SealedColumn {
+  /** `table.column`, for a report an operator can act on. */
+  readonly label: string
+  readonly read: (db: Database) => Promise<readonly { id: string; sealed: string | null }[]>
+  readonly write: (db: Database, id: string, sealed: string) => Promise<unknown>
+}
+
 /**
  * Every column holding a value sealed by `lib/secrets.ts`.
  *
- * One entry today. `schema.md` reserves `agent_registrations.auth_header_encrypted`
- * and `modules.md` reserves integration connection records for the same cipher;
- * each lands here when it lands, and a rotation that missed one would leave a
- * customer's stored OAuth credential unreadable with no way back. There is no
- * registry for modules to declare these through, on purpose: one caller does not
- * need an extension point, and a sealed column that nothing re-seals is a bug
- * whichever way it was registered.
+ * All three that exist are here, including the two nothing writes yet. Covering
+ * a column before its first write is the cheap half of this: the expensive half
+ * is noticing, a year later, that a rotation reported success while stranding a
+ * customer's stored OAuth credential with no way back. `resealTest` asserts this
+ * list against the schema, so a fourth `_encrypted` column fails a test the day
+ * it is added rather than at the next rotation.
+ *
+ * There is no registry for modules to declare these through, on purpose. One
+ * caller does not need an extension point, and a sealed column that nothing
+ * re-seals is a bug whichever way it was registered.
  */
-const SEALED_COLUMNS = [
+const SEALED_COLUMNS: readonly SealedColumn[] = [
   {
     label: 'webhooks.secret_encrypted',
-    read: (db: Database) => db.select({ id: webhooks.id, sealed: webhooks.secretEncrypted }).from(webhooks),
-    write: (db: Database, id: string, sealed: string) =>
-      db.update(webhooks).set({ secretEncrypted: sealed }).where(eq(webhooks.id, id)),
+    read: async (db) => db.select({ id: webhooks.id, sealed: webhooks.secretEncrypted }).from(webhooks),
+    write: async (db, id, sealed) => {
+      await db.update(webhooks).set({ secretEncrypted: sealed }).where(eq(webhooks.id, id))
+    },
   },
-] as const
+  {
+    label: 'agent_registrations.auth_header_encrypted',
+    read: async (db) =>
+      db
+        .select({ id: agentRegistrations.id, sealed: agentRegistrations.authHeaderEncrypted })
+        .from(agentRegistrations),
+    write: async (db, id, sealed) => {
+      await db
+        .update(agentRegistrations)
+        .set({ authHeaderEncrypted: sealed })
+        .where(eq(agentRegistrations.id, id))
+    },
+  },
+  {
+    label: 'integration_connections.secrets_encrypted',
+    read: async (db) =>
+      db
+        .select({ id: integrationConnections.id, sealed: integrationConnections.secretsEncrypted })
+        .from(integrationConnections),
+    write: async (db, id, sealed) => {
+      await db
+        .update(integrationConnections)
+        .set({ secretsEncrypted: sealed })
+        .where(eq(integrationConnections.id, id))
+    },
+  },
+]
+
+/** The columns this pass covers. Exported for the test that checks none is missing. */
+export const RESEALED_COLUMNS: readonly string[] = SEALED_COLUMNS.map((column) => column.label)
 
 /** What one column's pass did. */
 export interface ResealColumnOutcome {
@@ -82,7 +125,12 @@ export async function resealStoredSecrets(
   const columns: ResealColumnOutcome[] = []
 
   for (const column of SEALED_COLUMNS) {
-    const rows = await column.read(db)
+    // Null means the row holds no secret, which is every row of a column whose
+    // module has not started writing one. Not counted as examined: a report
+    // saying it looked at forty rows and re-sealed none would read as a problem.
+    const rows = (await column.read(db)).filter(
+      (row): row is { id: string; sealed: string } => row.sealed !== null,
+    )
     const unreadable: string[] = []
     let resealed = 0
 
