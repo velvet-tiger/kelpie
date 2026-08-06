@@ -3,6 +3,7 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError, toErrorDetails } from '../../lib/errors.ts'
+import { timezoneSchema } from '../../lib/timezones.ts'
 import { requireSessionActor } from './actor.ts'
 import type { SessionActor } from './actor.ts'
 import { resolveActorFrom } from './credentials.ts'
@@ -47,27 +48,6 @@ const changePasswordBody = z.object({
 const updateAccountBody = z
   .strictObject({ name: z.string().min(1), email: z.string().min(1) })
   .partial()
-
-/**
- * An IANA zone name, checked by asking `Intl` to build a formatter for it.
- *
- * A stored zone the platform cannot resolve would throw at render time, in a
- * component far from the request that accepted it, so the refusal belongs here.
- */
-const timezoneSchema = z.string().refine(
-  (value) => {
-    try {
-      new Intl.DateTimeFormat('en', { timeZone: value })
-
-      return true
-    } catch {
-      // Only a RangeError for an unknown zone reaches this. Intl throws nothing
-      // else for a well-formed options object.
-      return false
-    }
-  },
-  { message: 'Must be an IANA time zone name, e.g. Australia/Sydney' },
-)
 
 const updatePreferencesBody = z
   .strictObject({

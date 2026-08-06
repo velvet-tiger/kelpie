@@ -249,6 +249,18 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(response.status).toBe(422)
     })
 
+    it('rejects a timezone the platform cannot resolve', async () => {
+      const response = await send(
+        'POST',
+        '/v1/workspaces',
+        { ...WORKSPACE, timezone: 'Mars/Olympus' },
+        await signUp('ada@example.com'),
+      )
+
+      expect(response.status).toBe(422)
+      expect(readErrorFields(await response.json())).toEqual(['timezone'])
+    })
+
     it('needs a session', async () => {
       expect((await send('POST', '/v1/workspaces', WORKSPACE)).status).toBe(401)
     })
@@ -313,6 +325,26 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { slug: 'Not A Slug' }, cookie)
 
       expect(response.status).toBe(422)
+    })
+
+    it('changes the timezone', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { timezone: 'Europe/London' }, cookie)
+
+      expect(response.status).toBe(200)
+      expect(readString(await response.json(), 'timezone')).toBe('Europe/London')
+    })
+
+    it('refuses a timezone the platform cannot resolve', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { timezone: 'Mars/Olympus' }, cookie)
+
+      expect(response.status).toBe(422)
+      expect(readErrorFields(await response.json())).toEqual(['timezone'])
     })
 
     it('clears the agent identity strings when they are sent as null', async () => {
