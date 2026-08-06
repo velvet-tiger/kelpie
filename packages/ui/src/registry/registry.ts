@@ -2,10 +2,10 @@ import type { ComponentType } from 'react'
 
 import type {
   DashboardCard,
+  ExtensibleRecordType,
   IntegrationProvider,
   NavItem,
   NavSlot,
-  RecordObjectType,
   RecordSidebarCard,
   RecordTab,
   RouteContribution,
@@ -29,8 +29,8 @@ import type { Overridable, OverrideStore } from './overridable.ts'
 export interface UiModuleContext {
   nav(slot: NavSlot, item: NavItem): void
   route(route: RouteContribution): void
-  recordTab(objectType: RecordObjectType, tab: RecordTab): void
-  recordSidebarCard(objectType: RecordObjectType, card: RecordSidebarCard): void
+  recordTab(objectType: ExtensibleRecordType, tab: RecordTab): void
+  recordSidebarCard(objectType: ExtensibleRecordType, card: RecordSidebarCard): void
   dashboardCard(card: DashboardCard): void
   integrationProvider(provider: IntegrationProvider): void
   /** Replaces a core component. Prefer a slot; see `modules.md`. */
@@ -46,8 +46,8 @@ export interface UiModule {
 export interface UiExtensions {
   navItems(slot: NavSlot): readonly NavItem[]
   routes(): readonly RouteContribution[]
-  recordTabs(objectType: RecordObjectType): readonly RecordTab[]
-  recordSidebarCards(objectType: RecordObjectType): readonly RecordSidebarCard[]
+  recordTabs(objectType: ExtensibleRecordType): readonly RecordTab[]
+  recordSidebarCards(objectType: ExtensibleRecordType): readonly RecordSidebarCard[]
   dashboardCards(): readonly DashboardCard[]
   integrationProviders(): readonly IntegrationProvider[]
   componentFor<Props>(token: Overridable<Props>): ComponentType<Props>
@@ -70,8 +70,8 @@ export function inSlotOrder<T extends { readonly order?: number }>(items: readon
 interface Accumulator {
   readonly nav: Map<NavSlot, NavItem[]>
   readonly routes: RouteContribution[]
-  readonly recordTabs: Map<RecordObjectType, RecordTab[]>
-  readonly recordSidebarCards: Map<RecordObjectType, RecordSidebarCard[]>
+  readonly recordTabs: Map<ExtensibleRecordType, RecordTab[]>
+  readonly recordSidebarCards: Map<ExtensibleRecordType, RecordSidebarCard[]>
   readonly dashboardCards: DashboardCard[]
   readonly integrationProviders: IntegrationProvider[]
   readonly overrides: OverrideStore
