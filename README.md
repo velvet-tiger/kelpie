@@ -342,7 +342,7 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | Candidates | `GET`, `POST /v1/candidates`, `GET`, `PATCH`, `DELETE /v1/candidates/:id`. Filters `?role_id=`, `?person_id=` and `?status=` |
 | Decisions | `GET`, `POST /v1/decisions`, `GET`, `PATCH`, `DELETE /v1/decisions/:id`. Filters `?q=`, `?target_type=` and `?target_id=` |
 | Plan items | `GET`, `POST /v1/plan_items`, `GET`, `PATCH`, `DELETE /v1/plan_items/:id`. Filters `?target_type=`, `?target_id=`, `?status=`, `?from=` and `?to=` |
-| Notes | `GET`, `POST /v1/notes`, `GET`, `PATCH`, `DELETE /v1/notes/:id`. `?target_type=` and `?target_id=` are required; filter `?pinned=true` or `false` |
+| Notes | `GET`, `POST /v1/notes`, `GET`, `PATCH`, `DELETE /v1/notes/:id`. `?target_type=` and `?target_id=` are required, and `?target_id=` repeats to name a set; filter `?pinned=true` or `false` |
 | Activities | `GET /v1/activities`. Read-only: the timeline is written by the writes it describes. `?target_type=` and `?target_id=` are required |
 | Handbook | `GET`, `POST /v1/handbook_pages`, `GET`, `PATCH`, `DELETE /v1/handbook_pages/:id`. Filters `?q=` and `?slug=` |
 | Forms | `GET`, `POST /v1/forms`, `GET`, `PATCH`, `DELETE /v1/forms/:id`. Filters `?q=` and `?status=`. Plus `GET /v1/forms/:id/submissions` and `GET /v1/forms/:id/embed` |
