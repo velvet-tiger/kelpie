@@ -1,3 +1,5 @@
+import { WEBHOOK_DELIVERY_RETENTION_DAYS } from '@kelpie/schemas'
+
 import type { Database } from '../../lib/database.ts'
 import { describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -39,6 +41,13 @@ export const MAX_DELIVERY_ATTEMPTS = RETRY_DELAYS_MS.length + 1
  */
 export function retryDelayAfter(attempts: number): number | undefined {
   return RETRY_DELAYS_MS[attempts - 1]
+}
+
+const DAY_MS = 86_400_000
+
+/** The moment a log row written before has outlived its retention. */
+export function retentionCutoff(at: Date): Date {
+  return new Date(at.getTime() - WEBHOOK_DELIVERY_RETENTION_DAYS * DAY_MS)
 }
 
 export interface DeliveryRequest {
@@ -121,12 +130,19 @@ export interface DeliveryEngine {
 
 export function createDeliveryEngine(dependencies: DeliveryDependencies): DeliveryEngine {
   /**
-   * Writes the outcome: one log row, and the webhook's status when it moved.
+   * Writes the outcome: one log row, the expired rows gone, and the webhook's
+   * status when it moved.
    *
    * One transaction, so a reader never sees a hook marked failing with no
    * failure recorded against it.
+   *
+   * Retention is enforced here rather than by a schedule because there is no
+   * scheduler in the service, and the log only grows through this function —
+   * pruning on every append caps the table exactly where the growth happens.
+   * The cost is the documented residue: a hook that stops delivering keeps its
+   * last window of rows until the hook or the workspace is deleted.
    */
-  function record(
+  async function record(
     webhook: WebhookRecord,
     payload: WebhookEventPayload,
     delivery: {
@@ -139,7 +155,7 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
   ): Promise<void> {
     const nextStatus = delivery.outcome.delivered ? 'active' : 'failing'
 
-    return dependencies.transaction(async ({ tx }) => {
+    const pruned = await dependencies.transaction(async ({ tx }) => {
       await repository.insertDelivery(tx, {
         id: delivery.id,
         workspaceId: webhook.workspaceId,
@@ -156,13 +172,32 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
         createdAt: delivery.sentAt,
       })
 
+      // The cutoff is later than the row above's `created_at` for any positive
+      // window, so a prune can never take the delivery it arrived with, and
+      // `last_delivery_*` always has a row to read.
+      const expired = await repository.deleteExpiredDeliveries(
+        tx,
+        webhook.id,
+        retentionCutoff(dependencies.now()),
+      )
+
       // A paused webhook is never selected for delivery, so the only statuses
       // reachable here are the two the engine owns. Leaving an unchanged one
       // alone keeps a healthy endpoint from being rewritten on every event.
       if (webhook.status !== nextStatus) {
         await repository.setWebhookStatus(tx, webhook.id, nextStatus)
       }
+
+      return expired
     })
+
+    // After the transaction settles: a rollback would make this line a lie.
+    if (pruned > 0) {
+      dependencies.log.debug('pruned expired webhook deliveries', {
+        webhookId: webhook.id,
+        pruned,
+      })
+    }
   }
 
   async function attemptUntilDelivered(request: DeliveryRequest): Promise<{

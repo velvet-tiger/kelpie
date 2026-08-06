@@ -140,6 +140,21 @@ export interface WebhookInput {
 export const WEBHOOK_SECRET_OVERLAP_HOURS = 24
 
 /**
+ * How long a delivery log row is kept.
+ *
+ * `schema.md` calls `webhook_deliveries` retention-pruned without setting a
+ * window; this is the invented number. Thirty days covers "did last month's
+ * integration change break anything" while keeping the fastest-growing table in
+ * the schema bounded per webhook.
+ *
+ * Shared rather than duplicated for the same reason the overlap window is: the
+ * engine prunes by it and the delivery log page tells the customer what is
+ * kept, and the two disagreeing would mean a screen promising history the
+ * engine has already deleted.
+ */
+export const WEBHOOK_DELIVERY_RETENTION_DAYS = 30
+
+/**
  * Replacing a webhook's signing secret.
  *
  * `overlap` keeps the old secret valid for a further
