@@ -333,18 +333,23 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
 | Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |
 | Positions | `GET`, `POST /v1/positions`, `GET`, `PATCH`, `DELETE /v1/positions/:id`. Filters `?person_id=` and `?company_id=` |
+| Deals | `GET`, `POST /v1/deals`, `GET`, `PATCH`, `DELETE /v1/deals/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
 | Opportunities | `GET`, `POST /v1/opportunities`, `GET`, `PATCH`, `DELETE /v1/opportunities/:id`. Filters `?q=`, `?kind=`, `?company_id=` and `?stage_id=` |
 | Partnerships | `GET`, `POST /v1/partnerships`, `GET`, `PATCH`, `DELETE /v1/partnerships/:id`. Filters `?q=`, `?kind=`, `?company_id=`, `?stage_id=` and `?person_id=` |
 | Raises | `GET`, `POST /v1/raises`, `GET`, `PATCH`, `DELETE /v1/raises/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
+| Pipeline stages | `GET`, `POST /v1/pipeline_stages`, `GET`, `PATCH`, `DELETE /v1/pipeline_stages/:id?move_to=`. Filter `?kind=` |
 | Roles | `GET`, `POST /v1/roles`, `GET`, `PATCH`, `DELETE /v1/roles/:id`. Filters `?q=` and `?status=` |
 | Candidates | `GET`, `POST /v1/candidates`, `GET`, `PATCH`, `DELETE /v1/candidates/:id`. Filters `?role_id=`, `?person_id=` and `?status=` |
 | Decisions | `GET`, `POST /v1/decisions`, `GET`, `PATCH`, `DELETE /v1/decisions/:id`. Filters `?q=`, `?target_type=` and `?target_id=` |
+| Plan items | `GET`, `POST /v1/plan_items`, `GET`, `PATCH`, `DELETE /v1/plan_items/:id`. Filters `?target_type=`, `?target_id=`, `?status=`, `?from=` and `?to=` |
+| Notes | `GET`, `POST /v1/notes`, `GET`, `PATCH`, `DELETE /v1/notes/:id`. `?target_type=` and `?target_id=` are required, and `?target_id=` repeats to name a set; filter `?pinned=true` or `false` |
+| Activities | `GET /v1/activities`. Read-only: the timeline is written by the writes it describes. `?target_type=` and `?target_id=` are required |
 | Handbook | `GET`, `POST /v1/handbook_pages`, `GET`, `PATCH`, `DELETE /v1/handbook_pages/:id`. Filters `?q=` and `?slug=` |
 | Forms | `GET`, `POST /v1/forms`, `GET`, `PATCH`, `DELETE /v1/forms/:id`. Filters `?q=` and `?status=`. Plus `GET /v1/forms/:id/submissions` and `GET /v1/forms/:id/embed` |
 | Public forms | `POST /v1/public/forms/:public_key/submit` and `GET /v1/public/forms/:public_key/embed`. No credentials, any origin |
 | Export | `GET /v1/export/{people,companies,positions,deals}.csv` and `GET /v1/export/templates/{object}.csv` |
-| Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit` |
-| Webhooks | `GET`, `POST /v1/webhooks`, `GET`, `PATCH`, `DELETE /v1/webhooks/:id`. Filter `?status=`. Plus `GET /v1/webhooks/:id/deliveries`, filter `?status=`. Admin only, reads included |
+| Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit`, `DELETE /v1/import/jobs/:id` |
+| Webhooks | `GET`, `POST /v1/webhooks`, `GET`, `PATCH`, `DELETE /v1/webhooks/:id`. Filter `?status=`. Plus `POST /v1/webhooks/:id/rotate_secret` and `GET /v1/webhooks/:id/deliveries`, filter `?status=`. Admin only, reads included |
 
 Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
 
