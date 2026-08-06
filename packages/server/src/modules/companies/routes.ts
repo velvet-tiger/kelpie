@@ -37,7 +37,7 @@ const companyShape = {
  * button writes, so creating through the API and creating through the UI produce
  * the same record.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   ...companyShape,
   domain: companyShape.domain.default(null),
   industry: companyShape.industry.default(null),
@@ -53,13 +53,13 @@ const createBody = z.strictObject({
   tags: companyShape.tags.default([]),
 })
 
-const updateBody = z.strictObject(companyShape).partial()
+export const updateBody = z.strictObject(companyShape).partial()
 
 export interface CompaniesRoutesDependencies extends CredentialDependencies {
   readonly service: CompaniesService
 }
 
-function toCreateInput(body: z.infer<typeof createBody>): CreateCompanyInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreateCompanyInput {
   return {
     name: body.name,
     domain: body.domain,
@@ -77,7 +77,7 @@ function toCreateInput(body: z.infer<typeof createBody>): CreateCompanyInput {
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdateCompanyInput {
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateCompanyInput {
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
     ...(body.domain === undefined ? {} : { domain: body.domain }),

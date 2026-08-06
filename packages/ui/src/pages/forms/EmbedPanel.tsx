@@ -1,7 +1,7 @@
 import type { Form } from '@kelpie/schemas'
-import { useState } from 'react'
 
 import { useFormEmbed } from '../../api/resources/forms.ts'
+import { CopyButton } from '../../components/CopyButton.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
 
@@ -76,29 +76,11 @@ function Snippet({
   readonly hint: string
   readonly value: string
 }): React.JSX.Element {
-  const [copied, setCopied] = useState(false)
-
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <span className="text-[12px] font-medium text-ink">{label}</span>
-        <button
-          type="button"
-          onClick={() => {
-            navigator.clipboard
-              .writeText(value)
-              .then(() => {
-                setCopied(true)
-                setTimeout(() => {
-                  setCopied(false)
-                }, 1500)
-              })
-              .catch(() => undefined)
-          }}
-          className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-ink-muted transition hover:border-border-strong hover:text-ink"
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </button>
+        <CopyButton value={value} label={`Copy the ${label} snippet`} />
       </div>
       <textarea
         readOnly

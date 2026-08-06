@@ -26,12 +26,12 @@ const roleShape = {
 }
 
 /** Only a title is required. A role exists because it is open, so that is the default. */
-const createRoleBody = z.strictObject({
+export const createRoleBody = z.strictObject({
   ...roleShape,
   status: roleShape.status.default('open'),
 })
 
-const updateRoleBody = z.strictObject(roleShape).partial()
+export const updateRoleBody = z.strictObject(roleShape).partial()
 
 const candidateShape = {
   role_id: z.string().min(1),
@@ -47,7 +47,7 @@ const candidateShape = {
  * lands at the first, which the service resolves along with the rule that ties
  * the two together.
  */
-const createCandidateBody = z.strictObject({
+export const createCandidateBody = z.strictObject({
   ...candidateShape,
   status: candidateShape.status.default('in_process'),
   interview_stage: candidateShape.interview_stage.optional(),
@@ -55,7 +55,7 @@ const createCandidateBody = z.strictObject({
 })
 
 /** Neither end. Repointing a candidacy is a delete and a create, as with a Position. */
-const updateCandidateBody = z
+export const updateCandidateBody = z
   .strictObject({
     status: candidateShape.status,
     interview_stage: candidateShape.interview_stage,
@@ -98,11 +98,11 @@ function readEnumFilter<Value extends string>(
   return values as readonly Value[]
 }
 
-function toCreateRoleInput(body: z.infer<typeof createRoleBody>): CreateRoleInput {
+export function toCreateRoleInput(body: z.infer<typeof createRoleBody>): CreateRoleInput {
   return { title: body.title, status: body.status }
 }
 
-function toUpdateRoleInput(body: z.infer<typeof updateRoleBody>): UpdateRoleInput {
+export function toUpdateRoleInput(body: z.infer<typeof updateRoleBody>): UpdateRoleInput {
   return {
     ...(body.title === undefined ? {} : { title: body.title }),
     ...(body.status === undefined ? {} : { status: body.status }),
@@ -119,7 +119,7 @@ export function roleResponse(role: RoleView): Record<string, unknown> {
   }
 }
 
-function toCreateCandidateInput(
+export function toCreateCandidateInput(
   body: z.infer<typeof createCandidateBody>,
 ): CreateCandidateInput {
   return {
@@ -131,7 +131,7 @@ function toCreateCandidateInput(
   }
 }
 
-function toUpdateCandidateInput(
+export function toUpdateCandidateInput(
   body: z.infer<typeof updateCandidateBody>,
 ): UpdateCandidateInput {
   return {

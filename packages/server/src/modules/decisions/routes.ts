@@ -9,7 +9,12 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { DecisionFilters } from './repository.ts'
 import { RECORD_TARGET_TYPES } from './schema.ts'
 import type { RecordTargetType } from './schema.ts'
-import type { DecisionView, DecisionsService, UpdateDecisionInput } from './service.ts'
+import type {
+  CreateDecisionInput,
+  DecisionView,
+  DecisionsService,
+  UpdateDecisionInput,
+} from './service.ts'
 
 /**
  * Wire shapes for `/v1/decisions`.
@@ -37,7 +42,7 @@ const decisionShape = {
  * and an absent `owner_id` means the caller — the mockup's panel stamps both
  * onto every decision it records. `owner_id: null` says nobody carries it.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   ...decisionShape,
   target_type: z.enum(RECORD_TARGET_TYPES),
   target_id: z.string().min(1),
@@ -48,7 +53,7 @@ const createBody = z.strictObject({
 })
 
 /** The target never moves. Re-filing a decision under another record is a delete and a create. */
-const updateBody = z.strictObject(decisionShape).partial()
+export const updateBody = z.strictObject(decisionShape).partial()
 
 export interface DecisionsRoutesDependencies extends CredentialDependencies {
   readonly service: DecisionsService
@@ -69,7 +74,19 @@ export function decisionResponse(decision: DecisionView): Record<string, unknown
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdateDecisionInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreateDecisionInput {
+  return {
+    targetType: body.target_type,
+    targetId: body.target_id,
+    body: body.body,
+    rationale: body.rationale,
+    decidedAt: body.decided_at === undefined ? undefined : new Date(body.decided_at),
+    ownerId: body.owner_id,
+    dueAt: body.due_at === null ? null : new Date(body.due_at),
+  }
+}
+
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateDecisionInput {
   return {
     ...(body.body === undefined ? {} : { body: body.body }),
     ...(body.rationale === undefined ? {} : { rationale: body.rationale }),
@@ -134,15 +151,7 @@ export function mountDecisionsRoutes(
 
   router.post('/decisions', async (context) => {
     const body = await readJsonBody(context, createBody)
-    const decision = await dependencies.service.create(await requireActor(context), {
-      targetType: body.target_type,
-      targetId: body.target_id,
-      body: body.body,
-      rationale: body.rationale,
-      decidedAt: body.decided_at === undefined ? undefined : new Date(body.decided_at),
-      ownerId: body.owner_id,
-      dueAt: body.due_at === null ? null : new Date(body.due_at),
-    })
+    const decision = await dependencies.service.create(await requireActor(context), toCreateInput(body))
 
     return context.json(decisionResponse(decision), 201)
   })

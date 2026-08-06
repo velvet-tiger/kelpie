@@ -11,6 +11,7 @@ import { subscribeDeliverableEvents } from './payloads.ts'
 import { mountWebhooksRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createWebhooksService } from './service.ts'
+import { registerWebhooksTools } from './tools.ts'
 
 /**
  * Webhooks: registration, and the engine that bridges the internal event bus to
@@ -75,6 +76,8 @@ export function createWebhooksModule(
       context.routes((router) => {
         mountWebhooksRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerWebhooksTools(context.mcp, service)
 
       return Promise.resolve()
     },

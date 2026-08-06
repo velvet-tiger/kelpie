@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountDealsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createDealsService } from './service.ts'
+import { registerDealsTools } from './tools.ts'
 
 /**
  * Deals: the sales pipeline.
@@ -34,6 +35,8 @@ export function createDealsModule(migrationsDirectory: string): KelpieModule {
       context.routes((router) => {
         mountDealsRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerDealsTools(context.mcp, service)
 
       return Promise.resolve()
     },

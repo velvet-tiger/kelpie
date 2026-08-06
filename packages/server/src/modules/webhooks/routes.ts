@@ -41,7 +41,7 @@ const eventsField = z
     error: 'Each event may be listed once',
   })
 
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   url: urlField,
   events: eventsField,
 })
@@ -51,7 +51,7 @@ const createBody = z.strictObject({
  * engine reports about the endpoint, so accepting it here would let a caller
  * assert something only a delivery attempt can establish.
  */
-const updateBody = z
+export const updateBody = z
   .strictObject({
     url: urlField,
     events: eventsField,
@@ -64,7 +64,7 @@ const updateBody = z
  * `overlap` defaults to off. Strict like every other body: a misspelled field
  * is a `422` rather than a rotation that silently took effect at once.
  */
-const rotateBody = z.strictObject({ overlap: z.boolean().optional() })
+export const rotateBody = z.strictObject({ overlap: z.boolean().optional() })
 
 export interface WebhooksRoutesDependencies extends CredentialDependencies {
   readonly service: WebhooksService
@@ -113,11 +113,11 @@ export function webhookResponse(webhook: WebhookView): Record<string, unknown> {
   }
 }
 
-function createdWebhookResponse(webhook: CreatedWebhookView): Record<string, unknown> {
+export function createdWebhookResponse(webhook: CreatedWebhookView): Record<string, unknown> {
   return { ...webhookResponse(webhook), secret: webhook.secret }
 }
 
-function deliveryResponse(delivery: DeliveryView): Record<string, unknown> {
+export function deliveryResponse(delivery: DeliveryView): Record<string, unknown> {
   return {
     id: delivery.id,
     webhook_id: delivery.webhookId,

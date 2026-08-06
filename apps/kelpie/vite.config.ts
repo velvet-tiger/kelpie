@@ -45,6 +45,11 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/v1': { target: apiOrigin, changeOrigin: false },
         '/healthz': { target: apiOrigin, changeOrigin: false },
+        // The MCP page shows the endpoint at the origin the browser reached the
+        // app on, which is this dev server. Without the proxy that address is
+        // right in production and dead in development, so anyone who copied it
+        // out of the page to try a client would be debugging the wrong thing.
+        '/mcp': { target: apiOrigin, changeOrigin: false },
       },
     },
   }

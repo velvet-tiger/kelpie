@@ -34,7 +34,7 @@ const dealShape = {
  * resolved in the service; the value defaults here say "unknown", not zero, so
  * that a board of new deals does not read as a board of worthless ones.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   ...dealShape,
   stage_id: dealShape.stage_id.optional(),
   value_cents: dealShape.value_cents.default(null),
@@ -50,13 +50,13 @@ const createBody = z.strictObject({
   external_id: dealShape.external_id.default(null),
 })
 
-const updateBody = z.strictObject(dealShape).partial()
+export const updateBody = z.strictObject(dealShape).partial()
 
 export interface DealsRoutesDependencies extends CredentialDependencies {
   readonly service: DealsService
 }
 
-function toCreateInput(body: z.infer<typeof createBody>): CreateDealInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreateDealInput {
   return {
     name: body.name,
     companyId: body.company_id,
@@ -75,7 +75,7 @@ function toCreateInput(body: z.infer<typeof createBody>): CreateDealInput {
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdateDealInput {
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateDealInput {
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
     ...(body.company_id === undefined ? {} : { companyId: body.company_id }),

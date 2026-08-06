@@ -5,21 +5,34 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
-import type { PositionView, PositionsService } from './service.ts'
+import type {
+  CreatePositionInput,
+  PositionView,
+  PositionsService,
+  UpdatePositionInput,
+} from './service.ts'
 
 /** Wire shapes for `/v1/positions`. Bodies are strict; an unknown field is a 422, per `api.md`. */
 
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   person_id: z.string().min(1),
   company_id: z.string().min(1),
   title: z.string().min(1),
 })
 
 /** Only the title. Moving a link to a different person or company is a delete and a create. */
-const updateBody = z.strictObject({ title: z.string().min(1) }).partial()
+export const updateBody = z.strictObject({ title: z.string().min(1) }).partial()
 
 export interface PositionsRoutesDependencies extends CredentialDependencies {
   readonly service: PositionsService
+}
+
+export function toCreateInput(body: z.infer<typeof createBody>): CreatePositionInput {
+  return { personId: body.person_id, companyId: body.company_id, title: body.title }
+}
+
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePositionInput {
+  return { ...(body.title === undefined ? {} : { title: body.title }) }
 }
 
 export function positionResponse(position: PositionView): Record<string, unknown> {
@@ -51,11 +64,7 @@ export function mountPositionsRoutes(router: Hono, dependencies: PositionsRoutes
 
   router.post('/positions', async (context) => {
     const body = await readJsonBody(context, createBody)
-    const position = await dependencies.service.create(await requireActor(context), {
-      personId: body.person_id,
-      companyId: body.company_id,
-      title: body.title,
-    })
+    const position = await dependencies.service.create(await requireActor(context), toCreateInput(body))
 
     return context.json(positionResponse(position), 201)
   })
@@ -74,7 +83,7 @@ export function mountPositionsRoutes(router: Hono, dependencies: PositionsRoutes
     const position = await dependencies.service.update(
       await requireActor(context),
       context.req.param('id'),
-      { ...(body.title === undefined ? {} : { title: body.title }) },
+      toUpdateInput(body),
     )
 
     return context.json(positionResponse(position))

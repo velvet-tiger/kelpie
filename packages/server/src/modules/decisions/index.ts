@@ -2,6 +2,7 @@ import type { KelpieModule } from '../../runtime/module.ts'
 import { mountDecisionsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createDecisionsService } from './service.ts'
+import { registerDecisionsTools } from './tools.ts'
 
 /**
  * Decisions: what the workspace decided or promised, on the record it is about
@@ -29,6 +30,8 @@ export function createDecisionsModule(migrationsDirectory: string): KelpieModule
       context.routes((router) => {
         mountDecisionsRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerDecisionsTools(context.mcp, service)
 
       return Promise.resolve()
     },

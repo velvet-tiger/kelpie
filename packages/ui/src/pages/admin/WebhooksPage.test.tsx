@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../../api/ApiProvider.tsx'
 import { ApiError } from '../../api/client.ts'
 import type { ApiClient } from '../../api/client.ts'
+import { setInputValue } from '../../testing/inputs.ts'
 import { stubClient } from '../../testing/stubClient.ts'
 import { WebhooksPage } from './WebhooksPage.tsx'
 
@@ -133,15 +134,6 @@ function webhooksClient(stubs: Stubs): ApiClient {
       return updated
     },
   })
-}
-
-/** React tracks the value on the node, so a plain assignment is not seen. */
-function setInputValue(input: HTMLElement, value: string): void {
-  Object.getOwnPropertyDescriptor(globalThis.HTMLInputElement.prototype, 'value')?.set?.call(
-    input,
-    value,
-  )
-  input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
 function renderPage(stubs: Stubs = {}): void {
