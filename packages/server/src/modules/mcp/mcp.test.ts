@@ -209,6 +209,54 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       expect(body.error?.code).toBe(-32_601)
     })
 
+    /**
+     * `app.request` builds the URL as `http://localhost/mcp`, so that is this
+     * deployment's own origin for the purposes of the check.
+     */
+    it('refuses a browser calling from another origin', async () => {
+      const response = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://evil.example',
+          Authorization: `Bearer ${workspaceKey}`,
+        },
+        body: JSON.stringify(request(1, 'ping')),
+      })
+
+      expect(response.status).toBe(403)
+      expect(readRecord(readRecord(await response.json()).error).code).toBe('forbidden')
+    })
+
+    it('allows its own origin, and a client that sends none', async () => {
+      const sameOrigin = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'http://localhost',
+          Authorization: `Bearer ${workspaceKey}`,
+        },
+        body: JSON.stringify(request(1, 'ping')),
+      })
+
+      expect(sameOrigin.status).toBe(200)
+
+      // What a real MCP client sends: no Origin at all, because it is not a browser.
+      expect((await post(request(1, 'ping'))).status).toBe(200)
+    })
+
+    it('refuses a cross-origin browser before it reads the credential', async () => {
+      const response = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+        body: JSON.stringify(request(1, 'ping')),
+      })
+
+      // 403 rather than 401: the page is refused for where it is, so whether it
+      // holds a key never comes up.
+      expect(response.status).toBe(403)
+    })
+
     it('reports an unreadable message as a parse error', async () => {
       const body = await envelope(await post({ jsonrpc: '1.0', method: 'ping' }))
 

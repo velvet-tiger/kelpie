@@ -14,7 +14,21 @@ import type { McpTool } from '../../runtime/module.ts'
  * safe to answer every POST from any instance without a session id.
  */
 
-/** Newest revision Kelpie speaks. Returned to a client that asks for anything unknown. */
+/**
+ * Newest revision Kelpie speaks. Returned to a client that asks for anything
+ * unknown.
+ *
+ * **Not the newest revision that exists.** `2025-11-25` and `2026-07-28` have
+ * both shipped since. `2026-07-28` removes the `initialize` handshake entirely,
+ * carries the protocol version in each request's `_meta`, requires
+ * `server/discover`, `Mcp-Method` and `Mcp-Name` headers validated against the
+ * body, and `resultType` on every result. In that revision's own vocabulary
+ * Kelpie is a *legacy* server, and a modern client will not talk to one.
+ *
+ * Supporting both eras on this endpoint is what the spec calls dual-era, and it
+ * is a separate piece of work. Nothing below is wrong for the revisions it
+ * claims; it is simply two revisions behind.
+ */
 export const LATEST_PROTOCOL_VERSION = '2025-06-18'
 
 /**

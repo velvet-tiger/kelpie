@@ -3,6 +3,7 @@ import type { Context } from 'hono'
 
 import type { Actor } from '../../lib/actor.ts'
 import { AppError } from '../../lib/errors.ts'
+import { requestOrigin } from '../../lib/http.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { McpTool } from '../../runtime/module.ts'
 import { readBearerToken } from '../api-keys/keys.ts'
@@ -32,11 +33,15 @@ import type {
  * and `DELETE` would end a session that is never started. Both answer `405`,
  * which the transport spec allows and which tells a client to stop trying.
  *
- * **No session id, and no CORS.** Every request carries its own bearer key, so
- * two POSTs need nothing in common and any instance can answer either. Because
- * the endpoint sends no CORS headers and reads no cookie, a page on another
- * origin can neither read a reply nor borrow a signed-in reader's identity, which
- * is what the transport's DNS-rebinding warning is about.
+ * **No session id.** Every request carries its own bearer key, so two POSTs need
+ * nothing in common and any instance can answer either.
+ *
+ * **No CORS, and an explicit `Origin` check.** The endpoint sends no CORS headers
+ * and reads no cookie, so a page on another origin can neither read a reply nor
+ * borrow a signed-in reader's identity. That reasoning is why the check below
+ * looked unnecessary and it is still why the risk is small, but the transport
+ * spec makes validating `Origin` a requirement rather than an argument, and a
+ * rule that holds without depending on a chain of reasoning is worth five lines.
  */
 
 const PROTOCOL_VERSION_HEADER = 'MCP-Protocol-Version'
@@ -76,14 +81,37 @@ function acceptsEventStream(header: string | undefined): boolean {
  * Resolves the caller, bearer key only.
  *
  * A session cookie is deliberately not read here even though the REST surface
- * takes one. MCP clients are not browsers, and refusing the cookie is what makes
- * the missing CORS configuration a complete answer to cross-origin abuse rather
- * than a partial one.
+ * takes one. MCP clients are not browsers, and refusing the cookie means there is
+ * no ambient credential for a cross-origin page to spend. That is one of three
+ * defences, not the whole of it: `checkOrigin` refuses the page outright, and the
+ * absent CORS headers stop it reading a reply.
  *
  * @throws AppError 401 when no key is presented, or it is not a live one.
  */
 function resolveKeyActor(dependencies: McpRouterDependencies, context: Context): Promise<Actor> {
   return resolveActor(dependencies, { bearer: readBearerToken(context.req.header('Authorization')) })
+}
+
+/**
+ * Refuses a browser calling from somewhere else.
+ *
+ * An MCP client is not a browser and sends no `Origin` at all, so an absent
+ * header is the ordinary case and is allowed. A present one has to be this
+ * deployment's own, which is the same `Host`-derived origin a form's embed URL
+ * is built from.
+ *
+ * There is no allowlist and no configuration for one. A cross-origin browser has
+ * no business here whatever its address: the endpoint takes a bearer key, and a
+ * page that holds one can send it from a server instead.
+ *
+ * @throws AppError 403 for a browser on another origin.
+ */
+function checkOrigin(context: Context): void {
+  const origin = context.req.header('Origin')
+
+  if (origin !== undefined && origin !== requestOrigin(context)) {
+    throw new AppError('forbidden', 'This endpoint does not answer requests from another origin')
+  }
 }
 
 /**
@@ -179,6 +207,7 @@ export function createMcpEndpoint(dependencies: McpRouterDependencies): McpEndpo
   })
 
   transport.post('/', async (context) => {
+    checkOrigin(context)
     checkProtocolVersion(context)
 
     const actor = await resolveKeyActor(dependencies, context).catch((error: unknown) => {
