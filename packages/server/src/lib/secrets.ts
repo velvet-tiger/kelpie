@@ -45,9 +45,26 @@ export class SecretDecryptionError extends Error {
 export interface SecretCipher {
   /** @returns `v1.<base64url iv>.<base64url tag>.<base64url ciphertext>`, safe to store as text. */
   seal(plaintext: string): string
-  /** @throws SecretDecryptionError when the text is malformed, tampered with, or sealed under another key. */
+  /**
+   * Reads a stored value, trying the current key and then the previous one.
+   *
+   * @throws SecretDecryptionError when the text is malformed, tampered with, or
+   *   sealed under a key this cipher does not hold.
+   */
   open(sealed: string): string
+  /**
+   * The same value sealed under the current key, or undefined when it already is.
+   *
+   * This is what makes a re-seal pass idempotent: it is the only way to tell
+   * "readable because it is current" from "readable because the previous key is
+   * still configured", which `open` deliberately hides from everything else.
+   *
+   * @throws SecretDecryptionError when neither key opens it.
+   */
+  reseal(sealed: string): string | undefined
 }
+
+const KEY_MESSAGE = `must be ${String(KEY_BYTES)} bytes of base64, e.g. from: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
 
 /**
  * The environment slice a module needs to build a cipher. Modules validate it
@@ -57,10 +74,27 @@ export interface SecretCipher {
 export const secretEncryptionConfigSchema = z.object({
   SECRET_ENCRYPTION_KEY: z
     .string()
-    .refine((value) => decodeKey(value) !== undefined, {
-      message: `must be ${String(KEY_BYTES)} bytes of base64, e.g. from: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`,
-    }),
+    .refine((value) => decodeKey(value) !== undefined, { message: KEY_MESSAGE }),
+
+  /**
+   * The key being rotated away from. Optional, and only set while a rotation is
+   * in progress: `open` falls back to it, so the service keeps signing
+   * deliveries between the moment the new key is deployed and the moment
+   * `npm run reseal` finishes. Remove it once that pass reports nothing left.
+   *
+   * Blank counts as absent. An operator ending a rotation empties the line far
+   * more often than they delete it, and refusing to boot over that would punish
+   * the tidy step of the procedure.
+   */
+  SECRET_ENCRYPTION_KEY_PREVIOUS: z
+    .string()
+    .refine((value) => isBlank(value) || decodeKey(value) !== undefined, { message: KEY_MESSAGE })
+    .optional(),
 })
+
+function isBlank(value: string): boolean {
+  return value.trim().length === 0
+}
 
 export type SecretEncryptionConfig = z.infer<typeof secretEncryptionConfigSchema>
 
@@ -80,57 +114,110 @@ function decodeKey(value: string): Buffer | undefined {
  * @throws Error when the key is not `KEY_BYTES` of base64. Unreachable through
  *   `secretEncryptionConfigSchema`, which rejects it at boot first.
  */
-export function createSecretCipher(config: SecretEncryptionConfig): SecretCipher {
-  const key = decodeKey(config.SECRET_ENCRYPTION_KEY)
+/** A stored value split into its parts, before any key has been tried. */
+interface SealedParts {
+  readonly iv: Buffer
+  readonly tag: Buffer
+  readonly ciphertext: Buffer
+}
+
+/** @throws SecretDecryptionError when the text is not a `v1` sealed value. */
+function parseSealed(sealed: string): SealedParts {
+  const [version, rawIv, rawTag, rawCiphertext] = sealed.split('.')
+
+  if (version !== FORMAT_VERSION || rawIv === undefined || rawTag === undefined || rawCiphertext === undefined) {
+    throw new SecretDecryptionError('the stored value is not in the expected format')
+  }
+
+  const iv = Buffer.from(rawIv, 'base64url')
+  const tag = Buffer.from(rawTag, 'base64url')
+
+  if (iv.length !== IV_BYTES || tag.length !== TAG_BYTES) {
+    throw new SecretDecryptionError('the stored value has a malformed header')
+  }
+
+  return { iv, tag, ciphertext: Buffer.from(rawCiphertext, 'base64url') }
+}
+
+/** @returns The plaintext, or undefined when this key is not the one it was sealed with. */
+function openWith(key: Buffer, parts: SealedParts): string | undefined {
+  const decipher = createDecipheriv(ALGORITHM, key, parts.iv)
+  decipher.setAuthTag(parts.tag)
+
+  try {
+    return Buffer.concat([decipher.update(parts.ciphertext), decipher.final()]).toString('utf8')
+  } catch {
+    // GCM raises here when the tag does not match, which means either the wrong
+    // key or a modified row. Undefined rather than a throw because the caller is
+    // working through a list of keys and a miss is expected on all but one.
+    return undefined
+  }
+}
+
+/** @throws Error when the value is not `KEY_BYTES` of base64. */
+function requireKey(name: string, value: string): Buffer {
+  const key = decodeKey(value)
 
   if (key === undefined) {
-    throw new Error(`SECRET_ENCRYPTION_KEY must be ${String(KEY_BYTES)} bytes of base64`)
+    throw new Error(`${name} must be ${String(KEY_BYTES)} bytes of base64`)
   }
 
-  return {
-    seal(plaintext) {
-      const iv = randomBytes(IV_BYTES)
-      const cipher = createCipheriv(ALGORITHM, key, iv)
-      const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
+  return key
+}
 
-      return [
-        FORMAT_VERSION,
-        iv.toString('base64url'),
-        cipher.getAuthTag().toString('base64url'),
-        ciphertext.toString('base64url'),
-      ].join('.')
-    },
+export function createSecretCipher(config: SecretEncryptionConfig): SecretCipher {
+  const current = requireKey('SECRET_ENCRYPTION_KEY', config.SECRET_ENCRYPTION_KEY)
+  const previousValue = config.SECRET_ENCRYPTION_KEY_PREVIOUS
 
-    open(sealed) {
-      const [version, rawIv, rawTag, rawCiphertext] = sealed.split('.')
+  // Blank counts as absent, which is how an operator normally ends a rotation.
+  const previous =
+    previousValue === undefined || isBlank(previousValue)
+      ? undefined
+      : requireKey('SECRET_ENCRYPTION_KEY_PREVIOUS', previousValue)
 
-      if (version !== FORMAT_VERSION || rawIv === undefined || rawTag === undefined || rawCiphertext === undefined) {
-        throw new SecretDecryptionError('the stored value is not in the expected format')
-      }
+  /** Current first: the common case is a value that needs no fallback at all. */
+  const keys = previous === undefined ? [current] : [current, previous]
 
-      const iv = Buffer.from(rawIv, 'base64url')
-      const tag = Buffer.from(rawTag, 'base64url')
+  function seal(plaintext: string): string {
+    const iv = randomBytes(IV_BYTES)
+    const cipher = createCipheriv(ALGORITHM, current, iv)
+    const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
 
-      if (iv.length !== IV_BYTES || tag.length !== TAG_BYTES) {
-        throw new SecretDecryptionError('the stored value has a malformed header')
-      }
-
-      const decipher = createDecipheriv(ALGORITHM, key, iv)
-      decipher.setAuthTag(tag)
-
-      try {
-        return Buffer.concat([
-          decipher.update(Buffer.from(rawCiphertext, 'base64url')),
-          decipher.final(),
-        ]).toString('utf8')
-      } catch (error: unknown) {
-        // GCM raises here when the tag does not match the ciphertext, which
-        // means either the wrong key or a modified row. The two are
-        // indistinguishable and both are operator problems, not caller ones.
-        throw new SecretDecryptionError('it was sealed with a different key, or has been altered', {
-          cause: error,
-        })
-      }
-    },
+    return [
+      FORMAT_VERSION,
+      iv.toString('base64url'),
+      cipher.getAuthTag().toString('base64url'),
+      ciphertext.toString('base64url'),
+    ].join('.')
   }
+
+  function open(sealed: string): string {
+    const parts = parseSealed(sealed)
+
+    for (const key of keys) {
+      const plaintext = openWith(key, parts)
+
+      if (plaintext !== undefined) {
+        return plaintext
+      }
+    }
+
+    throw new SecretDecryptionError(
+      previous === undefined
+        ? 'it was sealed with a different key, or has been altered'
+        : 'neither the current nor the previous key opens it, or it has been altered',
+    )
+  }
+
+  function reseal(sealed: string): string | undefined {
+    if (openWith(current, parseSealed(sealed)) !== undefined) {
+      return undefined
+    }
+
+    // Not readable under the current key, so `open` either finds it under the
+    // previous one or throws, which is exactly the caller's answer either way.
+    return seal(open(sealed))
+  }
+
+  return { seal, open, reseal }
 }

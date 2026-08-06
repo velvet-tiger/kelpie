@@ -8,6 +8,7 @@
     "dev": "node --watch --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/server.ts",
     "dev:web": "vite",
     "start": "node src/server.ts",
+    "reseal": "node --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/reseal.ts",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",

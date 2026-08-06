@@ -20,7 +20,8 @@
     "test": "npm run test --workspaces --if-present",
     "db:up": "make up",
     "db:down": "make down",
-    "db:generate": "npm run db:generate --workspace packages/server"
+    "db:generate": "npm run db:generate --workspace packages/server",
+    "reseal": "npm run reseal --workspace apps/kelpie"
   },
   "devDependencies": {
     "concurrently": "^10.0.4",
