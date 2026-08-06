@@ -10,18 +10,29 @@ import { readBearerToken } from '../api-keys/keys.ts'
 import { resolveActor, resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import {
+  HEADER_MISMATCH,
   INVALID_REQUEST,
+  LATEST_LEGACY_PROTOCOL_VERSION,
+  LATEST_PROTOCOL_VERSION,
+  METHOD_NOT_FOUND,
   PARSE_ERROR,
-  SUPPORTED_PROTOCOL_VERSIONS,
+  PROTOCOL_VERSION_META,
   dispatch,
   failure,
+  isModernVersion,
+  isSupportedVersion,
   parseMessage,
   publishTool,
+  readMetaVersion,
+  readParamsName,
+  unsupportedVersion,
 } from './protocol.ts'
 import type {
   DispatchDependencies,
+  JsonRpcMessage,
   JsonRpcResponse,
   McpServerInfo,
+  ProtocolEra,
   PublishedTool,
 } from './protocol.ts'
 
@@ -36,6 +47,13 @@ import type {
  * **No session id.** Every request carries its own bearer key, so two POSTs need
  * nothing in common and any instance can answer either.
  *
+ * **Two eras, decided per POST.** `2026-07-28` removed the handshake, so a modern
+ * client announces its revision in every request instead. `readEra` works out
+ * which one is being asked for and, for a modern request, checks that the headers
+ * the transport mirrors agree with the body before anything acts on either. A
+ * batch can only have come from a legacy client, so the first message decides for
+ * all of them.
+ *
  * **No CORS, and an explicit `Origin` check.** The endpoint sends no CORS headers
  * and reads no cookie, so a page on another origin can neither read a reply nor
  * borrow a signed-in reader's identity. That reasoning is why the check below
@@ -44,7 +62,14 @@ import type {
  * rule that holds without depending on a chain of reasoning is worth five lines.
  */
 
+/**
+ * The body fields the transport mirrors into headers, so an intermediary can
+ * route on them without parsing the body. Names compare case-insensitively,
+ * which is what Hono's header lookup already does; values do not.
+ */
 const PROTOCOL_VERSION_HEADER = 'MCP-Protocol-Version'
+const METHOD_HEADER = 'Mcp-Method'
+const NAME_HEADER = 'Mcp-Name'
 
 /** Answered by GET and DELETE, so a client learns the shape of the endpoint. */
 const POST_ONLY = 'Send MCP messages as a POST to this endpoint'
@@ -115,22 +140,130 @@ function checkOrigin(context: Context): void {
 }
 
 /**
- * Refuses a header naming a revision Kelpie does not speak.
+ * Undoes the sentinel a client wraps a header value in when it will not survive
+ * as plain ASCII: `=?base64?…?=`.
  *
- * Absent is fine: the transport spec has a server assume `2025-03-26` for a
- * client that omits it, and Kelpie answers that revision.
- *
- * @throws AppError 400 for an unsupported value.
+ * A value that is not wrapped is returned as it arrived. The markers are
+ * case-sensitive and must be exactly these, so a value that merely looks similar
+ * is left alone — and a client with a real value shaped like the sentinel is
+ * required to encode it for exactly that reason.
  */
-function checkProtocolVersion(context: Context): void {
-  const requested = context.req.header(PROTOCOL_VERSION_HEADER)
+const BASE64_SENTINEL = /^=\?base64\?(.*)\?=$/u
 
-  if (requested !== undefined && !SUPPORTED_PROTOCOL_VERSIONS.includes(requested)) {
-    throw new AppError(
-      'bad_request',
-      `Kelpie speaks MCP ${SUPPORTED_PROTOCOL_VERSIONS.join(' and ')}, not ${requested}`,
-    )
+function decodeHeaderValue(raw: string | undefined): string | undefined {
+  if (raw === undefined) {
+    return undefined
   }
+
+  const encoded = BASE64_SENTINEL.exec(raw)
+
+  return encoded === null ? raw : Buffer.from(encoded[1] ?? '', 'base64').toString('utf8')
+}
+
+/** Either which revision's rules to answer under, or the refusal to send instead. */
+type EraDecision =
+  | { readonly kind: 'era'; readonly era: ProtocolEra }
+  | { readonly kind: 'refuse'; readonly response: JsonRpcResponse }
+
+/**
+ * Names the header and body values that disagree, or nothing when they agree.
+ *
+ * The point of mirroring body fields into headers is that an intermediary can
+ * route on them without parsing the body. That only holds if the two cannot
+ * differ, so the server that does parse the body is the one that has to check —
+ * otherwise a load balancer and the server act on different values.
+ */
+function headerProblem(context: Context, message: JsonRpcMessage): string | undefined {
+  const headerVersion = context.req.header(PROTOCOL_VERSION_HEADER)
+  const bodyVersion = readMetaVersion(message.params)
+
+  if (headerVersion === undefined) {
+    return `${PROTOCOL_VERSION_HEADER} is required`
+  }
+
+  if (headerVersion !== bodyVersion) {
+    return `${PROTOCOL_VERSION_HEADER} is "${headerVersion}" and ${PROTOCOL_VERSION_META} is ${bodyVersion === undefined ? 'absent' : `"${bodyVersion}"`}`
+  }
+
+  const methodHeader = context.req.header(METHOD_HEADER)
+
+  if (methodHeader === undefined) {
+    return `${METHOD_HEADER} is required`
+  }
+
+  if (methodHeader !== message.method) {
+    return `${METHOD_HEADER} is "${methodHeader}" and the body's method is "${message.method}"`
+  }
+
+  // `Mcp-Name` mirrors `params.name`, which only these methods carry. Of the
+  // three the spec names, `tools/call` is the only one Kelpie implements.
+  if (message.method !== 'tools/call') {
+    return undefined
+  }
+
+  const nameHeader = decodeHeaderValue(context.req.header(NAME_HEADER))
+  const bodyName = readParamsName(message.params)
+
+  if (nameHeader === undefined) {
+    return `${NAME_HEADER} is required on tools/call`
+  }
+
+  if (nameHeader !== bodyName) {
+    return `${NAME_HEADER} is "${nameHeader}" and the body names ${bodyName === undefined ? 'no tool' : `"${bodyName}"`}`
+  }
+
+  return undefined
+}
+
+/**
+ * Works out which revision a request is asking for.
+ *
+ * A modern request says so in its `_meta`, and `server/discover` is a modern
+ * method whatever else it carries. Everything else is legacy, including a request
+ * that names no version at all: the transport spec has a server read that as
+ * `2025-03-26`, from before the header existed.
+ *
+ * A version Kelpie does not speak is refused with `-32022` carrying the list it
+ * does, which is what lets a client pick another and retry. `initialize` is the
+ * exception, because negotiating down is what that handshake is for.
+ */
+function readEra(context: Context, message: JsonRpcMessage): EraDecision {
+  const id = message.id ?? null
+  const claimed = readMetaVersion(message.params) ?? context.req.header(PROTOCOL_VERSION_HEADER)
+
+  if (claimed !== undefined && !isSupportedVersion(claimed) && message.method !== 'initialize') {
+    return { kind: 'refuse', response: unsupportedVersion(id, claimed) }
+  }
+
+  const modern =
+    message.method === 'server/discover' || (claimed !== undefined && isModernVersion(claimed))
+
+  if (!modern) {
+    return { kind: 'era', era: 'legacy' }
+  }
+
+  const problem = headerProblem(context, message)
+
+  return problem === undefined
+    ? { kind: 'era', era: 'modern' }
+    : { kind: 'refuse', response: failure(id, HEADER_MISMATCH, `Header mismatch: ${problem}`) }
+}
+
+/**
+ * The status a set of responses is sent with.
+ *
+ * `200` almost always: a JSON-RPC error is a normal HTTP response. The exception
+ * is a modern method-not-found, which the transport spec puts on `404` so a
+ * client can tell a modern server that lacks the method from a legacy server that
+ * does not host the endpoint at all. Legacy revisions never said that, so they
+ * keep the `200`.
+ */
+function statusFor(responses: readonly JsonRpcResponse[], era: ProtocolEra): 200 | 404 {
+  if (era === 'legacy' || responses.length !== 1) {
+    return 200
+  }
+
+  return responses[0]?.error?.code === METHOD_NOT_FOUND ? 404 : 200
 }
 
 /**
@@ -143,6 +276,7 @@ function renderResponses(
   context: Context,
   responses: readonly JsonRpcResponse[],
   batched: boolean,
+  era: ProtocolEra,
 ): Response {
   // Nothing to answer: every message in the body was a notification. The spec
   // fixes this on 202, and the body must be empty.
@@ -152,13 +286,14 @@ function renderResponses(
 
   const payload: unknown = batched ? responses : responses[0]
   const accept = context.req.header('Accept')
+  const status = statusFor(responses, era)
 
   if (acceptsJson(accept)) {
-    return context.json(payload)
+    return context.json(payload, status)
   }
 
   if (acceptsEventStream(accept)) {
-    return context.body(`event: message\ndata: ${JSON.stringify(payload)}\n\n`, 200, {
+    return context.body(`event: message\ndata: ${JSON.stringify(payload)}\n\n`, status, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-store',
     })
@@ -208,8 +343,10 @@ export function createMcpEndpoint(dependencies: McpRouterDependencies): McpEndpo
 
   transport.post('/', async (context) => {
     checkOrigin(context)
-    checkProtocolVersion(context)
 
+    // Credentials before anything protocol-level, including `server/discover`.
+    // A client may call that one before it knows anything about the server, but
+    // it always has the key already: it is in the same config as the URL.
     const actor = await resolveKeyActor(dependencies, context).catch((error: unknown) => {
       if (error instanceof AppError && error.code === 'unauthorized') {
         // The header is what tells a client it may retry with a credential
@@ -230,24 +367,50 @@ export function createMcpEndpoint(dependencies: McpRouterDependencies): McpEndpo
       return context.json(failure(null, INVALID_REQUEST, 'A batch must hold at least one message'), 400)
     }
 
+    const parsed = incoming.map(parseMessage)
+    // The era belongs to the POST, not to each message in it: a modern request
+    // is one message, and a batch can only have come from a legacy client.
+    const first = parsed.find((message) => message !== undefined)
+
+    if (first === undefined) {
+      return context.json(failure(null, PARSE_ERROR, 'Not a JSON-RPC 2.0 message'), 400)
+    }
+
+    const decision = readEra(context, first)
+
+    if (decision.kind === 'refuse') {
+      return context.json(decision.response, 400)
+    }
+
+    const { era } = decision
+
+    if (era === 'modern' && batched) {
+      return context.json(
+        failure(
+          first.id ?? null,
+          INVALID_REQUEST,
+          `MCP ${LATEST_PROTOCOL_VERSION} takes one message per request; batches ended with ${LATEST_LEGACY_PROTOCOL_VERSION}`,
+        ),
+        400,
+      )
+    }
+
     const responses: JsonRpcResponse[] = []
 
-    for (const value of incoming) {
-      const message = parseMessage(value)
-
+    for (const message of parsed) {
       if (message === undefined) {
         responses.push(failure(null, PARSE_ERROR, 'Not a JSON-RPC 2.0 message'))
         continue
       }
 
-      const response = await dispatch(dispatchDependencies, message, actor)
+      const response = await dispatch(dispatchDependencies, message, era, actor)
 
       if (response !== undefined) {
         responses.push(response)
       }
     }
 
-    return renderResponses(context, responses, batched)
+    return renderResponses(context, responses, batched, era)
   })
 
   transport.get('/', () => {
