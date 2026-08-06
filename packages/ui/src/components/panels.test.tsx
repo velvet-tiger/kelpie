@@ -4,8 +4,9 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiProvider } from '../api/ApiProvider.tsx'
-import type { ApiClient, QueryParameters } from '../api/client.ts'
+import type { ApiClient } from '../api/client.ts'
 import { useUpdatePerson } from '../api/resources/people.ts'
+import { stubClient } from '../testing/stubClient.ts'
 import { ActivitiesPanel } from './ActivitiesPanel.tsx'
 import { DecisionsPanel } from './DecisionsPanel.tsx'
 import { NotesPanel } from './NotesPanel.tsx'
@@ -49,26 +50,25 @@ interface Stubs {
   readonly activitiesAfterRefetch?: readonly unknown[]
 }
 
-function stubClient(stubs: Stubs): ApiClient {
+function panelsClient(stubs: Stubs): ApiClient {
   let activityRequests = 0
 
-  return {
-    get: (path, decode) => {
+  return stubClient({
+    get: (path) => {
       if (path === '/auth/me') {
-        return Promise.resolve(decode(SESSION))
+        return SESSION
       }
 
       throw new Error(`Unexpected get ${path}`)
     },
-    list: (path: string, decodeItem, _query?: QueryParameters) => {
+    list: (path) => {
       stubs.onList?.(path)
 
       if (path === '/activities') {
         activityRequests += 1
       }
 
-      const laterActivities =
-        activityRequests > 1 ? stubs.activitiesAfterRefetch : undefined
+      const laterActivities = activityRequests > 1 ? stubs.activitiesAfterRefetch : undefined
       const items =
         path === '/activities'
           ? (laterActivities ?? stubs.activities ?? [])
@@ -86,33 +86,21 @@ function stubClient(stubs: Stubs): ApiClient {
         throw new Error(`Unexpected list ${path}`)
       }
 
-      return Promise.resolve({ items: items.map(decodeItem), nextCursor: null })
+      return { items, nextCursor: null }
     },
-    post: (path, body, decode) => {
+    post: (path, body) => {
       if (stubs.onPost === undefined) {
         throw new Error(`Unexpected post ${path}`)
       }
 
-      return Promise.resolve(decode(stubs.onPost(path, body)))
+      return stubs.onPost(path, body)
     },
-    getText: () => {
-      throw new Error('Unexpected getText call')
-    },
-    postForm: () => {
-      throw new Error('Unexpected postForm call')
-    },
-    postEmpty: () => {
-      throw new Error('Unexpected postEmpty call')
-    },
-    patchEmpty: () => {
-      throw new Error('Unexpected patchEmpty call')
-    },
-    patch: (path, body, decode) => {
+    patch: (path, body) => {
       if (stubs.onPatch === undefined) {
         throw new Error(`Unexpected patch ${path}`)
       }
 
-      return Promise.resolve(decode(stubs.onPatch(path, body)))
+      return stubs.onPatch(path, body)
     },
     delete: (path) => {
       if (stubs.onDelete === undefined) {
@@ -120,10 +108,8 @@ function stubClient(stubs: Stubs): ApiClient {
       }
 
       stubs.onDelete(path)
-
-      return Promise.resolve()
     },
-  }
+  })
 }
 
 function renderWithClient(client: ApiClient, element: React.JSX.Element): void {
@@ -189,7 +175,7 @@ function note(overrides: Record<string, unknown> = {}): Record<string, unknown> 
 describe('ActivitiesPanel', () => {
   it('names the member behind an activity', async () => {
     renderWithClient(
-      stubClient({ activities: [activity()] }),
+      panelsClient({ activities: [activity()] }),
       <ActivitiesPanel targetType="person" targetId="per_1" />,
     )
 
@@ -199,7 +185,7 @@ describe('ActivitiesPanel', () => {
 
   it('uses the actor label when nothing on the team did it', async () => {
     renderWithClient(
-      stubClient({
+      panelsClient({
         activities: [activity({ actor_member_id: null, actor_label: 'Form' })],
       }),
       <ActivitiesPanel targetType="person" targetId="per_1" />,
@@ -210,7 +196,7 @@ describe('ActivitiesPanel', () => {
 
   it('marks a rolled-up row as belonging to another record', async () => {
     renderWithClient(
-      stubClient({
+      panelsClient({
         activities: [
           activity({ id: 'act_2', target_type: 'deal', target_id: 'deal_1', action: 'created Deal' }),
         ],
@@ -223,7 +209,7 @@ describe('ActivitiesPanel', () => {
 
   it('does not mark a row filed against the record being looked at', async () => {
     renderWithClient(
-      stubClient({ activities: [activity()] }),
+      panelsClient({ activities: [activity()] }),
       <ActivitiesPanel targetType="person" targetId="per_1" />,
     )
 
@@ -233,7 +219,7 @@ describe('ActivitiesPanel', () => {
 
   it('says so when there is no history', async () => {
     renderWithClient(
-      stubClient({ activities: [] }),
+      panelsClient({ activities: [] }),
       <ActivitiesPanel targetType="person" targetId="per_1" />,
     )
 
@@ -286,7 +272,7 @@ describe('activity after a record is edited', () => {
     }
 
     renderWithClient(
-      stubClient({
+      panelsClient({
         activities: [activity()],
         activitiesAfterRefetch: [
           activity(),
@@ -312,7 +298,7 @@ describe('activity after a record is edited', () => {
 describe('NotesPanel', () => {
   it('names the author', async () => {
     renderWithClient(
-      stubClient({ notes: [note()] }),
+      panelsClient({ notes: [note()] }),
       <NotesPanel targetType="person" targetId="per_1" />,
     )
 
@@ -322,7 +308,7 @@ describe('NotesPanel', () => {
 
   it('reads a null author as the workspace key that wrote it', async () => {
     renderWithClient(
-      stubClient({ notes: [note({ author_id: null })] }),
+      panelsClient({ notes: [note({ author_id: null })] }),
       <NotesPanel targetType="person" targetId="per_1" />,
     )
 
@@ -331,7 +317,7 @@ describe('NotesPanel', () => {
 
   it('sorts pinned notes above the rest', async () => {
     renderWithClient(
-      stubClient({
+      panelsClient({
         notes: [
           note({ id: 'note_1', body: 'Newer, unpinned' }),
           note({ id: 'note_2', body: 'Older, pinned', pinned: true }),
@@ -349,7 +335,7 @@ describe('NotesPanel', () => {
 
   it('offers no way to pin, matching the mockup', async () => {
     renderWithClient(
-      stubClient({ notes: [note()] }),
+      panelsClient({ notes: [note()] }),
       <NotesPanel targetType="person" targetId="per_1" />,
     )
 
@@ -360,7 +346,7 @@ describe('NotesPanel', () => {
 
   it('posts a new note to the record it is showing', async () => {
     const posted: { path?: string; body?: unknown } = {}
-    const client = stubClient({
+    const client = panelsClient({
       notes: [],
       onPost: (path, body) => {
         posted.path = path
@@ -407,7 +393,7 @@ describe('NotesPanel', () => {
 describe('DecisionsPanel', () => {
   it('names the owner and the moments beside a decision', async () => {
     renderWithClient(
-      stubClient({ decisions: [decision({ due_at: '2026-09-01T00:00:00.000Z' })] }),
+      panelsClient({ decisions: [decision({ due_at: '2026-09-01T00:00:00.000Z' })] }),
       <DecisionsPanel targetType="person" targetId="per_1" />,
     )
 
@@ -419,7 +405,7 @@ describe('DecisionsPanel', () => {
 
   it('shows nothing for an owner nobody can name', async () => {
     renderWithClient(
-      stubClient({ decisions: [decision({ owner_id: null })] }),
+      panelsClient({ decisions: [decision({ owner_id: null })] }),
       <DecisionsPanel targetType="person" targetId="per_1" />,
     )
 
@@ -431,7 +417,7 @@ describe('DecisionsPanel', () => {
 
   it('posts a new decision to the record it is showing', async () => {
     const posted: { path?: string; body?: unknown } = {}
-    const client = stubClient({
+    const client = panelsClient({
       decisions: [],
       onPost: (path, body) => {
         posted.path = path
@@ -478,7 +464,7 @@ describe('DecisionsPanel', () => {
 
   it('removes a decision from the record it is showing', async () => {
     const deleted: { path?: string } = {}
-    const client = stubClient({
+    const client = panelsClient({
       decisions: [decision()],
       onDelete: (path) => {
         deleted.path = path

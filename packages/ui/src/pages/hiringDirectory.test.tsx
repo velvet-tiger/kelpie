@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiProvider } from '../api/ApiProvider.tsx'
 import type { ApiClient, QueryParameters } from '../api/client.ts'
+import { stubClient } from '../testing/stubClient.ts'
 import { useCandidateNotes } from './hiringDirectory.ts'
 
 afterEach(cleanup)
@@ -35,30 +36,18 @@ interface ListCall {
   readonly query: QueryParameters | undefined
 }
 
-function stubClient(
+function notesClient(
   notes: readonly unknown[],
   calls: ListCall[],
   nextCursor: string | null = null,
 ): ApiClient {
-  const unexpected = (name: string) => (): never => {
-    throw new Error(`Unexpected ${name} call`)
-  }
-
-  return {
-    get: unexpected('get'),
-    list: (path, decodeItem, query) => {
+  return stubClient({
+    list: (path, query) => {
       calls.push({ path, query })
 
-      return Promise.resolve({ items: notes.map(decodeItem), nextCursor })
+      return { items: notes, nextCursor }
     },
-    getText: unexpected('getText'),
-    post: unexpected('post'),
-    postForm: unexpected('postForm'),
-    postEmpty: unexpected('postEmpty'),
-    patchEmpty: unexpected('patchEmpty'),
-    patch: unexpected('patch'),
-    delete: unexpected('delete'),
-  }
+  })
 }
 
 function Probe({ candidateIds }: { readonly candidateIds: readonly string[] }): React.JSX.Element {
@@ -92,7 +81,7 @@ function renderProbe(client: ApiClient, candidateIds: readonly string[]): void {
 describe('useCandidateNotes', () => {
   it('asks about every candidate in one request, naming them all on the filter', async () => {
     const calls: ListCall[] = []
-    const client = stubClient(
+    const client = notesClient(
       [
         note('note_1', 'can_1', 'Strong on systems', '2026-02-02T00:00:00.000Z'),
         note('note_2', 'can_2', 'Rescheduling', '2026-02-01T00:00:00.000Z'),
@@ -116,7 +105,7 @@ describe('useCandidateNotes', () => {
 
   it('gives each candidate their own newest note', async () => {
     const calls: ListCall[] = []
-    const client = stubClient(
+    const client = notesClient(
       [
         // Newest first, the way `-created_at` returns them.
         note('note_3', 'can_1', 'Newest for one', '2026-02-03T00:00:00.000Z'),
@@ -139,7 +128,7 @@ describe('useCandidateNotes', () => {
 
   it('reports the lookup incomplete when a page was left behind', async () => {
     const calls: ListCall[] = []
-    const client = stubClient(
+    const client = notesClient(
       [note('note_1', 'can_1', 'Strong on systems', '2026-02-02T00:00:00.000Z')],
       calls,
       'cursor_2',
@@ -159,7 +148,7 @@ describe('useCandidateNotes', () => {
   it('asks nothing until there are candidates to ask about', () => {
     const calls: ListCall[] = []
 
-    renderProbe(stubClient([], calls), [])
+    renderProbe(notesClient([], calls), [])
 
     expect(calls).toHaveLength(0)
   })
