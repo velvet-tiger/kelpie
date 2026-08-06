@@ -2,7 +2,7 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError } from '../../lib/errors.ts'
-import { pageBody, readJsonBody, readListParameters } from '../../lib/http.ts'
+import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -51,23 +51,30 @@ export function noteResponse(note: NoteView): Record<string, unknown> {
 }
 
 /**
- * A note list always names the record it belongs to. There is no workspace-wide
+ * A note list always names the records it belongs to. There is no workspace-wide
  * note list in the mockup, and answering one by accident through an omitted
  * filter would page a workspace's entire note history to render one panel.
  *
- * @throws AppError 422 when either half is missing, the type is unknown, or
- *   `?pinned=` is a word that is not true or false.
+ * `?target_id=` repeats to name a set, per `api.md`, so a page rendering a note
+ * per row resolves them in one request instead of one per row. `?target_type=`
+ * stays single: the ids in one set are all the same kind of record, and a
+ * request mixing them would need the type paired with each id rather than
+ * alongside them.
+ *
+ * @throws AppError 422 when either half is missing, the type is unknown, an id
+ *   is blank or there are more than `MAX_FILTER_IDS`, or `?pinned=` is a word
+ *   that is not true or false.
  */
 function readFilters(context: Context): {
   targetType: RecordTargetType
-  targetId: string
+  targetIds: readonly string[]
   pinned: boolean | undefined
 } {
   const targetType = context.req.query('target_type')
-  const targetId = context.req.query('target_id')
+  const targetIds = readIdFilter(context, 'target_id')
 
-  if (targetType === undefined || targetId === undefined || targetId.length === 0) {
-    throw AppError.validationFailed('A note list is always a list for one record', [
+  if (targetType === undefined || targetIds === undefined) {
+    throw AppError.validationFailed('A note list always names the records it is for', [
       { field: 'target_type', message: 'Required' },
       { field: 'target_id', message: 'Required' },
     ])
@@ -79,7 +86,7 @@ function readFilters(context: Context): {
     ])
   }
 
-  return { targetType, targetId, pinned: readPinned(context.req.query('pinned')) }
+  return { targetType, targetIds, pinned: readPinned(context.req.query('pinned')) }
 }
 
 function readPinned(raw: string | undefined): boolean | undefined {
