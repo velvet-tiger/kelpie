@@ -9,7 +9,14 @@ import type { Logger } from '../lib/logger.ts'
  * follow-up; do not build it before a consumer cannot tolerate the loss.
  */
 
-/** CRM object types that `record.*` events carry. */
+/**
+ * CRM object types that `record.*` events carry. Every object the API writes,
+ * including the link and content records.
+ *
+ * Wider than `EXTENSIBLE_RECORD_TYPES` in `@kelpie/schemas`, which is the
+ * shorter list of detail pages a UI module can contribute to. A Position, a
+ * Form, and a Handbook page each publish events but have no page to extend.
+ */
 export const RECORD_OBJECT_TYPES = [
   'person',
   'company',

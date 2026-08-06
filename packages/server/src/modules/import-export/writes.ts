@@ -1,9 +1,6 @@
 import { changedKeys } from '../../lib/changes.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
-// The event catalogue's list, not the one `@kelpie/schemas` exports under the
-// same name: that one names the detail pages a UI module can extend, and a
-// Position is not one of them.
 import type { RecordObjectType } from '../../runtime/events.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
