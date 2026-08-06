@@ -10,7 +10,12 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { PlanItemFilters } from './repository.ts'
 import { PIPELINE_KINDS, PLAN_ITEM_STATUSES } from './schema.ts'
 import type { PipelineKind, PlanItemStatus } from './schema.ts'
-import type { PlanItemView, PlansService, UpdatePlanItemInput } from './service.ts'
+import type {
+  CreatePlanItemInput,
+  PlanItemView,
+  PlansService,
+  UpdatePlanItemInput,
+} from './service.ts'
 
 /**
  * Wire shapes for `/v1/plan_items`.
@@ -33,7 +38,7 @@ const planItemShape = {
  * "Unassigned" as its default, and a plan item is a note of what must happen
  * before it is a claim about who will do it.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   ...planItemShape,
   target_type: z.enum(PIPELINE_KINDS),
   target_id: z.string().min(1),
@@ -42,7 +47,7 @@ const createBody = z.strictObject({
 })
 
 /** The target never moves. Re-filing an item under another record is a delete and a create. */
-const updateBody = z.strictObject(planItemShape).partial()
+export const updateBody = z.strictObject(planItemShape).partial()
 
 export interface PlansRoutesDependencies extends CredentialDependencies {
   readonly service: PlansService
@@ -62,7 +67,18 @@ export function planItemResponse(item: PlanItemView): Record<string, unknown> {
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePlanItemInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreatePlanItemInput {
+  return {
+    targetType: body.target_type,
+    targetId: body.target_id,
+    date: body.date,
+    title: body.title,
+    ownerId: body.owner_id,
+    status: body.status,
+  }
+}
+
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePlanItemInput {
   return {
     ...(body.date === undefined ? {} : { date: body.date }),
     ...(body.title === undefined ? {} : { title: body.title }),
@@ -163,14 +179,7 @@ export function mountPlansRoutes(router: Hono, dependencies: PlansRoutesDependen
 
   router.post('/plan_items', async (context) => {
     const body = await readJsonBody(context, createBody)
-    const item = await dependencies.service.create(await requireActor(context), {
-      targetType: body.target_type,
-      targetId: body.target_id,
-      date: body.date,
-      title: body.title,
-      ownerId: body.owner_id,
-      status: body.status,
-    })
+    const item = await dependencies.service.create(await requireActor(context), toCreateInput(body))
 
     return context.json(planItemResponse(item), 201)
   })

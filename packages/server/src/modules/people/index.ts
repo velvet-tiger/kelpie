@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountPeopleRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createPeopleService } from './service.ts'
+import { registerPeopleTools } from './tools.ts'
 
 /**
  * People: who the workspace knows.
@@ -32,6 +33,8 @@ export function createPeopleModule(migrationsDirectory: string): KelpieModule {
       context.routes((router) => {
         mountPeopleRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerPeopleTools(context.mcp, service)
 
       return Promise.resolve()
     },

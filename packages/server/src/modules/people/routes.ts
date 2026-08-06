@@ -47,7 +47,7 @@ const personShape = {
  * button writes, so creating through the API and creating through the UI produce
  * the same record.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   ...personShape,
   email: personShape.email.default(null),
   phones: personShape.phones.default([]),
@@ -62,13 +62,13 @@ const createBody = z.strictObject({
   last_contacted_at: personShape.last_contacted_at.default(null),
 })
 
-const updateBody = z.strictObject(personShape).partial()
+export const updateBody = z.strictObject(personShape).partial()
 
 export interface PeopleRoutesDependencies extends CredentialDependencies {
   readonly service: PeopleService
 }
 
-function toCreateInput(body: z.infer<typeof createBody>): CreatePersonInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreatePersonInput {
   return {
     name: body.name,
     email: body.email,
@@ -85,7 +85,7 @@ function toCreateInput(body: z.infer<typeof createBody>): CreatePersonInput {
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePersonInput {
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePersonInput {
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
     ...(body.email === undefined ? {} : { email: body.email }),

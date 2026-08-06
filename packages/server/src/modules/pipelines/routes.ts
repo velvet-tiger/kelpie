@@ -8,11 +8,16 @@ import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { PIPELINE_KINDS } from './schema.ts'
 import type { PipelineKind } from './schema.ts'
-import type { PipelineStageView, PipelineStagesService } from './service.ts'
+import type {
+  CreateStageInput,
+  PipelineStageView,
+  PipelineStagesService,
+  UpdateStageInput,
+} from './service.ts'
 
 /** Wire shapes for `/v1/pipeline_stages`. Bodies are strict; an unknown field is a 422, per `api.md`. */
 
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   kind: z.enum(PIPELINE_KINDS),
   label: z.string().min(1),
   open: z.boolean().default(true),
@@ -23,7 +28,7 @@ const createBody = z.strictObject({
  * flips the Open-scope visibility, and `sort_order` is the stage's new 0-based
  * position on its board.
  */
-const updateBody = z
+export const updateBody = z
   .strictObject({
     label: z.string().min(1),
     open: z.boolean(),
@@ -72,6 +77,18 @@ function readMoveTo(context: Context): string | undefined {
   return raw
 }
 
+export function toCreateInput(body: z.infer<typeof createBody>): CreateStageInput {
+  return { kind: body.kind, label: body.label, open: body.open }
+}
+
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateStageInput {
+  return {
+    ...(body.label === undefined ? {} : { label: body.label }),
+    ...(body.open === undefined ? {} : { open: body.open }),
+    ...(body.sort_order === undefined ? {} : { sortOrder: body.sort_order }),
+  }
+}
+
 export function stageResponse(stage: PipelineStageView): Record<string, unknown> {
   return {
     id: stage.id,
@@ -103,11 +120,7 @@ export function mountPipelinesRoutes(
 
   router.post('/pipeline_stages', async (context) => {
     const body = await readJsonBody(context, createBody)
-    const stage = await dependencies.service.create(await requireActor(context), {
-      kind: body.kind,
-      label: body.label,
-      open: body.open,
-    })
+    const stage = await dependencies.service.create(await requireActor(context), toCreateInput(body))
 
     return context.json(stageResponse(stage), 201)
   })
@@ -126,11 +139,7 @@ export function mountPipelinesRoutes(
     const stage = await dependencies.service.update(
       await requireActor(context),
       context.req.param('id'),
-      {
-        ...(body.label === undefined ? {} : { label: body.label }),
-        ...(body.open === undefined ? {} : { open: body.open }),
-        ...(body.sort_order === undefined ? {} : { sortOrder: body.sort_order }),
-      },
+      toUpdateInput(body),
     )
 
     return context.json(stageResponse(stage))

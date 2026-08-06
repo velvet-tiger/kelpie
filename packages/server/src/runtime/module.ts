@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import type { ZodType } from 'zod'
 
+import type { Actor } from '../lib/actor.ts'
 import type { Database } from '../lib/database.ts'
 import type { EmailSender } from '../lib/email.ts'
 import type { IdFactory } from '../lib/ids.ts'
@@ -28,12 +29,17 @@ export interface SchemaContribution {
 /**
  * A tool as a module declares it. The input schema is the same one the matching
  * REST route validates with, so the two surfaces cannot drift.
+ *
+ * `invoke` receives the caller for the same reason a route handler resolves one:
+ * every service call is authorized against an actor and scoped to its workspace.
+ * The MCP endpoint resolves it once per request from the bearer key and hands it
+ * down, so a tool never reads identity from anywhere but its own arguments.
  */
 export interface McpToolDefinition<Input> {
   readonly name: string
   readonly description: string
   readonly inputSchema: ZodType<Input>
-  readonly invoke: (input: Input) => Promise<unknown>
+  readonly invoke: (input: Input, actor: Actor) => Promise<unknown>
 }
 
 /**
@@ -44,7 +50,7 @@ export interface McpTool {
   readonly name: string
   readonly description: string
   readonly inputSchema: ZodType
-  readonly invoke: (rawInput: unknown) => Promise<unknown>
+  readonly invoke: (rawInput: unknown, actor: Actor) => Promise<unknown>
 }
 
 export interface McpToolRegistry {

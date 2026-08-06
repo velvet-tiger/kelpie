@@ -9,7 +9,7 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import { isRecordTargetType } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import { RECORD_TARGET_TYPES } from './schema.ts'
-import type { NoteView, NotesService } from './service.ts'
+import type { CreateNoteInput, NoteView, NotesService, UpdateNoteInput } from './service.ts'
 
 /**
  * Wire shapes for `/v1/notes`.
@@ -18,7 +18,7 @@ import type { NoteView, NotesService } from './service.ts'
  * dropped in silence.
  */
 
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   target_type: z.enum(RECORD_TARGET_TYPES),
   target_id: z.string().min(1),
   body: z.string().min(1),
@@ -26,7 +26,7 @@ const createBody = z.strictObject({
 })
 
 /** The target never moves. Re-filing a note under another record is a delete and a create. */
-const updateBody = z
+export const updateBody = z
   .strictObject({
     body: z.string().min(1),
     pinned: z.boolean(),
@@ -35,6 +35,22 @@ const updateBody = z
 
 export interface NotesRoutesDependencies extends CredentialDependencies {
   readonly service: NotesService
+}
+
+export function toCreateInput(body: z.infer<typeof createBody>): CreateNoteInput {
+  return {
+    targetType: body.target_type,
+    targetId: body.target_id,
+    body: body.body,
+    pinned: body.pinned,
+  }
+}
+
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateNoteInput {
+  return {
+    ...(body.body === undefined ? {} : { body: body.body }),
+    ...(body.pinned === undefined ? {} : { pinned: body.pinned }),
+  }
 }
 
 export function noteResponse(note: NoteView): Record<string, unknown> {
@@ -124,12 +140,7 @@ export function mountNotesRoutes(router: Hono, dependencies: NotesRoutesDependen
 
   router.post('/notes', async (context) => {
     const body = await readJsonBody(context, createBody)
-    const note = await dependencies.service.create(await requireActor(context), {
-      targetType: body.target_type,
-      targetId: body.target_id,
-      body: body.body,
-      pinned: body.pinned,
-    })
+    const note = await dependencies.service.create(await requireActor(context), toCreateInput(body))
 
     return context.json(noteResponse(note), 201)
   })
@@ -145,10 +156,7 @@ export function mountNotesRoutes(router: Hono, dependencies: NotesRoutesDependen
     const note = await dependencies.service.update(
       await requireActor(context),
       context.req.param('id'),
-      {
-        ...(body.body === undefined ? {} : { body: body.body }),
-        ...(body.pinned === undefined ? {} : { pinned: body.pinned }),
-      },
+      toUpdateInput(body),
     )
 
     return context.json(noteResponse(note))

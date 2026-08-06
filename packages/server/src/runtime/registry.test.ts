@@ -5,6 +5,7 @@ import { AppError } from '../lib/errors.ts'
 import { createLogger } from '../lib/logger.ts'
 import { createTestServices } from '../testing/services.ts'
 import { createTestApp } from '../testing/app.ts'
+import { workspaceKeyActor } from '../testing/fixtures.ts'
 import type { KelpieModule } from './module.ts'
 import { ModuleBootError } from './order.ts'
 import { registerModules } from './registry.ts'
@@ -32,7 +33,11 @@ const greetingModule: KelpieModule = {
       name: 'greeting.say',
       description: 'Returns a greeting for a name.',
       inputSchema: z.object({ name: z.string() }),
-      invoke: (input) => Promise.resolve({ greeting: `${config.GREETING_WORD}, ${input.name}` }),
+      invoke: (input, actor) =>
+        Promise.resolve({
+          greeting: `${config.GREETING_WORD}, ${input.name}`,
+          workspaceId: actor.workspaceId,
+        }),
     })
 
     return Promise.resolve()
@@ -190,7 +195,7 @@ describe('module schema contributions', () => {
 })
 
 describe('module MCP tools', () => {
-  it('registers the tool and validates arguments before invoking it', async () => {
+  it('registers the tool, validates arguments, and hands it the caller', async () => {
     const { contributions } = await createTestApp({
       modules: [greetingModule],
       environment: { GREETING_WORD: 'Hello' },
@@ -199,7 +204,10 @@ describe('module MCP tools', () => {
     const tool = contributions.mcpTools[0]
     expect(tool?.name).toBe('greeting.say')
 
-    expect(await tool?.invoke({ name: 'ada' })).toEqual({ greeting: 'Hello, ada' })
+    expect(await tool?.invoke({ name: 'ada' }, workspaceKeyActor('ws_greeting'))).toEqual({
+      greeting: 'Hello, ada',
+      workspaceId: 'ws_greeting',
+    })
   })
 
   it('rejects bad arguments with the same error a REST route would return', async () => {
@@ -211,7 +219,7 @@ describe('module MCP tools', () => {
     let thrown: unknown
 
     try {
-      await contributions.mcpTools[0]?.invoke({ name: 42 })
+      await contributions.mcpTools[0]?.invoke({ name: 42 }, workspaceKeyActor('ws_greeting'))
     } catch (error: unknown) {
       thrown = error
     }

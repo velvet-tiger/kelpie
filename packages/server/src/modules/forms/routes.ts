@@ -74,7 +74,7 @@ const formShape = {
  * resolved at submit time rather than frozen at create time, so a workspace that
  * reorders its board does not leave old forms pointing at a stage it moved.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   ...formShape,
   description: formShape.description.default(null),
   status: formShape.status.default('active'),
@@ -84,7 +84,7 @@ const createBody = z.strictObject({
   deal_name_template: formShape.deal_name_template.default(null),
 })
 
-const updateBody = z.strictObject(formShape).partial()
+export const updateBody = z.strictObject(formShape).partial()
 
 const statusFilter = z.enum(FORM_STATUSES)
 
@@ -126,7 +126,7 @@ function toFieldDraft(field: z.infer<typeof fieldBody>): FieldDraft {
   }
 }
 
-function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput {
   return {
     name: body.name,
     description: body.description,
@@ -139,7 +139,7 @@ function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput {
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdateFormInput {
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateFormInput {
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
     ...(body.description === undefined ? {} : { description: body.description }),

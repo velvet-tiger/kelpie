@@ -3,6 +3,7 @@ import { SEATS_LIMIT } from './capabilities.ts'
 import { mountWorkspaceRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createWorkspaceService } from './service.ts'
+import { registerWorkspaceTools } from './tools.ts'
 
 /**
  * Workspaces, membership, and invites.
@@ -32,6 +33,8 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
       context.routes((router) => {
         mountWorkspaceRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerWorkspaceTools(context.mcp, service)
 
       return Promise.resolve()
     },

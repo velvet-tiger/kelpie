@@ -4,6 +4,7 @@ import { createCandidatesService } from './candidates.ts'
 import { createRolesService } from './roles.ts'
 import { mountHiringRoutes } from './routes.ts'
 import * as schema from './schema.ts'
+import { registerHiringTools } from './tools.ts'
 
 /**
  * Hiring: the roles a workspace is filling, and the people up for them.
@@ -37,14 +38,16 @@ export function createHiringModule(migrationsDirectory: string): KelpieModule {
 
       context.schema(schema, migrationsDirectory)
 
+      const hiring = {
+        roles: createRolesService(services),
+        candidates: createCandidatesService(services),
+      }
+
       context.routes((router) => {
-        mountHiringRoutes(router, {
-          db: context.db,
-          now: context.now,
-          roles: createRolesService(services),
-          candidates: createCandidatesService(services),
-        })
+        mountHiringRoutes(router, { db: context.db, now: context.now, ...hiring })
       })
+
+      registerHiringTools(context.mcp, hiring)
 
       return Promise.resolve()
     },

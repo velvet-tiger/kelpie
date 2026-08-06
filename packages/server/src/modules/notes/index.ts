@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountNotesRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createNotesService } from './service.ts'
+import { registerNotesTools } from './tools.ts'
 
 /**
  * Notes: what a person wrote down about a record.
@@ -32,6 +33,8 @@ export function createNotesModule(migrationsDirectory: string): KelpieModule {
       context.routes((router) => {
         mountNotesRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerNotesTools(context.mcp, service)
 
       return Promise.resolve()
     },

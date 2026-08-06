@@ -225,6 +225,9 @@ export type { Activity } from './activity.ts'
 export { memberSchema, updateMemberRoleBody } from './member.ts'
 export type { Member, UpdateMemberRoleInput } from './member.ts'
 
+export { mcpToolSchema } from './mcpTool.ts'
+export type { McpTool } from './mcpTool.ts'
+
 export { createInviteBody, inviteSchema, resendInviteBody } from './invite.ts'
 export type { CreateInviteInput, Invite, ResendInviteInput } from './invite.ts'
 

@@ -5,6 +5,9 @@ import type { DatabaseProbe } from './lib/database.ts'
 import { AppError, internalErrorBody, toErrorBody } from './lib/errors.ts'
 import { PUBLIC_ROUTE_PREFIX } from './lib/http.ts'
 import type { Logger } from './lib/logger.ts'
+import type { CredentialDependencies } from './modules/auth/credentials.ts'
+import { MCP_INSTRUCTIONS, MCP_ROUTE_PREFIX, MCP_SERVER_INFO } from './modules/mcp/index.ts'
+import { createMcpEndpoint } from './modules/mcp/router.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 
 /**
@@ -17,6 +20,13 @@ export interface AppDependencies {
   readonly probeDatabase: () => Promise<DatabaseProbe>
   /** Produced by the registration pass. Routers mount under `/v1`. */
   readonly contributions: ModuleContributions
+  /**
+   * What `/mcp` checks a bearer key against. The REST routes resolve their own
+   * actor inside each module; the MCP endpoint is mounted here rather than by a
+   * module, because its tools come from every module and the last of those has to
+   * have registered before the listing exists.
+   */
+  readonly credentials: CredentialDependencies
   /** Injected so tests can pin the id echoed on responses. */
   readonly generateRequestId?: () => string
 }
@@ -83,6 +93,17 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   for (const { router } of dependencies.contributions.routers) {
     app.route('/v1', router)
   }
+
+  const mcp = createMcpEndpoint({
+    ...dependencies.credentials,
+    tools: dependencies.contributions.mcpTools,
+    serverInfo: MCP_SERVER_INFO,
+    instructions: MCP_INSTRUCTIONS,
+    logger: dependencies.logger,
+  })
+
+  app.route(MCP_ROUTE_PREFIX, mcp.transport)
+  app.route('/v1', mcp.catalog)
 
   app.onError((error, context) => {
     if (error instanceof AppError) {

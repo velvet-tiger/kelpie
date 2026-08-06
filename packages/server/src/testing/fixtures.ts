@@ -1,3 +1,4 @@
+import type { ApiKeyActor } from '../lib/actor.ts'
 import type { Database } from '../lib/database.ts'
 import { createIdFactory } from '../lib/ids.ts'
 import { users } from '../modules/auth/schema.ts'
@@ -48,4 +49,22 @@ export async function insertWorkspaceFixture(db: Database, slug = 'acme'): Promi
   })
 
   return { workspaceId, userId, memberId }
+}
+
+/**
+ * A workspace key's actor, for a test that calls a service or an MCP tool
+ * directly rather than over HTTP.
+ *
+ * A workspace key rather than a session, because that is what reaches the MCP
+ * endpoint: it takes bearer keys only.
+ */
+export function workspaceKeyActor(workspaceId: string): ApiKeyActor {
+  return {
+    kind: 'api_key',
+    apiKeyId: createId('apiKey'),
+    userId: null,
+    workspaceId,
+    role: 'admin',
+    memberId: null,
+  }
 }

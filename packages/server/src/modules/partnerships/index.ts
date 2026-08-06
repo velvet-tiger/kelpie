@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { mountPartnershipsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createPartnershipsService } from './service.ts'
+import { registerPartnershipsTools } from './tools.ts'
 
 /**
  * Partnerships: ongoing two-way relationships.
@@ -34,6 +35,8 @@ export function createPartnershipsModule(migrationsDirectory: string): KelpieMod
       context.routes((router) => {
         mountPartnershipsRoutes(router, { db: context.db, now: context.now, service })
       })
+
+      registerPartnershipsTools(context.mcp, service)
 
       return Promise.resolve()
     },

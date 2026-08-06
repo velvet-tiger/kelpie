@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../../api/ApiProvider.tsx'
 import { ApiError } from '../../api/client.ts'
 import type { ApiClient } from '../../api/client.ts'
+import { setInputValue } from '../../testing/inputs.ts'
 import { stubClient } from '../../testing/stubClient.ts'
 import { ForgotPasswordPage } from './ForgotPasswordPage.tsx'
 import { ResetPasswordPage } from './ResetPasswordPage.tsx'
@@ -62,15 +63,6 @@ function authClient(calls: Calls, stubs: Stubs = {}): ApiClient {
       }
     },
   })
-}
-
-/** React tracks the value on the node, so a plain assignment is not seen. */
-function setInputValue(input: HTMLElement, value: string): void {
-  Object.getOwnPropertyDescriptor(globalThis.HTMLInputElement.prototype, 'value')?.set?.call(
-    input,
-    value,
-  )
-  input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
 /**

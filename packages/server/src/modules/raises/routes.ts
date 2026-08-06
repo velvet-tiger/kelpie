@@ -36,7 +36,7 @@ const raiseShape = {
  * fabricated number is worse than an absent one for agents. Currency defaults
  * to USD like a deal's, so a check size set later already has a unit.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   ...raiseShape,
   stage_id: raiseShape.stage_id.optional(),
   check_size_cents: raiseShape.check_size_cents.default(null),
@@ -50,13 +50,13 @@ const createBody = z.strictObject({
   tags: raiseShape.tags.default([]),
 })
 
-const updateBody = z.strictObject(raiseShape).partial()
+export const updateBody = z.strictObject(raiseShape).partial()
 
 export interface RaisesRoutesDependencies extends CredentialDependencies {
   readonly service: RaisesService
 }
 
-function toCreateInput(body: z.infer<typeof createBody>): CreateRaiseInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreateRaiseInput {
   return {
     name: body.name,
     companyId: body.company_id,
@@ -73,7 +73,7 @@ function toCreateInput(body: z.infer<typeof createBody>): CreateRaiseInput {
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdateRaiseInput {
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateRaiseInput {
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
     ...(body.company_id === undefined ? {} : { companyId: body.company_id }),

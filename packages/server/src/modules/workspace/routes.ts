@@ -21,7 +21,7 @@ const createBody = z.object({
   timezone: timezoneSchema,
 })
 
-const updateBody = z
+export const updateBody = z
   .object({
     name: z.string().min(1),
     slug: z.string().min(1).max(63).regex(slugPattern, 'Use lowercase letters, digits, and hyphens'),
@@ -31,17 +31,17 @@ const updateBody = z
   })
   .partial()
 
-const inviteBody = z.object({
+export const inviteBody = z.object({
   email: z.string().min(1),
   role: z.enum(INVITABLE_ROLES),
   invite_url_template: z.string().min(1).includes('{token}'),
 })
 
-const resendBody = z.object({
+export const resendBody = z.object({
   invite_url_template: z.string().min(1).includes('{token}'),
 })
 
-const memberRoleBody = z.object({ role: z.enum(MEMBER_ROLES) })
+export const memberRoleBody = z.object({ role: z.enum(MEMBER_ROLES) })
 
 const acceptBody = z.object({ token: z.string().min(1) })
 
@@ -62,7 +62,7 @@ async function readBody<T>(context: Context, schema: z.ZodType<T>): Promise<T> {
   return parsed.data
 }
 
-function workspaceResponse(workspace: WorkspaceView): Record<string, unknown> {
+export function workspaceResponse(workspace: WorkspaceView): Record<string, unknown> {
   return {
     id: workspace.id,
     name: workspace.name,
@@ -73,7 +73,7 @@ function workspaceResponse(workspace: WorkspaceView): Record<string, unknown> {
   }
 }
 
-function memberResponse(member: MemberView): Record<string, unknown> {
+export function memberResponse(member: MemberView): Record<string, unknown> {
   return {
     id: member.id,
     user_id: member.userId,
@@ -84,7 +84,7 @@ function memberResponse(member: MemberView): Record<string, unknown> {
   }
 }
 
-function inviteResponse(invite: InviteView): Record<string, unknown> {
+export function inviteResponse(invite: InviteView): Record<string, unknown> {
   return {
     id: invite.id,
     email: invite.email,

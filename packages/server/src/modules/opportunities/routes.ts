@@ -34,7 +34,7 @@ const opportunityShape = {
  * to empty rather than to the mockup's invented "Other"; an unclassified
  * opportunity should read as unclassified.
  */
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   ...opportunityShape,
   kind: opportunityShape.kind.default(''),
   stage_id: opportunityShape.stage_id.optional(),
@@ -45,13 +45,13 @@ const createBody = z.strictObject({
   tags: opportunityShape.tags.default([]),
 })
 
-const updateBody = z.strictObject(opportunityShape).partial()
+export const updateBody = z.strictObject(opportunityShape).partial()
 
 export interface OpportunitiesRoutesDependencies extends CredentialDependencies {
   readonly service: OpportunitiesService
 }
 
-function toCreateInput(body: z.infer<typeof createBody>): CreateOpportunityInput {
+export function toCreateInput(body: z.infer<typeof createBody>): CreateOpportunityInput {
   return {
     name: body.name,
     kind: body.kind,
@@ -64,7 +64,7 @@ function toCreateInput(body: z.infer<typeof createBody>): CreateOpportunityInput
   }
 }
 
-function toUpdateInput(body: z.infer<typeof updateBody>): UpdateOpportunityInput {
+export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateOpportunityInput {
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
     ...(body.kind === undefined ? {} : { kind: body.kind }),
