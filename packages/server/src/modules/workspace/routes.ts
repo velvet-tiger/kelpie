@@ -2,6 +2,7 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError, toErrorDetails } from '../../lib/errors.ts'
+import { timezoneSchema } from '../../lib/timezones.ts'
 import { requireSessionActor } from '../auth/actor.ts'
 import type { Actor, SessionActor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
@@ -17,14 +18,14 @@ const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 const createBody = z.object({
   name: z.string().min(1),
   slug: z.string().min(1).max(63).regex(slugPattern, 'Use lowercase letters, digits, and hyphens'),
-  timezone: z.string().min(1),
+  timezone: timezoneSchema,
 })
 
 const updateBody = z
   .object({
     name: z.string().min(1),
     slug: z.string().min(1).max(63).regex(slugPattern, 'Use lowercase letters, digits, and hyphens'),
-    timezone: z.string().min(1),
+    timezone: timezoneSchema,
     tagline: z.string().nullable(),
     one_liner: z.string().nullable(),
   })
