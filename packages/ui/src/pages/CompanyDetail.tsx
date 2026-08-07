@@ -21,6 +21,7 @@ import {
 } from '../api/resources/positions.ts'
 import { useRaises } from '../api/resources/raises.ts'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
+import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
@@ -102,7 +103,8 @@ export function CompanyDetail(): React.JSX.Element {
         <div className="min-w-0 space-y-8">
           <CompanyHeading company={record} />
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <AgentTasks targetType="company" targetId={record.id} targetLabel={record.name} />
             <DeleteRecord
               recordLabel="Company"
               recordName={record.name}

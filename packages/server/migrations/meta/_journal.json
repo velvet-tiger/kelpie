@@ -85,6 +85,13 @@
       "when": 1785982653650,
       "tag": "0011_add_webhook_previous_secret",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786079500822,
+      "tag": "0012_add_agent_run_failure_reason",
+      "breakpoints": true
     }
   ]
 }

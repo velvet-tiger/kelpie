@@ -14,6 +14,7 @@ import { usePeople } from '../api/resources/people.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { useRecordPlanItems } from '../api/resources/planItems.ts'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
+import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
@@ -93,7 +94,8 @@ export function PartnershipDetail(): React.JSX.Element {
         <div className="min-w-0 space-y-8">
           <PartnershipHeading partnership={record} />
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <AgentTasks targetType="partnership" targetId={record.id} targetLabel={record.name} />
             <DeleteRecord
               recordLabel="Partnership"
               recordName={record.name}

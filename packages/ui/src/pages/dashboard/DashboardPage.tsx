@@ -3,6 +3,7 @@ import type { Dashboard } from '@kelpie/schemas'
 import { useDashboard } from '../../api/resources/dashboard.ts'
 import { useMembers } from '../../api/resources/members.ts'
 import { useWorkspace } from '../../api/resources/workspace.ts'
+import { AgentTasks } from '../../components/AgentTasks.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { attentionRows, briefLines } from './attention.ts'
@@ -42,6 +43,7 @@ export function DashboardPage(): React.JSX.Element {
       {dashboard !== undefined && (
         <DashboardBody
           dashboard={dashboard}
+          workspaceId={workspace?.id}
           workspaceName={workspace?.name ?? 'This workspace'}
           nameById={nameById}
         />
@@ -52,10 +54,12 @@ export function DashboardPage(): React.JSX.Element {
 
 function DashboardBody({
   dashboard,
+  workspaceId,
   workspaceName,
   nameById,
 }: {
   readonly dashboard: Dashboard
+  readonly workspaceId: string | undefined
   readonly workspaceName: string
   readonly nameById: ReadonlyMap<string, string>
 }): React.JSX.Element {
@@ -67,13 +71,20 @@ function DashboardBody({
   return (
     <div>
       <section className="mb-8 border-b border-border pb-6">
-        <p className="text-[11px] text-ink-faint">Daily brief</p>
-        <h2 className="mt-0.5 text-[15px] font-semibold tracking-tight text-ink">
-          {workspaceName} · {briefHeading(dashboard)}
-        </h2>
-        <p className="mt-1 text-[12px] text-ink-muted">
-          Assembled from overdue Plans, partnership touchpoints, and contacts going cold.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] text-ink-faint">Daily brief</p>
+            <h2 className="mt-0.5 text-[15px] font-semibold tracking-tight text-ink">
+              {workspaceName} · {briefHeading(dashboard)}
+            </h2>
+            <p className="mt-1 text-[12px] text-ink-muted">
+              Assembled from overdue Plans, partnership touchpoints, and contacts going cold.
+            </p>
+          </div>
+          {workspaceId !== undefined && (
+            <AgentTasks targetType="workspace" targetId={workspaceId} targetLabel={workspaceName} />
+          )}
+        </div>
         <ul className="mt-4 space-y-1.5">
           {briefLines(dashboard).map((line) => (
             <li key={line} className="flex gap-2 text-[13px] leading-relaxed text-ink">

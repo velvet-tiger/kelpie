@@ -35,16 +35,67 @@ const TOOLS = [
   },
 ]
 
-function renderPage(answer: () => unknown): void {
+const AGENTS = [
+  {
+    id: 'ag_1',
+    name: 'Local Claude',
+    endpoint: 'https://agents.example.com/kelpie/run',
+    has_auth_header: true,
+    last_run_at: '2026-08-07T01:00:00.000Z',
+    created_at: '2026-08-01T01:00:00.000Z',
+    updated_at: '2026-08-01T01:00:00.000Z',
+  },
+]
+
+const RUNS = [
+  {
+    id: 'run_1',
+    agent_id: 'ag_1',
+    task_id: 'company.enrich',
+    target_type: 'company',
+    target_id: 'com_1',
+    status: 'failed',
+    prompt: '# Agent task: Enrich company',
+    failure_reason: 'agent endpoint answered 500',
+    created_at: '2026-08-07T01:00:00.000Z',
+    updated_at: '2026-08-07T01:00:05.000Z',
+  },
+]
+
+const TASK_DEFINITIONS = [
+  {
+    id: 'company.enrich',
+    label: 'Enrich company',
+    description: 'Research into description, stage, size, stack, tags, summary.',
+    target_types: ['company'],
+    placement: 'primary',
+    handbook_slugs: ['agent-faq'],
+    instructions: 'Research this Company.',
+    write_policy: '- Prefer appending a Note over inventing facts.',
+  },
+]
+
+interface PageStubs {
+  readonly tools?: () => unknown
+  readonly agents?: () => unknown
+  readonly runs?: () => unknown
+}
+
+function renderPage(stubs: PageStubs = {}): void {
+  const empty = (): unknown => ({ items: [], nextCursor: null })
   const client = stubClient({
     list: (path) => {
-      if (path !== '/mcp/tools') {
-        throw new Error(`Unexpected list ${path}`)
-      }
+      const answer =
+        {
+          '/mcp/tools': stubs.tools ?? empty,
+          '/agents': stubs.agents ?? empty,
+          '/agent-runs': stubs.runs ?? empty,
+          '/agent-tasks': () => ({ items: TASK_DEFINITIONS, nextCursor: null }),
+        }[path] ?? (() => {
+          throw new Error(`Unexpected list ${path}`)
+        })
 
-      const result = answer()
-
-      return result as { items: unknown[]; nextCursor: string | null }
+      return answer() as { items: unknown[]; nextCursor: string | null }
     },
   })
 
@@ -59,7 +110,7 @@ function renderPage(answer: () => unknown): void {
 
 describe('McpPage', () => {
   it('shows the endpoint this deployment answers on, not a written-down one', async () => {
-    renderPage(() => ({ items: TOOLS, nextCursor: null }))
+    renderPage({ tools: () => ({ items: TOOLS, nextCursor: null }) })
 
     // jsdom serves the page from localhost:3000, which stands in for whatever
     // host a self-hosted install is reached at.
@@ -70,7 +121,7 @@ describe('McpPage', () => {
   })
 
   it('lists what the registry reported, with its count', async () => {
-    renderPage(() => ({ items: TOOLS, nextCursor: null }))
+    renderPage({ tools: () => ({ items: TOOLS, nextCursor: null }) })
 
     expect(await screen.findByText(/3 tools/u)).toBeTruthy()
     expect(screen.getByText('export_csv')).toBeTruthy()
@@ -79,7 +130,7 @@ describe('McpPage', () => {
   })
 
   it('filters on the name and on the description', async () => {
-    renderPage(() => ({ items: TOOLS, nextCursor: null }))
+    renderPage({ tools: () => ({ items: TOOLS, nextCursor: null }) })
 
     const filter = await screen.findByLabelText('Filter tools')
 
@@ -98,10 +149,40 @@ describe('McpPage', () => {
   })
 
   it('says the listing failed rather than showing no tools', async () => {
-    renderPage(() => Promise.reject(new ApiError(401, 'unauthorized', 'Your session has expired')))
+    renderPage({
+      tools: () => Promise.reject(new ApiError(401, 'unauthorized', 'Your session has expired')),
+    })
 
     await waitFor(() => {
       expect(screen.getByText('Your session has expired')).toBeTruthy()
     })
+  })
+
+  it('lists registered agents with their endpoint and last run', async () => {
+    renderPage({ agents: () => ({ items: AGENTS, nextCursor: null }) })
+
+    expect(await screen.findByText('Local Claude')).toBeTruthy()
+    expect(screen.getByText('https://agents.example.com/kelpie/run')).toBeTruthy()
+    expect(screen.getByText('Auth header set')).toBeTruthy()
+    expect(screen.getByText(/Last run/u)).toBeTruthy()
+  })
+
+  it('labels run-log rows from the catalog, with the failure reason', async () => {
+    renderPage({
+      agents: () => ({ items: AGENTS, nextCursor: null }),
+      runs: () => ({ items: RUNS, nextCursor: null }),
+    })
+
+    expect(await screen.findByText('Enrich company')).toBeTruthy()
+    expect(screen.getByText(/com_1 → Local Claude/u)).toBeTruthy()
+    expect(screen.getByText('Failed')).toBeTruthy()
+    expect(screen.getByText('agent endpoint answered 500')).toBeTruthy()
+  })
+
+  it('says so when nothing has run yet', async () => {
+    renderPage()
+
+    expect(await screen.findByText(/No runs yet/u)).toBeTruthy()
+    expect(screen.getByText(/No agents registered/u)).toBeTruthy()
   })
 })
