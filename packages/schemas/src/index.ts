@@ -222,6 +222,20 @@ export type {
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'
 
+export { dashboardSchema } from './dashboard.ts'
+export type {
+  Dashboard,
+  DashboardActivity,
+  DashboardDecision,
+  DashboardNote,
+  DashboardPipeline,
+  DashboardPlanItem,
+  DashboardSignal,
+  DashboardStaleContact,
+  DashboardTouchpoint,
+  TargetRef,
+} from './dashboard.ts'
+
 export { memberSchema, updateMemberRoleBody } from './member.ts'
 export type { Member, UpdateMemberRoleInput } from './member.ts'
 

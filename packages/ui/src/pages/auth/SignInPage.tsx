@@ -20,7 +20,7 @@ import { AuthLayout } from './AuthLayout.tsx'
  * sign-in form into an open redirect.
  */
 function safeNext(value: string | null): string {
-  return value !== null && value.startsWith('/') && !value.startsWith('//') ? value : '/people'
+  return value !== null && value.startsWith('/') && !value.startsWith('//') ? value : '/dashboard'
 }
 
 export function SignInPage(): React.JSX.Element {

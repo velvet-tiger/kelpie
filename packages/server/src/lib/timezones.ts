@@ -14,11 +14,10 @@ import { z } from 'zod'
  * current browser resolved. Node 24 ships full ICU and knows every zone added
  * so far.
  *
- * This runs on write only. A row stored before the check survives until the
- * next write that carries the field, and there is no backfill: nothing formats
- * by a stored zone yet, so rewriting one to `UTC` would change what a workspace
- * means to prevent a failure that cannot happen. Refusing the next write hands
- * the correction to whoever is already editing it.
+ * This runs on write only, and there is no backfill. Every route that sets a
+ * workspace zone has validated it since the first one shipped, so a stored zone
+ * `dayIn` cannot resolve is corrupt data rather than a row that predates the
+ * check. Refusing the next write hands the correction to whoever is editing it.
  */
 export const timezoneSchema = z.string().refine(
   (value) => {
@@ -34,3 +33,27 @@ export const timezoneSchema = z.string().refine(
   },
   { message: 'Must be an IANA time zone name, e.g. Australia/Sydney' },
 )
+
+/**
+ * The calendar day it is in `timezone` at the instant `at`, as `YYYY-MM-DD`.
+ *
+ * Overdue is a question about days, not instants, and which day it is depends on
+ * where the workspace is. Reading the server's own clock would put a Melbourne
+ * workspace on yesterday's date for ten hours of every day.
+ *
+ * `en-CA` renders `YYYY-MM-DD` already, so the parts need no reassembling. The
+ * formatter is built per call rather than cached, because the zone varies by
+ * workspace and a cache keyed on it would outlive the request that needed it.
+ *
+ * @throws RangeError when the platform cannot resolve `timezone`. Every write
+ *   path validates against `timezoneSchema`, so one that fails here is corrupt
+ *   data; a 500 naming it is more use than silently answering in UTC.
+ */
+export function dayIn(timezone: string, at: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(at)
+}

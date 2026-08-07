@@ -65,7 +65,7 @@ export function JoinPage(): React.JSX.Element {
           onClick={() => {
             accept
               .runAsync({ token })
-              .then(() => navigate('/people', { replace: true }))
+              .then(() => navigate('/dashboard', { replace: true }))
               .catch(() => undefined)
           }}
           className="w-full rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"

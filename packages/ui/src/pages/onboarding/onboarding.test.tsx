@@ -144,7 +144,7 @@ function renderStep(element: React.JSX.Element, calls: Calls, stubs: Stubs = {})
               something the test can see. */}
           <Route path="/onboarding/invites" element={<p>step 2</p>} />
           <Route path="/onboarding/handbook" element={<p>step 3</p>} />
-          <Route path="/people" element={<p>the app</p>} />
+          <Route path="/dashboard" element={<p>the app</p>} />
           <Route path="/login" element={<p>sign in</p>} />
         </Routes>
       </ApiProvider>
