@@ -163,7 +163,9 @@ export function AgentTasks({
         className={
           compact
             ? 'inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-ink-muted transition hover:border-accent hover:text-accent'
-            : 'inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-raised px-2.5 py-1.5 text-[12px] font-medium text-ink transition hover:border-accent hover:text-accent'
+            : // Sized to sit beside `DeleteRecord`'s trigger, not the mockup's
+              // heavier header button.
+              'inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[12px] font-medium text-ink-muted transition hover:border-accent hover:text-accent'
         }
       >
         Agent
