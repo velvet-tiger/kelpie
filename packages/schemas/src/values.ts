@@ -115,6 +115,31 @@ export const RECORD_TARGET_TYPES = [
 
 export type RecordTargetType = (typeof RECORD_TARGET_TYPES)[number]
 
+/**
+ * What `GET /v1/search` looks through, and the order its groups come back in.
+ *
+ * Handbook leads because a question phrased in words rather than names is usually
+ * a question the handbook answers. The rest follow the sidebar.
+ *
+ * Neither of the lists above fits. `RECORD_OBJECT_TYPES` on the server has no
+ * Decision and does have Position, Candidate and Form: a Position is reachable
+ * only as the person holding it, and nobody searches for a Candidate by name
+ * without finding the Person first.
+ */
+export const SEARCH_COLLECTIONS = [
+  'handbook_page',
+  'person',
+  'role',
+  'company',
+  'deal',
+  'opportunity',
+  'raise',
+  'partnership',
+  'decision',
+] as const
+
+export type SearchCollection = (typeof SEARCH_COLLECTIONS)[number]
+
 /** Whether a Role is still being hired for. */
 export const ROLE_STATUSES = ['open', 'closed'] as const
 

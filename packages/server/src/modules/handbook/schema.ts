@@ -1,6 +1,7 @@
 import { type AnyPgColumn, index, integer, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 
 /**
@@ -25,9 +26,18 @@ export const handbookPages = pgTable(
     updatedBy: text('updated_by').references(() => workspaceMembers.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // The body is markdown, and it is indexed as-is. Postgres tokenises `##` and
+    // `**` as punctuation, so the syntax costs nothing and stripping it first
+    // would mean a second copy of every page to keep in step.
+    searchVector: searchVector((): readonly SearchVectorPart[] => [
+      { column: handbookPages.title, weight: 'A' },
+      { column: handbookPages.slug, weight: 'B' },
+      { column: handbookPages.body, weight: 'B' },
+    ]),
   },
   (table) => [
     unique('handbook_pages_workspace_slug_key').on(table.workspaceId, table.slug),
     index('handbook_pages_parent_idx').on(table.workspaceId, table.parentId),
+    index('handbook_pages_search_idx').using('gin', table.searchVector),
   ],
 )

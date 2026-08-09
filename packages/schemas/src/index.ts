@@ -49,6 +49,7 @@ export {
   RELATIONSHIP_LEVELS,
   ROLE_STATUS_LABELS,
   ROLE_STATUSES,
+  SEARCH_COLLECTIONS,
   SIZE_BANDS,
   SOCIAL_NETWORK_IDS,
   SOCIAL_NETWORK_LABELS,
@@ -84,6 +85,7 @@ export type {
   RecordTargetType,
   Relationship,
   RoleStatus,
+  SearchCollection,
   SizeBand,
   SocialNetworkId,
   ThemePreference,
@@ -264,6 +266,9 @@ export type {
   DashboardTouchpoint,
   TargetRef,
 } from './dashboard.ts'
+
+export { searchResultsSchema } from './search.ts'
+export type { SearchResult, SearchResultGroup, SearchResults } from './search.ts'
 
 export { memberSchema, updateMemberRoleBody } from './member.ts'
 export type { Member, UpdateMemberRoleInput } from './member.ts'

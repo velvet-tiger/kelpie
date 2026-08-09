@@ -1,6 +1,7 @@
 import { date, index, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { people } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
@@ -33,11 +34,20 @@ export const partnerships = pgTable(
     tags: text('tags').array().notNull().default([]),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    searchVector: searchVector((): readonly SearchVectorPart[] => [
+      { column: partnerships.name, weight: 'A' },
+      { column: partnerships.kind, weight: 'B' },
+      { column: partnerships.goals, weight: 'B' },
+      { column: partnerships.successLooksLike, weight: 'B' },
+      { column: partnerships.summary, weight: 'B' },
+      { column: partnerships.tags, weight: 'C', array: true },
+    ]),
   },
   (table) => [
     index('partnerships_workspace_idx').on(table.workspaceId),
     index('partnerships_company_idx').on(table.companyId),
     index('partnerships_stage_idx').on(table.stageId),
+    index('partnerships_search_idx').using('gin', table.searchVector),
   ],
 )
 

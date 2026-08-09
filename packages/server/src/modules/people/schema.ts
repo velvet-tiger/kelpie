@@ -2,7 +2,16 @@ import { INFLUENCE_LEVELS, PREFERRED_CHANNELS, RELATIONSHIP_LEVELS } from '@kelp
 import type { SocialProfile } from '@kelpie/schemas'
 import { index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
-import { checkOneOf, citext, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
+import {
+  checkOneOf,
+  citext,
+  createdAt,
+  moment,
+  primaryId,
+  searchVector,
+  updatedAt,
+} from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
@@ -60,10 +69,19 @@ export const people = pgTable(
     lastContactedAt: moment('last_contacted_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // Their title is not here because it is not on this table. `GET /v1/search`
+    // reaches it through `positions.search_vector`.
+    searchVector: searchVector((): readonly SearchVectorPart[] => [
+      { column: people.name, weight: 'A' },
+      { column: people.email, weight: 'B' },
+      { column: people.summary, weight: 'B' },
+      { column: people.tags, weight: 'C', array: true },
+    ]),
   },
   (table) => [
     unique('people_workspace_email_key').on(table.workspaceId, table.email),
     index('people_workspace_idx').on(table.workspaceId),
+    index('people_search_idx').using('gin', table.searchVector),
     checkOneOf('people_preferred_channel_check', table.preferredChannel, PREFERRED_CHANNELS),
     checkOneOf('people_influence_check', table.influence, INFLUENCE_LEVELS),
     checkOneOf('people_relationship_check', table.relationship, RELATIONSHIP_LEVELS),

@@ -1,7 +1,8 @@
 import { PIPELINE_KINDS, PLAN_ITEM_STATUSES } from '@kelpie/schemas'
 import { date, index, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { checkOneOf, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 
 /** Re-exported for the routes and service that constrain themselves to this table. */
@@ -30,10 +31,14 @@ export const planItems = pgTable(
     status: text('status').notNull().default('todo'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // A plan item is never a search result itself. This vector exists so a search
+    // for a planned step finds the Deal, Opportunity or Raise it sits on.
+    searchVector: searchVector((): readonly SearchVectorPart[] => [{ column: planItems.title, weight: 'A' }]),
   },
   (table) => [
     index('plan_items_target_idx').on(table.workspaceId, table.targetType, table.targetId),
     index('plan_items_date_idx').on(table.workspaceId, table.date),
+    index('plan_items_search_idx').using('gin', table.searchVector),
     checkOneOf('plan_items_target_type_check', table.targetType, PIPELINE_KINDS),
     checkOneOf('plan_items_status_check', table.status, PLAN_ITEM_STATUSES),
   ],

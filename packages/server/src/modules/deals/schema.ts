@@ -1,6 +1,7 @@
 import { bigint, date, index, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { people } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
@@ -39,11 +40,20 @@ export const deals = pgTable(
     externalId: text('external_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    searchVector: searchVector((): readonly SearchVectorPart[] => [
+      { column: deals.name, weight: 'A' },
+      { column: deals.risks, weight: 'B' },
+      { column: deals.whyWin, weight: 'B' },
+      { column: deals.summary, weight: 'B' },
+      { column: deals.tags, weight: 'C', array: true },
+      { column: deals.competitors, weight: 'C', array: true },
+    ]),
   },
   (table) => [
     index('deals_workspace_idx').on(table.workspaceId),
     index('deals_company_idx').on(table.companyId),
     index('deals_stage_idx').on(table.stageId),
+    index('deals_search_idx').using('gin', table.searchVector),
   ],
 )
 

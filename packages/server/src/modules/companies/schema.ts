@@ -1,7 +1,15 @@
 import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from '@kelpie/schemas'
 import { index, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
-import { checkOneOf, citext, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import {
+  checkOneOf,
+  citext,
+  createdAt,
+  primaryId,
+  searchVector,
+  updatedAt,
+} from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
@@ -36,10 +44,20 @@ export const companies = pgTable(
     tags: text('tags').array().notNull().default([]),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    searchVector: searchVector((): readonly SearchVectorPart[] => [
+      { column: companies.name, weight: 'A' },
+      { column: companies.domain, weight: 'B' },
+      { column: companies.industry, weight: 'B' },
+      { column: companies.description, weight: 'B' },
+      { column: companies.summary, weight: 'B' },
+      { column: companies.tags, weight: 'C', array: true },
+      { column: companies.techStack, weight: 'C', array: true },
+    ]),
   },
   (table) => [
     unique('companies_workspace_domain_key').on(table.workspaceId, table.domain),
     index('companies_workspace_idx').on(table.workspaceId),
+    index('companies_search_idx').using('gin', table.searchVector),
     checkOneOf('companies_stage_check', table.stage, COMPANY_STAGES),
     checkOneOf('companies_size_band_check', table.sizeBand, SIZE_BANDS),
     checkOneOf('companies_account_type_check', table.accountType, ACCOUNT_TYPES),

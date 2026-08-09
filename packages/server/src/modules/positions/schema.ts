@@ -1,6 +1,7 @@
 import { index, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { people } from '../people/schema.ts'
 import { workspaces } from '../workspace/schema.ts'
@@ -27,10 +28,15 @@ export const positions = pgTable(
     title: text('title').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // A position is never a search result itself. This vector exists so a search
+    // for a job title finds the person holding it, which is what the mockup's
+    // `/search` and `?q=` on people both do.
+    searchVector: searchVector((): readonly SearchVectorPart[] => [{ column: positions.title, weight: 'A' }]),
   },
   (table) => [
     unique('positions_person_company_title_key').on(table.personId, table.companyId, table.title),
     index('positions_workspace_idx').on(table.workspaceId),
     index('positions_company_idx').on(table.companyId),
+    index('positions_search_idx').using('gin', table.searchVector),
   ],
 )

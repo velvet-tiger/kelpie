@@ -1,7 +1,15 @@
 import { RECORD_TARGET_TYPES } from '@kelpie/schemas'
 import { index, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { checkOneOf, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
+import {
+  checkOneOf,
+  createdAt,
+  moment,
+  primaryId,
+  searchVector,
+  updatedAt,
+} from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 
 /**
@@ -33,9 +41,16 @@ export const decisions = pgTable(
     dueAt: moment('due_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // The body carries weight A because a decision has no name: the body is what
+    // the result list shows and what a reader recognises it by.
+    searchVector: searchVector((): readonly SearchVectorPart[] => [
+      { column: decisions.body, weight: 'A' },
+      { column: decisions.rationale, weight: 'B' },
+    ]),
   },
   (table) => [
     index('decisions_target_idx').on(table.workspaceId, table.targetType, table.targetId),
+    index('decisions_search_idx').using('gin', table.searchVector),
     checkOneOf('decisions_target_type_check', table.targetType, RECORD_TARGET_TYPES),
   ],
 )

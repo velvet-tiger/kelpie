@@ -2,7 +2,15 @@ import { CANDIDATE_STATUSES, INTERVIEW_STAGES, ROLE_STATUSES } from '@kelpie/sch
 import { sql } from 'drizzle-orm'
 import { check, index, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
-import { checkOneOf, createdAt, oneOf, primaryId, updatedAt } from '../../lib/columns.ts'
+import {
+  checkOneOf,
+  createdAt,
+  oneOf,
+  primaryId,
+  searchVector,
+  updatedAt,
+} from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { people } from '../people/schema.ts'
 import { workspaces } from '../workspace/schema.ts'
 
@@ -35,9 +43,11 @@ export const roles = pgTable(
     status: text('status').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    searchVector: searchVector((): readonly SearchVectorPart[] => [{ column: roles.title, weight: 'A' }]),
   },
   (table) => [
     index('roles_workspace_idx').on(table.workspaceId),
+    index('roles_search_idx').using('gin', table.searchVector),
     checkOneOf('roles_status_check', table.status, ROLE_STATUSES),
   ],
 )

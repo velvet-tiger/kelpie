@@ -100,6 +100,7 @@ export function Shell(): React.JSX.Element {
   // cannot disagree about which theme the account is on.
   const { theme, setTheme } = useTheme()
   const menuRef = useRef<HTMLDivElement>(null)
+  const [query, setQuery] = useState('')
 
   useEffect(() => {
     if (!menuOpen) {
@@ -184,7 +185,30 @@ export function Shell(): React.JSX.Element {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-11 items-center justify-end gap-3 border-b border-border px-5">
+        <header className="flex h-11 items-center gap-3 border-b border-border px-5">
+          <form
+            className="flex-1"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const term = query.trim()
+
+              if (term.length === 0) {
+                return
+              }
+
+              void navigate(`/search?q=${encodeURIComponent(term)}`)
+            }}
+          >
+            <input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value)
+              }}
+              aria-label="Search"
+              placeholder="Search…"
+              className="w-full max-w-sm rounded-md border border-transparent bg-surface-sunken px-2.5 py-1 text-[13px] text-ink outline-none transition placeholder:text-ink-faint focus:border-border focus:bg-surface-raised"
+            />
+          </form>
           <button
             type="button"
             onClick={() => {
