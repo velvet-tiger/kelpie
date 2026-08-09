@@ -1,6 +1,6 @@
 {
-  "id": "c90a93a4-cdcf-4a7e-b832-cfa8b0093930",
-  "prevId": "429a44e1-a59f-4d5b-ac2f-1879367c8dfc",
+  "id": "17cb1da1-b076-4508-a15a-683b997edb4b",
+  "prevId": "c90a93a4-cdcf-4a7e-b832-cfa8b0093930",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4250,6 +4250,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "failure_reason": {
+          "name": "failure_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
