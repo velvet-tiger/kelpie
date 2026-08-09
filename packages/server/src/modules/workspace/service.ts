@@ -626,6 +626,11 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       await requireMembership(actor, workspaceId, 'admin')
       const invite = await requireInvite(workspaceId, inviteId)
 
+      // The row may predate the guard `invite()` applies at creation: somebody
+      // who joined since then would get a fresh, working-looking link whose
+      // accept can only answer 409.
+      await requireStranger(workspaceId, invite.email)
+
       // A new token, not the old one again: the address in the first email may
       // have been forwarded anywhere, and reissuing retires it.
       const now = dependencies.now()

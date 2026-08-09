@@ -7,6 +7,7 @@ import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
+import { hashToken } from '../../lib/tokens.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { coreModules } from '../core.ts'
 import { handbookPages } from '../handbook/schema.ts'
@@ -889,6 +890,45 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       )
 
       expect(readString(await response.json(), 'status')).toBe('pending')
+    })
+
+    it('refuses to resend an invitation whose address now belongs to a member', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      // No endpoint can create this state today: `invite()` refuses an address
+      // that already belongs to a member. This reproduces a row written before
+      // that guard existed, for somebody who has since joined.
+      const [legacy] = await database.db
+        .insert(invites)
+        .values({
+          id: 'invite_legacy_test',
+          workspaceId,
+          email: 'grace@example.com',
+          role: 'member',
+          status: 'pending',
+          tokenHash: hashToken('stale-token'),
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        })
+        .returning()
+
+      if (legacy === undefined) {
+        throw new Error('Insert did not return the row')
+      }
+
+      const sentBefore = harness.services.sentEmails.length
+
+      const response = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites/${legacy.id}/resend`,
+        { invite_url_template: INVITE_TEMPLATE },
+        owner,
+      )
+
+      expect(response.status).toBe(409)
+      expect(readErrorFields(await response.json())).toEqual(['email'])
+      expect(harness.services.sentEmails).toHaveLength(sentBefore)
     })
   })
 
