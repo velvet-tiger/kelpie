@@ -16,6 +16,7 @@ import {
   useUpdatePositionTitle,
 } from '../api/resources/positions.ts'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
+import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
@@ -109,7 +110,8 @@ export function PersonDetail(): React.JSX.Element {
         <div className="min-w-0 space-y-8">
           <PersonHeading person={record} />
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <AgentTasks targetType="person" targetId={record.id} targetLabel={record.name} />
             <DeleteRecord
               recordLabel="Person"
               recordName={record.name}
@@ -127,7 +129,9 @@ export function PersonDetail(): React.JSX.Element {
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Person sections">
             {active === 'overview' && <PersonOverview person={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="person" targetId={record.id} />}
-            {active === 'hiring' && <PersonHiring candidacies={candidacies.records} />}
+            {active === 'hiring' && (
+              <PersonHiring candidacies={candidacies.records} personName={record.name} />
+            )}
             {active === 'notes' && <NotesPanel targetType="person" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="person" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'person', recordId: record.id })}
@@ -218,8 +222,10 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
  */
 function PersonHiring({
   candidacies,
+  personName,
 }: {
   readonly candidacies: readonly Candidate[]
+  readonly personName: string
 }): React.JSX.Element {
   const roles = useRoleTitles()
   const names = usePersonNames()
@@ -230,12 +236,20 @@ function PersonHiring({
       <ul className="space-y-4">
         {candidacies.map((candidate) => (
           <li key={candidate.id} className="rounded-md border border-border p-4">
-            <Link
-              to={`/hiring/${candidate.roleId}`}
-              className="text-[14px] font-medium text-ink hover:text-accent"
-            >
-              {roles.titleFor(candidate.roleId) ?? candidate.roleId}
-            </Link>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <Link
+                to={`/hiring/${candidate.roleId}`}
+                className="text-[14px] font-medium text-ink hover:text-accent"
+              >
+                {roles.titleFor(candidate.roleId) ?? candidate.roleId}
+              </Link>
+              <AgentTasks
+                targetType="candidate"
+                targetId={candidate.id}
+                targetLabel={`${personName} · ${roles.titleFor(candidate.roleId) ?? candidate.roleId}`}
+                compact
+              />
+            </div>
 
             <div className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-3">
               <div>

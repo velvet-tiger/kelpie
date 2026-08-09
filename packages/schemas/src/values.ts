@@ -358,3 +358,45 @@ export const WEBHOOK_STATUS_LABELS: Readonly<Record<WebhookStatus, string>> = {
   failing: 'Failing',
   paused: 'Paused',
 }
+
+/**
+ * What an agent task can point at: the seven attachable record types, plus
+ * three surfaces that carry tasks without being note targets — a Role, a
+ * Handbook page, and the workspace itself (`agent-tasks.md`).
+ */
+export const AGENT_TASK_TARGET_TYPES = [
+  'person',
+  'company',
+  'deal',
+  'opportunity',
+  'partnership',
+  'raise',
+  'candidate',
+  'role',
+  'handbook',
+  'workspace',
+] as const
+
+export type AgentTaskTargetType = (typeof AGENT_TASK_TARGET_TYPES)[number]
+
+/** `primary` shows as a compact action; `overflow` lives under "More". */
+export const AGENT_TASK_PLACEMENTS = ['primary', 'overflow'] as const
+
+export type AgentTaskPlacement = (typeof AGENT_TASK_PLACEMENTS)[number]
+
+/**
+ * Where a run's dispatch stands. The lifecycle describes the POST to the
+ * registered agent, not the agent's own work: Kelpie hands the prompt over and
+ * records whether the handover landed. `agent-tasks.md` defines no callback for
+ * an agent to report completion, so anything past the dispatch would be a guess.
+ */
+export const AGENT_RUN_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as const
+
+export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number]
+
+export const AGENT_RUN_STATUS_LABELS: Readonly<Record<AgentRunStatus, string>> = {
+  queued: 'Queued',
+  running: 'Running',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+}

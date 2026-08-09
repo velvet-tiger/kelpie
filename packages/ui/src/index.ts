@@ -85,6 +85,8 @@ export type { SessionState } from './api/resources/session.ts'
 export { fetchServiceHealth } from './api/health.ts'
 export type { HealthRequestOptions, ServiceHealth } from './api/health.ts'
 
+export { AgentTasks } from './components/AgentTasks.tsx'
+export type { AgentTasksProps } from './components/AgentTasks.tsx'
 export { Chip } from './components/Chip.tsx'
 export type { ChipProps, ChipTone } from './components/Chip.tsx'
 export { DataTable } from './components/DataTable.tsx'

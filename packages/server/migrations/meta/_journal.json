@@ -92,6 +92,13 @@
       "when": 1786255151449,
       "tag": "0012_idempotency_keys_response_nullable",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786255151450,
+      "tag": "0013_add_agent_run_failure_reason",
+      "breakpoints": true
     }
   ]
 }

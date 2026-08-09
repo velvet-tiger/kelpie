@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url'
 
 import type { KelpieModule } from '../runtime/module.ts'
 import { createActivitiesModule } from './activities/index.ts'
-import * as agentTasks from './agent-tasks/schema.ts'
+import { createAgentTasksModule } from './agent-tasks/index.ts'
 import { createApiKeysModule } from './api-keys/index.ts'
 import { createAuthModule } from './auth/index.ts'
 import { createCompaniesModule } from './companies/index.ts'
@@ -46,7 +46,6 @@ interface CoreModuleDefinition {
 }
 
 const definitions: readonly CoreModuleDefinition[] = [
-  { id: 'agent-tasks', requires: ['workspace'], tables: agentTasks },
   { id: 'integrations', requires: ['workspace'], tables: integrations },
 ]
 
@@ -77,6 +76,7 @@ export const coreModules: readonly KelpieModule[] = [
   createDashboardModule(),
   createFormsModule(coreMigrationsDirectory),
   createImportExportModule(coreMigrationsDirectory),
+  createAgentTasksModule(coreMigrationsDirectory),
   createWebhooksModule(coreMigrationsDirectory),
   ...definitions.map((definition): KelpieModule => ({
     id: definition.id,
