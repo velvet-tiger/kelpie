@@ -27,6 +27,7 @@ const CORE_ADMIN_NAV: readonly NavItem[] = [
 ]
 
 const CORE_NAV: readonly NavItem[] = [
+  { id: 'dashboard', label: 'Dashboard', to: '/dashboard', order: 50 },
   { id: 'people', label: 'People', to: '/people', order: 100 },
   { id: 'hiring', label: 'Hiring', to: '/hiring', order: 150 },
   { id: 'companies', label: 'Companies', to: '/companies', order: 200 },
@@ -39,6 +40,13 @@ const CORE_NAV: readonly NavItem[] = [
   { id: 'planning', label: 'Planning', to: '/planning', order: 400 },
   { id: 'decisions', label: 'Decisions', to: '/decisions', order: 500 },
 ]
+
+/**
+ * `nav.primary` is one flat slot (`modules.md`); the mockup renders it as two
+ * visual groups, an unheaded top section and a headed "CRM" section. This is
+ * presentation only, so it stays here rather than becoming a second slot.
+ */
+const TOP_LEVEL_NAV_IDS: ReadonlySet<string> = new Set(['dashboard', 'handbook', 'planning', 'decisions'])
 
 function linkClass({ isActive }: { isActive: boolean }): string {
   return [
@@ -100,13 +108,15 @@ export function Shell(): React.JSX.Element {
   }, [menuOpen])
 
   const navItems = inSlotOrder([...CORE_NAV, ...moduleNav])
+  const topLevelItems = navItems.filter((item) => TOP_LEVEL_NAV_IDS.has(item.id))
+  const crmItems = navItems.filter((item) => !TOP_LEVEL_NAV_IDS.has(item.id))
   const adminItems = inSlotOrder([...CORE_ADMIN_NAV, ...moduleAdminNav])
 
   return (
     <div className="flex min-h-screen bg-surface">
       <aside className="flex w-[200px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
         <div className="px-3 py-4">
-          <NavLink to="/people" className="group block px-2">
+          <NavLink to="/dashboard" className="group block px-2">
             <div className="text-[15px] font-semibold tracking-tight text-sidebar-ink transition-opacity group-hover:opacity-80">
               Kelpie
             </div>
@@ -114,10 +124,18 @@ export function Shell(): React.JSX.Element {
         </div>
 
         <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-2 pb-4">
+          <div className="flex flex-col gap-0.5">
+            {topLevelItems.map((item) => (
+              <NavLink key={item.id} to={item.to} className={linkClass}>
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+
           <div>
             <div className="mb-1 px-2 text-[11px] text-sidebar-muted">CRM</div>
             <div className="flex flex-col gap-0.5">
-              {navItems.map((item) => (
+              {crmItems.map((item) => (
                 <NavLink key={item.id} to={item.to} className={linkClass}>
                   {item.label}
                 </NavLink>

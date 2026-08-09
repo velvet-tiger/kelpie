@@ -22,7 +22,9 @@ export function HandbookStepPage(): React.JSX.Element {
   const { records: pages, isLoading, error } = useHandbookPages()
 
   function finish(): void {
-    navigate('/people', { replace: true })
+    // The wizard ends on the dashboard, per `onboarding.md`. It is empty for a
+    // brand new workspace, which is the point: it says what there is to fill in.
+    navigate('/dashboard', { replace: true })
   }
 
   return (

@@ -16,6 +16,10 @@
 export {
   ACCOUNT_TYPES,
   ACTIVITY_KINDS,
+  AGENT_RUN_STATUS_LABELS,
+  AGENT_RUN_STATUSES,
+  AGENT_TASK_PLACEMENTS,
+  AGENT_TASK_TARGET_TYPES,
   CANDIDATE_STATUS_LABELS,
   CANDIDATE_STATUSES,
   COMPANY_STAGES,
@@ -58,6 +62,9 @@ export {
 export type {
   AccountType,
   ActivityKind,
+  AgentRunStatus,
+  AgentTaskPlacement,
+  AgentTaskTargetType,
   CandidateStatus,
   CompanyStage,
   ExtensibleRecordType,
@@ -219,8 +226,44 @@ export type {
   WebhookInput,
 } from './webhook.ts'
 
+export {
+  agentRunSchema,
+  agentTaskDefinitionSchema,
+  createRegisteredAgentBody,
+  registeredAgentBody,
+  registeredAgentSchema,
+  resolveAgentTaskBody,
+  resolvedAgentTaskSchema,
+  runAgentTaskBody,
+} from './agentTask.ts'
+export type {
+  AgentRun,
+  AgentTaskContextPack,
+  AgentTaskDefinition,
+  CreateRegisteredAgentInput,
+  RegisteredAgent,
+  RegisteredAgentInput,
+  ResolveAgentTaskInput,
+  ResolvedAgentTask,
+  RunAgentTaskInput,
+} from './agentTask.ts'
+
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'
+
+export { dashboardSchema } from './dashboard.ts'
+export type {
+  Dashboard,
+  DashboardActivity,
+  DashboardDecision,
+  DashboardNote,
+  DashboardPipeline,
+  DashboardPlanItem,
+  DashboardSignal,
+  DashboardStaleContact,
+  DashboardTouchpoint,
+  TargetRef,
+} from './dashboard.ts'
 
 export { memberSchema, updateMemberRoleBody } from './member.ts'
 export type { Member, UpdateMemberRoleInput } from './member.ts'

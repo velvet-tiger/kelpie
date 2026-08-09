@@ -4,10 +4,13 @@ import { cors } from 'hono/cors'
 import type { DatabaseProbe } from './lib/database.ts'
 import { AppError, internalErrorBody, toErrorBody } from './lib/errors.ts'
 import { PUBLIC_ROUTE_PREFIX } from './lib/http.ts'
+import { createIdFactory } from './lib/ids.ts'
+import type { IdFactory } from './lib/ids.ts'
 import type { Logger } from './lib/logger.ts'
 import type { CredentialDependencies } from './modules/auth/credentials.ts'
 import { MCP_INSTRUCTIONS, MCP_ROUTE_PREFIX, MCP_SERVER_INFO } from './modules/mcp/index.ts'
 import { createMcpEndpoint } from './modules/mcp/router.ts'
+import { createIdempotencyMiddleware } from './modules/workspace/idempotencyMiddleware.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 
 /**
@@ -29,6 +32,8 @@ export interface AppDependencies {
   readonly credentials: CredentialDependencies
   /** Injected so tests can pin the id echoed on responses. */
   readonly generateRequestId?: () => string
+  /** Injected so tests can pin the ids `idempotencyMiddleware` reserves rows under. */
+  readonly createId?: IdFactory
 }
 
 /** Per-request values the middleware chain sets and handlers read. */
@@ -60,6 +65,7 @@ const PUBLIC_CORS = cors({
 
 export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   const generateRequestId = dependencies.generateRequestId ?? (() => crypto.randomUUID())
+  const createId = dependencies.createId ?? createIdFactory()
   const app = new Hono<AppBindings>()
 
   app.use('*', async (context, next) => {
@@ -80,6 +86,21 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
       durationMs: Math.round(performance.now() - startedAt),
     })
   })
+
+  // Every module's `POST` gets this the same way, decided once here rather than
+  // per route (`api.md`). It skips `/v1/public/*` itself — a public request has
+  // no `Actor` to scope a key to — so it is mounted ahead of the public CORS
+  // middleware without conflicting with it.
+  app.use(
+    '/v1/*',
+    createIdempotencyMiddleware({
+      db: dependencies.credentials.db,
+      now: dependencies.credentials.now,
+      createId,
+      credentials: dependencies.credentials,
+      log: dependencies.logger,
+    }),
+  )
 
   // Public first. `/v1/public/...` cannot collide with a `/v1` route unless a
   // module names a resource `public`, and mounting in this order means the CORS

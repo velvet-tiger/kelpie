@@ -65,10 +65,26 @@ export const invites = pgTable(
   ],
 )
 
+/** What a replayed `Idempotency-Key` request gets back instead of re-executing. */
+export interface StoredIdempotentResponse {
+  readonly status: number
+  readonly body: unknown
+}
+
 /**
  * Replayed `Idempotency-Key` requests return the stored response instead of
  * re-executing (`api.md`). Workspace-scoped because a key is only meaningful
  * within the workspace whose credentials sent it.
+ *
+ * `response` is nullable: the middleware reserves the row (inserts it with a
+ * null response) before running the handler, so a concurrent replay of the
+ * same key can see the request is in flight and answer `409` instead of
+ * running the handler twice. It is filled in once the handler returns.
+ *
+ * `id` follows the `<prefix>_<ulid>` convention (`idem`, `lib/ids.ts`) for
+ * consistency with every other table, but it is never returned by any
+ * endpoint — this table has no routes of its own — so it does not appear in
+ * `api.md`'s public prefix table.
  */
 export const idempotencyKeys = pgTable(
   'idempotency_keys',
@@ -79,7 +95,7 @@ export const idempotencyKeys = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     key: text('key').notNull(),
     requestHash: text('request_hash').notNull(),
-    response: jsonb('response').notNull(),
+    response: jsonb('response').$type<StoredIdempotentResponse>(),
     expiresAt: moment('expires_at').notNull(),
     createdAt: createdAt(),
   },

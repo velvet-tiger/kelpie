@@ -10,6 +10,7 @@ import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { useRecordPlanItems } from '../api/resources/planItems.ts'
 import { useDeleteRaise, useRaise, useUpdateRaise } from '../api/resources/raises.ts'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
+import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
@@ -94,7 +95,8 @@ export function RaiseDetail(): React.JSX.Element {
         <div className="min-w-0 space-y-8">
           <RaiseHeading raise={record} />
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <AgentTasks targetType="raise" targetId={record.id} targetLabel={record.name} />
             <DeleteRecord
               recordLabel="Raise"
               recordName={record.name}

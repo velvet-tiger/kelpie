@@ -61,6 +61,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     contributions,
     credentials: { db: services.db, now: services.now },
     generateRequestId: options.generateRequestId ?? (() => 'req-test'),
+    createId: services.createId,
   })
 
   return { app, contributions, logLines, services }

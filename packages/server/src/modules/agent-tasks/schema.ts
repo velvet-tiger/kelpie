@@ -1,7 +1,7 @@
-import { sql } from 'drizzle-orm'
-import { check, index, pgTable, text } from 'drizzle-orm/pg-core'
+import { AGENT_RUN_STATUSES } from '@kelpie/schemas'
+import { index, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
@@ -44,15 +44,14 @@ export const agentRuns = pgTable(
     targetId: text('target_id').notNull(),
     status: text('status').notNull().default('queued'),
     prompt: text('prompt').notNull(),
+    /** Set only on `failed`: what the dispatch hit, for the run log. */
+    failureReason: text('failure_reason'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     index('agent_runs_workspace_idx').on(table.workspaceId),
     index('agent_runs_agent_idx').on(table.agentId),
-    check(
-      'agent_runs_status_check',
-      sql`${table.status} in ('queued', 'running', 'succeeded', 'failed')`,
-    ),
+    checkOneOf('agent_runs_status_check', table.status, AGENT_RUN_STATUSES),
   ],
 )
