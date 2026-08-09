@@ -267,6 +267,9 @@ export type {
   TargetRef,
 } from './dashboard.ts'
 
+export { searchResultsSchema } from './search.ts'
+export type { SearchResult, SearchResultGroup, SearchResults } from './search.ts'
+
 export { memberSchema, updateMemberRoleBody } from './member.ts'
 export type { Member, UpdateMemberRoleInput } from './member.ts'
 

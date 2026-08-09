@@ -8,6 +8,7 @@ import { DealDetail } from '../pages/DealDetail.tsx'
 import { DealStageSettingsPage } from '../pages/DealStageSettingsPage.tsx'
 import { DealsPage } from '../pages/DealsPage.tsx'
 import { DecisionsPage } from '../pages/DecisionsPage.tsx'
+import { SearchPage } from '../pages/SearchPage.tsx'
 import { FormDetail } from '../pages/FormDetail.tsx'
 import { FormsPage } from '../pages/FormsPage.tsx'
 import { FundraisingPage } from '../pages/FundraisingPage.tsx'
@@ -107,6 +108,7 @@ function AppRoutes(): React.JSX.Element {
           {/* The mockup's default route, and where the shell's wordmark goes. */}
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="search" element={<SearchPage />} />
           <Route path="people" element={<PeoplePage />} />
           <Route path="people/:id" element={<PersonDetail />} />
           <Route path="hiring" element={<HiringPage />} />
