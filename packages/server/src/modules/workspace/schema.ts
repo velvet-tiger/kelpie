@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import { boolean, check, index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
 import { citext, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { users } from '../auth/schema.ts'
@@ -62,6 +62,33 @@ export const invites = pgTable(
     index('invites_workspace_idx').on(table.workspaceId),
     check('invites_role_check', sql`${table.role} in ('admin', 'member')`),
     check('invites_status_check', sql`${table.status} in ('pending', 'expired')`),
+  ],
+)
+
+/**
+ * A workspace's own choice for one toggleable module (`modules.md`). No row
+ * means enabled: the default every module ships with, and the state a
+ * workspace that has never opened the settings screen is in.
+ *
+ * `module_id` is not a foreign key. The modules a deploy ships with live in
+ * `apps/kelpie/kelpie.config.ts`, not a database table, so there is nothing
+ * here to reference; `runtime/moduleConfig.ts` is what rejects an unknown id.
+ */
+export const workspaceModuleSettings = pgTable(
+  'workspace_module_settings',
+  {
+    id: primaryId(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    moduleId: text('module_id').notNull(),
+    enabled: boolean('enabled').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    unique('workspace_module_settings_workspace_module_key').on(table.workspaceId, table.moduleId),
+    index('workspace_module_settings_workspace_idx').on(table.workspaceId),
   ],
 )
 

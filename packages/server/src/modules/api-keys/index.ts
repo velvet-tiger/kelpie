@@ -13,6 +13,7 @@ export function createApiKeysModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'api-keys',
     requires: ['workspace'],
+    structural: true,
 
     register(context) {
       const service = createApiKeyService({

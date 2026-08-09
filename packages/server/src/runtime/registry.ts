@@ -1,19 +1,24 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 
+import type { Actor } from '../lib/actor.ts'
+import { requireWorkspaceId } from '../lib/actor.ts'
 import type { Environment } from '../lib/config.ts'
 import { AppError, describeThrown, describeValidationIssue, toErrorDetails } from '../lib/errors.ts'
 import type { Logger } from '../lib/logger.ts'
-import { createEntitlementRegistry } from './entitlements.ts'
+import { createEntitlementRegistry, requireCapability } from './entitlements.ts'
 import type { EntitlementRegistry } from './entitlements.ts'
 import { createEventBus } from './events.ts'
 import type { EventBus } from './events.ts'
 import type {
   KelpieModule,
   McpTool,
+  ModuleCatalogEntry,
   ModuleContext,
   ModuleServices,
   SchemaContribution,
 } from './module.ts'
+import { createModuleConfigProvider, moduleCapabilityName, validateModuleConfig } from './moduleConfig.ts'
 import { ModuleBootError, orderModules } from './order.ts'
 
 /**
@@ -49,6 +54,23 @@ export interface ModuleRuntimeOptions {
   readonly entitlements?: EntitlementRegistry
   /** The database, transaction scope, and collaborators every module builds on. */
   readonly services: ModuleServices
+  /**
+   * The deploy-time module override (`lib/moduleConfig.ts`), parsed. A locked
+   * module id wins over whatever a workspace's own settings say.
+   */
+  readonly moduleConfig?: Readonly<Record<string, boolean>>
+  /**
+   * Resolves the caller of a REST request, the same way every route already
+   * does (`modules/auth/credentials.ts`), so a non-structural module's router
+   * can be gated by `module.<id>` before any of its own routes run.
+   *
+   * Optional, and not part of `ModuleServices`: `runtime/` must not import a
+   * feature module, so this arrives as a function rather than a dependency on
+   * auth directly. Omitted, REST gating is skipped entirely, which is what
+   * every test that does not exercise module toggling wants without having to
+   * say so.
+   */
+  readonly resolveActor?: (context: Context) => Promise<Actor>
 }
 
 /** Contributions accumulate here, one mutable set per registration pass. */
@@ -65,12 +87,29 @@ function createModuleContext(
   options: ModuleRuntimeOptions,
   events: EventBus,
   entitlements: EntitlementRegistry,
+  moduleCatalog: readonly ModuleCatalogEntry[],
 ): ModuleContext {
   return {
     ...options.services,
 
     routes(mount) {
       const router = new Hono()
+
+      // Gate first, so it runs before anything `mount` adds: Hono composes a
+      // path's handlers in the order they were registered on this router,
+      // middleware included, and registering after the routes it should guard
+      // would run it too late to block them.
+      if (module.structural !== true && options.resolveActor !== undefined) {
+        const { resolveActor } = options
+
+        router.use('*', async (context, next) => {
+          const actor = await resolveActor(context)
+
+          await requireCapability(entitlements, requireWorkspaceId(actor), moduleCapabilityName(module.id))
+          await next()
+        })
+      }
+
       mount(router)
       accumulator.routers.push({ moduleId: module.id, router })
     },
@@ -107,6 +146,14 @@ function createModuleContext(
               )
             }
 
+            // The MCP endpoint already resolved `actor` once, from the bearer
+            // key, before dispatch reached here (`modules/mcp/router.ts`), so
+            // gating needs no resolution step of its own the way the REST
+            // gate above does.
+            if (module.structural !== true) {
+              await requireCapability(entitlements, requireWorkspaceId(actor), moduleCapabilityName(module.id))
+            }
+
             return definition.invoke(parsed.data, actor)
           },
         })
@@ -129,6 +176,9 @@ function createModuleContext(
     entitlements,
 
     log: options.logger.child({ module: module.id }),
+
+    moduleCatalog,
+    moduleConfig: options.moduleConfig,
   }
 }
 
@@ -141,6 +191,11 @@ function createModuleContext(
  */
 export async function registerModules(options: ModuleRuntimeOptions): Promise<ModuleContributions> {
   const ordered = orderModules(options.modules)
+
+  if (options.moduleConfig !== undefined) {
+    validateModuleConfig(options.moduleConfig, options.modules)
+  }
+
   const events = options.events ?? createEventBus(options.logger)
   const entitlements = options.entitlements ?? createEntitlementRegistry()
   const accumulator: Accumulator = {
@@ -149,9 +204,33 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     schemas: [],
     mcpTools: [],
   }
+  const moduleCatalog: readonly ModuleCatalogEntry[] = ordered.map((module) => ({
+    id: module.id,
+    structural: module.structural === true,
+  }))
+
+  // Declared once, centrally, rather than by each module's own `register`: a
+  // module author does nothing to become toggleable, which is the point of
+  // `structural` defaulting to false.
+  for (const module of ordered) {
+    if (module.structural !== true) {
+      entitlements.declare({
+        name: moduleCapabilityName(module.id),
+        kind: 'flag',
+        description: `Whether the "${module.id}" module is enabled for a workspace.`,
+      })
+    }
+  }
+
+  // Ahead of the registration loop, so it precedes any provider a module adds
+  // during its own `register` and therefore wins `EntitlementRegistry.check`'s
+  // first-answer-wins walk over providers.
+  if (options.moduleConfig !== undefined) {
+    entitlements.provide(createModuleConfigProvider(options.moduleConfig))
+  }
 
   for (const module of ordered) {
-    const context = createModuleContext(module, accumulator, options, events, entitlements)
+    const context = createModuleContext(module, accumulator, options, events, entitlements, moduleCatalog)
 
     try {
       await module.register(context)

@@ -6,6 +6,7 @@ import type { IdFactory } from '../../lib/ids.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { limitFor } from '../../runtime/entitlements.ts'
+import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { Actor, SessionActor } from '../auth/actor.ts'
 import * as authRepository from '../auth/repository.ts'
@@ -36,6 +37,10 @@ export interface WorkspaceDependencies {
   readonly now: () => Date
   readonly entitlements: EntitlementRegistry
   readonly newToken?: () => string
+  /** Every non-structural module id (`runtime/module.ts`'s `moduleCatalog`), in assembly order. */
+  readonly toggleableModuleIds: readonly string[]
+  /** The deploy-time module override, if this deployment has one. */
+  readonly moduleConfigOverrides: Readonly<Record<string, boolean>> | undefined
 }
 
 export interface WorkspaceView {
@@ -63,6 +68,13 @@ export interface InviteView {
   readonly status: InviteStatus
   readonly expiresAt: Date
   readonly createdAt: Date
+}
+
+export interface ModuleSettingView {
+  readonly moduleId: string
+  readonly enabled: boolean
+  /** True when a deploy-time config file holds this module's value, not the workspace's own choice. */
+  readonly locked: boolean
 }
 
 export interface CreateWorkspaceInput {
@@ -102,6 +114,12 @@ export interface WorkspaceService {
   revokeInvite(actor: Actor, workspaceId: string, inviteId: string): Promise<void>
   /** Joins the invited workspace as the calling account. */
   acceptInvite(actor: SessionActor, token: string): Promise<WorkspaceView>
+  listModuleSettings(actor: Actor, workspaceId: string): Promise<readonly ModuleSettingView[]>
+  /**
+   * @throws AppError 'not_found' for a structural or unknown module id.
+   * @throws AppError 'conflict' when a deploy-time config file locks this module.
+   */
+  setModuleEnabled(actor: Actor, workspaceId: string, moduleId: string, enabled: boolean): Promise<ModuleSettingView>
 }
 
 function toWorkspaceView(record: repository.WorkspaceRecord): WorkspaceView {
@@ -737,6 +755,44 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
         return toWorkspaceView(workspace)
       })
+    },
+
+    async listModuleSettings(actor, workspaceId) {
+      await requireMembership(actor, workspaceId, 'member')
+
+      return Promise.all(
+        dependencies.toggleableModuleIds.map(async (moduleId) => {
+          const entitlement = await dependencies.entitlements.check(workspaceId, moduleCapabilityName(moduleId))
+
+          return {
+            moduleId,
+            enabled: entitlement.kind === 'flag' ? entitlement.granted : true,
+            locked: dependencies.moduleConfigOverrides?.[moduleId] !== undefined,
+          }
+        }),
+      )
+    },
+
+    async setModuleEnabled(actor, workspaceId, moduleId, enabled) {
+      await requireMembership(actor, workspaceId, 'admin')
+
+      if (!dependencies.toggleableModuleIds.includes(moduleId)) {
+        throw AppError.notFound('Module not found')
+      }
+
+      if (dependencies.moduleConfigOverrides?.[moduleId] !== undefined) {
+        throw AppError.conflict('This module is locked by the deployment configuration')
+      }
+
+      await repository.upsertModuleSetting(dependencies.db, {
+        id: dependencies.createId('moduleSetting'),
+        workspaceId,
+        moduleId,
+        enabled,
+        updatedAt: dependencies.now(),
+      })
+
+      return { moduleId, enabled, locked: false }
     },
   }
 }

@@ -20,6 +20,7 @@ const authConfigSchema = z.object({
 export function createAuthModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'auth',
+    structural: true,
 
     register(context) {
       const config = context.config(authConfigSchema)

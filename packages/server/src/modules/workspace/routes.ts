@@ -8,7 +8,7 @@ import type { Actor, SessionActor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { INVITABLE_ROLES, MEMBER_ROLES } from './roles.ts'
-import type { InviteView, MemberView, WorkspaceService, WorkspaceView } from './service.ts'
+import type { InviteView, MemberView, ModuleSettingView, WorkspaceService, WorkspaceView } from './service.ts'
 
 /** Wire shapes for `/v1/workspaces`, per `onboarding.md`'s API sketch. */
 
@@ -42,6 +42,8 @@ export const resendBody = z.object({
 })
 
 export const memberRoleBody = z.object({ role: z.enum(MEMBER_ROLES) })
+
+export const moduleSettingBody = z.object({ enabled: z.boolean() })
 
 const acceptBody = z.object({ token: z.string().min(1) })
 
@@ -93,6 +95,10 @@ export function inviteResponse(invite: InviteView): Record<string, unknown> {
     expires_at: invite.expiresAt.toISOString(),
     created_at: invite.createdAt.toISOString(),
   }
+}
+
+export function moduleSettingResponse(setting: ModuleSettingView): Record<string, unknown> {
+  return { module_id: setting.moduleId, enabled: setting.enabled, locked: setting.locked }
 }
 
 export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutesDependencies): void {
@@ -216,6 +222,27 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
     )
 
     return context.body(null, 204)
+  })
+
+  router.get('/workspaces/:id/modules', async (context) => {
+    const settings = await dependencies.service.listModuleSettings(
+      await requireActor(context),
+      context.req.param('id'),
+    )
+
+    return context.json({ data: settings.map(moduleSettingResponse), next_cursor: null })
+  })
+
+  router.patch('/workspaces/:id/modules/:moduleId', async (context) => {
+    const body = await readBody(context, moduleSettingBody)
+    const setting = await dependencies.service.setModuleEnabled(
+      await requireActor(context),
+      context.req.param('id'),
+      context.req.param('moduleId'),
+      body.enabled,
+    )
+
+    return context.json(moduleSettingResponse(setting))
   })
 
   /** Not nested under a workspace: the caller does not know which one until it resolves. */

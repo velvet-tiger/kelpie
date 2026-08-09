@@ -15,6 +15,7 @@ export function createCompaniesModule(migrationsDirectory: string): KelpieModule
   return {
     id: 'companies',
     requires: ['workspace', 'activities'],
+    structural: true,
 
     register(context) {
       const service = createCompaniesService({

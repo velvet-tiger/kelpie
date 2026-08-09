@@ -23,6 +23,12 @@ export interface KelpieConfig {
   readonly logLevel: LogLevel
   /** Transactional mail only. Roadmap decision 4: configured, never hardcoded. */
   readonly email: EmailConfig
+  /**
+   * Path to the deploy-time module override file (`lib/moduleConfig.ts`).
+   * Undefined is the ordinary case: no file, so each workspace's own module
+   * settings decide.
+   */
+  readonly moduleConfigPath: string | undefined
 }
 
 /** Thrown at boot when the environment cannot produce a valid configuration. */
@@ -52,6 +58,7 @@ const environmentSchema = z.object({
     .string()
     .refine(isPostgresUrl, { message: 'must be a postgres:// or postgresql:// connection string' }),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']),
+  KELPIE_MODULE_CONFIG_PATH: z.string().min(1).optional(),
   ...emailConfigSchema.shape,
 })
 
@@ -74,5 +81,6 @@ export function loadConfig(environment: Environment): KelpieConfig {
     databaseUrl: result.data.DATABASE_URL,
     logLevel: result.data.LOG_LEVEL,
     email: { EMAIL_PROVIDER: result.data.EMAIL_PROVIDER, EMAIL_FROM: result.data.EMAIL_FROM },
+    moduleConfigPath: result.data.KELPIE_MODULE_CONFIG_PATH,
   }
 }

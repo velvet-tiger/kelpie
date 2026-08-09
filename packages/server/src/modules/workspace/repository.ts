@@ -12,7 +12,7 @@ import { partnerships } from '../partnerships/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { planItems } from '../plans/schema.ts'
 import { raises } from '../raises/schema.ts'
-import { invites, workspaceMembers, workspaces } from './schema.ts'
+import { invites, workspaceMembers, workspaceModuleSettings, workspaces } from './schema.ts'
 
 /** Queries for workspaces, membership, and invites. The service decides; these read and write. */
 
@@ -367,4 +367,54 @@ export async function insertPipelineStages(
   }
 
   await db.insert(pipelineStages).values([...values])
+}
+
+export type ModuleSettingRecord = typeof workspaceModuleSettings.$inferSelect
+
+export async function listModuleSettings(db: Queryable, workspaceId: string): Promise<ModuleSettingRecord[]> {
+  return db
+    .select()
+    .from(workspaceModuleSettings)
+    .where(eq(workspaceModuleSettings.workspaceId, workspaceId))
+}
+
+/** Undefined means the workspace has never toggled this module, not that it is disabled. */
+export async function findModuleSetting(
+  db: Queryable,
+  workspaceId: string,
+  moduleId: string,
+): Promise<ModuleSettingRecord | undefined> {
+  const [found] = await db
+    .select()
+    .from(workspaceModuleSettings)
+    .where(and(eq(workspaceModuleSettings.workspaceId, workspaceId), eq(workspaceModuleSettings.moduleId, moduleId)))
+    .limit(1)
+
+  return found
+}
+
+/**
+ * Sets a workspace's choice for one module, inserting the row on its first
+ * toggle and overwriting `enabled` on every one after.
+ */
+export async function upsertModuleSetting(
+  db: Queryable,
+  values: typeof workspaceModuleSettings.$inferInsert,
+): Promise<ModuleSettingRecord> {
+  const [row] = await db
+    .insert(workspaceModuleSettings)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [workspaceModuleSettings.workspaceId, workspaceModuleSettings.moduleId],
+      set: { enabled: values.enabled, updatedAt: values.updatedAt },
+    })
+    .returning()
+
+  if (row === undefined) {
+    throw new Error(
+      `Upserting the "${values.moduleId}" module setting for workspace ${values.workspaceId} returned no row`,
+    )
+  }
+
+  return row
 }

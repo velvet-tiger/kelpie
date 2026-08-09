@@ -108,11 +108,40 @@ export interface ModuleContext extends ModuleServices {
   /** Validates this module's slice of the environment. Fails boot when invalid. */
   config<T>(schema: ZodType<T>): T
   readonly log: Logger
+  /**
+   * Every module in the assembly, id and `structural` flag only. The workspace
+   * module's settings screen is the one reader today: it needs the toggleable
+   * id list and cannot import `modules/core.ts` itself without a cycle, since
+   * that file is what constructs the workspace module in the first place.
+   */
+  readonly moduleCatalog: readonly ModuleCatalogEntry[]
+  /**
+   * The deploy-time module override (`lib/moduleConfig.ts`), unparsed into
+   * grants. The workspace module reads this to answer whether a module's value
+   * is locked, which `EntitlementRegistry.check`'s single merged answer cannot
+   * tell a caller on its own.
+   */
+  readonly moduleConfig: Readonly<Record<string, boolean>> | undefined
+}
+
+export interface ModuleCatalogEntry {
+  readonly id: string
+  readonly structural: boolean
 }
 
 export interface KelpieModule {
   readonly id: string
   /** Ids of modules that must register first. Missing ones fail boot. */
   readonly requires?: readonly string[]
+  /**
+   * Marks a module as always enabled: no `module.<id>` capability is declared for
+   * it, its routes and MCP tools are never gated, and a deploy-time module config
+   * file or a workspace's own settings may not name it. True for the modules the
+   * rest of the app cannot function without.
+   *
+   * Absent (or false) means toggleable, which is the default a new module gets
+   * without its author having to opt in.
+   */
+  readonly structural?: boolean
   register(context: ModuleContext): Promise<void>
 }

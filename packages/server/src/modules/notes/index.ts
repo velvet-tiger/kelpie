@@ -15,6 +15,7 @@ export function createNotesModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'notes',
     requires: ['workspace', 'activities'],
+    structural: true,
 
     register(context) {
       const service = createNotesService({

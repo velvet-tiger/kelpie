@@ -99,6 +99,13 @@
       "when": 1786255151450,
       "tag": "0013_add_agent_run_failure_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786265590851,
+      "tag": "0014_right_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }

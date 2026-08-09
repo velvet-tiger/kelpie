@@ -9,6 +9,7 @@ import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { hashToken } from '../../lib/tokens.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
+import { resolveActorFrom } from '../auth/credentials.ts'
 import { coreModules } from '../core.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
@@ -51,6 +52,24 @@ function readErrorFields(payload: unknown): string[] {
   return payload.error.details.map((detail: unknown) => readString(detail, 'field'))
 }
 
+function readErrorCode(payload: unknown): string {
+  if (!isRecord(payload) || !isRecord(payload.error)) {
+    throw new Error(`Expected an error body, got ${JSON.stringify(payload)}`)
+  }
+
+  return readString(payload.error, 'code')
+}
+
+function findByModuleId(payload: unknown, moduleId: string): Record<string, unknown> {
+  const setting = readList(payload).find((entry) => readString(entry, 'module_id') === moduleId)
+
+  if (setting === undefined) {
+    throw new Error(`No "${moduleId}" entry in ${JSON.stringify(payload)}`)
+  }
+
+  return setting as Record<string, unknown>
+}
+
 describe.skipIf(connectionString === undefined)('workspaces', () => {
   let database: TestDatabase
   let harness: TestApp
@@ -73,6 +92,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       modules: coreModules,
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
+      resolveActor: (context) => resolveActorFrom({ db: database.db, now: () => new Date() }, context),
     })
   })
 
@@ -1150,6 +1170,126 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send('POST', '/v1/invites/accept', { token }, await signUp('grace@example.com'))
 
       expect(response.status).toBe(401)
+    })
+  })
+
+  describe('module settings', () => {
+    it('lists every toggleable module as enabled by default', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const list = readList(await (await send('GET', `/v1/workspaces/${workspaceId}/modules`, undefined, cookie)).json())
+
+      expect(list.length).toBeGreaterThan(0)
+      expect(list.every((entry) => readString(entry, 'module_id').length > 0)).toBe(true)
+      const deals = findByModuleId(
+        await (await send('GET', `/v1/workspaces/${workspaceId}/modules`, undefined, cookie)).json(),
+        'deals',
+      )
+      expect(deals).toMatchObject({ enabled: true, locked: false })
+
+      // Structural modules never appear: there is nothing for the settings
+      // screen to offer a checkbox for.
+      expect(list.some((entry) => readString(entry, 'module_id') === 'people')).toBe(false)
+    })
+
+    it('blocks the disabled module\'s own REST routes once toggled off, and restores them when toggled back on', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      expect((await send('GET', '/v1/deals', undefined, cookie)).status).toBe(200)
+
+      const disabled = await send('PATCH', `/v1/workspaces/${workspaceId}/modules/deals`, { enabled: false }, cookie)
+      expect(disabled.status).toBe(200)
+      expect(await disabled.json()).toEqual({ module_id: 'deals', enabled: false, locked: false })
+
+      const blocked = await send('GET', '/v1/deals', undefined, cookie)
+      expect(blocked.status).toBe(403)
+      expect(readErrorCode(await blocked.json())).toBe('entitlement_required')
+
+      const reEnabled = await send('PATCH', `/v1/workspaces/${workspaceId}/modules/deals`, { enabled: true }, cookie)
+      expect(reEnabled.status).toBe(200)
+      expect((await send('GET', '/v1/deals', undefined, cookie)).status).toBe(200)
+    })
+
+    it('rejects toggling a structural or unknown module id', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const structural = await send(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/modules/people`,
+        { enabled: false },
+        cookie,
+      )
+      expect(structural.status).toBe(404)
+
+      const unknown = await send(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/modules/not-a-module`,
+        { enabled: false },
+        cookie,
+      )
+      expect(unknown.status).toBe(404)
+    })
+
+    it('refuses a non-admin member toggling a module', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const { cookie: memberCookie } = await addMember(cookie, workspaceId, 'grace@example.com', 'member')
+
+      const response = await send(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/modules/deals`,
+        { enabled: false },
+        memberCookie,
+      )
+
+      expect(response.status).toBe(403)
+    })
+
+    it('reports a config-locked module and refuses to toggle it', async () => {
+      const locked = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db }),
+        resolveActor: (context) => resolveActorFrom({ db: database.db, now: () => new Date() }, context),
+        moduleConfig: { deals: false },
+      })
+
+      const send2 = (method: string, path: string, body?: unknown, cookie?: string): Promise<Response> =>
+        Promise.resolve(
+          locked.app.request(path, {
+            method,
+            headers: {
+              'Content-Type': 'application/json',
+              ...(cookie === undefined ? {} : { Cookie: cookie }),
+            },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          }),
+        )
+
+      const signup = await send2('POST', '/v1/auth/signup', {
+        email: 'ada@example.com',
+        name: 'Ada',
+        password: 'correct horse battery staple',
+      })
+      const cookie = (signup.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+      const created = await send2('POST', '/v1/workspaces', WORKSPACE, cookie)
+      const workspaceId = readString(await created.json(), 'id')
+
+      const settings = await (await send2('GET', `/v1/workspaces/${workspaceId}/modules`, undefined, cookie)).json()
+      expect(findByModuleId(settings, 'deals')).toMatchObject({ enabled: false, locked: true })
+
+      const attempt = await send2(
+        'PATCH',
+        `/v1/workspaces/${workspaceId}/modules/deals`,
+        { enabled: true },
+        cookie,
+      )
+      expect(attempt.status).toBe(409)
+
+      expect((await send2('GET', '/v1/deals', undefined, cookie)).status).toBe(403)
     })
   })
 })

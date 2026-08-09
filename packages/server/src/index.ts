@@ -4,6 +4,8 @@ export type { AppDependencies } from './app.ts'
 export { ConfigurationError, loadConfig } from './lib/config.ts'
 export type { Environment, KelpieConfig, LogLevel, RuntimeMode } from './lib/config.ts'
 
+export { ModuleConfigFileError, readModuleConfigFile } from './lib/moduleConfig.ts'
+
 export {
   FOREIGN_KEY_VIOLATION,
   RESTRICT_VIOLATION,
@@ -50,6 +52,7 @@ export type {
   McpTool,
   McpToolDefinition,
   McpToolRegistry,
+  ModuleCatalogEntry,
   ModuleContext,
   SchemaContribution,
 } from './runtime/module.ts'

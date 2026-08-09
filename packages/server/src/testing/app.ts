@@ -1,7 +1,8 @@
-import type { Hono } from 'hono'
+import type { Context, Hono } from 'hono'
 
 import { createApp } from '../app.ts'
 import type { AppBindings } from '../app.ts'
+import type { Actor } from '../lib/actor.ts'
 import type { Environment } from '../lib/config.ts'
 import type { DatabaseProbe } from '../lib/database.ts'
 import { createLogger } from '../lib/logger.ts'
@@ -29,6 +30,14 @@ export interface TestAppOptions {
   readonly services?: TestServices
   /** Inject one to grant or deny capabilities before core modules register. */
   readonly entitlements?: EntitlementRegistry
+  /** A deploy-time module override, for a test exercising `runtime/moduleConfig.ts`. */
+  readonly moduleConfig?: Readonly<Record<string, boolean>>
+  /**
+   * Resolves the actor a REST request carries, for a test exercising module
+   * route gating. Omitted, as most tests want, gating is skipped and every
+   * route behaves as it did before module toggling existed.
+   */
+  readonly resolveActor?: (context: Context) => Promise<Actor>
 }
 
 export interface TestApp {
@@ -52,6 +61,8 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     logger,
     events: services.events,
     ...(options.entitlements === undefined ? {} : { entitlements: options.entitlements }),
+    ...(options.moduleConfig === undefined ? {} : { moduleConfig: options.moduleConfig }),
+    ...(options.resolveActor === undefined ? {} : { resolveActor: options.resolveActor }),
     services,
   })
 

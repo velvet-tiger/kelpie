@@ -16,6 +16,7 @@ export function createDecisionsModule(migrationsDirectory: string): KelpieModule
   return {
     id: 'decisions',
     requires: ['workspace'],
+    structural: true,
 
     register(context) {
       const service = createDecisionsService({

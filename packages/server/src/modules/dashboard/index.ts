@@ -32,6 +32,7 @@ export function createDashboardModule(): KelpieModule {
       'activities',
       'hiring',
     ],
+    structural: true,
 
     register(context) {
       const service = createDashboardService({ db: context.db, now: context.now })

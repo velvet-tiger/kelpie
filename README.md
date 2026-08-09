@@ -231,6 +231,20 @@ MCP tools share the input schema with their REST route, and the runtime parses a
 
 `invoke` is handed the caller as its second argument, the way a route handler resolves one, because every service call is authorized against an actor and scoped to its workspace. The `/mcp` endpoint resolves it once per request from the bearer key. A tool that a resource can build the ordinary way should go through `registerCrudTools` in `packages/server/src/modules/crudTools.ts`, which turns a service and the pieces its routes already carry into the five verbs; the ones written out by hand are the resources whose shape does not fit, and each says why at the top of its `tools.ts`.
 
+### Turning modules on or off
+
+A module is `structural` or it is not. A structural module (`auth`, `workspace`, `api-keys`, `activities`, `people`, `companies`, `plans`, `decisions`, `dashboard`, `notes` and `pipelines` in `coreModules` today) registers every route and MCP tool unconditionally and can never be disabled. Every other module is toggleable: the registration pass declares a `module.<id>` entitlement capability for it and gates its routes and tools behind that capability, so a disabled module answers `entitlement_required` on both surfaces rather than just disappearing from the UI. A module says nothing to opt in; `structural` defaults to false, so a module added later is toggleable without its author doing anything.
+
+A workspace admin turns a toggleable module on or off from **Admin → Modules**, backed by `GET`/`PATCH /v1/workspaces/:id/modules`. No row for a module means enabled, which is the state every workspace starts in.
+
+A deploy can lock specific modules on or off for every workspace it serves, ahead of what any workspace's own settings say:
+
+```bash
+cp kelpie.modules.json.example kelpie.modules.json
+```
+
+then edit it and point `KELPIE_MODULE_CONFIG_PATH` at the copy. Naming a module this build does not have, or a structural one, fails boot the same way an unmet `requires` does. A module the file locks shows on the settings screen as disabled with its checkbox greyed out, not hidden, so an admin can see the choice exists and is not theirs to make.
+
 ## Commands
 
 `make` lists every target. The ones you want day to day:

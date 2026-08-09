@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import {
   ConfigurationError,
   ModuleBootError,
+  ModuleConfigFileError,
   connectDatabase,
   createApp,
   createEmailSender,
@@ -10,9 +11,12 @@ import {
   createLogger,
   createTransactionScope,
   loadConfig,
+  readModuleConfigFile,
   registerModules,
+  resolveActorFrom,
   runMigrations,
 } from '@kelpie/server'
+import type { CredentialDependencies } from '@kelpie/server'
 
 import { modules } from '../kelpie.config.ts'
 
@@ -39,11 +43,15 @@ async function start(): Promise<void> {
   const database = connectDatabase(config.databaseUrl, logger)
   const events = createEventBus(logger)
   const createId = createIdFactory()
+  const credentials: CredentialDependencies = { db: database.db, now: () => new Date() }
+  const moduleConfig = readModuleConfigFile(config.moduleConfigPath)
   const contributions = await registerModules({
     modules,
     environment: process.env,
     logger,
     events,
+    moduleConfig,
+    resolveActor: (context) => resolveActorFrom(credentials, context),
     services: {
       db: database.db,
       transaction: createTransactionScope({ db: database.db, bus: events, logger }),
@@ -63,7 +71,7 @@ async function start(): Promise<void> {
     logger,
     probeDatabase: database.probe,
     contributions,
-    credentials: { db: database.db, now: () => new Date() },
+    credentials,
     createId,
   })
 
@@ -92,6 +100,12 @@ try {
   if (error instanceof ConfigurationError) {
     reportFatal(error.message)
     reportFatal('Copy .env.example to .env and fill it in, or set these variables in the environment.')
+    process.exit(1)
+  }
+
+  if (error instanceof ModuleConfigFileError) {
+    reportFatal(error.message)
+    reportFatal('Fix the file at KELPIE_MODULE_CONFIG_PATH, or unset it to let workspaces decide for themselves.')
     process.exit(1)
   }
 

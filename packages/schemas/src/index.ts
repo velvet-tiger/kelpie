@@ -268,6 +268,9 @@ export type {
 export { memberSchema, updateMemberRoleBody } from './member.ts'
 export type { Member, UpdateMemberRoleInput } from './member.ts'
 
+export { moduleSettingSchema, updateModuleSettingBody } from './moduleSetting.ts'
+export type { ModuleSetting, UpdateModuleSettingInput } from './moduleSetting.ts'
+
 export { mcpToolSchema } from './mcpTool.ts'
 export type { McpTool } from './mcpTool.ts'
 

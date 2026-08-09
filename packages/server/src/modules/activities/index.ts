@@ -21,6 +21,7 @@ export function createActivitiesModule(migrationsDirectory: string): KelpieModul
   return {
     id: 'activities',
     requires: ['workspace'],
+    structural: true,
 
     register(context) {
       const service = createActivitiesService({ db: context.db })

@@ -1,5 +1,7 @@
 import type { KelpieModule } from '../../runtime/module.ts'
+import { parseModuleCapability } from '../../runtime/moduleConfig.ts'
 import { SEATS_LIMIT } from './capabilities.ts'
+import * as repository from './repository.ts'
 import { mountWorkspaceRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createWorkspaceService } from './service.ts'
@@ -15,9 +17,25 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
   return {
     id: 'workspace',
     requires: ['auth'],
+    structural: true,
 
     register(context) {
       context.entitlements.declare(SEATS_LIMIT)
+
+      // Answers `module.<id>` for whatever a config override left undecided
+      // (`runtime/registry.ts` registers that provider first, ahead of this
+      // one, so a locked value never reaches this query).
+      context.entitlements.provide(async (workspaceId, capability) => {
+        const moduleId = parseModuleCapability(capability.name)
+
+        if (moduleId === undefined) {
+          return undefined
+        }
+
+        const setting = await repository.findModuleSetting(context.db, workspaceId, moduleId)
+
+        return setting === undefined ? undefined : { kind: 'flag', granted: setting.enabled }
+      })
 
       const service = createWorkspaceService({
         db: context.db,
@@ -26,6 +44,10 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
         createId: context.createId,
         now: context.now,
         entitlements: context.entitlements,
+        toggleableModuleIds: context.moduleCatalog
+          .filter((entry) => !entry.structural)
+          .map((entry) => entry.id),
+        moduleConfigOverrides: context.moduleConfig,
       })
 
       context.schema(schema, migrationsDirectory)

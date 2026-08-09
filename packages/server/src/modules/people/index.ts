@@ -15,6 +15,7 @@ export function createPeopleModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'people',
     requires: ['workspace', 'activities'],
+    structural: true,
 
     register(context) {
       const service = createPeopleService({

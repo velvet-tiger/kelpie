@@ -15,6 +15,7 @@ export function createPipelinesModule(migrationsDirectory: string): KelpieModule
   return {
     id: 'pipelines',
     requires: ['workspace', 'activities'],
+    structural: true,
 
     register(context) {
       const service = createPipelineStagesService({

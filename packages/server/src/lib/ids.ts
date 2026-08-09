@@ -37,6 +37,8 @@ export const idPrefixes = {
   agentRun: 'run',
   importJob: 'imp',
   integrationConnection: 'int',
+  /** Never returns over the wire either: identified by `(workspace_id, module_id)` instead. */
+  moduleSetting: 'mset',
   /**
    * `idempotency_keys` has no routes of its own and never returns this id over
    * the wire, so it is not in `api.md`'s public prefix table. It still comes

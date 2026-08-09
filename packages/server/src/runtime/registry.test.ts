@@ -345,6 +345,121 @@ describe('registration failures', () => {
   })
 })
 
+describe('module toggling', () => {
+  const structuralModule: KelpieModule = {
+    id: 'structural-thing',
+    structural: true,
+    register(context) {
+      context.routes((router) => {
+        router.get('/structural-thing', (requestContext) => requestContext.json({ ok: true }))
+      })
+
+      return Promise.resolve()
+    },
+  }
+
+  it('declares a module.<id> capability for a non-structural module', async () => {
+    const { contributions } = await createTestApp({
+      modules: [greetingModule],
+      environment: { GREETING_WORD: 'Hello' },
+    })
+
+    expect(contributions.entitlements.capabilities().map((capability) => capability.name)).toContain(
+      'module.greeting',
+    )
+  })
+
+  it('declares no capability for a structural module, so it can never be locked', async () => {
+    const { contributions } = await createTestApp({ modules: [structuralModule] })
+
+    expect(contributions.entitlements.capabilities().map((capability) => capability.name)).not.toContain(
+      'module.structural-thing',
+    )
+  })
+
+  it('rejects a REST request for a module a deploy-time config file disabled', async () => {
+    const { app } = await createTestApp({
+      modules: [greetingModule],
+      environment: { GREETING_WORD: 'Hello' },
+      moduleConfig: { greeting: false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    const response = await app.request('/v1/greetings/ada')
+
+    expect(response.status).toBe(403)
+    expect((await response.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: 'entitlement_required' },
+    })
+  })
+
+  it('allows a REST request for a module with no override', async () => {
+    const { app } = await createTestApp({
+      modules: [greetingModule],
+      environment: { GREETING_WORD: 'Hello' },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    expect((await app.request('/v1/greetings/ada')).status).toBe(200)
+  })
+
+  it('never gates a structural module route, even when resolveActor is supplied', async () => {
+    const { app } = await createTestApp({
+      modules: [structuralModule],
+      resolveActor: () => Promise.reject(new Error('a structural route must not resolve an actor')),
+    })
+
+    expect((await app.request('/v1/structural-thing')).status).toBe(200)
+  })
+
+  it('rejects an MCP tool call for a module a deploy-time config file disabled', async () => {
+    const { contributions } = await createTestApp({
+      modules: [greetingModule],
+      environment: { GREETING_WORD: 'Hello' },
+      moduleConfig: { greeting: false },
+    })
+
+    let thrown: unknown
+
+    try {
+      await contributions.mcpTools[0]?.invoke({ name: 'ada' }, workspaceKeyActor('ws_1'))
+    } catch (error: unknown) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(AppError)
+    if (!(thrown instanceof AppError)) {
+      throw thrown
+    }
+
+    expect(thrown.code).toBe('entitlement_required')
+  })
+
+  it('fails boot when a module config names an id outside the module list', async () => {
+    await expect(
+      registerModules({
+        modules: [greetingModule],
+        environment: { GREETING_WORD: 'Hello' },
+        logger: silentLogger(),
+        services: createTestServices(),
+        moduleConfig: { nonexistent: false },
+      }),
+    ).rejects.toThrow(/module config names "nonexistent", which is not in the module list/)
+  })
+
+  it('fails boot when a module config names a structural module', async () => {
+    await expect(
+      registerModules({
+        modules: [structuralModule],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+        moduleConfig: { 'structural-thing': false },
+      }),
+    ).rejects.toThrow(/module config names "structural-thing", which is structural and cannot be disabled/)
+  })
+})
+
 describe('an assembly with no modules', () => {
   it('still serves the app with empty contributions', async () => {
     const { app, contributions } = await createTestApp()
