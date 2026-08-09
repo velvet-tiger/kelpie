@@ -67,6 +67,8 @@ export interface SignUpInput {
 export interface UpdateAccountChanges {
   readonly name?: string
   readonly email?: string
+  /** Required, and verified, whenever `email` is present. */
+  readonly currentPassword?: string
 }
 
 export interface LogInInput {
@@ -242,9 +244,15 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     /**
      * Name and email, for every workspace at once. An account is global, so this
      * is not a change to one membership.
+     *
+     * Moving the address is treated like a password change, because it is one:
+     * whoever controls the sign-in address controls the account through a
+     * password reset. The current password must verify, every other session
+     * ends, and the address being replaced is told, in case the caller was not
+     * its owner.
      */
     async updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<AccountView> {
-      await requireUser(actor.userId)
+      const user = await requireUser(actor.userId)
 
       const values = {
         ...(changes.name === undefined ? {} : { name: requireText(changes.name, 'name') }),
@@ -253,16 +261,37 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           : { email: requireText(normaliseEmail(changes.email), 'email') }),
       }
 
-      try {
-        const updated = await repository.updateUserProfile(
-          dependencies.db,
-          actor.userId,
-          values,
-          dependencies.now(),
-        )
+      if (
+        changes.email !== undefined &&
+        (changes.currentPassword === undefined ||
+          !(await verifyPassword(user.passwordHash, changes.currentPassword)))
+      ) {
+        throw AppError.unauthorized('Current password is incorrect')
+      }
 
-        if (updated === undefined) {
-          throw AppError.unauthorized('This session no longer belongs to an account')
+      const previousEmail = user.email
+
+      try {
+        const updated = await dependencies.transaction(async ({ tx }) => {
+          const saved = await repository.updateUserProfile(tx, actor.userId, values, dependencies.now())
+
+          if (saved === undefined) {
+            throw AppError.unauthorized('This session no longer belongs to an account')
+          }
+
+          if (changes.email !== undefined) {
+            await repository.deleteOtherSessionsForUser(tx, actor.userId, actor.sessionId)
+          }
+
+          return saved
+        })
+
+        if (changes.email !== undefined) {
+          await dependencies.email.send({
+            to: previousEmail,
+            subject: 'Your Kelpie sign-in email changed',
+            body: `Your Kelpie sign-in email changed from ${previousEmail} to ${updated.email}. If you did not make this change, reset your password right away.`,
+          })
         }
 
         return toAccountView(updated)

@@ -3,8 +3,9 @@ import { z } from 'zod'
 import type { Logger } from './logger.ts'
 
 /**
- * The port Kelpie sends transactional mail through: invites and password resets,
- * nothing else. Kelpie never sends outreach email.
+ * The port Kelpie sends transactional mail through: invites, password resets,
+ * and account-change notifications, nothing else. Kelpie never sends outreach
+ * email.
  *
  * Roadmap decision 4: the provider is configured, never hardcoded. Core ships the
  * port and the `log` provider. Real providers ship as modules, so the open-source

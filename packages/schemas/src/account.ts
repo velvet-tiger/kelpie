@@ -27,10 +27,16 @@ export const accountSchema: z.ZodType<Account, unknown> = z.object({
 export interface UpdateAccountInput {
   readonly name?: string
   readonly email?: string
+  /** Required by the service whenever `email` is present. */
+  readonly currentPassword?: string
 }
 
 export function updateAccountBody(input: UpdateAccountInput): Record<string, unknown> {
-  return definedFields({ name: input.name, email: input.email })
+  return definedFields({
+    name: input.name,
+    email: input.email,
+    current_password: input.currentPassword,
+  })
 }
 
 /**
