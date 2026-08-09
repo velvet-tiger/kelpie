@@ -85,6 +85,13 @@
       "when": 1785982653650,
       "tag": "0011_add_webhook_previous_secret",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786255151449,
+      "tag": "0012_idempotency_keys_response_nullable",
+      "breakpoints": true
     }
   ]
 }

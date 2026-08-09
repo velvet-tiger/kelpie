@@ -37,6 +37,13 @@ export const idPrefixes = {
   agentRun: 'run',
   importJob: 'imp',
   integrationConnection: 'int',
+  /**
+   * `idempotency_keys` has no routes of its own and never returns this id over
+   * the wire, so it is not in `api.md`'s public prefix table. It still comes
+   * from this factory rather than a bare `ulid()` call, so every id in the
+   * database is generated the same, injectable way.
+   */
+  idempotencyKey: 'idem',
 } as const
 
 export type ObjectKind = keyof typeof idPrefixes

@@ -38,6 +38,7 @@ async function start(): Promise<void> {
   const logger = createLogger(config.logLevel)
   const database = connectDatabase(config.databaseUrl, logger)
   const events = createEventBus(logger)
+  const createId = createIdFactory()
   const contributions = await registerModules({
     modules,
     environment: process.env,
@@ -47,7 +48,7 @@ async function start(): Promise<void> {
       db: database.db,
       transaction: createTransactionScope({ db: database.db, bus: events, logger }),
       email: createEmailSender(config.email, logger),
-      createId: createIdFactory(),
+      createId,
       now: () => new Date(),
     },
   })
@@ -63,6 +64,7 @@ async function start(): Promise<void> {
     probeDatabase: database.probe,
     contributions,
     credentials: { db: database.db, now: () => new Date() },
+    createId,
   })
 
   const server = serve({ fetch: app.fetch, port: config.port }, (address) => {
