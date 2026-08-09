@@ -43,6 +43,8 @@ export interface DealFilters {
   /** Deals any of these people are on. Repeats on the wire. */
   readonly personIds?: readonly string[]
   readonly limit?: number
+  /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
+  readonly sort?: string
 }
 
 function dealQuery(filters: DealFilters): QueryParameters {
@@ -52,6 +54,7 @@ function dealQuery(filters: DealFilters): QueryParameters {
     stage_id: filters.stageIds,
     person_id: filters.personIds,
     limit: filters.limit,
+    sort: filters.sort,
   }
 }
 

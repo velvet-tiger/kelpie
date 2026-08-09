@@ -12,6 +12,7 @@ import { FormDetail } from '../pages/FormDetail.tsx'
 import { FormsPage } from '../pages/FormsPage.tsx'
 import { FundraisingPage } from '../pages/FundraisingPage.tsx'
 import { HiringPage } from '../pages/HiringPage.tsx'
+import { NotFoundPage } from '../pages/NotFoundPage.tsx'
 import { OpportunitiesPage } from '../pages/OpportunitiesPage.tsx'
 import { OpportunityDetail } from '../pages/OpportunityDetail.tsx'
 import { OpportunityStageSettingsPage } from '../pages/OpportunityStageSettingsPage.tsx'
@@ -147,10 +148,13 @@ function AppRoutes(): React.JSX.Element {
           {moduleRoutes.map((route) => (
             <Route key={route.path} path={route.path} element={route.element} />
           ))}
+          {/* Last so every named route above wins first. Nested here rather than
+              outside the gate, so a signed-out visitor is redirected to /login by
+              `SessionGate` before this ever renders, and a signed-in one keeps the
+              Shell's nav instead of landing on a bare page with no way back in. */}
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>
-
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
 }

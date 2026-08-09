@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
+import { usePatch } from '../api/resource.ts'
+import type { PatchResult } from '../api/resource.ts'
 import { useCandidates, useCreateCandidate, useDeleteCandidate } from '../api/resources/candidates.ts'
 import { useCreateNote, useDeleteNote, useUpdateNote } from '../api/resources/notes.ts'
 import { useCreatePerson, usePeople } from '../api/resources/people.ts'
@@ -90,19 +92,20 @@ export function RoleDetail(): React.JSX.Element {
   )
 }
 
-function useRolePatch(role: Role): (changes: RoleInput) => void {
-  const update = useUpdateRole()
-
-  return (changes) => {
-    update.run({ id: role.id, changes })
-  }
+function useRolePatch(role: Role): PatchResult<RoleInput> {
+  return usePatch(useUpdateRole, role)
 }
 
 function RoleHeading({ role }: { readonly role: Role }): React.JSX.Element {
-  const patch = useRolePatch(role)
+  const { patch, error } = useRolePatch(role)
 
   return (
     <div className="min-w-0 flex-1">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <InlineEdit
         value={role.title}
         onChange={(title) => {
@@ -116,23 +119,26 @@ function RoleHeading({ role }: { readonly role: Role }): React.JSX.Element {
 }
 
 function RoleStatusField({ role }: { readonly role: Role }): React.JSX.Element {
-  const patch = useRolePatch(role)
+  const { patch, error } = useRolePatch(role)
 
   return (
-    <InlineEdit
-      value={role.status}
-      onChange={(value) => {
-        patch({ status: value as RoleStatus })
-      }}
-      options={STATUS_OPTIONS}
-      display={
-        <Chip tone={role.status === 'open' ? 'accent' : 'neutral'}>
-          {ROLE_STATUS_LABELS[role.status]}
-        </Chip>
-      }
-      displayClassName="not-italic inline-flex"
-      className="!w-auto"
-    />
+    <div className="flex flex-col items-end gap-1">
+      <InlineEdit
+        value={role.status}
+        onChange={(value) => {
+          patch({ status: value as RoleStatus })
+        }}
+        options={STATUS_OPTIONS}
+        display={
+          <Chip tone={role.status === 'open' ? 'accent' : 'neutral'}>
+            {ROLE_STATUS_LABELS[role.status]}
+          </Chip>
+        }
+        displayClassName="not-italic inline-flex"
+        className="!w-auto"
+      />
+      {error !== null && <ErrorPanel error={error} />}
+    </div>
   )
 }
 

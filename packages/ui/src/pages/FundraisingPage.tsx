@@ -48,9 +48,10 @@ export function FundraisingPage(): React.JSX.Element {
   const [view, setView] = useState<BoardView>('list')
   const [scope, setScope] = useState<PipelineScope>('open')
   const [grouping, setGrouping] = useState<ListGrouping>('stage')
+  const [sort, setSort] = useState<string | undefined>(undefined)
 
   const stages = usePipelineStages('raise')
-  const raises = useRaises()
+  const raises = useRaises({ sort })
   const companies = useCompanies({ limit: 200 })
   const members = useMembers()
   const createRaise = useCreateRaise()
@@ -98,6 +99,7 @@ export function FundraisingPage(): React.JSX.Element {
     {
       key: 'name',
       header: 'Raise',
+      sortKey: 'name',
       render: (raise) => <span className="font-medium text-ink">{raise.name}</span>,
     },
     {
@@ -287,7 +289,37 @@ export function FundraisingPage(): React.JSX.Element {
               onRowClick={(raise) => {
                 void navigate(`/fundraising/${raise.id}`)
               }}
-              emptyMessage="No raises yet"
+              emptyMessage={
+                raises.records.length === 0
+                  ? 'No raises yet'
+                  : scope === 'open'
+                    ? 'No open raises'
+                    : 'No raises in this view'
+              }
+              emptyDescription={
+                raises.records.length > 0 && scope === 'open'
+                  ? 'You have raises, but none are open right now.'
+                  : undefined
+              }
+              emptyAction={
+                raises.records.length === 0
+                  ? {
+                      label: 'Add raise',
+                      onClick: () => {
+                        void addRaise()
+                      },
+                    }
+                  : scope === 'open'
+                    ? {
+                        label: 'Show all raises',
+                        onClick: () => {
+                          setScope('all')
+                        },
+                      }
+                    : undefined
+              }
+              sort={sort}
+              onSortChange={setSort}
             />
           )}
           {updateRaise.error !== null && (

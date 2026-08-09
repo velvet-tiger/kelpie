@@ -3,6 +3,8 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
+import { usePatch } from '../api/resource.ts'
+import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
 import { useDeal, useDeleteDeal, useUpdateDeal } from '../api/resources/deals.ts'
 import { useMembers } from '../api/resources/members.ts'
@@ -124,20 +126,21 @@ export function DealDetail(): React.JSX.Element {
   )
 }
 
-function useDealPatch(deal: Deal): (changes: DealInput) => void {
-  const update = useUpdateDeal()
-
-  return (changes) => {
-    update.run({ id: deal.id, changes })
-  }
+function useDealPatch(deal: Deal): PatchResult<DealInput> {
+  return usePatch(useUpdateDeal, deal)
 }
 
 function DealHeading({ deal }: { readonly deal: Deal }): React.JSX.Element {
-  const patch = useDealPatch(deal)
+  const { patch, error } = useDealPatch(deal)
   const company = useCompany(deal.companyId)
 
   return (
     <div className="min-w-0 flex-1">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <InlineEdit
         value={deal.name}
         onChange={(name) => {
@@ -178,11 +181,12 @@ function DetailField({
 
 /** Summary, the agent fields, what is late or due this week, and the latest activity. */
 function DealOverview({ deal }: { readonly deal: Deal }): React.JSX.Element {
-  const patch = useDealPatch(deal)
+  const { patch, error } = useDealPatch(deal)
   const planItems = useRecordPlanItems('deal', deal.id)
 
   return (
     <div className="space-y-8">
+      {error !== null && <ErrorPanel error={error} />}
       <SummaryBlock
         value={deal.summary}
         onChange={(summary) => {
@@ -249,7 +253,7 @@ function toValueCents(raw: string): number | null | undefined {
 }
 
 function DealSidebar({ deal }: { readonly deal: Deal }): React.JSX.Element {
-  const patch = useDealPatch(deal)
+  const { patch, error } = useDealPatch(deal)
   const stages = usePipelineStages('deal')
   const members = useMembers()
   const currentCompany = useCompany(deal.companyId)
@@ -277,6 +281,11 @@ function DealSidebar({ deal }: { readonly deal: Deal }): React.JSX.Element {
 
   return (
     <section className="rounded-md border border-border p-3">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <div className="mb-2">
         <div className="mb-0.5 text-[10px] font-semibold tracking-wide text-ink-faint uppercase">
           Stage
@@ -385,8 +394,7 @@ function DealSidebar({ deal }: { readonly deal: Deal }): React.JSX.Element {
 
 /** The people on the deal, linked and unlinked by replacing `person_ids`. */
 function DealContacts({ deal }: { readonly deal: Deal }): React.JSX.Element {
-  const patch = useDealPatch(deal)
-  const update = useUpdateDeal()
+  const { patch, error } = useDealPatch(deal)
 
   const [adding, setAdding] = useState(false)
   const [personId, setPersonId] = useState('')
@@ -429,9 +437,9 @@ function DealContacts({ deal }: { readonly deal: Deal }): React.JSX.Element {
         />
       </div>
 
-      {update.error !== null && (
+      {error !== null && (
         <div className="px-3.5 py-2">
-          <ErrorPanel error={update.error} />
+          <ErrorPanel error={error} />
         </div>
       )}
 

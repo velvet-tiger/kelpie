@@ -48,9 +48,10 @@ export function DealsPage(): React.JSX.Element {
   const [view, setView] = useState<BoardView>('list')
   const [scope, setScope] = useState<PipelineScope>('open')
   const [grouping, setGrouping] = useState<ListGrouping>('stage')
+  const [sort, setSort] = useState<string | undefined>(undefined)
 
   const stages = usePipelineStages('deal')
-  const deals = useDeals()
+  const deals = useDeals({ sort })
   const companies = useCompanies({ limit: 200 })
   const members = useMembers()
   const createDeal = useCreateDeal()
@@ -90,6 +91,7 @@ export function DealsPage(): React.JSX.Element {
     {
       key: 'name',
       header: 'Deal',
+      sortKey: 'name',
       render: (deal) => <span className="font-medium text-ink">{deal.name}</span>,
     },
     {
@@ -273,7 +275,39 @@ export function DealsPage(): React.JSX.Element {
               onRowClick={(deal) => {
                 void navigate(`/deals/${deal.id}`)
               }}
-              emptyMessage="No deals yet"
+              emptyMessage={
+                deals.records.length === 0
+                  ? 'No deals yet'
+                  : scope === 'open'
+                    ? 'No open deals'
+                    : 'No deals in this view'
+              }
+              emptyDescription={
+                deals.records.length === 0
+                  ? undefined
+                  : scope === 'open'
+                    ? 'You have deals, but none are open right now.'
+                    : undefined
+              }
+              emptyAction={
+                deals.records.length === 0
+                  ? {
+                      label: 'Add deal',
+                      onClick: () => {
+                        void addDeal()
+                      },
+                    }
+                  : scope === 'open'
+                    ? {
+                        label: 'Show all deals',
+                        onClick: () => {
+                          setScope('all')
+                        },
+                      }
+                    : undefined
+              }
+              sort={sort}
+              onSortChange={setSort}
             />
           )}
           {updateDeal.error !== null && (

@@ -43,6 +43,8 @@ export interface RaiseFilters {
   /** Raises any of these people are key on. Repeats on the wire. */
   readonly personIds?: readonly string[]
   readonly limit?: number
+  /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
+  readonly sort?: string
 }
 
 function raiseQuery(filters: RaiseFilters): QueryParameters {
@@ -52,6 +54,7 @@ function raiseQuery(filters: RaiseFilters): QueryParameters {
     stage_id: filters.stageIds,
     person_id: filters.personIds,
     limit: filters.limit,
+    sort: filters.sort,
   }
 }
 

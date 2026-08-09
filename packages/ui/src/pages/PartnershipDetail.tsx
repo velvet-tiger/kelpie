@@ -3,6 +3,8 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
+import { usePatch } from '../api/resource.ts'
+import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
 import { useMembers } from '../api/resources/members.ts'
 import {
@@ -138,12 +140,8 @@ export function PartnershipDetail(): React.JSX.Element {
   )
 }
 
-function usePartnershipPatch(partnership: Partnership): (changes: PartnershipInput) => void {
-  const update = useUpdatePartnership()
-
-  return (changes) => {
-    update.run({ id: partnership.id, changes })
-  }
+function usePartnershipPatch(partnership: Partnership): PatchResult<PartnershipInput> {
+  return usePatch(useUpdatePartnership, partnership)
 }
 
 function PartnershipHeading({
@@ -151,10 +149,15 @@ function PartnershipHeading({
 }: {
   readonly partnership: Partnership
 }): React.JSX.Element {
-  const patch = usePartnershipPatch(partnership)
+  const { patch, error } = usePartnershipPatch(partnership)
 
   return (
     <div className="min-w-0 flex-1">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <InlineEdit
         value={partnership.name}
         onChange={(name) => {
@@ -183,11 +186,12 @@ function PartnershipOverview({
 }: {
   readonly partnership: Partnership
 }): React.JSX.Element {
-  const patch = usePartnershipPatch(partnership)
+  const { patch, error } = usePartnershipPatch(partnership)
   const planItems = useRecordPlanItems('partnership', partnership.id)
 
   return (
     <div className="space-y-8">
+      {error !== null && <ErrorPanel error={error} />}
       <SummaryBlock
         value={partnership.summary}
         onChange={(summary) => {
@@ -207,7 +211,7 @@ function PartnershipSidebar({
 }: {
   readonly partnership: Partnership
 }): React.JSX.Element {
-  const patch = usePartnershipPatch(partnership)
+  const { patch, error } = usePartnershipPatch(partnership)
   const stages = usePipelineStages('partnership')
   const members = useMembers()
   const currentCompany = useCompany(partnership.companyId)
@@ -239,6 +243,11 @@ function PartnershipSidebar({
 
   return (
     <section className="rounded-md border border-border p-3">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <div className="mb-2">
         <div className="mb-0.5 text-[10px] font-semibold tracking-wide text-ink-faint uppercase">
           Status
@@ -361,8 +370,7 @@ function PartnershipKeyPeople({
 }: {
   readonly partnership: Partnership
 }): React.JSX.Element {
-  const patch = usePartnershipPatch(partnership)
-  const update = useUpdatePartnership()
+  const { patch, error } = usePartnershipPatch(partnership)
 
   const [adding, setAdding] = useState(false)
   const [personId, setPersonId] = useState('')
@@ -405,9 +413,9 @@ function PartnershipKeyPeople({
         />
       </div>
 
-      {update.error !== null && (
+      {error !== null && (
         <div className="px-3.5 py-2">
-          <ErrorPanel error={update.error} />
+          <ErrorPanel error={error} />
         </div>
       )}
 

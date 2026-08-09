@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
 import { useAccount, useTheme } from '../api/resources/account.ts'
 import { useModuleSettings } from '../api/resources/moduleSettings.ts'
@@ -9,6 +9,7 @@ import type { ThemePreference } from '../lib/theme.ts'
 import { useNavItems } from '../registry/context.ts'
 import type { NavItem } from '../registry/contributions.ts'
 import { inSlotOrder } from '../registry/registry.ts'
+import { ErrorBoundary } from './ErrorBoundary.tsx'
 
 /**
  * Sidebar, header, and the outlet every page renders into.
@@ -83,6 +84,7 @@ const THEME_LABELS: Readonly<Record<ThemePreference, string>> = {
 
 export function Shell(): React.JSX.Element {
   const navigate = useNavigate()
+  const location = useLocation()
   const { account } = useAccount()
   const logOut = useLogOut()
   const moduleNav = useNavItems('primary')
@@ -262,7 +264,11 @@ export function Shell(): React.JSX.Element {
         </header>
 
         <main className="min-w-0 flex-1 overflow-auto px-5 py-5">
-          <Outlet />
+          {/* Keyed on the path so navigating away from a crashed page remounts
+              the boundary instead of leaving it stuck showing the old error. */}
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

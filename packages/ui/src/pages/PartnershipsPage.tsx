@@ -48,9 +48,10 @@ export function PartnershipsPage(): React.JSX.Element {
   const [view, setView] = useState<BoardView>('list')
   const [scope, setScope] = useState<PipelineScope>('open')
   const [grouping, setGrouping] = useState<ListGrouping>('stage')
+  const [sort, setSort] = useState<string | undefined>(undefined)
 
   const stages = usePipelineStages('partnership')
-  const partnerships = usePartnerships()
+  const partnerships = usePartnerships({ sort })
   const companies = useCompanies({ limit: 200 })
   const members = useMembers()
   const createPartnership = useCreatePartnership()
@@ -100,6 +101,7 @@ export function PartnershipsPage(): React.JSX.Element {
     {
       key: 'name',
       header: 'Partnership',
+      sortKey: 'name',
       render: (partnership) => <span className="font-medium text-ink">{partnership.name}</span>,
     },
     {
@@ -285,7 +287,37 @@ export function PartnershipsPage(): React.JSX.Element {
               onRowClick={(partnership) => {
                 void navigate(`/partnerships/${partnership.id}`)
               }}
-              emptyMessage="No partnerships yet"
+              emptyMessage={
+                partnerships.records.length === 0
+                  ? 'No partnerships yet'
+                  : scope === 'open'
+                    ? 'No open partnerships'
+                    : 'No partnerships in this view'
+              }
+              emptyDescription={
+                partnerships.records.length > 0 && scope === 'open'
+                  ? 'You have partnerships, but none are open right now.'
+                  : undefined
+              }
+              emptyAction={
+                partnerships.records.length === 0
+                  ? {
+                      label: 'Add partnership',
+                      onClick: () => {
+                        void addPartnership()
+                      },
+                    }
+                  : scope === 'open'
+                    ? {
+                        label: 'Show all partnerships',
+                        onClick: () => {
+                          setScope('all')
+                        },
+                      }
+                    : undefined
+              }
+              sort={sort}
+              onSortChange={setSort}
             />
           )}
           {updatePartnership.error !== null && (

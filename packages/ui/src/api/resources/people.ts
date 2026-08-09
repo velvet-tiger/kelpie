@@ -35,10 +35,17 @@ export interface PeopleFilters {
   /** People holding a position at any of these companies. Repeats on the wire. */
   readonly companyIds?: readonly string[]
   readonly limit?: number
+  /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
+  readonly sort?: string
 }
 
 function peopleQuery(filters: PeopleFilters): QueryParameters {
-  return { q: filters.term, company_id: filters.companyIds, limit: filters.limit }
+  return {
+    q: filters.term,
+    company_id: filters.companyIds,
+    limit: filters.limit,
+    sort: filters.sort,
+  }
 }
 
 export function usePeople(
