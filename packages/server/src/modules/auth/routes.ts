@@ -46,8 +46,16 @@ const changePasswordBody = z.object({
 })
 
 const updateAccountBody = z
-  .strictObject({ name: z.string().min(1), email: z.string().min(1) })
+  .strictObject({
+    name: z.string().min(1),
+    email: z.string().min(1),
+    current_password: z.string().min(1),
+  })
   .partial()
+  .refine((body) => body.email === undefined || body.current_password !== undefined, {
+    message: 'Current password is required to change email',
+    path: ['current_password'],
+  })
 
 const updatePreferencesBody = z
   .strictObject({
@@ -171,6 +179,7 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
     const account = await dependencies.service.updateAccount(await requireActor(context), {
       ...(body.name === undefined ? {} : { name: body.name }),
       ...(body.email === undefined ? {} : { email: body.email }),
+      ...(body.current_password === undefined ? {} : { currentPassword: body.current_password }),
     })
 
     return context.json(accountBody(account))

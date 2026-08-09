@@ -11,9 +11,10 @@ import { Field } from './Field.tsx'
 /**
  * The account's name and address.
  *
- * Ported from the mockup's Profile page. One difference now that there is an
+ * Ported from the mockup's Profile page. Two differences now that there is an
  * API behind it: the address is unique across Kelpie, so a save can be refused,
- * and changing it changes what this person signs in with.
+ * and changing it changes what this person signs in with, so the service (and
+ * this form) asks for the current password before it takes effect.
  *
  * The form saves explicitly rather than per keystroke, like workspace settings:
  * a half-typed address is a different account, and committing one on every
@@ -38,19 +39,37 @@ function ProfileForm({ account }: { readonly account: Account }): React.JSX.Elem
   const update = useUpdateAccount()
   const [name, setName] = useState(account.name)
   const [email, setEmail] = useState(account.email)
+  const [currentPassword, setCurrentPassword] = useState('')
   const [saved, setSaved] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
+
+  const trimmedEmail = email.trim()
+  const emailChanged = trimmedEmail !== account.email
 
   function save(event: FormEvent): void {
     event.preventDefault()
     setSaved(false)
 
+    if (emailChanged && currentPassword.length === 0) {
+      setLocalError('Enter your current password to change your email.')
+      return
+    }
+
+    setLocalError(null)
+
+    const trimmedName = name.trim()
+
     update
-      .runAsync({ name: name.trim(), email: email.trim() })
+      .runAsync({
+        ...(trimmedName === account.name ? {} : { name: trimmedName }),
+        ...(emailChanged ? { email: trimmedEmail, currentPassword } : {}),
+      })
       .then((updated) => {
         // The service lowercases the address it stored. Showing what was typed
         // instead would leave the field disagreeing with the account.
         setEmail(updated.email)
         setName(updated.name)
+        setCurrentPassword('')
         setSaved(true)
       })
       .catch(() => undefined)
@@ -91,6 +110,23 @@ function ProfileForm({ account }: { readonly account: Account }): React.JSX.Elem
             className="w-full max-w-md rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
           />
         </Field>
+
+        {emailChanged && (
+          <Field label="Current password" hint="Required to change the address you sign in with.">
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => {
+                setCurrentPassword(event.target.value)
+              }}
+              autoComplete="current-password"
+              required
+              className="w-full max-w-md rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+            />
+          </Field>
+        )}
+
+        {localError !== null && <p className="text-[12px] text-danger">{localError}</p>}
 
         {update.error !== null && (
           <div className="max-w-xl">

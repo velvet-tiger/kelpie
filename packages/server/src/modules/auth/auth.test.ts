@@ -354,7 +354,11 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     it('stores a new address lowercase and moves the login to it', async () => {
       const cookie = await signUp()
 
-      const response = await patch('/v1/account', { email: 'Ada.King@Example.com' }, cookie)
+      const response = await patch(
+        '/v1/account',
+        { email: 'Ada.King@Example.com', current_password: SIGNUP.password },
+        cookie,
+      )
 
       expect(response.status).toBe(200)
       expect(await response.json()).toMatchObject({ email: 'ada.king@example.com' })
@@ -371,12 +375,71 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const cookie = await signUp()
       await post('/v1/auth/signup', OTHER)
 
-      const response = await patch('/v1/account', { email: 'GRACE@example.com' }, cookie)
+      const response = await patch(
+        '/v1/account',
+        { email: 'GRACE@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
 
       expect(response.status).toBe(409)
       expect(await response.json()).toMatchObject({
         error: { code: 'conflict', details: [{ field: 'email' }] },
       })
+    })
+
+    it('answers 422 for an email change with no current password', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account', { email: 'ada.king@example.com' }, cookie)
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toMatchObject({
+        error: { code: 'validation_failed', details: [{ field: 'current_password' }] },
+      })
+    })
+
+    it('answers 401 for an email change with the wrong current password', async () => {
+      const cookie = await signUp()
+
+      const response = await patch(
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: 'not it' },
+        cookie,
+      )
+
+      expect(response.status).toBe(401)
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({
+        email: 'ada@example.com',
+      })
+    })
+
+    it('does not require a password when the email is not part of the change', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account', { name: 'Ada King' }, cookie)
+
+      expect(response.status).toBe(200)
+    })
+
+    it('keeps the caller signed in, signs every other device out, and tells the old address', async () => {
+      const keep = await signUp()
+      const other = sessionCookieFrom(
+        await post('/v1/auth/login', { email: SIGNUP.email, password: SIGNUP.password }),
+      )
+
+      const response = await patch(
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: SIGNUP.password },
+        keep,
+      )
+
+      expect(response.status).toBe(200)
+      expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: keep } })).status).toBe(200)
+      expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: other } })).status).toBe(401)
+
+      expect(harness.services.sentEmails).toHaveLength(1)
+      expect(harness.services.sentEmails[0]).toMatchObject({ to: 'ada@example.com' })
+      expect(harness.services.sentEmails[0]?.body).toContain('ada.king@example.com')
     })
 
     it('refuses a name that is only whitespace', async () => {
