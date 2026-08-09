@@ -22,6 +22,7 @@ import { createPipelinesModule } from './pipelines/index.ts'
 import { createPlansModule } from './plans/index.ts'
 import { createPositionsModule } from './positions/index.ts'
 import { createRaisesModule } from './raises/index.ts'
+import { createSearchModule } from './search/index.ts'
 import { createWebhooksModule } from './webhooks/index.ts'
 import { createWorkspaceModule } from './workspace/index.ts'
 
@@ -72,7 +73,9 @@ export const coreModules: readonly KelpieModule[] = [
   createPlansModule(coreMigrationsDirectory),
   createDecisionsModule(coreMigrationsDirectory),
   createHandbookModule(coreMigrationsDirectory),
-  // No migrations directory: it owns no tables and reads ten other modules'.
+  // Neither of these takes a migrations directory: they own no tables and read
+  // other modules'.
+  createSearchModule(),
   createDashboardModule(),
   createFormsModule(coreMigrationsDirectory),
   createImportExportModule(coreMigrationsDirectory),

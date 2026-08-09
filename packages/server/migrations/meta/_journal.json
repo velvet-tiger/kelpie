@@ -106,6 +106,13 @@
       "when": 1786265590851,
       "tag": "0014_right_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786278323968,
+      "tag": "0015_peaceful_chimera",
+      "breakpoints": true
     }
   ]
 }

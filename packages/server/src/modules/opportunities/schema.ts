@@ -1,6 +1,7 @@
 import { date, index, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
@@ -31,9 +32,16 @@ export const opportunities = pgTable(
     tags: text('tags').array().notNull().default([]),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    searchVector: searchVector((): readonly SearchVectorPart[] => [
+      { column: opportunities.name, weight: 'A' },
+      { column: opportunities.kind, weight: 'B' },
+      { column: opportunities.summary, weight: 'B' },
+      { column: opportunities.tags, weight: 'C', array: true },
+    ]),
   },
   (table) => [
     index('opportunities_workspace_idx').on(table.workspaceId),
     index('opportunities_stage_idx').on(table.stageId),
+    index('opportunities_search_idx').using('gin', table.searchVector),
   ],
 )
