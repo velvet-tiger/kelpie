@@ -8,6 +8,7 @@ import {
   useTheme,
   useUpdateAccountPreferences,
 } from '../../api/resources/account.ts'
+import { EntitySearch } from '../../components/EntitySearch.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { Field } from './Field.tsx'
@@ -27,19 +28,29 @@ const THEME_LABELS: Readonly<Record<ThemePreference, string>> = {
 }
 
 /**
- * The zones the mockup offered, plus whatever this account already holds. A full
- * IANA list needs a combo box, which is its own piece of work, and an unlisted
- * stored value must survive a save rather than being rewritten to the first
- * option.
+ * Every zone this runtime's ICU knows, matching what the server's
+ * `timezoneSchema` will accept. Falls back to the zones the mockup offered if
+ * `Intl.supportedValuesOf` is missing, for a browser old enough to lack it.
+ *
+ * `UTC` is prepended because `supportedValuesOf` omits it in some engines even
+ * though ECMA-402 guarantees `Intl.DateTimeFormat` accepts it as a zone name.
+ * Without this, a very common choice would be searchable only by accident of
+ * already being the stored value.
  */
-const COMMON_TIMEZONES = [
-  'Australia/Sydney',
-  'Australia/Melbourne',
-  'America/Los_Angeles',
-  'America/New_York',
-  'Europe/London',
-  'UTC',
-] as const
+const ALL_TIMEZONES: readonly string[] = (() => {
+  try {
+    return ['UTC', ...Intl.supportedValuesOf('timeZone')]
+  } catch {
+    return [
+      'UTC',
+      'Australia/Sydney',
+      'Australia/Melbourne',
+      'America/Los_Angeles',
+      'America/New_York',
+      'Europe/London',
+    ]
+  }
+})()
 
 export function PreferencesPage(): React.JSX.Element {
   const { preferences, isLoading, error } = useAccountPreferences()
@@ -68,9 +79,7 @@ function PreferencesForm({
   const [productUpdates, setProductUpdates] = useState(preferences.productUpdates)
   const [saved, setSaved] = useState(false)
 
-  const zones = COMMON_TIMEZONES.includes(timezone as (typeof COMMON_TIMEZONES)[number])
-    ? [...COMMON_TIMEZONES]
-    : [timezone, ...COMMON_TIMEZONES]
+  const zones = ALL_TIMEZONES.includes(timezone) ? ALL_TIMEZONES : [timezone, ...ALL_TIMEZONES]
 
   function save(event: FormEvent): void {
     event.preventDefault()
@@ -126,19 +135,15 @@ function PreferencesForm({
             label="Timezone"
             hint="Stored on your account. Kelpie does not format dates by it yet."
           >
-            <select
+            <EntitySearch
+              options={zones.map((zone) => ({ id: zone, label: zone }))}
               value={timezone}
-              onChange={(event) => {
-                setTimezone(event.target.value)
-              }}
-              className="w-full rounded-md border border-border bg-surface-raised px-3 py-1.5 text-[13px] outline-none focus:border-accent"
-            >
-              {zones.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </select>
+              onChange={setTimezone}
+              placeholder="Search time zones…"
+              limit={20}
+              required
+              size="md"
+            />
           </Field>
         </div>
 
