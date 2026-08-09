@@ -41,6 +41,13 @@ const CORE_NAV: readonly NavItem[] = [
   { id: 'decisions', label: 'Decisions', to: '/decisions', order: 500 },
 ]
 
+/**
+ * `nav.primary` is one flat slot (`modules.md`); the mockup renders it as two
+ * visual groups, an unheaded top section and a headed "CRM" section. This is
+ * presentation only, so it stays here rather than becoming a second slot.
+ */
+const TOP_LEVEL_NAV_IDS: ReadonlySet<string> = new Set(['dashboard', 'handbook', 'planning', 'decisions'])
+
 function linkClass({ isActive }: { isActive: boolean }): string {
   return [
     'block rounded-md px-2 py-1 text-[13px] transition-colors duration-100',
@@ -101,6 +108,8 @@ export function Shell(): React.JSX.Element {
   }, [menuOpen])
 
   const navItems = inSlotOrder([...CORE_NAV, ...moduleNav])
+  const topLevelItems = navItems.filter((item) => TOP_LEVEL_NAV_IDS.has(item.id))
+  const crmItems = navItems.filter((item) => !TOP_LEVEL_NAV_IDS.has(item.id))
   const adminItems = inSlotOrder([...CORE_ADMIN_NAV, ...moduleAdminNav])
 
   return (
@@ -115,10 +124,18 @@ export function Shell(): React.JSX.Element {
         </div>
 
         <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-2 pb-4">
+          <div className="flex flex-col gap-0.5">
+            {topLevelItems.map((item) => (
+              <NavLink key={item.id} to={item.to} className={linkClass}>
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+
           <div>
             <div className="mb-1 px-2 text-[11px] text-sidebar-muted">CRM</div>
             <div className="flex flex-col gap-0.5">
-              {navItems.map((item) => (
+              {crmItems.map((item) => (
                 <NavLink key={item.id} to={item.to} className={linkClass}>
                   {item.label}
                 </NavLink>
