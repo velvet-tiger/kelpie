@@ -8,6 +8,7 @@ import { useCandidates, useCreateCandidate, useDeleteCandidate } from '../api/re
 import { useCreateNote, useDeleteNote, useUpdateNote } from '../api/resources/notes.ts'
 import { useCreatePerson, usePeople } from '../api/resources/people.ts'
 import { useDeleteRole, useRole, useUpdateRole } from '../api/resources/roles.ts'
+import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
@@ -68,6 +69,7 @@ export function RoleDetail(): React.JSX.Element {
         <RoleHeading role={record} />
         <div className="flex shrink-0 flex-wrap items-center gap-3">
           <RoleStatusField role={record} />
+          <AgentTasks targetType="role" targetId={record.id} targetLabel={record.title} />
           <DeleteRecord
             recordLabel="Role"
             recordName={record.title}
@@ -289,6 +291,12 @@ function CandidateRow({
           {personName ?? candidate.personId}
         </Link>
         <div className="flex flex-wrap items-center gap-2">
+          <AgentTasks
+            targetType="candidate"
+            targetId={candidate.id}
+            targetLabel={personName ?? candidate.personId}
+            compact
+          />
           <CandidateStatusField candidate={candidate} />
           {candidate.status === IN_PROCESS && <CandidateStageField candidate={candidate} />}
           <button

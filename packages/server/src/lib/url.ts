@@ -1,0 +1,52 @@
+/**
+ * What counts as an outbound endpoint Kelpie may POST to — webhook deliveries
+ * and agent-task dispatches share the rules.
+ *
+ * Deliberately permissive about *where* it points. A self-hosted Kelpie
+ * legitimately posts to `http://automation.internal:8080`, so there is no
+ * private-address filter here; adding one would break the self-hosted case to
+ * defend a cloud that does not exist yet. Registration is credentialled and the
+ * endpoint is the customer's own, which is what makes that acceptable today. A
+ * hosted deployment needs egress filtering, and it belongs there rather than in
+ * this check.
+ */
+
+export const DELIVERABLE_PROTOCOLS: readonly string[] = ['http:', 'https:']
+
+export interface UrlProblem {
+  readonly message: string
+}
+
+/**
+ * @param credentialsMessage What to tell a caller whose URL embeds credentials.
+ *   Each registration type names its own alternative — a webhook signs its
+ *   deliveries, an agent carries `auth_header` — so the advice is the caller's.
+ * @returns The problem with this URL, or undefined when it can be posted to.
+ *   A message rather than a boolean, so the `422` says which rule was broken.
+ */
+export function endpointUrlProblem(
+  value: string,
+  credentialsMessage: string,
+): UrlProblem | undefined {
+  let parsed: URL
+
+  try {
+    parsed = new URL(value)
+  } catch {
+    // The only thing `new URL` throws for is a string it cannot parse, which is
+    // exactly the answer wanted here.
+    return { message: 'Expected an absolute URL, e.g. https://example.com/hooks/kelpie' }
+  }
+
+  if (!DELIVERABLE_PROTOCOLS.includes(parsed.protocol)) {
+    return { message: 'Expected an http:// or https:// URL' }
+  }
+
+  // Credentials in the URL would be sent on every POST and stored in plaintext
+  // beside it, which is a secret the registration's own mechanism replaces.
+  if (parsed.username.length > 0 || parsed.password.length > 0) {
+    return { message: credentialsMessage }
+  }
+
+  return undefined
+}

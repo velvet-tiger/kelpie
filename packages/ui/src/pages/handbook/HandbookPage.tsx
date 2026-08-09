@@ -20,6 +20,7 @@ import {
   useUpdateHandbookPage,
 } from '../../api/resources/handbookPages.ts'
 import { useMembers } from '../../api/resources/members.ts'
+import { AgentTasks } from '../../components/AgentTasks.tsx'
 import { MarkdownView } from '../../components/MarkdownView.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { formatDateTime } from '../../lib/dates.ts'
@@ -443,6 +444,7 @@ function HandbookEditor({
             </>
           ) : (
             <>
+              <AgentTasks targetType="handbook" targetId={page.id} targetLabel={page.title} />
               <button
                 type="button"
                 onClick={onAddChild}
