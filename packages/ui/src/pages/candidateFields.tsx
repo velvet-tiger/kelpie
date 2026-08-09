@@ -8,12 +8,15 @@ import {
 import type { Candidate, CandidateInput, CandidateStatus, InterviewStage } from '@kelpie/schemas'
 import { useState } from 'react'
 
+import { usePatch } from '../api/resource.ts'
+import type { PatchResult } from '../api/resource.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { useUpdateCandidate } from '../api/resources/candidates.ts'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
+import { ErrorPanel } from '../components/QueryState.tsx'
 
 /**
  * The three editable fields of a candidacy, shared by the Role page and the
@@ -47,12 +50,8 @@ const STATUS_TONES: Readonly<Record<CandidateStatus, ChipTone>> = {
   withdrawn: 'danger',
 }
 
-function useCandidatePatch(candidate: Candidate): (changes: CandidateInput) => void {
-  const update = useUpdateCandidate()
-
-  return (changes) => {
-    update.run({ id: candidate.id, changes })
-  }
+function useCandidatePatch(candidate: Candidate): PatchResult<CandidateInput> {
+  return usePatch(useUpdateCandidate, candidate)
 }
 
 export interface CandidateFieldProps {
@@ -65,27 +64,30 @@ export function CandidateStatusField({
   candidate,
   plain = false,
 }: CandidateFieldProps): React.JSX.Element {
-  const patch = useCandidatePatch(candidate)
+  const { patch, error } = useCandidatePatch(candidate)
 
   return (
-    <InlineEdit
-      value={candidate.status}
-      onChange={(value) => {
-        patch({ status: value as CandidateStatus })
-      }}
-      options={STATUS_OPTIONS}
-      display={
-        plain ? (
-          <span className="px-1 text-[13px]">{CANDIDATE_STATUS_LABELS[candidate.status]}</span>
-        ) : (
-          <Chip tone={STATUS_TONES[candidate.status]}>
-            {CANDIDATE_STATUS_LABELS[candidate.status]}
-          </Chip>
-        )
-      }
-      displayClassName={plain ? 'not-italic text-[13px]' : 'not-italic inline-flex'}
-      className={plain ? '' : '!w-auto'}
-    />
+    <div className="inline-flex flex-col gap-1">
+      <InlineEdit
+        value={candidate.status}
+        onChange={(value) => {
+          patch({ status: value as CandidateStatus })
+        }}
+        options={STATUS_OPTIONS}
+        display={
+          plain ? (
+            <span className="px-1 text-[13px]">{CANDIDATE_STATUS_LABELS[candidate.status]}</span>
+          ) : (
+            <Chip tone={STATUS_TONES[candidate.status]}>
+              {CANDIDATE_STATUS_LABELS[candidate.status]}
+            </Chip>
+          )
+        }
+        displayClassName={plain ? 'not-italic text-[13px]' : 'not-italic inline-flex'}
+        className={plain ? '' : '!w-auto'}
+      />
+      {error !== null && <ErrorPanel error={error} />}
+    </div>
   )
 }
 
@@ -93,26 +95,29 @@ export function CandidateStageField({
   candidate,
   plain = false,
 }: CandidateFieldProps): React.JSX.Element {
-  const patch = useCandidatePatch(candidate)
+  const { patch, error } = useCandidatePatch(candidate)
   const stage = candidate.interviewStage ?? FIRST_INTERVIEW_STAGE
 
   return (
-    <InlineEdit
-      value={stage}
-      onChange={(value) => {
-        patch({ interviewStage: value as InterviewStage })
-      }}
-      options={STAGE_OPTIONS}
-      display={
-        plain ? (
-          <span className="px-1 text-[13px]">{INTERVIEW_STAGE_LABELS[stage]}</span>
-        ) : (
-          <span className="text-[12px] text-ink-muted">{INTERVIEW_STAGE_LABELS[stage]}</span>
-        )
-      }
-      displayClassName={plain ? 'not-italic text-[13px]' : 'not-italic'}
-      className={plain ? '' : '!w-auto'}
-    />
+    <div className="inline-flex flex-col gap-1">
+      <InlineEdit
+        value={stage}
+        onChange={(value) => {
+          patch({ interviewStage: value as InterviewStage })
+        }}
+        options={STAGE_OPTIONS}
+        display={
+          plain ? (
+            <span className="px-1 text-[13px]">{INTERVIEW_STAGE_LABELS[stage]}</span>
+          ) : (
+            <span className="text-[12px] text-ink-muted">{INTERVIEW_STAGE_LABELS[stage]}</span>
+          )
+        }
+        displayClassName={plain ? 'not-italic text-[13px]' : 'not-italic'}
+        className={plain ? '' : '!w-auto'}
+      />
+      {error !== null && <ErrorPanel error={error} />}
+    </div>
   )
 }
 
@@ -133,7 +138,7 @@ export function CandidateReferrerField({
   candidate,
   referrerName,
 }: CandidateReferrerFieldProps): React.JSX.Element {
-  const patch = useCandidatePatch(candidate)
+  const { patch, error } = useCandidatePatch(candidate)
   const [search, setSearch] = useState('')
   const searchable = usePeople({ term: search.trim().length > 0 ? search.trim() : undefined })
 
@@ -153,15 +158,18 @@ export function CandidateReferrerField({
   ]
 
   return (
-    <EntitySearch
-      options={options}
-      value={candidate.referrerPersonId ?? ''}
-      onChange={(referrerPersonId) => {
-        patch({ referrerPersonId: referrerPersonId.length > 0 ? referrerPersonId : null })
-      }}
-      onQueryChange={setSearch}
-      placeholder="Search people…"
-      emptyMessage="No people match"
-    />
+    <div className="flex flex-col gap-1">
+      <EntitySearch
+        options={options}
+        value={candidate.referrerPersonId ?? ''}
+        onChange={(referrerPersonId) => {
+          patch({ referrerPersonId: referrerPersonId.length > 0 ? referrerPersonId : null })
+        }}
+        onQueryChange={setSearch}
+        placeholder="Search people…"
+        emptyMessage="No people match"
+      />
+      {error !== null && <ErrorPanel error={error} />}
+    </div>
   )
 }

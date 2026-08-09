@@ -49,9 +49,10 @@ export function OpportunitiesPage(): React.JSX.Element {
   const [view, setView] = useState<BoardView>('list')
   const [scope, setScope] = useState<PipelineScope>('open')
   const [grouping, setGrouping] = useState<ListGrouping>('stage')
+  const [sort, setSort] = useState<string | undefined>(undefined)
 
   const stages = usePipelineStages('opportunity')
-  const opportunities = useOpportunities()
+  const opportunities = useOpportunities({ sort })
   const companies = useCompanies({ limit: 200 })
   const members = useMembers()
   const createOpportunity = useCreateOpportunity()
@@ -92,6 +93,7 @@ export function OpportunitiesPage(): React.JSX.Element {
     {
       key: 'name',
       header: 'Opportunity',
+      sortKey: 'name',
       render: (opportunity) => <span className="font-medium text-ink">{opportunity.name}</span>,
     },
     {
@@ -281,7 +283,37 @@ export function OpportunitiesPage(): React.JSX.Element {
               onRowClick={(opportunity) => {
                 void navigate(`/opportunities/${opportunity.id}`)
               }}
-              emptyMessage="No opportunities yet"
+              emptyMessage={
+                opportunities.records.length === 0
+                  ? 'No opportunities yet'
+                  : scope === 'open'
+                    ? 'No open opportunities'
+                    : 'No opportunities in this view'
+              }
+              emptyDescription={
+                opportunities.records.length > 0 && scope === 'open'
+                  ? 'You have opportunities, but none are open right now.'
+                  : undefined
+              }
+              emptyAction={
+                opportunities.records.length === 0
+                  ? {
+                      label: 'Add opportunity',
+                      onClick: () => {
+                        void addOpportunity()
+                      },
+                    }
+                  : scope === 'open'
+                    ? {
+                        label: 'Show all opportunities',
+                        onClick: () => {
+                          setScope('all')
+                        },
+                      }
+                    : undefined
+              }
+              sort={sort}
+              onSortChange={setSort}
             />
           )}
           {updateOpportunity.error !== null && (

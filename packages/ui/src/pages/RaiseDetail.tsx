@@ -3,6 +3,8 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
+import { usePatch } from '../api/resource.ts'
+import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { usePeople } from '../api/resources/people.ts'
@@ -130,20 +132,21 @@ export function RaiseDetail(): React.JSX.Element {
   )
 }
 
-function useRaisePatch(raise: Raise): (changes: RaiseInput) => void {
-  const update = useUpdateRaise()
-
-  return (changes) => {
-    update.run({ id: raise.id, changes })
-  }
+function useRaisePatch(raise: Raise): PatchResult<RaiseInput> {
+  return usePatch(useUpdateRaise, raise)
 }
 
 function RaiseHeading({ raise }: { readonly raise: Raise }): React.JSX.Element {
-  const patch = useRaisePatch(raise)
+  const { patch, error } = useRaisePatch(raise)
   const firm = useCompany(raise.companyId)
 
   return (
     <div className="min-w-0 flex-1">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <InlineEdit
         value={raise.name}
         onChange={(name) => {
@@ -167,11 +170,12 @@ function RaiseHeading({ raise }: { readonly raise: Raise }): React.JSX.Element {
 
 /** A summary, the plan items needing attention, and the latest activity. */
 function RaiseOverview({ raise }: { readonly raise: Raise }): React.JSX.Element {
-  const patch = useRaisePatch(raise)
+  const { patch, error } = useRaisePatch(raise)
   const planItems = useRecordPlanItems('raise', raise.id)
 
   return (
     <div className="space-y-8">
+      {error !== null && <ErrorPanel error={error} />}
       <SummaryBlock
         value={raise.summary}
         onChange={(summary) => {
@@ -200,7 +204,7 @@ function toCheckSizeCents(raw: string): number | null | undefined {
 }
 
 function RaiseSidebar({ raise }: { readonly raise: Raise }): React.JSX.Element {
-  const patch = useRaisePatch(raise)
+  const { patch, error } = useRaisePatch(raise)
   const stages = usePipelineStages('raise')
   const members = useMembers()
   const currentFirm = useCompany(raise.companyId)
@@ -234,6 +238,11 @@ function RaiseSidebar({ raise }: { readonly raise: Raise }): React.JSX.Element {
 
   return (
     <section className="rounded-md border border-border p-3">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <div className="mb-2">
         <div className="mb-0.5 text-[10px] font-semibold tracking-wide text-ink-faint uppercase">
           Stage
@@ -374,8 +383,7 @@ function RaiseSidebar({ raise }: { readonly raise: Raise }): React.JSX.Element {
 
 /** The key people on the raise, linked and unlinked by replacing `person_ids`. */
 function RaiseKeyPeople({ raise }: { readonly raise: Raise }): React.JSX.Element {
-  const patch = useRaisePatch(raise)
-  const update = useUpdateRaise()
+  const { patch, error } = useRaisePatch(raise)
 
   const [adding, setAdding] = useState(false)
   const [personId, setPersonId] = useState('')
@@ -418,9 +426,9 @@ function RaiseKeyPeople({ raise }: { readonly raise: Raise }): React.JSX.Element
         />
       </div>
 
-      {update.error !== null && (
+      {error !== null && (
         <div className="px-3.5 py-2">
-          <ErrorPanel error={update.error} />
+          <ErrorPanel error={error} />
         </div>
       )}
 

@@ -20,8 +20,10 @@ import { usePeopleDirectory } from './positionDirectory.ts'
  */
 export function PeoplePage(): React.JSX.Element {
   const [term, setTerm] = useState('')
+  const [sort, setSort] = useState<string | undefined>(undefined)
   const navigate = useNavigate()
-  const people = usePeople({ term: term.trim().length > 0 ? term.trim() : undefined })
+  const hasFilter = term.trim().length > 0
+  const people = usePeople({ term: hasFilter ? term.trim() : undefined, sort })
   const directory = usePeopleDirectory(people.records.map((person) => person.id))
   const createPerson = useCreatePerson()
 
@@ -37,6 +39,7 @@ export function PeoplePage(): React.JSX.Element {
     {
       key: 'name',
       header: 'Name',
+      sortKey: 'name',
       render: (person) => <span className="font-medium text-ink">{person.name}</span>,
     },
     {
@@ -105,7 +108,20 @@ export function PeoplePage(): React.JSX.Element {
             onRowClick={(person) => {
               void navigate(`/people/${person.id}`)
             }}
-            emptyMessage="No people match this filter"
+            emptyMessage={hasFilter ? 'No people match this filter' : 'No people yet'}
+            emptyDescription={hasFilter ? 'Try a different search term.' : undefined}
+            emptyAction={
+              hasFilter
+                ? undefined
+                : {
+                    label: 'Add person',
+                    onClick: () => {
+                      void addPerson()
+                    },
+                  }
+            }
+            sort={sort}
+            onSortChange={setSort}
           />
           {!directory.isComplete && !directory.isLoading && (
             <p className="mt-2 text-[11px] text-ink-faint">

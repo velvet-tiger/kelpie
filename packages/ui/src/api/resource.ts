@@ -57,6 +57,12 @@ export interface UpdateArguments<TUpdateInput> {
   readonly changes: TUpdateInput
 }
 
+export interface PatchResult<TChanges> {
+  /** Fire and forget, bound to one record's id. A failure lands in `error`. */
+  readonly patch: (changes: TChanges) => void
+  readonly error: Error | null
+}
+
 export interface ListOptions {
   /**
    * Set false to hold the request back. A list filtered by a set of ids has
@@ -378,4 +384,29 @@ export function createResourceHooks<
   }
 
   return { useList, useRecord, useCreate, useUpdate, useRemove }
+}
+
+/**
+ * Binds a resource's `useUpdate` hook to one record's id, for a detail page's
+ * inline edits.
+ *
+ * Every detail page had its own three-line `use<X>Patch` doing exactly this,
+ * and every one of them discarded `update.error`. `InlineEdit`'s `onChange` has
+ * no return value to reject, so a failed `PATCH` — a duplicate email or domain,
+ * a dropped connection — had nowhere left to surface: the field just reverted
+ * to its old value with no explanation. Callers now get the error back and
+ * decide where to show it.
+ */
+export function usePatch<TRecord extends { readonly id: string }, TChanges>(
+  useUpdate: () => MutationResult<UpdateArguments<TChanges>, TRecord>,
+  record: TRecord,
+): PatchResult<TChanges> {
+  const update = useUpdate()
+
+  return {
+    patch: (changes) => {
+      update.run({ id: record.id, changes })
+    },
+    error: update.error,
+  }
 }

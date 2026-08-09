@@ -46,6 +46,8 @@ export interface PartnershipFilters {
   /** Partnerships any of these people are on. Repeats on the wire. */
   readonly personIds?: readonly string[]
   readonly limit?: number
+  /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
+  readonly sort?: string
 }
 
 function partnershipQuery(filters: PartnershipFilters): QueryParameters {
@@ -56,6 +58,7 @@ function partnershipQuery(filters: PartnershipFilters): QueryParameters {
     stage_id: filters.stageIds,
     person_id: filters.personIds,
     limit: filters.limit,
+    sort: filters.sort,
   }
 }
 

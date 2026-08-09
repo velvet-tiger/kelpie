@@ -62,10 +62,12 @@ export interface FormFilters {
   /** Matches a form's name and its description. */
   readonly term?: string
   readonly status?: 'active' | 'paused'
+  /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
+  readonly sort?: string
 }
 
 function formQuery(filters: FormFilters): QueryParameters {
-  return { q: filters.term, status: filters.status }
+  return { q: filters.term, status: filters.status, sort: filters.sort }
 }
 
 export function useForms(filters: FormFilters = {}): RecordListResult<Form> {

@@ -42,6 +42,8 @@ export interface OpportunityFilters {
   /** Opportunities sitting in any of these stages. Repeats on the wire. */
   readonly stageIds?: readonly string[]
   readonly limit?: number
+  /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
+  readonly sort?: string
 }
 
 function opportunityQuery(filters: OpportunityFilters): QueryParameters {
@@ -51,6 +53,7 @@ function opportunityQuery(filters: OpportunityFilters): QueryParameters {
     company_id: filters.companyIds,
     stage_id: filters.stageIds,
     limit: filters.limit,
+    sort: filters.sort,
   }
 }
 

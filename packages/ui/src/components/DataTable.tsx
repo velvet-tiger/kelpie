@@ -5,6 +5,8 @@ export interface Column<TRow> {
   readonly header: string
   readonly className?: string
   readonly render: (row: TRow) => ReactNode
+  /** The `?sort=` field this column drives. Omit for a column with no server-side sort. */
+  readonly sortKey?: string
 }
 
 export interface DataTableGroup<TRow> {
@@ -13,13 +15,51 @@ export interface DataTableGroup<TRow> {
   readonly rows: readonly TRow[]
 }
 
+export interface EmptyStateAction {
+  readonly label: string
+  readonly onClick: () => void
+}
+
 export interface DataTableProps<TRow> {
   readonly columns: readonly Column<TRow>[]
   readonly rows?: readonly TRow[]
   readonly groups?: readonly DataTableGroup<TRow>[]
   readonly onRowClick?: (row: TRow) => void
   readonly emptyMessage?: string
+  /** Replaces the default "Add a record to get started." line under `emptyMessage`. */
+  readonly emptyDescription?: string
+  /** A button rendered in the empty state. Omit when there is nothing to do about it — a filter miss, not a genuinely empty list. */
+  readonly emptyAction?: EmptyStateAction
   readonly getRowId: (row: TRow) => string
+  /** Current `?sort=` value: `field` ascending, `-field` descending, `undefined` for the resource's default. */
+  readonly sort?: string
+  /** Fires with the next `?sort=` value when a sortable header is clicked. Required for any column to be clickable. */
+  readonly onSortChange?: (sort: string | undefined) => void
+}
+
+type SortDirection = 'asc' | 'desc'
+
+function directionOf(sort: string | undefined, field: string | undefined): SortDirection | undefined {
+  if (field === undefined || sort === undefined) {
+    return undefined
+  }
+
+  if (sort === field) {
+    return 'asc'
+  }
+
+  return sort === `-${field}` ? 'desc' : undefined
+}
+
+/** Ascending, then descending, then back to the resource's own default. */
+function nextSort(sort: string | undefined, field: string): string | undefined {
+  const current = directionOf(sort, field)
+
+  if (current === undefined) {
+    return field
+  }
+
+  return current === 'asc' ? `-${field}` : undefined
 }
 
 export function DataTable<TRow>({
@@ -28,7 +68,11 @@ export function DataTable<TRow>({
   groups,
   onRowClick,
   emptyMessage = 'No records yet',
+  emptyDescription = 'Add a record to get started.',
+  emptyAction,
   getRowId,
+  sort,
+  onSortChange,
 }: DataTableProps<TRow>): React.JSX.Element {
   const flatRows = groups === undefined ? (rows ?? []) : groups.flatMap((group) => group.rows)
 
@@ -36,7 +80,16 @@ export function DataTable<TRow>({
     return (
       <div className="rounded-md border border-dashed border-border px-6 py-12 text-center">
         <p className="text-[13px] font-medium text-ink">{emptyMessage}</p>
-        <p className="mt-1 text-[12px] text-ink-muted">Add a record to get started.</p>
+        <p className="mt-1 text-[12px] text-ink-muted">{emptyDescription}</p>
+        {emptyAction !== undefined && (
+          <button
+            type="button"
+            onClick={emptyAction.onClick}
+            className="mt-3 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken"
+          >
+            {emptyAction.label}
+          </button>
+        )}
       </div>
     )
   }
@@ -46,14 +99,34 @@ export function DataTable<TRow>({
       <table className="w-full border-collapse text-left text-[13px]">
         <thead>
           <tr className="border-b border-border">
-            {columns.map((column) => (
-              <th
-                key={column.key}
-                className={`px-3 py-2 text-[11px] font-medium text-ink-faint ${column.className ?? ''}`}
-              >
-                {column.header}
-              </th>
-            ))}
+            {columns.map((column) => {
+              const direction = directionOf(sort, column.sortKey)
+              const sortable = column.sortKey !== undefined && onSortChange !== undefined
+
+              return (
+                <th
+                  key={column.key}
+                  className={`px-3 py-2 text-[11px] font-medium text-ink-faint ${column.className ?? ''}`}
+                >
+                  {sortable ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSortChange?.(nextSort(sort, column.sortKey ?? ''))
+                      }}
+                      className="inline-flex items-center gap-1 transition hover:text-ink"
+                    >
+                      {column.header}
+                      <span className="text-ink-faint">
+                        {direction === 'asc' ? '↑' : direction === 'desc' ? '↓' : ''}
+                      </span>
+                    </button>
+                  ) : (
+                    column.header
+                  )}
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>

@@ -4,6 +4,8 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
+import { usePatch } from '../api/resource.ts'
+import type { PatchResult } from '../api/resource.ts'
 import { useCandidates } from '../api/resources/candidates.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
@@ -148,19 +150,20 @@ export function PersonDetail(): React.JSX.Element {
 }
 
 /** A committed inline edit is one `PATCH` of one field, which is what `api.md` asks for. */
-function usePersonPatch(person: Person): (changes: PersonInput) => void {
-  const update = useUpdatePerson()
-
-  return (changes) => {
-    update.run({ id: person.id, changes })
-  }
+function usePersonPatch(person: Person): PatchResult<PersonInput> {
+  return usePatch(useUpdatePerson, person)
 }
 
 function PersonHeading({ person }: { readonly person: Person }): React.JSX.Element {
-  const patch = usePersonPatch(person)
+  const { patch, error } = usePersonPatch(person)
 
   return (
     <div className="min-w-0 flex-1">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <InlineEdit
         value={person.name}
         onChange={(name) => {
@@ -191,12 +194,13 @@ function PersonHeading({ person }: { readonly person: Person }): React.JSX.Eleme
  * mockup's whole roll-up for a person.
  */
 function PersonOverview({ person }: { readonly person: Person }): React.JSX.Element {
-  const patch = usePersonPatch(person)
+  const { patch, error } = usePersonPatch(person)
   const deals = useDeals({ personIds: [person.id] })
   const partnerships = usePartnerships({ personIds: [person.id] })
 
   return (
     <div className="space-y-8">
+      {error !== null && <ErrorPanel error={error} />}
       <SummaryBlock
         value={person.summary}
         onChange={(summary) => {
@@ -294,10 +298,15 @@ function PersonHiring({
 }
 
 function PersonSidebar({ person }: { readonly person: Person }): React.JSX.Element {
-  const patch = usePersonPatch(person)
+  const { patch, error } = usePersonPatch(person)
 
   return (
     <section className="rounded-md border border-border p-3">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <SidebarField label="Preferred channel">
         <InlineEdit
           value={person.preferredChannel}

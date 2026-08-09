@@ -28,8 +28,10 @@ const ICP_TONES: Readonly<Record<IcpFit, ChipTone>> = {
 
 export function CompaniesPage(): React.JSX.Element {
   const [term, setTerm] = useState('')
+  const [sort, setSort] = useState<string | undefined>(undefined)
   const navigate = useNavigate()
-  const companies = useCompanies({ term: term.trim().length > 0 ? term.trim() : undefined })
+  const hasFilter = term.trim().length > 0
+  const companies = useCompanies({ term: hasFilter ? term.trim() : undefined, sort })
   const headcounts = useCompanyHeadcounts(companies.records.map((company) => company.id))
   const createCompany = useCreateCompany()
 
@@ -43,6 +45,7 @@ export function CompaniesPage(): React.JSX.Element {
     {
       key: 'name',
       header: 'Name',
+      sortKey: 'name',
       render: (company) => <span className="font-medium">{company.name}</span>,
     },
     {
@@ -102,7 +105,20 @@ export function CompaniesPage(): React.JSX.Element {
             onRowClick={(company) => {
               void navigate(`/companies/${company.id}`)
             }}
-            emptyMessage="No companies match this filter"
+            emptyMessage={hasFilter ? 'No companies match this filter' : 'No companies yet'}
+            emptyDescription={hasFilter ? 'Try a different search term.' : undefined}
+            emptyAction={
+              hasFilter
+                ? undefined
+                : {
+                    label: 'Add company',
+                    onClick: () => {
+                      void addCompany()
+                    },
+                  }
+            }
+            sort={sort}
+            onSortChange={setSort}
           />
           {!headcounts.isComplete && !headcounts.isLoading && (
             <p className="mt-2 text-[11px] text-ink-faint">

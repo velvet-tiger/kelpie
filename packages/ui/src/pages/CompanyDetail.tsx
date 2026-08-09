@@ -4,6 +4,8 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
+import { usePatch } from '../api/resource.ts'
+import type { PatchResult } from '../api/resource.ts'
 import {
   useCompany,
   useDeleteCompany,
@@ -142,19 +144,20 @@ export function CompanyDetail(): React.JSX.Element {
   )
 }
 
-function useCompanyPatch(company: Company): (changes: CompanyInput) => void {
-  const update = useUpdateCompany()
-
-  return (changes) => {
-    update.run({ id: company.id, changes })
-  }
+function useCompanyPatch(company: Company): PatchResult<CompanyInput> {
+  return usePatch(useUpdateCompany, company)
 }
 
 function CompanyHeading({ company }: { readonly company: Company }): React.JSX.Element {
-  const patch = useCompanyPatch(company)
+  const { patch, error } = useCompanyPatch(company)
 
   return (
     <div className="min-w-0 flex-1">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <InlineEdit
         value={company.name}
         onChange={(name) => {
@@ -184,7 +187,7 @@ function CompanyHeading({ company }: { readonly company: Company }): React.JSX.E
  * partnerships, the mockup's whole roll-up for a company.
  */
 function CompanyOverview({ company }: { readonly company: Company }): React.JSX.Element {
-  const patch = useCompanyPatch(company)
+  const { patch, error } = useCompanyPatch(company)
   const deals = useDeals({ companyIds: [company.id] })
   const opportunities = useOpportunities({ companyIds: [company.id] })
   const raises = useRaises({ companyIds: [company.id] })
@@ -192,6 +195,7 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
 
   return (
     <div className="space-y-8">
+      {error !== null && <ErrorPanel error={error} />}
       <SummaryBlock
         value={company.summary}
         onChange={(summary) => {
@@ -213,10 +217,15 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
 }
 
 function CompanySidebar({ company }: { readonly company: Company }): React.JSX.Element {
-  const patch = useCompanyPatch(company)
+  const { patch, error } = useCompanyPatch(company)
 
   return (
     <section className="rounded-md border border-border p-3">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <div className="mb-2 flex flex-wrap gap-1">
         <InlineEdit
           value={company.accountType}

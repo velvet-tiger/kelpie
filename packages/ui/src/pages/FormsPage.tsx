@@ -34,11 +34,14 @@ const STATUS_OPTIONS = [
 export function FormsPage(): React.JSX.Element {
   const [term, setTerm] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
+  const [sort, setSort] = useState<string | undefined>(undefined)
   const navigate = useNavigate()
+  const hasFilter = term.trim().length > 0 || status !== 'all'
   const createForm = useCreateForm()
   const forms = useForms({
     term: term.trim().length > 0 ? term.trim() : undefined,
     ...(status === 'all' ? {} : { status }),
+    sort,
   })
 
   /**
@@ -57,6 +60,7 @@ export function FormsPage(): React.JSX.Element {
     {
       key: 'name',
       header: 'Name',
+      sortKey: 'name',
       render: (form) => (
         <>
           <div className="font-medium text-ink">{form.name}</div>
@@ -124,7 +128,11 @@ export function FormsPage(): React.JSX.Element {
             rows={forms.records}
             getRowId={(form) => form.id}
             onRowClick={(form) => navigate(`/forms/${form.id}`)}
-            emptyMessage="No forms yet"
+            emptyMessage={hasFilter ? 'No forms match this filter' : 'No forms yet'}
+            emptyDescription={hasFilter ? 'Try a different search term or status.' : undefined}
+            emptyAction={hasFilter ? undefined : { label: 'New form', onClick: addForm }}
+            sort={sort}
+            onSortChange={setSort}
           />
           {forms.hasMore && (
             <button

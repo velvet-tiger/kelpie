@@ -2,6 +2,8 @@ import type { Opportunity, OpportunityInput, PipelineStage } from '@kelpie/schem
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
+import { usePatch } from '../api/resource.ts'
+import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
 import { useMembers } from '../api/resources/members.ts'
 import {
@@ -132,12 +134,8 @@ export function OpportunityDetail(): React.JSX.Element {
   )
 }
 
-function useOpportunityPatch(opportunity: Opportunity): (changes: OpportunityInput) => void {
-  const update = useUpdateOpportunity()
-
-  return (changes) => {
-    update.run({ id: opportunity.id, changes })
-  }
+function useOpportunityPatch(opportunity: Opportunity): PatchResult<OpportunityInput> {
+  return usePatch(useUpdateOpportunity, opportunity)
 }
 
 function OpportunityHeading({
@@ -145,10 +143,15 @@ function OpportunityHeading({
 }: {
   readonly opportunity: Opportunity
 }): React.JSX.Element {
-  const patch = useOpportunityPatch(opportunity)
+  const { patch, error } = useOpportunityPatch(opportunity)
 
   return (
     <div className="min-w-0 flex-1">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <InlineEdit
         value={opportunity.name}
         onChange={(name) => {
@@ -177,11 +180,12 @@ function OpportunityOverview({
 }: {
   readonly opportunity: Opportunity
 }): React.JSX.Element {
-  const patch = useOpportunityPatch(opportunity)
+  const { patch, error } = useOpportunityPatch(opportunity)
   const planItems = useRecordPlanItems('opportunity', opportunity.id)
 
   return (
     <div className="space-y-8">
+      {error !== null && <ErrorPanel error={error} />}
       <SummaryBlock
         value={opportunity.summary}
         onChange={(summary) => {
@@ -201,7 +205,7 @@ function OpportunitySidebar({
 }: {
   readonly opportunity: Opportunity
 }): React.JSX.Element {
-  const patch = useOpportunityPatch(opportunity)
+  const { patch, error } = useOpportunityPatch(opportunity)
   const stages = usePipelineStages('opportunity')
   const members = useMembers()
   const currentCompany = useCompany(opportunity.companyId ?? undefined)
@@ -233,6 +237,11 @@ function OpportunitySidebar({
 
   return (
     <section className="rounded-md border border-border p-3">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
       <div className="mb-2">
         <div className="mb-0.5 text-[10px] font-semibold tracking-wide text-ink-faint uppercase">
           Stage
