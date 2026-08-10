@@ -26,7 +26,7 @@ ENV_FILE := .env
 LOCAL_ENV_FILE := .env.local
 
 .DEFAULT_GOAL := help
-.PHONY: help setup up down reset dev test lint typecheck build verify-packaging db-generate psql status
+.PHONY: help setup up down reset dev test lint typecheck build verify-packaging publish db-generate psql status
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -89,6 +89,15 @@ build: ## Build every workspace
 
 verify-packaging: ## Pack the packages and check they work outside this workspace
 	npm run verify:packaging
+
+# Publishes whatever version is in the manifests, which `make release` put there.
+# Deliberately not tied to a tag: `npm publish` reads the working tree, so tying
+# it to one would imply a guarantee it cannot make.
+#
+# Skips packages the registry already has at that version, so it is safe to
+# re-run and can finish a release that went out partially.
+publish: ## Publish the packages to npm at their current version. Irreversible
+	npm run publish:packages
 
 db-generate: up ## Generate migrations from the schema barrel
 	npm run db:generate

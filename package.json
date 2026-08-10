@@ -17,6 +17,7 @@
     "build": "npm run build --workspaces --if-present",
     "verify:packaging": "node verify-packaging.ts",
     "release": "node release.ts",
+    "publish:packages": "node publish.ts",
     "lint": "oxlint",
     "typecheck": "tsc --project tsconfig.tools.json && npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

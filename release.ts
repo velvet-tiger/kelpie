@@ -42,18 +42,14 @@ const MANIFEST_DIRECTORIES = [
 ] as const
 
 /**
- * The packages that actually go to npm. `@kelpie/app` and the root stay private.
+ * The npm script that publishes, so `make publish`, `npm run publish:packages`,
+ * and this script's `--publish` all send the same set.
  *
- * `create-kelpie` releases with the other three because a scaffold pins core at
- * the scaffolder's own version. Publishing it alone would write a manifest
- * asking for a core version that does not exist.
+ * The workspace list lives in `package.json` rather than here. Two copies of it
+ * would disagree the first time a package is added, and the failure is a package
+ * silently left behind at the previous version.
  */
-const PUBLISHED_WORKSPACES = [
-  'packages/schemas',
-  'packages/server',
-  'packages/ui',
-  'packages/create-kelpie',
-] as const
+const PUBLISH_SCRIPT = 'publish:packages'
 
 /** Checks that must pass before a release is tagged, in the order they run. */
 const CHECKS: ReadonlyArray<readonly [label: string, script: string]> = [
@@ -216,14 +212,16 @@ function main(): void {
 
   if (!publishing) {
     report('\nNothing has been published. To publish this tag:')
-    report(`  npm publish ${PUBLISHED_WORKSPACES.map((workspace) => `--workspace ${workspace}`).join(' ')}`)
-    report('\nThat step is irreversible. npm allows unpublishing a new package for 72 hours and not at all after that.')
+    report(`  make publish        (or: npm run ${PUBLISH_SCRIPT})`)
+    report('\nThat step is irreversible. npm allows unpublishing a new package for 72 hours and not at all after')
+    report('that, and an unpublished version can never be published again under the same name.')
+    report(`\nThe tag is local until you push it:\n  git push --follow-tags`)
 
     return
   }
 
   report('\npublishing to npm')
-  run('npm', ['publish', ...PUBLISHED_WORKSPACES.flatMap((workspace) => ['--workspace', workspace])])
+  run('npm', ['run', PUBLISH_SCRIPT])
   report(`\npublished ${version}`)
 }
 

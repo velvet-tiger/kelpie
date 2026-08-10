@@ -6,5 +6,5 @@
     "lib": ["ES2023"],
     "types": ["node"]
   },
-  "include": ["verify-packaging.ts", "release.ts"]
+  "include": ["verify-packaging.ts", "release.ts", "publish.ts"]
 }

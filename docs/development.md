@@ -182,6 +182,7 @@ the database is already running.
 | `npm run build` | Compiles the three packages to JavaScript, then the web bundle |
 | `npm run verify:packaging` | Scaffolds a project from the packed tarballs and runs it. Needs Postgres. See [Packaging](#packaging) |
 | `npm run release <version>` | Versions, verifies, commits and tags a release. See [Releasing](#releasing) |
+| `make publish` | Publishes the packages npm does not already have at the current version |
 | `npm run lint` | oxlint across the repository. Silent means clean |
 | `npm run typecheck` | `tsc` over every workspace |
 | `npm test` | Vitest unit tests |
@@ -324,10 +325,21 @@ Publishing is separate, because it cannot be undone. npm allows unpublishing a
 new package for 72 hours and not at all after that.
 
 ```bash
-npm publish --workspace packages/schemas --workspace packages/server --workspace packages/ui --workspace packages/create-kelpie
+make publish
 ```
 
-`npm run release 0.2.0 --publish` does both in one step, once you trust it.
+That asks the registry what it already has at the current version and publishes
+only the difference, so it is safe to re-run and can finish a release that went
+out partially. It reports what it skipped rather than implying it did more than
+it did.
+
+Being able to re-run matters. `0.2.0` first went out as three packages because
+the command in use predated `create-kelpie`, and a plain
+`npm publish --workspace …` could not fix it: npm refuses the whole invocation
+once one package's version exists, so the way back was to publish the missing one
+by hand or burn a version.
+
+`npm run release 0.2.0 --publish` does both steps in one, once you trust it.
 
 Credentials are local. `npm login` once, or set `NPM_TOKEN` with a granular
 access token scoped to the `@kelpie` scope. Nothing in this repository stores a
