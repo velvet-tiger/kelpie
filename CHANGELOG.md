@@ -1,26 +1,39 @@
 # Changelog
 
-All notable changes to `@kelpie/schemas`, `@kelpie/server`, and `@kelpie/ui`.
+All notable changes to `@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`, and `create-kelpie`.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-The three packages share one version and release together. An assembly pins all three, and a mismatched pair has no meaning. A release note that names no package applies to all of them.
+The packages share one version and release together. An assembly pins core, and a mismatched pair has no meaning. `create-kelpie` writes a project pinning core at its own version, so it moves with them. A release note that names no package applies to all of them.
 
 While the major version is `0`, a minor bump may break the API.
 
+## [0.2.0] - 2026-08-10
+
+### Added
+
+- **`create-kelpie`** — `npm create kelpie@latest` scaffolds a self-hosted
+  install: two module lists, two entry points, a Vite config, and a `.env` with
+  an encryption key generated for that project. `@kelpie/server` and
+  `@kelpie/ui` arrive as ordinary dependencies, so there is nothing to clone and
+  upgrading is `npm update`. Prompts for what it cannot infer, and takes flags
+  for every answer so it runs unattended.
+
+### Notes
+
+- Upgrading from `0.1.0` is `npm update`. There are no API changes in the three
+  core packages; this release exists to publish the scaffolder alongside them.
+- `0.1.1` was tagged in the repository and never published, so npm goes from
+  `0.1.0` straight to `0.2.0`.
+
 ## [0.1.1] - 2026-08-10
 
-The first release you can install. No code differences from 0.1.0.
-
-`0.1.0` reached the registry and was then unpublished. npm reserves an
-unpublished version permanently, so republishing it returns
-`403 You cannot publish over the previously published versions: 0.1.0`,
-and it will keep doing so. The version number is spent. Hence 0.1.1, and hence
-the gap at the start of the version list on npm.
+Tagged, never published. No code differences from `0.1.0`. It was cut on a
+mistaken reading of a `403 You cannot publish over the previously published
+versions: 0.1.0`, which means the version was already published rather than that
+it needed replacing.
 
 ## [0.1.0] - 2026-08-10
-
-Never installable. See 0.1.1.
 
 First public release.
 
@@ -39,5 +52,6 @@ First public release.
 - `react` and `react-dom` are peer dependencies of `@kelpie/ui`.
 - The packages export their TypeScript source under a `kelpie-source` condition and their compiled JavaScript under the default one. Consumers get JavaScript; the condition exists so the repository can develop without a build step. It is not part of the public contract.
 
+[0.2.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.2.0
 [0.1.1]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.1.1
 [0.1.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.1.0
