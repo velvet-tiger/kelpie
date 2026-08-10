@@ -1,8 +1,15 @@
 {
   "name": "@kelpie/server",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The Kelpie service as a library: module runtime, core CRM modules, REST API, MCP surface, and the shared migration pipeline.",
-  "keywords": ["kelpie", "crm", "hono", "drizzle", "mcp", "agent"],
+  "keywords": [
+    "kelpie",
+    "crm",
+    "hono",
+    "drizzle",
+    "mcp",
+    "agent"
+  ],
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -18,7 +25,12 @@
   "publishConfig": {
     "access": "public"
   },
-  "files": ["dist", "src", "!src/**/*.test.ts", "migrations"],
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "migrations"
+  ],
   "exports": {
     ".": {
       "kelpie-source": "./src/index.ts",
@@ -39,7 +51,7 @@
     "db:generate": "node --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local ../../node_modules/drizzle-kit/bin.cjs generate"
   },
   "dependencies": {
-    "@kelpie/schemas": "^0.0.0",
+    "@kelpie/schemas": "^0.1.0",
     "@node-rs/argon2": "^2.0.2",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.32",
