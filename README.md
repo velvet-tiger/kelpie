@@ -43,12 +43,24 @@ and an MCP server, and you bring the agent.
 - Docker, for the local Postgres.
 - `make`.
 
+## Install it
+
+To run Kelpie rather than work on it, you do not need this repository:
+
+```bash
+npm create kelpie@latest
+```
+
+That writes a small project depending on `@kelpie/server` and `@kelpie/ui`,
+with an encryption key generated for it and a `docker-compose.yml` for
+Postgres if you want one. Those files are yours to edit and commit; Kelpie
+itself stays in `node_modules` and updates with `npm update`. The generated
+README covers running it.
+
 ## Run it locally
 
-There is no packaged installer yet. This is the local development
-workflow: clone this repository and run it from source. A scaffolder
-(`npm create kelpie`) that writes a standalone self-hosted install is
-planned but not built; see [`roadmap.md`](../roadmap.md).
+This is the development workflow, for working on Kelpie itself: clone the
+repository and run it from source.
 
 Run these from the repository root, in order.
 

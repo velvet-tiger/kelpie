@@ -1,0 +1,35 @@
+{
+  "name": "__PROJECT_NAME__",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "concurrently --names api,web --prefix-colors blue,magenta \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "node --watch --env-file-if-exists=.env src/server.ts",
+    "dev:web": "vite",
+    "start": "node --env-file-if-exists=.env src/server.ts",
+    "build": "vite build",
+    "typecheck": "tsc --project tsconfig.server.json && tsc --project tsconfig.web.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.12",
+    "@kelpie/server": "^__CORE_VERSION__",
+    "@kelpie/ui": "^__CORE_VERSION__",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^9.2.4",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.0"
+  }
+}

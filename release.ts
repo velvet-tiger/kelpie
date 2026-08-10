@@ -32,10 +32,28 @@ import { fileURLToPath } from 'node:url'
 const repositoryRoot = fileURLToPath(new URL('.', import.meta.url))
 
 /** Every manifest carrying a version or an internal range. Order is irrelevant. */
-const MANIFEST_DIRECTORIES = ['.', 'packages/schemas', 'packages/server', 'packages/ui', 'apps/kelpie'] as const
+const MANIFEST_DIRECTORIES = [
+  '.',
+  'packages/schemas',
+  'packages/server',
+  'packages/ui',
+  'packages/create-kelpie',
+  'apps/kelpie',
+] as const
 
-/** The packages that actually go to npm. `@kelpie/app` and the root stay private. */
-const PUBLISHED_WORKSPACES = ['packages/schemas', 'packages/server', 'packages/ui'] as const
+/**
+ * The packages that actually go to npm. `@kelpie/app` and the root stay private.
+ *
+ * `create-kelpie` releases with the other three because a scaffold pins core at
+ * the scaffolder's own version. Publishing it alone would write a manifest
+ * asking for a core version that does not exist.
+ */
+const PUBLISHED_WORKSPACES = [
+  'packages/schemas',
+  'packages/server',
+  'packages/ui',
+  'packages/create-kelpie',
+] as const
 
 /** Checks that must pass before a release is tagged, in the order they run. */
 const CHECKS: ReadonlyArray<readonly [label: string, script: string]> = [

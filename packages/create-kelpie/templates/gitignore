@@ -1,0 +1,6 @@
+node_modules/
+dist/
+
+# Holds SECRET_ENCRYPTION_KEY and your database credentials.
+.env
+.env.local

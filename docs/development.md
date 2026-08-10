@@ -18,10 +18,15 @@ packages/server/   @kelpie/server — the service as a library. Exports the Hono
                    config loader, database client, errors, ids, and logger.
 packages/ui/       @kelpie/ui — the React application: API client, query layer,
                    components, and pages.
+packages/create-kelpie/
+                   create-kelpie — the scaffolder behind `npm create kelpie`.
+                   Templates in templates/, generator in src/.
 apps/kelpie/       The open-source assembly. Boots the server, builds the UI.
 ```
 
 `@kelpie/server` never starts a listener on import. `apps/kelpie` is the executable. The cloud repo assembles the same packages with private modules, per `modules.md`.
+
+`apps/kelpie` is the dev harness and the reference assembly, not the thing a self-hoster runs. They get their own directory from `npm create kelpie`. The two are the same shape and drift apart if nobody looks, which is why `verify:packaging` builds the scaffolded one rather than this one.
 
 ## The UI data layer
 
@@ -175,7 +180,7 @@ the database is already running.
 | `npm run dev` | Picks a free port for each process, then starts the API with file watching plus the Vite dev server |
 | `npm run dev:processes` | The two processes on their own, on whatever ports the environment already names. `npm run dev` runs this once it has chosen them |
 | `npm run build` | Compiles the three packages to JavaScript, then the web bundle |
-| `npm run verify:packaging` | Packs the three packages and checks they work outside this workspace. See [Packaging](#packaging) |
+| `npm run verify:packaging` | Scaffolds a project from the packed tarballs and runs it. Needs Postgres. See [Packaging](#packaging) |
 | `npm run release <version>` | Versions, verifies, commits and tags a release. See [Releasing](#releasing) |
 | `npm run lint` | oxlint across the repository. Silent means clean |
 | `npm run typecheck` | `tsc` over every workspace |
@@ -243,14 +248,31 @@ only `npm run build` writes it; a stale one cannot affect a dev run or a test.
 
 The failure this creates is a quiet one. Everything keeps working in the
 workspace while the published artifact is broken, and only an out-of-tree install
-can tell. `npm run verify:packaging` does that: builds, packs, installs the
-tarballs into a scratch directory under the system temp directory, imports
-`@kelpie/server` from there, checks `coreMigrationsDirectory` still points at
-real migrations, and builds a Vite app against `@kelpie/ui` to confirm Tailwind
-still finds the component classes. Run it after changing a package's `exports`,
-`files`, or build. This repository has no CI yet; when it does, this belongs in
-it, because the check is the only thing standing between a routine edit and a
-broken release.
+can tell.
+
+`npm run verify:packaging` does that, by walking the path a self-hoster walks.
+It builds and packs all four packages, runs `create-kelpie` to scaffold a
+project, installs the tarballs into it, and then:
+
+- imports `@kelpie/server` from the install, so the compiled entry point is the
+  one that shipped
+- checks `coreMigrationsDirectory` reaches real migrations, which sit outside
+  `dist` and only ship because `files` names them
+- runs `npm run dev` and asserts the dev server proxies `/healthz` to the API,
+  serves `/signup`, and accepts a signup through the proxy
+- builds the web bundle and asserts the Tailwind theme utilities are in the CSS
+
+The scaffolder writes that project rather than the script hand-rolling one, so
+the generated manifest's dependency list is under test too. A devDependency
+missing from the template surfaces here as a failed build rather than as a
+self-hoster's first five minutes.
+
+It needs Postgres, through `TEST_DATABASE_URL`. `make up` writes it.
+
+Run it after changing a package's `exports`, `files`, or build, or anything under
+`packages/create-kelpie/templates/`. This repository has no CI yet; when it does,
+this belongs in it, because the check is the only thing standing between a
+routine edit and a broken release.
 
 ### Working on core and a consuming repo together
 
@@ -274,9 +296,12 @@ that is meant to reflect the published packages.
 
 ## Releasing
 
-`@kelpie/schemas`, `@kelpie/server`, and `@kelpie/ui` share one version and go
-out together. An assembly pins all three, and a mismatched pair has no meaning.
-`@kelpie/app` carries the same number but is private and never published.
+`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`, and `create-kelpie` share one
+version and go out together. An assembly pins the first three, and a mismatched
+pair has no meaning. `create-kelpie` joins them because a scaffold pins core at
+the scaffolder's own version, so publishing it alone would write a project
+asking for a core version that does not exist. `@kelpie/app` carries the same
+number but is private and never published.
 
 Write the changelog entry first, then:
 
@@ -299,7 +324,7 @@ Publishing is separate, because it cannot be undone. npm allows unpublishing a
 new package for 72 hours and not at all after that.
 
 ```bash
-npm publish --workspace packages/schemas --workspace packages/server --workspace packages/ui
+npm publish --workspace packages/schemas --workspace packages/server --workspace packages/ui --workspace packages/create-kelpie
 ```
 
 `npm run release 0.2.0 --publish` does both in one step, once you trust it.
