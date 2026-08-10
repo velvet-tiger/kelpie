@@ -1,9 +1,23 @@
 {
   "name": "@kelpie/schemas",
   "version": "0.0.0",
-  "private": true,
-  "type": "module",
+  "description": "Wire contract for the Kelpie API, as Zod schemas. Shared by the service, the UI, and any agent decoding /v1 responses.",
+  "keywords": ["kelpie", "crm", "zod", "schema", "api"],
   "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/velvet-tiger/kelpie.git",
+    "directory": "packages/schemas"
+  },
+  "homepage": "https://github.com/velvet-tiger/kelpie/tree/main/packages/schemas#readme",
+  "bugs": "https://github.com/velvet-tiger/kelpie/issues",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": ["dist", "src", "!src/**/*.test.ts"],
   "exports": {
     ".": {

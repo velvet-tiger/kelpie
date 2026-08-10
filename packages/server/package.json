@@ -1,9 +1,23 @@
 {
   "name": "@kelpie/server",
   "version": "0.0.0",
-  "private": true,
-  "type": "module",
+  "description": "The Kelpie service as a library: module runtime, core CRM modules, REST API, MCP surface, and the shared migration pipeline.",
+  "keywords": ["kelpie", "crm", "hono", "drizzle", "mcp", "agent"],
   "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/velvet-tiger/kelpie.git",
+    "directory": "packages/server"
+  },
+  "homepage": "https://github.com/velvet-tiger/kelpie/tree/main/packages/server#readme",
+  "bugs": "https://github.com/velvet-tiger/kelpie/issues",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": ["dist", "src", "!src/**/*.test.ts", "migrations"],
   "exports": {
     ".": {

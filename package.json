@@ -16,6 +16,7 @@
     "dev:processes": "concurrently --names api,web --prefix-colors blue,magenta \"npm run dev --workspace apps/kelpie\" \"npm run dev:web --workspace apps/kelpie\"",
     "build": "npm run build --workspaces --if-present",
     "verify:packaging": "node verify-packaging.ts",
+    "release": "node release.ts",
     "lint": "oxlint",
     "typecheck": "tsc --project tsconfig.tools.json && npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

@@ -1,9 +1,23 @@
 {
   "name": "@kelpie/ui",
   "version": "0.0.0",
-  "private": true,
-  "type": "module",
+  "description": "React UI for Kelpie: components, pages, API client, and the extension registry an assembly composes modules through.",
+  "keywords": ["kelpie", "crm", "react", "ui", "components"],
   "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/velvet-tiger/kelpie.git",
+    "directory": "packages/ui"
+  },
+  "homepage": "https://github.com/velvet-tiger/kelpie/tree/main/packages/ui#readme",
+  "bugs": "https://github.com/velvet-tiger/kelpie/issues",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": ["dist", "src", "!src/**/*.test.ts", "!src/**/*.test.tsx"],
   "exports": {
     ".": {
@@ -25,11 +39,13 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@kelpie/schemas": "^0.0.0",
     "@tanstack/react-query": "^5.101.4",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "react-router": "^8.3.0",
     "remark-gfm": "^4.0.1"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
@@ -37,6 +53,8 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "happy-dom": "^20.11.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3",
     "vite": "^8.2.0",
     "vitest": "^4.1.10"
