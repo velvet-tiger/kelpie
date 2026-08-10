@@ -1,0 +1,138 @@
+# API reference and implementation status
+
+Endpoint-by-endpoint detail on what the service does today, and what it does
+not yet do. For a plain description of what Kelpie is and how to run it, see
+the [README](../README.md). For the wire conventions themselves (auth, ids,
+pagination, errors, writes), see `api.md` alongside this repository.
+
+## What works
+
+The Phase 0 backend, plus the CRM resources below. Every endpoint here has integration tests against a real Postgres.
+
+| Area | Surface |
+| --- | --- |
+| Accounts | `POST /v1/auth/signup`, `login`, `logout`, `GET /v1/auth/me`, `GET` and `PATCH /v1/account` |
+| Preferences | `GET` and `PATCH /v1/account/preferences` (timezone, theme, notification choices) |
+| Sessions | `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id` |
+| Passwords | `PATCH /v1/auth/password`, `POST /v1/auth/password-reset` and `/confirm` |
+| Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `DELETE /v1/workspaces/:id?slug=` |
+| Membership | `GET`, `PATCH` and `DELETE /v1/workspaces/:id/members[/:member_id]` |
+| Invites | `POST` and `GET /v1/workspaces/:id/invites`, `POST .../invites/:invite_id/resend`, `DELETE .../invites/:invite_id`, `POST /v1/invites/accept` |
+| API keys | `POST /v1/api-keys`, `GET /v1/api-keys?kind=`, `DELETE /v1/api-keys/:id` |
+| People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
+| Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |
+| Positions | `GET`, `POST /v1/positions`, `GET`, `PATCH`, `DELETE /v1/positions/:id`. Filters `?person_id=` and `?company_id=` |
+| Deals | `GET`, `POST /v1/deals`, `GET`, `PATCH`, `DELETE /v1/deals/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
+| Opportunities | `GET`, `POST /v1/opportunities`, `GET`, `PATCH`, `DELETE /v1/opportunities/:id`. Filters `?q=`, `?kind=`, `?company_id=` and `?stage_id=` |
+| Partnerships | `GET`, `POST /v1/partnerships`, `GET`, `PATCH`, `DELETE /v1/partnerships/:id`. Filters `?q=`, `?kind=`, `?company_id=`, `?stage_id=` and `?person_id=` |
+| Raises | `GET`, `POST /v1/raises`, `GET`, `PATCH`, `DELETE /v1/raises/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
+| Pipeline stages | `GET`, `POST /v1/pipeline_stages`, `GET`, `PATCH`, `DELETE /v1/pipeline_stages/:id?move_to=`. Filter `?kind=` |
+| Roles | `GET`, `POST /v1/roles`, `GET`, `PATCH`, `DELETE /v1/roles/:id`. Filters `?q=` and `?status=` |
+| Candidates | `GET`, `POST /v1/candidates`, `GET`, `PATCH`, `DELETE /v1/candidates/:id`. Filters `?role_id=`, `?person_id=` and `?status=` |
+| Decisions | `GET`, `POST /v1/decisions`, `GET`, `PATCH`, `DELETE /v1/decisions/:id`. Filters `?q=`, `?target_type=` and `?target_id=` |
+| Plan items | `GET`, `POST /v1/plan_items`, `GET`, `PATCH`, `DELETE /v1/plan_items/:id`. Filters `?target_type=`, `?target_id=`, `?status=`, `?from=` and `?to=` |
+| Notes | `GET`, `POST /v1/notes`, `GET`, `PATCH`, `DELETE /v1/notes/:id`. `?target_type=` and `?target_id=` are required, and `?target_id=` repeats to name a set; filter `?pinned=true` or `false` |
+| Activities | `GET /v1/activities`. Read-only: the timeline is written by the writes it describes. `?target_type=` and `?target_id=` are required |
+| Dashboard | `GET /v1/dashboard`. Read-only, no id and no envelope. `?limit=` caps every embedded list |
+| Handbook | `GET`, `POST /v1/handbook_pages`, `GET`, `PATCH`, `DELETE /v1/handbook_pages/:id`. Filters `?q=` and `?slug=` |
+| Forms | `GET`, `POST /v1/forms`, `GET`, `PATCH`, `DELETE /v1/forms/:id`. Filters `?q=` and `?status=`. Plus `GET /v1/forms/:id/submissions` and `GET /v1/forms/:id/embed` |
+| Public forms | `POST /v1/public/forms/:public_key/submit` and `GET /v1/public/forms/:public_key/embed`. No credentials, any origin |
+| Export | `GET /v1/export/{people,companies,positions,deals}.csv` and `GET /v1/export/templates/{object}.csv` |
+| Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit`, `DELETE /v1/import/jobs/:id` |
+| Agent tasks | `GET /v1/agent-tasks?target_type=`, `POST /v1/agent-tasks/:task_id/resolve` and `/run`. Runs at `GET /v1/agent-runs[/:id]`, filters `?agent_id=` and `?status=`. Registered agents: `GET`, `POST /v1/agents`, `GET`, `PATCH`, `DELETE /v1/agents/:id` — writes admin only, reads any member |
+| Webhooks | `GET`, `POST /v1/webhooks`, `GET`, `PATCH`, `DELETE /v1/webhooks/:id`. Filter `?status=`. Plus `POST /v1/webhooks/:id/rotate_secret` and `GET /v1/webhooks/:id/deliveries`, filter `?status=`. Admin only, reads included |
+| MCP | `POST /mcp`, Streamable HTTP, bearer key only. Speaks `2026-07-28` and the two `initialize`-based revisions before it. `GET /v1/mcp/tools` lists the same tools over ordinary credentials |
+
+Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
+
+**Id filters repeat to name a set:** `?person_id=per_1&person_id=per_2` matches either, up to 200 ids. It is what replaces the `include` expansion this version does not have: a list page showing a related column resolves it in one extra request rather than one per row. A blank value or more than 200 is `422`.
+
+A job title lives on Position and nowhere else, so a person can hold one at more than one company. `?q=` on people matches the titles they hold and the companies they hold them at, which is what the mockup's filter box does.
+
+Hiring state lives on Candidate, the Person↔Role link, for the same reason: one person can be interviewing for one role and in the nurture pile for another. `interview_stage` is null unless the status is `in_process`, and the API keeps that true — leaving the process clears the stage, rejoining it restores the first one, and a stage that contradicts the status is a `422`.
+
+Forms are the one public surface. Managing them takes credentials like everything else; submitting one takes nothing but the form's `public_key`, because the caller is a stranger's browser on a stranger's website. Everything under `/v1/public` is mounted outside the credentialled routes and answers any origin without allowing credentials, so a browser never attaches a signed-in reader's session cookie to one. A submit upserts the Person by email, the Company by domain and then by name, the Position that carries the title, and optionally a Deal. The merge fills blanks and never overwrites: an inbound "Alex" does not replace the "Alex Rivera" the team recorded. A paused form answers `409`, and answers without a usable address answer `422`. `GET /v1/forms/:id/embed` hands back the iframe and script snippets to paste into a site; the page they point at is server-rendered from the form itself, so embedding it does not pull the CRM bundle into somebody else's marketing site.
+
+**A company is never inferred from an email domain.** Only a field mapped to `company.domain` sets one. An email domain is not a company identifier: one company sends from several, a consumer address belongs to none, and two people at unrelated businesses can share one, so inferring it merges records that were never the same company. A Deal belongs to a Company, so a form with `create_deal` on and no `company.name` or `company.domain` field is refused at `422` rather than left to quietly never create the deals it promises.
+
+A form carries its fields, and a write replaces the whole list — field ids never appear in a request, and positions come from the array's order. A list identical to the stored one is not a write, so ids survive a save that changed nothing, which matters because a stored answer is keyed by field id.
+
+The handbook is a tree the caller rebuilds from `parent_id` and `sort_order`; a page's `sort_order` positions it among its siblings and means nothing across the whole set, so the list sorts by title. `PATCH` with a `parent_id` or a `sort_order` is a move, and the API renumbers both sibling sets so positions stay contiguous from 0. In the sidebar one gesture does both: dragging a page sideways indents or lifts it where it stands, and a drag that ends where it started writes nothing. It nests five levels, and a move that would push a page *or its own subpages* past that is a `422`, as is nesting a page under itself or one of its subpages. A page's `slug` is the stable handle `agent-tasks.md` names pages by, so renaming a page leaves it alone; moving it on purpose is a separate field, and a collision is a `409`. Deleting a page deletes every page under it.
+
+**An import is a dry run you then commit, and the two do not have to agree.** `POST /v1/import/jobs` parses the file, stores every row as it arrived, and plans each one against the workspace: create, update, skip, or error, with the counts and the first failing rows on the job. `POST .../commit` then re-resolves every row rather than replaying the plan, because the workspace can change in between and because rows earlier in the same file create the records later rows must match against. That is also what makes a commit idempotent — run it twice, or re-upload the same file, and the second pass finds what the first one wrote. A row that fails takes only itself down; the rest of the file still commits.
+
+`column_map` is optional. Leave it out and the server derives one from the source pack and the file's own headers, and answers with both it and `source_headers`, so nothing has to parse CSV to build a mapping screen. A corrected mapping is a fresh job over the same file. An unmapped or blank cell is never written: a partial export with an empty Summary column would otherwise erase every summary it names.
+
+A deal's stage resolves against this workspace's own pipeline — its slug, then its label, then the HubSpot and Salesforce alias tables — and a name that matches none of them fails the row. An export writes the slug and the major currency unit, which is what lets a Kelpie export read straight back in with no mapping at all. A missing company fails a deal row rather than creating a stub, and an `owner_email` naming nobody in the workspace fails it too, rather than quietly reassigning the deal to whoever ran the import.
+
+**Over 500 rows a job runs in the background and the request answers `202`.** There is no durable queue: the work is a detached promise in the same process, the same way the event bus publishes. A crash mid-pass therefore strands a job in `validating` or `committing` with nothing to move it on, and the remedy is to upload the file again — which is safe, because a commit is idempotent. A real queue is the module system's job, not core's.
+
+**Webhooks are the event bus reaching outside the process.** Registering one mints a signing secret, answers with it once, and never returns it again. Every delivery is a `POST` carrying `Kelpie-Signature: sha256=…`, an HMAC-SHA256 of the exact request body under that secret, plus `Kelpie-Event` to route on and `Kelpie-Delivery` to dedupe on. Delivery is at-least-once with no durable queue, the same caveat the bus itself carries, and a retry reuses its delivery id so a receiver can recognise one.
+
+A non-2xx fails, and so does a redirect, which is never followed: an endpoint that moved should be seen and corrected rather than have workspace data quietly posted wherever the old address now points. Failures retry three times over about twenty seconds, and then the registration reads `failing` until an attempt lands. `paused` is the customer's own switch. `failing` is not settable — it is what the engine found, and a `PATCH` claiming it answers `422`.
+
+Every verb needs the admin role, **including the reads**. A webhook URL routinely carries its own credential in the path, so listing registrations discloses a secret rather than describing a setting. That is why the Webhooks page tells a member the list is not theirs instead of showing them an empty one.
+
+**Agent tasks are prompt recipes, and resolve is the single source of truth.** The catalog is 69 task definitions shipped in code (`agent-tasks.md`), listed per target type. `POST /v1/agent-tasks/:task_id/resolve` loads the target, its pinned notes, open Plan items, open Decisions, the handbook pages the task names (by slug, resolved to this workspace's own copies), and the related ids the data model records, and renders one markdown prompt. Copy puts that prompt on the clipboard; Run POSTs the identical payload to a registered agent, so the two cannot drift. Workspace-scoped tasks point the agent at `GET /v1/dashboard` instead of a single record, and the two sweep tasks — empty fields, and open pipeline with nothing planned — run their queries at resolve time with exact totals and honestly capped id lists.
+
+A run records the dispatch, not the agent's work: `queued` when created, `running` while the POST is in flight, then `succeeded` on a 2xx or `failed` with the reason on anything else. One attempt, deliberately, where webhooks retry three times — re-POSTing a task risks an agent doing the whole job twice, and the human is on the page to re-run. There is no callback for an agent to report completion; what it did shows up on the records themselves, through the same API. The wire is `snake_case` throughout: `agent-tasks.md`'s camelCase examples predate `api.md`, and `api.md` wins.
+
+Registered agents split roles by verb, unlike webhooks: writes are admin work, but any member reads the list, because the Run dialog on every record page is built from it. The auth header is the module's one secret — sealed with `SECRET_ENCRYPTION_KEY` like a webhook's signing secret, sent as `Authorization` on each dispatch, and never returned; responses carry `has_auth_header` and nothing more. An endpoint URL with credentials in it is refused at `422`, pointing at `auth_header` instead. Deleting an agent takes its run log with it.
+
+**The dashboard is one request, and it is the only endpoint that names records it does not return.** `GET /v1/dashboard` answers open counts for all four pipelines, overdue and due-soon plan items, partnership touchpoints at hand, contacts past the 14-day threshold, and the latest activity, notes and decisions. Two of those are questions no resource list asks — no list filters people by how long since they were contacted — and the other five would be five requests plus a client-side join.
+
+Every attention signal is `{ total, items }`. The total counts every matching row; `items` holds what `?limit=` allowed. A page rendering four rows still says how many there are, which a capped list cannot.
+
+Rows that point at another record carry `target_name` resolved. It is the one place in the API that does, because it is the one place where every row points somewhere different: the alternative is a request per row. A Candidate is named by the Person behind it, and a target that no longer resolves comes back `null` rather than as an id.
+
+**Today is the workspace's day, not the server's.** Overdue is a comparison between calendar dates, so the service reads `workspaces.timezone` and asks Postgres for the local day of each `last_contacted_at`. A Melbourne workspace opening the page at 9am does not see yesterday's date because the server is on UTC. The thresholds are fixed rather than settable — a "stale contact" the caller defined would mean something different in every request — and the response echoes the two it used.
+
+**MCP is the same API through a second door.** `POST /mcp` speaks Streamable HTTP, and every tool on it is built from the Zod body, the wire mapper and the service its REST endpoint uses, so the two cannot answer differently. A tool that fails answers with the `api.md` error body — the same `404`, the same `422` and its field-level `details` — carried as a tool result rather than a protocol error, because a call that ran and refused is an answer the model should see. 99 tools today: the five verbs for each CRM resource, the handbook, forms and their submissions, workspace settings, team and invitations, webhooks, `dashboard_get`, and the four import/export tools `import-export.md` names.
+
+The endpoint takes **bearer keys only**, and deliberately not the session cookie the REST surface accepts. Three things keep a cross-origin browser out: a present `Origin` that is not this deployment's own answers `403`, no CORS headers are sent, and there is no ambient credential to spend even if one got through. There is no session id and no server-initiated stream, so `GET` and `DELETE` answer `405` and any instance can answer any request.
+
+**It speaks `2026-07-28`, `2025-06-18` and `2025-03-26`, and serves two eras on the one endpoint.** `2026-07-28` removed the `initialize` handshake: a modern client puts its protocol version, identity and capabilities in every request's `_meta`, mirrors the method and tool name into `Mcp-Method` and `Mcp-Name` headers, and gets back `resultType: "complete"`, the server's identity in the result's `_meta`, and `ttlMs`/`cacheScope` on anything cacheable. Everything before that revision opens with `initialize`, and the spec calls those *legacy*.
+
+The endpoint decides which it is being asked for from the request itself: a `_meta` protocol version or a `server/discover` means modern, anything else means legacy. A legacy client keeps `initialize`, `ping` and its JSON-RPC batches; a modern one gets `server/discover`, which the revision makes mandatory, and none of those three, which it removed. A version Kelpie does not speak is refused with `-32022` carrying the list it does, so a client can pick another and retry rather than being told only that it failed.
+
+For a modern request the mirrored headers **must** agree with the body — `MCP-Protocol-Version` with the `_meta` version, `Mcp-Method` with the method, `Mcp-Name` with the tool — and a disagreement is `400` with `-32020`. The point is that an intermediary routes on the header while the server executes the body, so the two differing is the bug worth refusing. `Mcp-Name` is decoded from the `=?base64?…?=` sentinel before the comparison. A method the revision does not have answers `404` rather than `200`, which is how a client tells a modern server lacking a method from a legacy server that does not host the endpoint at all.
+
+Three REST operations have no tool. Creating a workspace and accepting an invitation both need a browser session, and a key issued for one workspace could not act on the new one anyway. Deleting a workspace destroys everything the calling key is scoped to, and its slug confirmation is no safeguard against an agent that can read the slug. API keys have no tools at all: a key that can mint keys is an escalation nothing in the brief asks for.
+
+`export_csv` inlines the file and refuses over 256 KB, naming `GET /v1/export/{object}.csv` instead. A truncated CSV looks exactly like a whole one, and an agent would draw conclusions from the rows that were not there.
+
+Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with after-commit publication, the entitlements registry, 37 tables with migrations, and an integration harness that creates and truncates its own database.
+
+Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. A webhook signing secret is the one credential that is encrypted rather than hashed, because signing a delivery needs it back; `lib/secrets.ts` seals it with AES-256-GCM under `SECRET_ENCRYPTION_KEY`. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
+
+In the browser: People and Companies, list and detail, against those endpoints. Filtering, inline editing, creating, deleting, and linking a person to a company through a Position all work end to end. Detail pages render the `person` and `company` record-tab slots, and the sidebar renders module nav items, so a UI module has somewhere to land from the start.
+
+Forms have a list and a four-tab detail page: submissions with links to what each one created, a drag-ordered field builder, settings, and the embed snippets. The builder is the one screen in the app that saves explicitly rather than per keystroke, because a write replaces the whole field list and committing on every character would reissue every field id. It refuses to send a list the API would reject, and shows why beside the field responsible.
+
+Workspace administration is under Admin in the sidebar. **Workspace** carries the settings, including the two agent identity strings: `tagline` is the short line an agent loads first and `one_liner` is what the company does. Clearing either sends `null`, so an emptied field is no tagline rather than an empty one. The slug is editable and a collision is a `409`.
+
+**Team** invites by email, changes roles, and removes members. Every rule is the API's, not the page's: a member who tries anyway gets `403`. The owner cannot be demoted or removed, and ownership moves only by being given away, which makes the outgoing owner an admin in the same transaction. Removing somebody who still owns Deals, Opportunities, Partnerships, Raises, Plan items, Decisions or Notes answers `409` naming each type and how many, per `schema.md`'s restrict rule; reassign them first. An invitation's status is derived from `expires_at` rather than stored, so a stale one reads as expired with nothing sweeping the table. Resending issues a new token and retires the old link. Revoking deletes the row, which is what actually kills the link already in somebody's inbox.
+
+Deleting a workspace is the owner's alone and takes the slug as confirmation, in the request rather than only in the browser, so an accidental `DELETE` at the right id does nothing. It cascades every table that carries a `workspace_id`. Accounts are global and survive it.
+
+The emailed invitation lands on `/join?token=…`, which accepts as the signed-in account. Signing in from there returns to the invitation instead of the CRM.
+
+## Known gaps
+
+- **Most of the UI.** The Dashboard, People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, the Workspace, Team, Webhooks and MCP admin pages, and the account's own Profile, Security and Preferences pages are ported. Everything else in `mockups/` is not: search, the remaining admin pages, and the account's integrations and personal API key tabs all wait for their endpoints.
+- **Role enforcement outside workspace administration.** Administration is gated at `admin`, and API keys already were. Every CRM resource is open to any member, which is what the specs describe; no document defines a read-only role. Narrowing that is a product decision, not a missing check.
+- **MCP tools for agent tasks.** `agent-tasks.md` defers `run_agent_task` ("not required for v0"), so the resolve, run, runs and agents endpoints have no tools yet and the tool count stays at 99. An agent that wants a context pack can still be handed one: Copy the prompt, or POST resolve over REST with its key.
+- **An agent reporting a run's outcome.** A run's lifecycle is the dispatch — `queued`, `running`, then `succeeded` or `failed` with the reason. No spec defines a callback for the agent to say it finished the work, so nothing pretends to know; the work itself lands on the records through the ordinary API.
+- **The rest of the auth pages.** Sign-in, first-workspace and join exist so the CRM pages can be reached and an invitation can be accepted. Signup, password reset and the onboarding wizard are a separate feature and replace the first two. Changing a password while signed in is on the account's Security page and does exist.
+- **Notification email.** The Preferences page stores a weekly digest, mention and product-update choice per account, and nothing sends any of them: email sending is a v0 non-goal (`brief.md`), and the port `EMAIL_PROVIDER=log` serves password reset only. The page says so on screen rather than leaving a reader to infer a capability from a toggle.
+- **A user timezone that anything reads.** It is stored and returned; every formatter in `packages/ui/src/lib/dates.ts` is still fixed `en-AU`.
+- **A friendly device name on the Security page.** A session records the raw `User-Agent` and shows it, so a browser reads as a long string rather than "Chrome on macOS". `location` is never populated at all and renders "Unknown"; nothing derives one from a request.
+- **Leaving a workspace, and the last owner.** An admin can remove themselves; the owner cannot, and has to hand ownership over first. An owner who is the only member has no way out except deleting the workspace.
+- **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
+- **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
+- **Webhook polish**, which `brief.md` defers. Four events are deliverable and the rest of the catalogue is not offered, rather than accepted and never sent. Retries live in the process, so a crash mid-backoff loses that delivery. The delivery log keeps `WEBHOOK_DELIVERY_RETENTION_DAYS` of history (30 unless set), pruned in the transaction that records the webhook's next delivery because there is no scheduler in core — so a hook that stops delivering keeps its last window of rows until the hook or workspace is deleted. The log is on the Webhooks page, but `payload` is a `jsonb` column and Postgres reorders its keys, so it shows the content of a body and not the exact text `Kelpie-Signature` was computed over.
+- **A module making its own event deliverable.** The engine subscribes to a fixed four, each with a payload builder. A module cannot add a fifth: the bus is typed on `DomainEvents`, so an event a module defines has no payload type to publish under, and the engine has no builder to render it with. `ModuleContext` used to carry a `webhookEvents(names)` method for this and nothing read the names it collected; it was removed, because the contribution the mechanism needs is a builder rather than a name. See `modules.md`.
+- **Outbound egress filtering.** A delivery URL may name any host, including a private one, because a self-hosted install legitimately posts to `http://automation.internal`. A hosted deployment needs that filter at its egress rather than in this check.
+- **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.
+- **A CI workflow.** The scripts are ready; nothing runs them on push.
+- **A copyright holder.** `LICENSE` is the verbatim AGPL-3.0 text, but no file states who holds the copyright. `modules.md` depends on that: proprietary cloud modules are only possible while we own the core copyright, and external contributions need a CLA before the first outside PR.

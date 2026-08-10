@@ -8,7 +8,19 @@ The three packages share one version and release together. An assembly pins all 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [0.1.1] - 2026-08-10
+
+The first release you can install. No code differences from 0.1.0.
+
+`0.1.0` reached the registry and was then unpublished. npm reserves an
+unpublished version permanently, so republishing it returns
+`403 You cannot publish over the previously published versions: 0.1.0`,
+and it will keep doing so. The version number is spent. Hence 0.1.1, and hence
+the gap at the start of the version list on npm.
+
 ## [0.1.0] - 2026-08-10
+
+Never installable. See 0.1.1.
 
 First public release.
 
@@ -27,4 +39,5 @@ First public release.
 - `react` and `react-dom` are peer dependencies of `@kelpie/ui`.
 - The packages export their TypeScript source under a `kelpie-source` condition and their compiled JavaScript under the default one. Consumers get JavaScript; the condition exists so the repository can develop without a build step. It is not part of the public contract.
 
+[0.1.1]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.1.1
 [0.1.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.1.0

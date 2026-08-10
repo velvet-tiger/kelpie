@@ -1,18 +1,57 @@
 # Kelpie
 
-Open-source, agent-native CRM and company brain. Product direction and specs live in the docs repo alongside this one: `brief.md`, `roadmap.md`, `architecture.md`, `api.md`, `schema.md`, `modules.md`.
+Kelpie is an open-source CRM built for startups that work with AI agents. It
+tracks every relationship a startup depends on: customers, partners,
+opportunities, talent, and investors. It also doubles as a company brain: a
+handbook of freeform notes that an agent can query alongside the structured
+data.
 
-This repository is the production service. The clickable prototype stays in `mockups/` in the docs repo until its pages are ported.
+Self-host it for free under AGPL-3.0, or use the paid cloud if you would
+rather not run it yourself. Either way, the UI and any agent you connect use
+the same public API. Kelpie ships no bundled AI: it exposes structured data
+and an MCP server, and you bring the agent.
+
+This is an early release. People and Companies work end to end in the
+browser today; the rest of the model is reachable through the API and MCP
+while their pages are still being built. See
+[`docs/api-reference.md`](docs/api-reference.md) for exactly what is built
+and what has gaps.
+
+## What you get
+
+- **People, Companies, and Positions** — who you know, where they work, and
+  their title there. A person can hold positions at more than one company.
+- **Deals and Opportunities** — a sales pipeline, plus non-sales chances like
+  grants, accelerators, and speaking slots.
+- **Partnerships and Raises** — ongoing two-way relationships, with a
+  fundraising round tracked separately from the investor relationship itself.
+- **Roles and Candidates** — a hiring pipeline kept off the Person record, so
+  one person can be a candidate for one role while already hired through
+  another.
+- **Plans and Decisions** — dated action items and recorded commitments, both
+  queryable so an agent does not act against them by mistake.
+- **Notes and Activities** — attach to any record, and pin the ones an agent
+  should read first.
+- **Handbook** — nested markdown pages for product, voice, ICP, and anything
+  else easier to write than to model as fields.
+- **Forms** — embeddable inbound forms that create or update People,
+  Companies, and Deals on submit.
+- **Import and export** — CSV in and out, with a dry-run step before
+  anything commits.
+- **Agent tasks and MCP** — every record can hand an agent a ready-made
+  prompt with the context it needs, and the same operations are available as
+  MCP tools.
+- **Webhooks** — notify another system when something changes.
 
 ## Requirements
 
-- Node 24 or newer. The server runs TypeScript directly through Node's type stripping, so there is no build step for it.
+- Node 24 or newer.
 - Docker, for the local Postgres.
-- `make`, which is how local development is driven.
+- `make`.
 
-## Setup
+## Getting started
 
-Run these in order from the repository root.
+Run these from the repository root, in order.
 
 1. Install dependencies, create your environment file, and start Postgres.
 
@@ -20,26 +59,11 @@ Run these in order from the repository root.
    make setup
    ```
 
-   That runs `npm install`, copies `.env.example` to `.env` with a generated
-   `SECRET_ENCRYPTION_KEY`, and starts the database. It leaves an existing `.env`
-   alone. `make` on its own lists every target.
-
-   Postgres is published on whichever host port Docker had free, so a second
-   checkout, or another project's Postgres, cannot collide with it. `make up`
-   reads that port back and writes `.env.local`:
-
-   ```
-   db   localhost:61572 (written to .env.local)
-   ```
-
-   `.env.local` is generated, git-ignored, and rewritten by every `make up`. It
-   holds `DATABASE_URL` and `TEST_DATABASE_URL` and nothing else. Everything that
-   reads the database prefers it to `.env`, so the port lives in exactly one
-   place. A real environment variable still beats both, which is how CI points
-   the suite at its own database.
-
-   Run your own Postgres instead if you would rather: skip `make up`, delete
-   `.env.local`, and the URLs in `.env` apply.
+   This runs `npm install` and copies `.env.example` to `.env` with a
+   generated `SECRET_ENCRYPTION_KEY`. It leaves an existing `.env` alone.
+   Postgres starts on whatever host port Docker has free, so a second
+   checkout will not collide with this one; `make` on its own lists every
+   target.
 
 2. Start the API and the UI together.
 
@@ -47,523 +71,111 @@ Run these in order from the repository root.
    make dev
    ```
 
-   This starts the database first if it is not already up, then runs `npm run dev`.
+   The API listens on port 3000 by default and the UI on 5173. The UI
+   proxies API calls, so your browser only talks to one address. If either
+   port is busy, the launcher picks a free one and prints what it chose.
 
-   The API listens on the `PORT` from `.env` (3000 by default) and the UI on 5173, and the UI proxies `/v1` and `/healthz` to the API, so the browser only ever talks to one origin.
-
-   `npm run dev` finds a free port for each process before starting either one, so a second checkout or a stale process on 3000 does not stop this one. It prints what it chose:
-
-   ```
-   api  http://localhost:3001 (3000 was in use)
-   web  http://localhost:5173
-   ```
-
-   Only the launcher moves. The API binds the `PORT` it is given and fails when that port is taken, in development and in production alike.
-
-   The steps below use 5173. Use whichever web port it printed.
-
-3. Confirm the whole chain.
+3. Confirm it is running.
 
    ```bash
    curl -s http://localhost:5173/healthz
    ```
 
-   Expected: `{"status":"ok","database":"up"}`. A `503` with `{"status":"degraded","database":"down"}` means the API is up but Postgres is not. Run `make up` and restart `make dev`; the database port changes whenever the container is recreated, and `.env.local` is only rewritten by `make up`.
+   You should see `{"status":"ok","database":"up"}`. A `"status":"degraded"`
+   response means Postgres is not up yet: run `make up`, then restart
+   `make dev`.
 
-4. Open http://localhost:5173/signup and create an account. Passwords are at
-   least 12 characters; a shorter one is refused.
+4. Open http://localhost:5173/signup and create an account. Passwords need
+   at least 12 characters.
 
-   Signup lands on onboarding: name the workspace, invite anyone you want or
-   skip, then finish. Creating the workspace seeds the starter handbook and the
-   pipeline stages for all four boards in one request.
+   Signup walks you through naming your workspace and inviting your team,
+   then lands you on People with a starter handbook already in place.
 
-   Expected: the last step lands on People, and the sidebar has People and
-   Companies. An address that is already registered answers `409` on the form;
-   sign in at http://localhost:5173/login instead.
-
-   The same account can be made through the API, which is what an agent or a
-   seeding script would do:
+   You can also create an account through the API, the way an agent or a
+   seeding script would:
 
    ```bash
-   curl -s -X POST http://localhost:5173/v1/auth/signup -H 'Content-Type: application/json' -d '{"email":"you@example.com","name":"Your Name","password":"a real long password"}'
+   curl -s -X POST http://localhost:5173/v1/auth/signup \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"you@example.com","name":"Your Name","password":"a real long password"}'
    ```
 
-5. Sending mail is a v0 non-goal, so the `log` email provider prints invitation
-   and password-reset links to the API's output instead of mailing them. Copy
-   the URL out of the log to follow either flow locally.
+5. Kelpie does not send email yet. Invitation and password-reset links print
+   to the API's log instead of being mailed. Copy the link from there to
+   follow either flow locally.
 
-## Layout
+## Configuration
 
-```
-packages/schemas/  @kelpie/schemas — the /v1 wire contract as Zod schemas. Depends on
-                   Zod and nothing else, so the browser and the cloud repo can both use it.
-packages/server/   @kelpie/server — the service as a library. Exports the Hono app,
-                   config loader, database client, errors, ids, and logger.
-packages/ui/       @kelpie/ui — the React application: API client, query layer,
-                   components, and pages.
-apps/kelpie/       The open-source assembly. Boots the server, builds the UI.
-```
+Every variable below is required unless marked optional. A missing or
+invalid value stops the service at boot and lists every problem, rather than
+starting in a broken state.
 
-`@kelpie/server` never starts a listener on import. `apps/kelpie` is the executable. The cloud repo assembles the same packages with private modules, per `modules.md`.
+| Variable | Values |
+| --- | --- |
+| `NODE_ENV` | `development`, `test`, or `production` |
+| `PORT` | The API's listen port. The service binds this exact port and fails if it is taken; only the `make dev` launcher picks a free one for you |
+| `DATABASE_URL` | A `postgres://` or `postgresql://` connection string |
+| `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
+| `EMAIL_PROVIDER` | `log`. Writes invites and password resets to the log instead of sending them. Real providers ship as modules |
+| `EMAIL_FROM` | The address transactional mail comes from |
+| `SECRET_ENCRYPTION_KEY` | 32 bytes of base64. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Seals secrets the service has to read back, such as webhook signing secrets |
+| `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |
+| `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional, default 30. How many days of webhook delivery history to keep |
 
-## The UI data layer
+`make setup` generates `SECRET_ENCRYPTION_KEY` for you. See
+[`docs/development.md`](docs/development.md) for the rest of the variables
+(`API_PORT`, `WEB_PORT`, and `TEST_DATABASE_URL`) and how `.env` and
+`.env.local` interact.
 
-The UI is one more API consumer. There is no private endpoint and no shared
-in-process state with the server; every screen goes through `/v1`.
+### Rotating the encryption key
 
-Three pieces, in `packages/ui/src/api/`:
+Changing `SECRET_ENCRYPTION_KEY` makes every secret sealed under the old one
+unreadable, so rotate rather than replace it:
 
-- **`client.ts`** speaks `api.md`: the list envelope, the error shape, the write
-  verbs. Every method takes a `Decoder<T>` and returns what the decoder produced,
-  so no response is asserted into a type it was not checked against.
-- **`@kelpie/schemas`** supplies those decoders. One module per resource holding
-  the record the UI works with, a Zod schema that parses the `snake_case`
-  response into it, and a function that builds a request body back out. The
-  `snake_case` ↔ `camelCase` mapping `api.md` describes happens there and nowhere
-  else.
-- **`resource.ts`** turns a path plus a decoder into the five hooks a CRM
-  resource needs, over TanStack Query. Optimistic updates and their rollback live
-  here once rather than in each page.
+1. Move the current key to `SECRET_ENCRYPTION_KEY_PREVIOUS` and put a new one
+   in `SECRET_ENCRYPTION_KEY`.
+2. Deploy. New secrets seal under the new key; existing ones still read with
+   the previous one.
+3. Run `npm run reseal`. It re-encrypts every value still sealed under the
+   old key, and is safe to run more than once.
+4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
 
-A page imports `usePeople`, `usePerson`, `useUpdatePerson` and so on, and never
-imports `@tanstack/react-query`. That keeps page code short, and it means the
-cache library can be replaced without touching a page.
-
-`@kelpie/server` consumes the same package, so a fixed value set like
-`COMPANY_STAGES` is one list rather than three copies: the check constraint, the
-route's Zod enum, and the browser's decoder all read it. Each resource's
-integration tests parse their `POST`, `GET`, list and `PATCH` responses through
-the shared schema, so a renamed or removed field fails there rather than in a
-browser. An added field still passes, because changes within `/v1` are additive
-only.
-
-**The dependency runs server → schemas and never the reverse.** `@kelpie/schemas`
-having any dependency but Zod would put Drizzle, postgres.js and Node built-ins
-back in the browser bundle.
-
-Two things to know before adding a resource:
-
-- **A join resource declares `alsoInvalidates`.** `GET /v1/people?company_id=` is
-  a list of people whose membership a Position decides, so creating one has to
-  mark the people and companies lists stale as well. Without it a company page
-  renders a new row against a name it never fetched.
-- **A list filtered by a set of ids passes `{ enabled }`.** It has nothing to ask
-  until the ids are known, and asking with the filter omitted answers with every
-  record in the workspace. `usePeopleDirectory` and `useCompanyHeadcounts` in
-  `src/pages/positionDirectory.ts` are the worked example.
-- **`undefined` and `null` are not the same.** `undefined` means "not sent",
-  `null` means "clear this field". `definedFields` in `@kelpie/schemas` drops the
-  former; the optimistic merge in `resource.ts` leaves the existing value alone
-  for it.
-
-## Database
-
-Tables live in the module that owns them, under `packages/server/src/modules/<id>/schema.ts`. `packages/server/src/schema/index.ts` re-exports all of them; that barrel is what Drizzle and Drizzle Kit read.
-
-Core shares one migrations directory, `packages/server/migrations`. A module outside core brings its own, and the runner gives each directory its own migrations table.
-
-The service applies pending migrations at boot. Pass `--no-migrate` to skip that, for deployments where a release step migrates once and many instances then start.
-
-After changing a table:
-
-```bash
-npm run db:generate
-```
-
-That writes a new SQL file into `packages/server/migrations`. Read it before committing. The next boot applies it.
-
-Two things that will catch you out:
-
-- **Never regenerate `0000_initial_schema.sql`.** Its first line creates the `citext` extension. Drizzle Kit does not manage extensions, so a regenerated file drops that line and every `citext` column fails to create. New migrations are additive files; regenerating the first one is never the right fix.
-- **A blocked delete raises SQLSTATE `23001`, not `23503`.** Postgres uses `23001` for an explicit `ON DELETE RESTRICT` and reserves `23503` for references violated without one. Use `isReferenceViolation` rather than comparing codes yourself.
-
-Integration tests need `TEST_DATABASE_URL`. The database is created automatically if it does not exist, and tests truncate it between cases. Without that variable the integration suites skip rather than fail, so `npm test` still works with no Postgres running.
-
-## Modules
-
-Features register through the module runtime. Core features use the same runtime modules do, so the extension points cannot rot.
-
-A module is one object:
-
-```ts
-import type { KelpieModule } from '@kelpie/server'
-import { z } from 'zod'
-
-export const smtpEmail: KelpieModule = {
-  id: 'smtp-email',
-  requires: ['workspace'],
-  async register(context) {
-    const config = context.config(z.object({ SMTP_HOST: z.string() }))
-
-    context.routes((router) => {
-      router.get('/email/status', (c) => c.json({ host: config.SMTP_HOST }))
-    })
-
-    context.schema(tables, '/abs/path/to/migrations')
-    context.mcp.tool({ name: 'email.status', description: '…', inputSchema, invoke })
-  },
-}
-```
-
-`apps/kelpie/kelpie.config.ts` is the only module list for this assembly. The cloud repo keeps its own.
-
-Routes mount under `/v1` and are public API like every other endpoint. Module config is validated against the environment at boot. Modules register in dependency order, and boot stops on a duplicate id, an unmet `requires`, a dependency cycle, invalid module config, or a `register` that throws. Every failure names the module.
-
-A module's UI half is a separate list, `apps/kelpie/kelpie.ui.config.ts`, because the server config is imported by the Node entry point and a UI module brings React with it. It contributes nav items, whole routes, record tabs, sidebar cards, dashboard cards and integration catalog entries, and can replace a core component outright:
-
-```ts
-export const gmailUi: UiModule = {
-  id: 'gmail-sync',
-
-  register(context) {
-    context.nav('primary', { id: 'gmail', label: 'Gmail', to: '/gmail', order: 250 })
-    context.route({ path: '/gmail', element: <GmailSettings /> })
-    context.recordTab('person', { id: 'threads', label: 'Email', render: (r) => <Threads id={r.recordId} /> })
-    context.dashboardCard({ id: 'unread', render: () => <Unread /> })
-    context.override(recordHeader, GmailRecordHeader)
-  },
-}
-```
-
-Open source ships no UI modules. Every slot renders nothing, which is how core pages are meant to look.
-
-MCP tools share the input schema with their REST route, and the runtime parses arguments before the tool body runs. A bad argument fails with the same `validation_failed` error the REST surface returns.
-
-`invoke` is handed the caller as its second argument, the way a route handler resolves one, because every service call is authorized against an actor and scoped to its workspace. The `/mcp` endpoint resolves it once per request from the bearer key. A tool that a resource can build the ordinary way should go through `registerCrudTools` in `packages/server/src/modules/crudTools.ts`, which turns a service and the pieces its routes already carry into the five verbs; the ones written out by hand are the resources whose shape does not fit, and each says why at the top of its `tools.ts`.
-
-### Turning modules on or off
-
-A module is `structural` or it is not. A structural module (`auth`, `workspace`, `api-keys`, `activities`, `people`, `companies`, `plans`, `decisions`, `dashboard`, `notes` and `pipelines` in `coreModules` today) registers every route and MCP tool unconditionally and can never be disabled. Every other module is toggleable: the registration pass declares a `module.<id>` entitlement capability for it and gates its routes and tools behind that capability, so a disabled module answers `entitlement_required` on both surfaces rather than just disappearing from the UI. A module says nothing to opt in; `structural` defaults to false, so a module added later is toggleable without its author doing anything.
-
-A workspace admin turns a toggleable module on or off from **Admin → Modules**, backed by `GET`/`PATCH /v1/workspaces/:id/modules`. No row for a module means enabled, which is the state every workspace starts in.
-
-A deploy can lock specific modules on or off for every workspace it serves, ahead of what any workspace's own settings say:
-
-```bash
-cp kelpie.modules.json.example kelpie.modules.json
-```
-
-then edit it and point `KELPIE_MODULE_CONFIG_PATH` at the copy. Naming a module this build does not have, or a structural one, fails boot the same way an unmet `requires` does. A module the file locks shows on the settings screen as disabled with its checkbox greyed out, not hidden, so an admin can see the choice exists and is not theirs to make.
-
-## Commands
-
-`make` lists every target. The ones you want day to day:
+## Everyday commands
 
 | Command | Does |
 | --- | --- |
 | `make setup` | Installs dependencies, creates `.env` if it is missing, and starts the database |
 | `make dev` | Starts the database if it is down, then the API and the UI |
-| `make test` | Starts the database, then runs every suite |
-| `make up` / `make down` | Starts Postgres and writes `.env.local` / stops it, keeping the data |
+| `make test` | Starts the database, then runs every test suite |
+| `make up` / `make down` | Starts Postgres and writes `.env.local`, or stops it while keeping the data |
 | `make reset` | Deletes the local database and starts an empty one. Asks first |
-| `make psql` | A `psql` shell on the development database |
-| `make status` | The database container, as `docker compose ps` |
+| `make psql` | Opens a `psql` shell on the development database |
+| `make status` | Shows the database container's status |
 
-Each `make` target that needs the database depends on `up`, so the port in
-`.env.local` is refreshed before anything reads it. The npm scripts below assume
-the database is already running.
+Run `make` on its own for the full list.
 
-### Environment file precedence
+## Self-hosted or cloud, and extending it
 
-Two files, and every entry point reads them in the same order: `.env` first for
-the checked-in defaults, then `.env.local` for the database port `make up`
-resolved. A variable already in the environment beats both files, which is what
-CI relies on.
+What you are looking at is the open-source core: AGPL-3.0, free to
+self-host, no feature gates. A paid cloud version assembles the same
+published packages with extra modules on top (billing, SSO, more
+integrations), not a fork with pieces removed.
 
-The mechanism differs by loader, and one of them has a trap in it:
+Either way, Kelpie extends through a module system: routes, MCP tools, and
+UI slots that core itself registers through, so an extension is never a
+second-class citizen. To build a module, see
+[`docs/development.md`](docs/development.md) and
+[`modules.md`](../modules.md) alongside this repository.
 
-- `process.loadEnvFile` keeps the **first** value it sees, so `.env.local` is
-  loaded first (`vitest.config.ts`, `apps/kelpie/src/dev.ts`).
-- `--env-file` takes the **last** file given, so `.env.local` is passed last.
-- Under `--watch`, mixing `--env-file` with `--env-file-if-exists` inverts that:
-  both files load, but the plain `--env-file` wins whatever the order. Keep every
-  flag in one command the same variant. The `dev` script uses
-  `--env-file-if-exists` for both, which is why `.env` is optional there; a
-  missing one surfaces as a config error listing the variables, not a Node crash.
+## Learn more
 
-`apps/kelpie/src/dev.ts` loads both files itself before spawning, because a
-variable it holds is inherited by the API child, and an inherited variable beats
-`--env-file`. Loading `.env` first there would pin the child to a stale database
-port no matter what its own flags say.
+- [`brief.md`](../brief.md) — why Kelpie exists and what it models
+- [`roadmap.md`](../roadmap.md) — what is planned and in what order
+- [`docs/api-reference.md`](docs/api-reference.md) — every endpoint, and what
+  is not built yet
+- [`docs/development.md`](docs/development.md) — working on this repository:
+  package layout, the module system, packaging, and releasing
 
-| Command | Does |
-| --- | --- |
-| `npm run dev` | Picks a free port for each process, then starts the API with file watching plus the Vite dev server |
-| `npm run dev:processes` | The two processes on their own, on whatever ports the environment already names. `npm run dev` runs this once it has chosen them |
-| `npm run build` | Compiles the three packages to JavaScript, then the web bundle |
-| `npm run verify:packaging` | Packs the three packages and checks they work outside this workspace. See [Packaging](#packaging) |
-| `npm run release <version>` | Versions, verifies, commits and tags a release. See [Releasing](#releasing) |
-| `npm run lint` | oxlint across the repository. Silent means clean |
-| `npm run typecheck` | `tsc` over every workspace |
-| `npm test` | Vitest unit tests |
-| `npm run db:up` / `npm run db:down` | Local Postgres container. Both call the matching `make` target, so `db:up` also refreshes `.env.local` |
+## License
 
-## Packaging
-
-`@kelpie/schemas`, `@kelpie/server`, and `@kelpie/ui` are installed by assemblies
-other than `apps/kelpie`. Two are planned: the private `kelpie-cloud` repo, which
-adds proprietary modules to its own module lists, and whatever `npm create
-kelpie` writes for a self-hoster. Both install the published packages. Neither is
-a checkout of this repo, and core is never vendored or forked into them.
-
-That means the packages have to ship JavaScript. Node refuses to strip types from
-a file under `node_modules`, so a package whose entry point is TypeScript works in
-this workspace and nowhere else.
-
-They also have to keep running as TypeScript in here, because a build step
-between editing a file and seeing the change is a tax on every day of work.
-
-Both, through a custom export condition:
-
-```json
-"exports": {
-  ".": {
-    "kelpie-source": "./src/index.ts",
-    "types": "./dist/index.d.ts",
-    "default": "./dist/index.js"
-  }
-}
-```
-
-Everything in this repository asks for `kelpie-source` and gets the source:
-`node --conditions=kelpie-source` in the npm scripts, `resolve.conditions` in the
-Vite and Vitest configs, `customConditions` in `tsconfig.base.json`. Nothing
-outside asks for it, so an installed copy gets `dist`. `dist` is git-ignored and
-only `npm run build` writes it; a stale one cannot affect a dev run or a test.
-
-The failure this creates is a quiet one. Everything keeps working in the
-workspace while the published artifact is broken, and only an out-of-tree install
-can tell. `npm run verify:packaging` does that: builds, packs, installs the
-tarballs into a scratch directory under the system temp directory, imports
-`@kelpie/server` from there, checks `coreMigrationsDirectory` still points at
-real migrations, and builds a Vite app against `@kelpie/ui` to confirm Tailwind
-still finds the component classes. Run it after changing a package's `exports`,
-`files`, or build. This repository has no CI yet; when it does, this belongs in
-it, because the check is the only thing standing between a routine edit and a
-broken release.
-
-### Working on core and a consuming repo together
-
-A consuming repo installs published versions, so an unreleased core change is
-invisible to it. `npm link` fixes that, and the export condition means it fixes
-it properly:
-
-```bash
-cd kelpie-crm/packages/server && npm link
-cd ../../../kelpie-cloud && npm link @kelpie/server
-```
-
-`npm link` symlinks rather than copies, so the linked package resolves through
-`kelpie-source` exactly as it does in here. Run the consuming service with
-`--conditions=kelpie-source` and editing a file in `packages/server` restarts it,
-with no build and no publish in between. That is the same loop `apps/kelpie` has,
-which is why a monorepo spanning the two repos would not buy anything.
-
-Unlink with `npm unlink @kelpie/server` and reinstall before trusting a test run
-that is meant to reflect the published packages.
-
-## Releasing
-
-`@kelpie/schemas`, `@kelpie/server`, and `@kelpie/ui` share one version and go
-out together. An assembly pins all three, and a mismatched pair has no meaning.
-`@kelpie/app` carries the same number but is private and never published.
-
-Write the changelog entry first, then:
-
-```bash
-npm run release 0.2.0
-```
-
-That sets the version in every manifest, rewrites the internal `@kelpie/*`
-ranges to match, refreshes the lockfile, runs lint, typecheck, the full suite and
-`verify:packaging`, then commits and tags `v0.2.0`. It refuses a dirty tree, a
-branch other than `main`, a tag that already exists, and a version with no
-`## [0.2.0]` section in `CHANGELOG.md`. If any check fails it rolls the version
-changes back and tags nothing.
-
-The ranges have to move with the versions. They are carets, so `^0.1.0` does not
-match `0.2.0`, and bumping versions alone would send npm to the registry looking
-for a version that is not published yet.
-
-Publishing is separate, because it cannot be undone. npm allows unpublishing a
-new package for 72 hours and not at all after that.
-
-```bash
-npm publish --workspace packages/schemas --workspace packages/server --workspace packages/ui
-```
-
-`npm run release 0.2.0 --publish` does both in one step, once you trust it.
-
-Credentials are local. `npm login` once, or set `NPM_TOKEN` with a granular
-access token scoped to the `@kelpie` scope. Nothing in this repository stores a
-token, and no CI publishes. With 2FA enabled on publish, npm prompts for a
-one-time code.
-
-## Configuration
-
-Every variable the service reads is required unless its row below says optional, and an optional variable's default is stated in the table rather than silent. A missing required value or a malformed value of any kind stops boot and prints the full list of problems. `WEB_PORT` the service never reads: it belongs to the dev launcher.
-
-| Variable | Values |
-| --- | --- |
-| `NODE_ENV` | `development`, `test`, or `production` |
-| `PORT` | API listen port. The API binds it or fails; it never picks another. `npm run dev` treats the value in `.env` as a preference and scans up from it for a free one |
-| `API_PORT` | The same number again, for the Vite dev server's `/v1` proxy. It needs its own name because a launcher sets `PORT` to the port it wants Vite on, and Vite would then proxy to itself. `npm run dev` sets it |
-| `WEB_PORT` | Optional, development only. The Vite dev server's own port, preferred rather than fixed: `npm run dev` scans up from it, or from 5173 when it is unset |
-| `DATABASE_URL` | `postgres://` or `postgresql://` connection string. `make up` overrides the port in `.env.local`; see [Environment file precedence](#environment-file-precedence) |
-| `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
-| `EMAIL_PROVIDER` | `log`. Writes invites and password resets to the log instead of sending them. Real providers ship as modules |
-| `EMAIL_FROM` | The address transactional mail comes from |
-| `SECRET_ENCRYPTION_KEY` | 32 bytes of base64: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Seals secrets the service has to read back, which today means webhook signing secrets |
-| `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional, and only while rotating the key above. See below |
-| `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional; unset means 30. How many days of webhook delivery log to keep. A whole number, at least 1; a webhook's expired rows are deleted when its next delivery is recorded |
-
-`TEST_DATABASE_URL` is separate: it is read only by the test harness, and only the integration suites use it. Without it they skip.
-
-### Rotating `SECRET_ENCRYPTION_KEY`
-
-A stored secret is sealed under that key, so changing it makes every existing one unreadable. The delivery engine says so loudly and stops signing for that webhook. Rotate in four steps instead:
-
-1. Move the current key to `SECRET_ENCRYPTION_KEY_PREVIOUS` and put the new one in `SECRET_ENCRYPTION_KEY`.
-2. Deploy. Nothing breaks: new secrets seal under the new key, and existing ones are still read with the previous one.
-3. Run the re-seal pass. It rewrites every value still sealed under the old key, reports what it did, and is safe to re-run.
-4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
-
-```bash
-npm run reseal
-```
-
-It exits non-zero and names the rows if anything opens under neither key, which means they were sealed under a third key or the rows have been altered. Nothing can recover those: restore the right key and run it again, or have the records re-created.
-
-`packages/server/src/lib/config.ts` is the only place that reads the environment. Everything else takes configuration as an argument.
-
-## What works
-
-The Phase 0 backend, plus the CRM resources below. Every endpoint here has integration tests against a real Postgres.
-
-| Area | Surface |
-| --- | --- |
-| Accounts | `POST /v1/auth/signup`, `login`, `logout`, `GET /v1/auth/me`, `GET` and `PATCH /v1/account` |
-| Preferences | `GET` and `PATCH /v1/account/preferences` (timezone, theme, notification choices) |
-| Sessions | `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id` |
-| Passwords | `PATCH /v1/auth/password`, `POST /v1/auth/password-reset` and `/confirm` |
-| Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `DELETE /v1/workspaces/:id?slug=` |
-| Membership | `GET`, `PATCH` and `DELETE /v1/workspaces/:id/members[/:member_id]` |
-| Invites | `POST` and `GET /v1/workspaces/:id/invites`, `POST .../invites/:invite_id/resend`, `DELETE .../invites/:invite_id`, `POST /v1/invites/accept` |
-| API keys | `POST /v1/api-keys`, `GET /v1/api-keys?kind=`, `DELETE /v1/api-keys/:id` |
-| People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
-| Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |
-| Positions | `GET`, `POST /v1/positions`, `GET`, `PATCH`, `DELETE /v1/positions/:id`. Filters `?person_id=` and `?company_id=` |
-| Deals | `GET`, `POST /v1/deals`, `GET`, `PATCH`, `DELETE /v1/deals/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
-| Opportunities | `GET`, `POST /v1/opportunities`, `GET`, `PATCH`, `DELETE /v1/opportunities/:id`. Filters `?q=`, `?kind=`, `?company_id=` and `?stage_id=` |
-| Partnerships | `GET`, `POST /v1/partnerships`, `GET`, `PATCH`, `DELETE /v1/partnerships/:id`. Filters `?q=`, `?kind=`, `?company_id=`, `?stage_id=` and `?person_id=` |
-| Raises | `GET`, `POST /v1/raises`, `GET`, `PATCH`, `DELETE /v1/raises/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
-| Pipeline stages | `GET`, `POST /v1/pipeline_stages`, `GET`, `PATCH`, `DELETE /v1/pipeline_stages/:id?move_to=`. Filter `?kind=` |
-| Roles | `GET`, `POST /v1/roles`, `GET`, `PATCH`, `DELETE /v1/roles/:id`. Filters `?q=` and `?status=` |
-| Candidates | `GET`, `POST /v1/candidates`, `GET`, `PATCH`, `DELETE /v1/candidates/:id`. Filters `?role_id=`, `?person_id=` and `?status=` |
-| Decisions | `GET`, `POST /v1/decisions`, `GET`, `PATCH`, `DELETE /v1/decisions/:id`. Filters `?q=`, `?target_type=` and `?target_id=` |
-| Plan items | `GET`, `POST /v1/plan_items`, `GET`, `PATCH`, `DELETE /v1/plan_items/:id`. Filters `?target_type=`, `?target_id=`, `?status=`, `?from=` and `?to=` |
-| Notes | `GET`, `POST /v1/notes`, `GET`, `PATCH`, `DELETE /v1/notes/:id`. `?target_type=` and `?target_id=` are required, and `?target_id=` repeats to name a set; filter `?pinned=true` or `false` |
-| Activities | `GET /v1/activities`. Read-only: the timeline is written by the writes it describes. `?target_type=` and `?target_id=` are required |
-| Dashboard | `GET /v1/dashboard`. Read-only, no id and no envelope. `?limit=` caps every embedded list |
-| Handbook | `GET`, `POST /v1/handbook_pages`, `GET`, `PATCH`, `DELETE /v1/handbook_pages/:id`. Filters `?q=` and `?slug=` |
-| Forms | `GET`, `POST /v1/forms`, `GET`, `PATCH`, `DELETE /v1/forms/:id`. Filters `?q=` and `?status=`. Plus `GET /v1/forms/:id/submissions` and `GET /v1/forms/:id/embed` |
-| Public forms | `POST /v1/public/forms/:public_key/submit` and `GET /v1/public/forms/:public_key/embed`. No credentials, any origin |
-| Export | `GET /v1/export/{people,companies,positions,deals}.csv` and `GET /v1/export/templates/{object}.csv` |
-| Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit`, `DELETE /v1/import/jobs/:id` |
-| Agent tasks | `GET /v1/agent-tasks?target_type=`, `POST /v1/agent-tasks/:task_id/resolve` and `/run`. Runs at `GET /v1/agent-runs[/:id]`, filters `?agent_id=` and `?status=`. Registered agents: `GET`, `POST /v1/agents`, `GET`, `PATCH`, `DELETE /v1/agents/:id` — writes admin only, reads any member |
-| Webhooks | `GET`, `POST /v1/webhooks`, `GET`, `PATCH`, `DELETE /v1/webhooks/:id`. Filter `?status=`. Plus `POST /v1/webhooks/:id/rotate_secret` and `GET /v1/webhooks/:id/deliveries`, filter `?status=`. Admin only, reads included |
-| MCP | `POST /mcp`, Streamable HTTP, bearer key only. Speaks `2026-07-28` and the two `initialize`-based revisions before it. `GET /v1/mcp/tools` lists the same tools over ordinary credentials |
-
-Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
-
-**Id filters repeat to name a set:** `?person_id=per_1&person_id=per_2` matches either, up to 200 ids. It is what replaces the `include` expansion this version does not have: a list page showing a related column resolves it in one extra request rather than one per row. A blank value or more than 200 is `422`.
-
-A job title lives on Position and nowhere else, so a person can hold one at more than one company. `?q=` on people matches the titles they hold and the companies they hold them at, which is what the mockup's filter box does.
-
-Hiring state lives on Candidate, the Person↔Role link, for the same reason: one person can be interviewing for one role and in the nurture pile for another. `interview_stage` is null unless the status is `in_process`, and the API keeps that true — leaving the process clears the stage, rejoining it restores the first one, and a stage that contradicts the status is a `422`.
-
-Forms are the one public surface. Managing them takes credentials like everything else; submitting one takes nothing but the form's `public_key`, because the caller is a stranger's browser on a stranger's website. Everything under `/v1/public` is mounted outside the credentialled routes and answers any origin without allowing credentials, so a browser never attaches a signed-in reader's session cookie to one. A submit upserts the Person by email, the Company by domain and then by name, the Position that carries the title, and optionally a Deal. The merge fills blanks and never overwrites: an inbound "Alex" does not replace the "Alex Rivera" the team recorded. A paused form answers `409`, and answers without a usable address answer `422`. `GET /v1/forms/:id/embed` hands back the iframe and script snippets to paste into a site; the page they point at is server-rendered from the form itself, so embedding it does not pull the CRM bundle into somebody else's marketing site.
-
-**A company is never inferred from an email domain.** Only a field mapped to `company.domain` sets one. An email domain is not a company identifier: one company sends from several, a consumer address belongs to none, and two people at unrelated businesses can share one, so inferring it merges records that were never the same company. A Deal belongs to a Company, so a form with `create_deal` on and no `company.name` or `company.domain` field is refused at `422` rather than left to quietly never create the deals it promises.
-
-A form carries its fields, and a write replaces the whole list — field ids never appear in a request, and positions come from the array's order. A list identical to the stored one is not a write, so ids survive a save that changed nothing, which matters because a stored answer is keyed by field id.
-
-The handbook is a tree the caller rebuilds from `parent_id` and `sort_order`; a page's `sort_order` positions it among its siblings and means nothing across the whole set, so the list sorts by title. `PATCH` with a `parent_id` or a `sort_order` is a move, and the API renumbers both sibling sets so positions stay contiguous from 0. In the sidebar one gesture does both: dragging a page sideways indents or lifts it where it stands, and a drag that ends where it started writes nothing. It nests five levels, and a move that would push a page *or its own subpages* past that is a `422`, as is nesting a page under itself or one of its subpages. A page's `slug` is the stable handle `agent-tasks.md` names pages by, so renaming a page leaves it alone; moving it on purpose is a separate field, and a collision is a `409`. Deleting a page deletes every page under it.
-
-**An import is a dry run you then commit, and the two do not have to agree.** `POST /v1/import/jobs` parses the file, stores every row as it arrived, and plans each one against the workspace: create, update, skip, or error, with the counts and the first failing rows on the job. `POST .../commit` then re-resolves every row rather than replaying the plan, because the workspace can change in between and because rows earlier in the same file create the records later rows must match against. That is also what makes a commit idempotent — run it twice, or re-upload the same file, and the second pass finds what the first one wrote. A row that fails takes only itself down; the rest of the file still commits.
-
-`column_map` is optional. Leave it out and the server derives one from the source pack and the file's own headers, and answers with both it and `source_headers`, so nothing has to parse CSV to build a mapping screen. A corrected mapping is a fresh job over the same file. An unmapped or blank cell is never written: a partial export with an empty Summary column would otherwise erase every summary it names.
-
-A deal's stage resolves against this workspace's own pipeline — its slug, then its label, then the HubSpot and Salesforce alias tables — and a name that matches none of them fails the row. An export writes the slug and the major currency unit, which is what lets a Kelpie export read straight back in with no mapping at all. A missing company fails a deal row rather than creating a stub, and an `owner_email` naming nobody in the workspace fails it too, rather than quietly reassigning the deal to whoever ran the import.
-
-**Over 500 rows a job runs in the background and the request answers `202`.** There is no durable queue: the work is a detached promise in the same process, the same way the event bus publishes. A crash mid-pass therefore strands a job in `validating` or `committing` with nothing to move it on, and the remedy is to upload the file again — which is safe, because a commit is idempotent. A real queue is the module system's job, not core's.
-
-**Webhooks are the event bus reaching outside the process.** Registering one mints a signing secret, answers with it once, and never returns it again. Every delivery is a `POST` carrying `Kelpie-Signature: sha256=…`, an HMAC-SHA256 of the exact request body under that secret, plus `Kelpie-Event` to route on and `Kelpie-Delivery` to dedupe on. Delivery is at-least-once with no durable queue, the same caveat the bus itself carries, and a retry reuses its delivery id so a receiver can recognise one.
-
-A non-2xx fails, and so does a redirect, which is never followed: an endpoint that moved should be seen and corrected rather than have workspace data quietly posted wherever the old address now points. Failures retry three times over about twenty seconds, and then the registration reads `failing` until an attempt lands. `paused` is the customer's own switch. `failing` is not settable — it is what the engine found, and a `PATCH` claiming it answers `422`.
-
-Every verb needs the admin role, **including the reads**. A webhook URL routinely carries its own credential in the path, so listing registrations discloses a secret rather than describing a setting. That is why the Webhooks page tells a member the list is not theirs instead of showing them an empty one.
-
-**Agent tasks are prompt recipes, and resolve is the single source of truth.** The catalog is 69 task definitions shipped in code (`agent-tasks.md`), listed per target type. `POST /v1/agent-tasks/:task_id/resolve` loads the target, its pinned notes, open Plan items, open Decisions, the handbook pages the task names (by slug, resolved to this workspace's own copies), and the related ids the data model records, and renders one markdown prompt. Copy puts that prompt on the clipboard; Run POSTs the identical payload to a registered agent, so the two cannot drift. Workspace-scoped tasks point the agent at `GET /v1/dashboard` instead of a single record, and the two sweep tasks — empty fields, and open pipeline with nothing planned — run their queries at resolve time with exact totals and honestly capped id lists.
-
-A run records the dispatch, not the agent's work: `queued` when created, `running` while the POST is in flight, then `succeeded` on a 2xx or `failed` with the reason on anything else. One attempt, deliberately, where webhooks retry three times — re-POSTing a task risks an agent doing the whole job twice, and the human is on the page to re-run. There is no callback for an agent to report completion; what it did shows up on the records themselves, through the same API. The wire is `snake_case` throughout: `agent-tasks.md`'s camelCase examples predate `api.md`, and `api.md` wins.
-
-Registered agents split roles by verb, unlike webhooks: writes are admin work, but any member reads the list, because the Run dialog on every record page is built from it. The auth header is the module's one secret — sealed with `SECRET_ENCRYPTION_KEY` like a webhook's signing secret, sent as `Authorization` on each dispatch, and never returned; responses carry `has_auth_header` and nothing more. An endpoint URL with credentials in it is refused at `422`, pointing at `auth_header` instead. Deleting an agent takes its run log with it.
-
-**The dashboard is one request, and it is the only endpoint that names records it does not return.** `GET /v1/dashboard` answers open counts for all four pipelines, overdue and due-soon plan items, partnership touchpoints at hand, contacts past the 14-day threshold, and the latest activity, notes and decisions. Two of those are questions no resource list asks — no list filters people by how long since they were contacted — and the other five would be five requests plus a client-side join.
-
-Every attention signal is `{ total, items }`. The total counts every matching row; `items` holds what `?limit=` allowed. A page rendering four rows still says how many there are, which a capped list cannot.
-
-Rows that point at another record carry `target_name` resolved. It is the one place in the API that does, because it is the one place where every row points somewhere different: the alternative is a request per row. A Candidate is named by the Person behind it, and a target that no longer resolves comes back `null` rather than as an id.
-
-**Today is the workspace's day, not the server's.** Overdue is a comparison between calendar dates, so the service reads `workspaces.timezone` and asks Postgres for the local day of each `last_contacted_at`. A Melbourne workspace opening the page at 9am does not see yesterday's date because the server is on UTC. The thresholds are fixed rather than settable — a "stale contact" the caller defined would mean something different in every request — and the response echoes the two it used.
-
-**MCP is the same API through a second door.** `POST /mcp` speaks Streamable HTTP, and every tool on it is built from the Zod body, the wire mapper and the service its REST endpoint uses, so the two cannot answer differently. A tool that fails answers with the `api.md` error body — the same `404`, the same `422` and its field-level `details` — carried as a tool result rather than a protocol error, because a call that ran and refused is an answer the model should see. 99 tools today: the five verbs for each CRM resource, the handbook, forms and their submissions, workspace settings, team and invitations, webhooks, `dashboard_get`, and the four import/export tools `import-export.md` names.
-
-The endpoint takes **bearer keys only**, and deliberately not the session cookie the REST surface accepts. Three things keep a cross-origin browser out: a present `Origin` that is not this deployment's own answers `403`, no CORS headers are sent, and there is no ambient credential to spend even if one got through. There is no session id and no server-initiated stream, so `GET` and `DELETE` answer `405` and any instance can answer any request.
-
-**It speaks `2026-07-28`, `2025-06-18` and `2025-03-26`, and serves two eras on the one endpoint.** `2026-07-28` removed the `initialize` handshake: a modern client puts its protocol version, identity and capabilities in every request's `_meta`, mirrors the method and tool name into `Mcp-Method` and `Mcp-Name` headers, and gets back `resultType: "complete"`, the server's identity in the result's `_meta`, and `ttlMs`/`cacheScope` on anything cacheable. Everything before that revision opens with `initialize`, and the spec calls those *legacy*.
-
-The endpoint decides which it is being asked for from the request itself: a `_meta` protocol version or a `server/discover` means modern, anything else means legacy. A legacy client keeps `initialize`, `ping` and its JSON-RPC batches; a modern one gets `server/discover`, which the revision makes mandatory, and none of those three, which it removed. A version Kelpie does not speak is refused with `-32022` carrying the list it does, so a client can pick another and retry rather than being told only that it failed.
-
-For a modern request the mirrored headers **must** agree with the body — `MCP-Protocol-Version` with the `_meta` version, `Mcp-Method` with the method, `Mcp-Name` with the tool — and a disagreement is `400` with `-32020`. The point is that an intermediary routes on the header while the server executes the body, so the two differing is the bug worth refusing. `Mcp-Name` is decoded from the `=?base64?…?=` sentinel before the comparison. A method the revision does not have answers `404` rather than `200`, which is how a client tells a modern server lacking a method from a legacy server that does not host the endpoint at all.
-
-Three REST operations have no tool. Creating a workspace and accepting an invitation both need a browser session, and a key issued for one workspace could not act on the new one anyway. Deleting a workspace destroys everything the calling key is scoped to, and its slug confirmation is no safeguard against an agent that can read the slug. API keys have no tools at all: a key that can mint keys is an escalation nothing in the brief asks for.
-
-`export_csv` inlines the file and refuses over 256 KB, naming `GET /v1/export/{object}.csv` instead. A truncated CSV looks exactly like a whole one, and an agent would draw conclusions from the rows that were not there.
-
-Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with after-commit publication, the entitlements registry, 37 tables with migrations, and an integration harness that creates and truncates its own database.
-
-Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. A webhook signing secret is the one credential that is encrypted rather than hashed, because signing a delivery needs it back; `lib/secrets.ts` seals it with AES-256-GCM under `SECRET_ENCRYPTION_KEY`. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
-
-In the browser: People and Companies, list and detail, against those endpoints. Filtering, inline editing, creating, deleting, and linking a person to a company through a Position all work end to end. Detail pages render the `person` and `company` record-tab slots, and the sidebar renders module nav items, so a UI module has somewhere to land from the start.
-
-Forms have a list and a four-tab detail page: submissions with links to what each one created, a drag-ordered field builder, settings, and the embed snippets. The builder is the one screen in the app that saves explicitly rather than per keystroke, because a write replaces the whole field list and committing on every character would reissue every field id. It refuses to send a list the API would reject, and shows why beside the field responsible.
-
-Workspace administration is under Admin in the sidebar. **Workspace** carries the settings, including the two agent identity strings: `tagline` is the short line an agent loads first and `one_liner` is what the company does. Clearing either sends `null`, so an emptied field is no tagline rather than an empty one. The slug is editable and a collision is a `409`.
-
-**Team** invites by email, changes roles, and removes members. Every rule is the API's, not the page's: a member who tries anyway gets `403`. The owner cannot be demoted or removed, and ownership moves only by being given away, which makes the outgoing owner an admin in the same transaction. Removing somebody who still owns Deals, Opportunities, Partnerships, Raises, Plan items, Decisions or Notes answers `409` naming each type and how many, per `schema.md`'s restrict rule; reassign them first. An invitation's status is derived from `expires_at` rather than stored, so a stale one reads as expired with nothing sweeping the table. Resending issues a new token and retires the old link. Revoking deletes the row, which is what actually kills the link already in somebody's inbox.
-
-Deleting a workspace is the owner's alone and takes the slug as confirmation, in the request rather than only in the browser, so an accidental `DELETE` at the right id does nothing. It cascades every table that carries a `workspace_id`. Accounts are global and survive it.
-
-The emailed invitation lands on `/join?token=…`, which accepts as the signed-in account. Signing in from there returns to the invitation instead of the CRM.
-
-## Not here yet
-
-- **Most of the UI.** The Dashboard, People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, the Workspace, Team, Webhooks and MCP admin pages, and the account's own Profile, Security and Preferences pages are ported. Everything else in `mockups/` is not: search, the remaining admin pages, and the account's integrations and personal API key tabs all wait for their endpoints.
-- **Role enforcement outside workspace administration.** Administration is gated at `admin`, and API keys already were. Every CRM resource is open to any member, which is what the specs describe; no document defines a read-only role. Narrowing that is a product decision, not a missing check.
-- **MCP tools for agent tasks.** `agent-tasks.md` defers `run_agent_task` ("not required for v0"), so the resolve, run, runs and agents endpoints have no tools yet and the tool count stays at 99. An agent that wants a context pack can still be handed one: Copy the prompt, or POST resolve over REST with its key.
-- **An agent reporting a run's outcome.** A run's lifecycle is the dispatch — `queued`, `running`, then `succeeded` or `failed` with the reason. No spec defines a callback for the agent to say it finished the work, so nothing pretends to know; the work itself lands on the records through the ordinary API.
-- **The rest of the auth pages.** Sign-in, first-workspace and join exist so the CRM pages can be reached and an invitation can be accepted. Signup, password reset and the onboarding wizard are a separate feature and replace the first two. Changing a password while signed in is on the account's Security page and does exist.
-- **Notification email.** The Preferences page stores a weekly digest, mention and product-update choice per account, and nothing sends any of them: email sending is a v0 non-goal (`brief.md`), and the port `EMAIL_PROVIDER=log` serves password reset only. The page says so on screen rather than leaving a reader to infer a capability from a toggle.
-- **A user timezone that anything reads.** It is stored and returned; every formatter in `packages/ui/src/lib/dates.ts` is still fixed `en-AU`.
-- **A friendly device name on the Security page.** A session records the raw `User-Agent` and shows it, so a browser reads as a long string rather than "Chrome on macOS". `location` is never populated at all and renders "Unknown"; nothing derives one from a request.
-- **Leaving a workspace, and the last owner.** An admin can remove themselves; the owner cannot, and has to hand ownership over first. An owner who is the only member has no way out except deleting the workspace.
-- **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
-- **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
-- **Webhook polish**, which `brief.md` defers. Four events are deliverable and the rest of the catalogue is not offered, rather than accepted and never sent. Retries live in the process, so a crash mid-backoff loses that delivery. The delivery log keeps `WEBHOOK_DELIVERY_RETENTION_DAYS` of history (30 unless set), pruned in the transaction that records the webhook's next delivery because there is no scheduler in core — so a hook that stops delivering keeps its last window of rows until the hook or workspace is deleted. The log is on the Webhooks page, but `payload` is a `jsonb` column and Postgres reorders its keys, so it shows the content of a body and not the exact text `Kelpie-Signature` was computed over.
-- **A module making its own event deliverable.** The engine subscribes to a fixed four, each with a payload builder. A module cannot add a fifth: the bus is typed on `DomainEvents`, so an event a module defines has no payload type to publish under, and the engine has no builder to render it with. `ModuleContext` used to carry a `webhookEvents(names)` method for this and nothing read the names it collected; it was removed, because the contribution the mechanism needs is a builder rather than a name. See `modules.md`.
-- **Outbound egress filtering.** A delivery URL may name any host, including a private one, because a self-hosted install legitimately posts to `http://automation.internal`. A hosted deployment needs that filter at its egress rather than in this check.
-- **The integrations framework and an SMTP module** (Phase 4). `EMAIL_PROVIDER=log` is the only provider core ships.
-- **A CI workflow.** The scripts are ready; nothing runs them on push.
-- **A copyright holder.** `LICENSE` is the verbatim AGPL-3.0 text, but no file states who holds the copyright. `modules.md` depends on that: proprietary cloud modules are only possible while we own the core copyright, and external contributions need a CLA before the first outside PR.
+AGPL-3.0. See [`LICENSE`](LICENSE).
