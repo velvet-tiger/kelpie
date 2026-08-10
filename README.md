@@ -39,23 +39,61 @@ and an MCP server, and you bring the agent.
 
 ## Requirements
 
-- Node 24 or newer.
-- Docker, for the local Postgres.
-- `make`.
+To run Kelpie: Node 24 or newer, and a Postgres. Docker will do for the
+Postgres, and the installer can write you a `docker-compose.yml`.
+
+To work on Kelpie, add Docker and `make`.
 
 ## Install it
 
-To run Kelpie rather than work on it, you do not need this repository:
+You do not need this repository to run Kelpie. In an empty directory:
 
 ```bash
 npm create kelpie@latest
 ```
 
-That writes a small project depending on `@kelpie/server` and `@kelpie/ui`,
-with an encryption key generated for it and a `docker-compose.yml` for
-Postgres if you want one. Those files are yours to edit and commit; Kelpie
-itself stays in `node_modules` and updates with `npm update`. The generated
-README covers running it.
+It asks four things, each with a default you can accept by pressing enter: the
+directory to write into, whether you want a `docker-compose.yml` for Postgres,
+your `DATABASE_URL`, and the address mail should come from.
+
+What it writes is a small project of your own — two module lists, the entry
+points, a Vite config, and a `.env` with an encryption key generated for you.
+Kelpie itself arrives as `@kelpie/server` and `@kelpie/ui` in `node_modules`.
+Those files are yours to edit and commit.
+
+Then:
+
+```bash
+cd kelpie
+npm install
+docker compose up --detach --wait
+npm run dev
+```
+
+Skip the `docker compose` line if you pointed `DATABASE_URL` at a database you
+already have. Migrations apply at boot, so there is no separate setup step.
+
+Open <http://localhost:5173/signup> and create an account. Passwords need at
+least 12 characters. Signup names your workspace, invites your team, and leaves
+you on People with a starter handbook in place.
+
+To script it, every prompt is also a flag:
+
+```bash
+npm create kelpie@latest -- crm --yes --no-docker --database-url postgres://user:pass@db:5432/kelpie
+```
+
+`--yes` takes the defaults and never prompts, which is also required where there
+is no terminal to prompt on. `npm create kelpie@latest -- --help` lists the rest.
+
+### Upgrading
+
+```bash
+npm update @kelpie/server @kelpie/ui
+```
+
+Migrations apply at boot. Read the [changelog](CHANGELOG.md) first: while the
+major version is `0`, a minor bump may break the API.
 
 ## Run it locally
 

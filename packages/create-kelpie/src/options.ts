@@ -28,7 +28,11 @@ const HIGHEST_PORT = 65535
 
 export const USAGE = `Scaffold a self-hosted Kelpie assembly.
 
-  npm create kelpie [directory] [options]
+  npm create kelpie@latest
+  npm create kelpie@latest -- [directory] [options]
+
+The -- matters once you pass options: without it npm reads flags like --yes as
+its own rather than passing them on.
 
 Options:
   --name <name>            Package name. Defaults to the directory name
