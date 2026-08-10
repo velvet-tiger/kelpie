@@ -11,12 +11,6 @@ rather not run it yourself. Either way, the UI and any agent you connect use
 the same public API. Kelpie ships no bundled AI: it exposes structured data
 and an MCP server, and you bring the agent.
 
-This is an early release. People and Companies work end to end in the
-browser today; the rest of the model is reachable through the API and MCP
-while their pages are still being built. See
-[`docs/api-reference.md`](docs/api-reference.md) for exactly what is built
-and what has gaps.
-
 ## What you get
 
 - **People, Companies, and Positions** — who you know, where they work, and
@@ -159,18 +153,14 @@ Run `make` on its own for the full list.
 What you are looking at is the open-source core: AGPL-3.0, free to
 self-host, no feature gates. A paid cloud version assembles the same
 published packages with extra modules on top (billing, SSO, more
-integrations), not a fork with pieces removed.
+integrations).
 
-Either way, Kelpie extends through a module system: routes, MCP tools, and
-UI slots that core itself registers through, so an extension is never a
-second-class citizen. To build a module, see
-[`docs/development.md`](docs/development.md) and
-[`modules.md`](../modules.md) alongside this repository.
+Kelpie extends through a module system: routes, MCP tools, and
+UI slots that core itself registers through. To build a module, see
+[`docs/development.md`](docs/development.md).
 
 ## Learn more
 
-- [`brief.md`](../brief.md) — why Kelpie exists and what it models
-- [`roadmap.md`](../roadmap.md) — what is planned and in what order
 - [`docs/api-reference.md`](docs/api-reference.md) — every endpoint, and what
   is not built yet
 - [`docs/development.md`](docs/development.md) — working on this repository:
