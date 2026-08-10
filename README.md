@@ -292,6 +292,7 @@ port no matter what its own flags say.
 | `npm run dev:processes` | The two processes on their own, on whatever ports the environment already names. `npm run dev` runs this once it has chosen them |
 | `npm run build` | Compiles the three packages to JavaScript, then the web bundle |
 | `npm run verify:packaging` | Packs the three packages and checks they work outside this workspace. See [Packaging](#packaging) |
+| `npm run release <version>` | Versions, verifies, commits and tags a release. See [Releasing](#releasing) |
 | `npm run lint` | oxlint across the repository. Silent means clean |
 | `npm run typecheck` | `tsc` over every workspace |
 | `npm test` | Vitest unit tests |
@@ -360,6 +361,43 @@ which is why a monorepo spanning the two repos would not buy anything.
 
 Unlink with `npm unlink @kelpie/server` and reinstall before trusting a test run
 that is meant to reflect the published packages.
+
+## Releasing
+
+`@kelpie/schemas`, `@kelpie/server`, and `@kelpie/ui` share one version and go
+out together. An assembly pins all three, and a mismatched pair has no meaning.
+`@kelpie/app` carries the same number but is private and never published.
+
+Write the changelog entry first, then:
+
+```bash
+npm run release 0.2.0
+```
+
+That sets the version in every manifest, rewrites the internal `@kelpie/*`
+ranges to match, refreshes the lockfile, runs lint, typecheck, the full suite and
+`verify:packaging`, then commits and tags `v0.2.0`. It refuses a dirty tree, a
+branch other than `main`, a tag that already exists, and a version with no
+`## [0.2.0]` section in `CHANGELOG.md`. If any check fails it rolls the version
+changes back and tags nothing.
+
+The ranges have to move with the versions. They are carets, so `^0.1.0` does not
+match `0.2.0`, and bumping versions alone would send npm to the registry looking
+for a version that is not published yet.
+
+Publishing is separate, because it cannot be undone. npm allows unpublishing a
+new package for 72 hours and not at all after that.
+
+```bash
+npm publish --workspace packages/schemas --workspace packages/server --workspace packages/ui
+```
+
+`npm run release 0.2.0 --publish` does both in one step, once you trust it.
+
+Credentials are local. `npm login` once, or set `NPM_TOKEN` with a granular
+access token scoped to the `@kelpie` scope. Nothing in this repository stores a
+token, and no CI publishes. With 2FA enabled on publish, npm prompts for a
+one-time code.
 
 ## Configuration
 
