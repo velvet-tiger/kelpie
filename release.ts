@@ -166,11 +166,26 @@ function main(): void {
 
     for (const [label, script] of CHECKS) {
       report(`\nrunning ${label}`)
-      run('npm', ['run', script])
+
+      try {
+        run('npm', ['run', script])
+      } catch {
+        // The failing command has already written its own diagnosis to the
+        // terminal. Rethrowing what execFileSync raises would bury that under a
+        // stack trace through this file, which explains nothing.
+        throw new ReleaseError(`${label} failed. Its output is above.`)
+      }
     }
   } catch (error: unknown) {
     run('git', ['checkout', '--', '.'])
-    report('\nA check failed. The version changes have been rolled back and nothing was tagged.')
+
+    const rolledBack = 'The version changes have been rolled back and nothing was tagged.'
+
+    if (error instanceof ReleaseError) {
+      throw new ReleaseError(`\n${error.message}\n${rolledBack}`)
+    }
+
+    report(`\n${rolledBack}`)
 
     throw error
   }
