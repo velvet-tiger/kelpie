@@ -5,10 +5,10 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "scripts": {
-    "dev": "node --watch --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/server.ts",
+    "dev": "node --conditions=kelpie-source --watch --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/server.ts",
     "dev:web": "vite",
-    "start": "node src/server.ts",
-    "reseal": "node --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/reseal.ts",
+    "start": "node --conditions=kelpie-source src/server.ts",
+    "reseal": "node --conditions=kelpie-source --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/reseal.ts",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",

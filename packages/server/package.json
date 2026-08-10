@@ -4,11 +4,21 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
+  "files": ["dist", "src", "!src/**/*.test.ts", "migrations"],
   "exports": {
-    ".": "./src/index.ts",
-    "./testing": "./src/testing/index.ts"
+    ".": {
+      "kelpie-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "kelpie-source": "./src/testing/index.ts",
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
   },
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --project tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -26,6 +36,7 @@
   "devDependencies": {
     "@types/node": "^26.1.2",
     "drizzle-kit": "^0.31.10",
+    "vite": "^8.2.0",
     "vitest": "^4.1.10"
   }
 }

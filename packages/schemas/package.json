@@ -4,10 +4,16 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
+  "files": ["dist", "src", "!src/**/*.test.ts"],
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "kelpie-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --project tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"

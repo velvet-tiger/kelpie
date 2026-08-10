@@ -4,11 +4,17 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
+  "files": ["dist", "src", "!src/**/*.test.ts", "!src/**/*.test.tsx"],
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "kelpie-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./styles.css": "./src/styles.css"
   },
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --project tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -32,6 +38,7 @@
     "@types/react-dom": "^19.2.4",
     "happy-dom": "^20.11.1",
     "tailwindcss": "^4.3.3",
+    "vite": "^8.2.0",
     "vitest": "^4.1.10"
   }
 }

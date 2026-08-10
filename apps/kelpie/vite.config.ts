@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url'
 
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig, loadEnv } from 'vite'
+import { defaultClientConditions, defineConfig, loadEnv } from 'vite'
 
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url))
 
@@ -31,6 +31,13 @@ export default defineConfig(({ mode }) => {
     root: fileURLToPath(new URL('./web', import.meta.url)),
     envDir: repositoryRoot,
     plugins: [react(), tailwindcss()],
+    resolve: {
+      // `@kelpie/ui` exports its TypeScript source under this condition and the
+      // JavaScript it compiles to under the default one. In here we want the
+      // source, so that editing a component re-renders instead of waiting on a
+      // build nobody ran. A published consumer asks for neither and gets `dist`.
+      conditions: ['kelpie-source', ...defaultClientConditions],
+    },
     build: {
       outDir: fileURLToPath(new URL('./dist', import.meta.url)),
       emptyOutDir: true,

@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/*
+ * The components beside this file, which is why the package ships `src` as well
+ * as `dist` and why `exports` points `./styles.css` here rather than at a copy
+ * under `dist`. Tailwind skips node_modules when it detects sources by itself,
+ * so a consumer's build finds these classes only through this line. Nothing
+ * warns when it stops working: the build still succeeds and every page ships
+ * unstyled. `npm run verify:packaging` asserts a few of the utilities survive an
+ * out-of-tree install.
+ */
 @source ".";
 
 /*

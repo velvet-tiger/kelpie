@@ -26,7 +26,7 @@ ENV_FILE := .env
 LOCAL_ENV_FILE := .env.local
 
 .DEFAULT_GOAL := help
-.PHONY: help setup up down reset dev test lint typecheck build db-generate psql status
+.PHONY: help setup up down reset dev test lint typecheck build verify-packaging db-generate psql status
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -86,6 +86,9 @@ typecheck: ## Typecheck every workspace
 
 build: ## Build every workspace
 	npm run build
+
+verify-packaging: ## Pack the packages and check they work outside this workspace
+	npm run verify:packaging
 
 db-generate: up ## Generate migrations from the schema barrel
 	npm run db:generate

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
+import { defaultServerConditions } from 'vite'
 import { defineConfig } from 'vitest/config'
 
 /**
@@ -25,6 +26,24 @@ if (existsSync(environmentFile)) {
 }
 
 export default defineConfig({
+  /*
+   * Resolve sibling workspace packages to their TypeScript source rather than
+   * the JavaScript they compile to, so a test run never asserts against a stale
+   * or missing `dist`.
+   *
+   * These tests run in Node, so it is the `ssr` resolver that answers, and
+   * `externalConditions` alongside it because a symlinked workspace package can
+   * be externalised and resolved by Node itself rather than inlined.
+   */
+  resolve: {
+    conditions: ['kelpie-source', ...defaultServerConditions],
+  },
+  ssr: {
+    resolve: {
+      conditions: ['kelpie-source', ...defaultServerConditions],
+      externalConditions: ['kelpie-source', ...defaultServerConditions],
+    },
+  },
   test: {
     env: process.env,
     // Integration tests share one Postgres database and truncate between cases,

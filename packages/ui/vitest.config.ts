@@ -1,3 +1,4 @@
+import { defaultClientConditions } from 'vite'
 import { defineConfig } from 'vitest/config'
 
 /**
@@ -6,6 +7,12 @@ import { defineConfig } from 'vitest/config'
  * quirks.
  */
 export default defineConfig({
+  // Resolve sibling workspace packages to their TypeScript source rather than
+  // the JavaScript they compile to, so a test run never asserts against a stale
+  // or missing `dist`.
+  resolve: {
+    conditions: ['kelpie-source', ...defaultClientConditions],
+  },
   test: {
     environment: 'happy-dom',
   },

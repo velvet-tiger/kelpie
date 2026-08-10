@@ -7,6 +7,16 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
 
+    /*
+     * Workspace packages export both their TypeScript source and the JavaScript
+     * they compile to. In here we want the source: `dist` is a build artifact
+     * that is routinely absent or stale, and typechecking against a stale one
+     * reports errors about code nobody wrote. Every runtime that loads this tree
+     * asks for the same condition, so the toolchain and the type checker agree
+     * on which file they are looking at.
+     */
+    "customConditions": ["kelpie-source"],
+
     /* Node strips types rather than compiling them; nothing non-erasable is allowed. */
     "erasableSyntaxOnly": true,
     "isolatedModules": true,

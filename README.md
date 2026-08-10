@@ -290,11 +290,76 @@ port no matter what its own flags say.
 | --- | --- |
 | `npm run dev` | Picks a free port for each process, then starts the API with file watching plus the Vite dev server |
 | `npm run dev:processes` | The two processes on their own, on whatever ports the environment already names. `npm run dev` runs this once it has chosen them |
-| `npm run build` | Production build of the web bundle |
+| `npm run build` | Compiles the three packages to JavaScript, then the web bundle |
+| `npm run verify:packaging` | Packs the three packages and checks they work outside this workspace. See [Packaging](#packaging) |
 | `npm run lint` | oxlint across the repository. Silent means clean |
 | `npm run typecheck` | `tsc` over every workspace |
 | `npm test` | Vitest unit tests |
 | `npm run db:up` / `npm run db:down` | Local Postgres container. Both call the matching `make` target, so `db:up` also refreshes `.env.local` |
+
+## Packaging
+
+`@kelpie/schemas`, `@kelpie/server`, and `@kelpie/ui` are installed by assemblies
+other than `apps/kelpie`. Two are planned: the private `kelpie-cloud` repo, which
+adds proprietary modules to its own module lists, and whatever `npm create
+kelpie` writes for a self-hoster. Both install the published packages. Neither is
+a checkout of this repo, and core is never vendored or forked into them.
+
+That means the packages have to ship JavaScript. Node refuses to strip types from
+a file under `node_modules`, so a package whose entry point is TypeScript works in
+this workspace and nowhere else.
+
+They also have to keep running as TypeScript in here, because a build step
+between editing a file and seeing the change is a tax on every day of work.
+
+Both, through a custom export condition:
+
+```json
+"exports": {
+  ".": {
+    "kelpie-source": "./src/index.ts",
+    "types": "./dist/index.d.ts",
+    "default": "./dist/index.js"
+  }
+}
+```
+
+Everything in this repository asks for `kelpie-source` and gets the source:
+`node --conditions=kelpie-source` in the npm scripts, `resolve.conditions` in the
+Vite and Vitest configs, `customConditions` in `tsconfig.base.json`. Nothing
+outside asks for it, so an installed copy gets `dist`. `dist` is git-ignored and
+only `npm run build` writes it; a stale one cannot affect a dev run or a test.
+
+The failure this creates is a quiet one. Everything keeps working in the
+workspace while the published artifact is broken, and only an out-of-tree install
+can tell. `npm run verify:packaging` does that: builds, packs, installs the
+tarballs into a scratch directory under the system temp directory, imports
+`@kelpie/server` from there, checks `coreMigrationsDirectory` still points at
+real migrations, and builds a Vite app against `@kelpie/ui` to confirm Tailwind
+still finds the component classes. Run it after changing a package's `exports`,
+`files`, or build. This repository has no CI yet; when it does, this belongs in
+it, because the check is the only thing standing between a routine edit and a
+broken release.
+
+### Working on core and a consuming repo together
+
+A consuming repo installs published versions, so an unreleased core change is
+invisible to it. `npm link` fixes that, and the export condition means it fixes
+it properly:
+
+```bash
+cd kelpie-crm/packages/server && npm link
+cd ../../../kelpie-cloud && npm link @kelpie/server
+```
+
+`npm link` symlinks rather than copies, so the linked package resolves through
+`kelpie-source` exactly as it does in here. Run the consuming service with
+`--conditions=kelpie-source` and editing a file in `packages/server` restarts it,
+with no build and no publish in between. That is the same loop `apps/kelpie` has,
+which is why a monorepo spanning the two repos would not buy anything.
+
+Unlink with `npm unlink @kelpie/server` and reinstall before trusting a test run
+that is meant to reflect the published packages.
 
 ## Configuration
 
