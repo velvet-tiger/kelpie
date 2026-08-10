@@ -43,7 +43,12 @@ and an MCP server, and you bring the agent.
 - Docker, for the local Postgres.
 - `make`.
 
-## Getting started
+## Run it locally
+
+There is no packaged installer yet. This is the local development
+workflow: clone this repository and run it from source. A scaffolder
+(`npm create kelpie`) that writes a standalone self-hosted install is
+planned but not built; see [`roadmap.md`](../roadmap.md).
 
 Run these from the repository root, in order.
 
@@ -158,6 +163,10 @@ integrations).
 Kelpie extends through a module system: routes, MCP tools, and
 UI slots that core itself registers through. To build a module, see
 [`docs/development.md`](docs/development.md).
+
+Today, self-hosting means running from a clone with the steps above. The
+scaffolder that will turn this into an install path of its own has not
+shipped yet.
 
 ## Learn more
 
