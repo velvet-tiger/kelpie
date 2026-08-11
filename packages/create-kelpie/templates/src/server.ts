@@ -52,12 +52,7 @@ async function start(): Promise<void> {
     environment: process.env,
     logger,
     events,
-    // Spread rather than passed. `moduleConfig` is optional, and this project's
-    // tsconfig sets `exactOptionalPropertyTypes`, under which an explicit
-    // `undefined` is not the same as an absent key. `readModuleConfigFile`
-    // returns `undefined` whenever no override file is configured, which is the
-    // ordinary case.
-    ...(moduleConfig === undefined ? {} : { moduleConfig }),
+    moduleConfig,
     resolveActor: (context) => resolveActorFrom(credentials, context),
     services: {
       db: database.db,

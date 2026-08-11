@@ -31,12 +31,12 @@ const companies = createResourceHooks<Company, CreateCompanyInput, CompanyInput>
 /** The documented filters on `GET /v1/companies`. */
 export interface CompanyFilters {
   /** Matches name, domain, industry, summary, account type, and tags. */
-  readonly term?: string
+  readonly term?: string | undefined
   /** Companies where any of these people holds a position. Repeats on the wire. */
-  readonly personIds?: readonly string[]
-  readonly limit?: number
+  readonly personIds?: readonly string[] | undefined
+  readonly limit?: number | undefined
   /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
-  readonly sort?: string
+  readonly sort?: string | undefined
 }
 
 function companyQuery(filters: CompanyFilters): QueryParameters {

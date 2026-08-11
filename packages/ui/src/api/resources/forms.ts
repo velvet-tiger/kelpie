@@ -60,10 +60,10 @@ const forms = createResourceHooks<Form, CreateFormInput, FormSettingsInput>({
 
 export interface FormFilters {
   /** Matches a form's name and its description. */
-  readonly term?: string
-  readonly status?: 'active' | 'paused'
+  readonly term?: string | undefined
+  readonly status?: 'active' | 'paused' | undefined
   /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
-  readonly sort?: string
+  readonly sort?: string | undefined
 }
 
 function formQuery(filters: FormFilters): QueryParameters {

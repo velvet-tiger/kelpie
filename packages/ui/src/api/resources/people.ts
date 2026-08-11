@@ -31,12 +31,12 @@ const people = createResourceHooks<Person, CreatePersonInput, PersonInput>({
 /** The documented filters on `GET /v1/people`. There is no generic filter DSL. */
 export interface PeopleFilters {
   /** Matches name, email, summary, tags, and the titles and companies they hold. */
-  readonly term?: string
+  readonly term?: string | undefined
   /** People holding a position at any of these companies. Repeats on the wire. */
-  readonly companyIds?: readonly string[]
-  readonly limit?: number
+  readonly companyIds?: readonly string[] | undefined
+  readonly limit?: number | undefined
   /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
-  readonly sort?: string
+  readonly sort?: string | undefined
 }
 
 function peopleQuery(filters: PeopleFilters): QueryParameters {

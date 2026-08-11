@@ -13,7 +13,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 export interface SearchOption {
   readonly id: string
   readonly label: string
-  readonly meta?: string
+  readonly meta?: string | undefined
 }
 
 export interface EntitySearchProps {
@@ -21,17 +21,17 @@ export interface EntitySearchProps {
   readonly value: string
   readonly onChange: (id: string) => void
   /** Set to run the search server-side. Receives what has been typed, trimmed of nothing. */
-  readonly onQueryChange?: (query: string) => void
+  readonly onQueryChange?: ((query: string) => void) | undefined
   /** When set, typing a name that is not an exact match offers a create row. */
-  readonly onCreate?: (label: string) => void
-  readonly createLabel?: (query: string) => string
-  readonly placeholder?: string
-  readonly emptyMessage?: string
+  readonly onCreate?: ((label: string) => void) | undefined
+  readonly createLabel?: ((query: string) => string) | undefined
+  readonly placeholder?: string | undefined
+  readonly emptyMessage?: string | undefined
   /** Most rows shown at once. The list says so when there are more. */
-  readonly limit?: number
-  readonly required?: boolean
-  readonly className?: string
-  readonly size?: 'sm' | 'md'
+  readonly limit?: number | undefined
+  readonly required?: boolean | undefined
+  readonly className?: string | undefined
+  readonly size?: 'sm' | 'md' | undefined
 }
 
 export function EntitySearch({

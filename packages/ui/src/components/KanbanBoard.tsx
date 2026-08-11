@@ -28,8 +28,8 @@ export interface KanbanCard {
   readonly id: string
   readonly stage: string
   readonly title: string
-  readonly meta?: string
-  readonly valueLabel?: string
+  readonly meta?: string | undefined
+  readonly valueLabel?: string | undefined
   readonly href: string
 }
 

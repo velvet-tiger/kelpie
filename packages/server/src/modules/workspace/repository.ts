@@ -41,10 +41,21 @@ export async function findWorkspace(db: Queryable, id: string): Promise<Workspac
   return found
 }
 
+/**
+ * A PATCH's changes, as they arrive: every key optional, and a key may be
+ * present holding `undefined` because that is what a parsed request body looks
+ * like. `Partial<T>` alone permits only the absence, not the `undefined`.
+ *
+ * Passing `undefined` through is safe rather than merely tolerated. Drizzle's
+ * `mapUpdateSet` filters those entries out before building the `set` clause, so
+ * a field the caller did not send is left alone instead of being written null.
+ */
+type Changes<T> = { [K in keyof T]?: T[K] | undefined }
+
 export async function updateWorkspace(
   db: Queryable,
   id: string,
-  changes: Partial<typeof workspaces.$inferInsert>,
+  changes: Changes<typeof workspaces.$inferInsert>,
 ): Promise<WorkspaceRecord | undefined> {
   const [updated] = await db.update(workspaces).set(changes).where(eq(workspaces.id, id)).returning()
 

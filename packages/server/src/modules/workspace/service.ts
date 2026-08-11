@@ -83,12 +83,22 @@ export interface CreateWorkspaceInput {
   readonly timezone: string
 }
 
+/**
+ * A partial update, on `api.md`'s rule: an absent field is not being changed,
+ * and `null` clears one.
+ *
+ * Every field spells out `| undefined` because a caller reaches this with the
+ * parsed request body, and Zod produces a key holding `undefined` rather than no
+ * key at all. Under `exactOptionalPropertyTypes` those are different types, and
+ * they are not different behaviour here: `update` spreads this into Drizzle's
+ * `set`, which skips undefined values.
+ */
 export interface UpdateWorkspaceInput {
-  readonly name?: string
-  readonly slug?: string
-  readonly timezone?: string
-  readonly tagline?: string | null
-  readonly oneLiner?: string | null
+  readonly name?: string | undefined
+  readonly slug?: string | undefined
+  readonly timezone?: string | undefined
+  readonly tagline?: string | null | undefined
+  readonly oneLiner?: string | null | undefined
 }
 
 export interface WorkspaceService {

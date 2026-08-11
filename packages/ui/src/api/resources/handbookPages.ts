@@ -26,10 +26,10 @@ const pages = createResourceHooks<HandbookPage, CreateHandbookPageInput, Handboo
 /** The documented filters on `GET /v1/handbook_pages`. */
 export interface HandbookPageFilters {
   /** Matches a page's title and its body. A handbook is searched for what it says. */
-  readonly term?: string
+  readonly term?: string | undefined
   /** Pages at these slugs. Repeats on the wire. */
-  readonly slugs?: readonly string[]
-  readonly limit?: number
+  readonly slugs?: readonly string[] | undefined
+  readonly limit?: number | undefined
 }
 
 function handbookQuery(filters: HandbookPageFilters): QueryParameters {

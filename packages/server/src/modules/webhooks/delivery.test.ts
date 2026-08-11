@@ -127,7 +127,9 @@ describe('createHttpSender', () => {
   })
 
   it('posts the body and headers it was given', async () => {
-    const seen: { url?: string; init?: RequestInit } = {}
+    // `| undefined` on both: `fetch` declares `init` optional, so the stub is
+    // handed `RequestInit | undefined` and records exactly that.
+    const seen: { url?: string | undefined; init?: RequestInit | undefined } = {}
     const send = createHttpSender((url, init) => {
       seen.url = String(url)
       seen.init = init

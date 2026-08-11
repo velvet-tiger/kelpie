@@ -37,10 +37,10 @@ const positions = createResourceHooks<Position, CreatePositionInput, PositionTit
 
 export interface PositionFilters {
   /** Positions held by any of these people. Repeats on the wire. */
-  readonly personIds?: readonly string[]
+  readonly personIds?: readonly string[] | undefined
   /** Positions held at any of these companies. Repeats on the wire. */
-  readonly companyIds?: readonly string[]
-  readonly limit?: number
+  readonly companyIds?: readonly string[] | undefined
+  readonly limit?: number | undefined
 }
 
 function positionQuery(filters: PositionFilters): QueryParameters {

@@ -43,22 +43,32 @@ export interface ModuleRouter {
   readonly router: Hono
 }
 
+/**
+ * What `registerModules` needs.
+ *
+ * Every optional field spells out `| undefined`, which is not noise. Under
+ * `exactOptionalPropertyTypes` an omitted key and a key holding `undefined` are
+ * different types, and an assembly building these options has the second:
+ * `readModuleConfigFile` returns `undefined` when no override file is
+ * configured. Without it, core hands a caller a value its own runtime refuses.
+ * None of the four fields tells the two cases apart.
+ */
 export interface ModuleRuntimeOptions {
   readonly modules: readonly KelpieModule[]
   /** Raw variables. Each module validates the slice it needs via `context.config`. */
   readonly environment: Environment
   readonly logger: Logger
   /** Injected so a test can watch what core modules subscribe to. Defaults to a fresh bus. */
-  readonly events?: EventBus
+  readonly events?: EventBus | undefined
   /** Injected so a test can grant or deny before core modules register. */
-  readonly entitlements?: EntitlementRegistry
+  readonly entitlements?: EntitlementRegistry | undefined
   /** The database, transaction scope, and collaborators every module builds on. */
   readonly services: ModuleServices
   /**
    * The deploy-time module override (`lib/moduleConfig.ts`), parsed. A locked
    * module id wins over whatever a workspace's own settings say.
    */
-  readonly moduleConfig?: Readonly<Record<string, boolean>>
+  readonly moduleConfig?: Readonly<Record<string, boolean>> | undefined
   /**
    * Resolves the caller of a REST request, the same way every route already
    * does (`modules/auth/credentials.ts`), so a non-structural module's router
@@ -70,7 +80,7 @@ export interface ModuleRuntimeOptions {
    * every test that does not exercise module toggling wants without having to
    * say so.
    */
-  readonly resolveActor?: (context: Context) => Promise<Actor>
+  readonly resolveActor?: ((context: Context) => Promise<Actor>) | undefined
 }
 
 /** Contributions accumulate here, one mutable set per registration pass. */

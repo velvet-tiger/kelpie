@@ -173,7 +173,10 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       method,
       credentials: 'same-origin',
       headers: headersFor(body),
-      body: body === undefined ? undefined : JSON.stringify(body),
+      // Spread rather than `body: undefined`. `RequestInit` comes from the DOM
+      // library, where `body` is optional and does not accept an explicit
+      // `undefined`, and it is not ours to widen. A GET carries no body at all.
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
   }
 

@@ -32,8 +32,8 @@ export interface NoteFilters {
   readonly targetType: RecordTargetType
   /** Notes on any of these records. Repeats on the wire; all one target type. */
   readonly targetIds: readonly string[]
-  readonly pinned?: boolean
-  readonly limit?: number
+  readonly pinned?: boolean | undefined
+  readonly limit?: number | undefined
 }
 
 function noteQuery(filters: NoteFilters): QueryParameters {

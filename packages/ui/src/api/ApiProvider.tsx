@@ -10,10 +10,10 @@ import { createQueryClient } from './queryClient.ts'
 
 export interface ApiProviderProps {
   /** Origin plus base path, e.g. `/v1` in the browser. */
-  readonly baseUrl?: string
+  readonly baseUrl?: string | undefined
   /** A prepared client, for tests and for assemblies that construct their own. */
-  readonly client?: ApiClient
-  readonly queryClient?: QueryClient
+  readonly client?: ApiClient | undefined
+  readonly queryClient?: QueryClient | undefined
   readonly children: ReactNode
 }
 

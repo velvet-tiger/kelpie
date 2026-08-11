@@ -10,6 +10,16 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Changed
+
+- **`@kelpie/server`, `@kelpie/ui`** — optional properties that accept
+  `undefined` now say so, as `prop?: T | undefined`. This affects
+  `ModuleRuntimeOptions`, `UpdateWorkspaceInput`, the UI's list filter types, and
+  the shared component props. Passing `undefined` where the value was previously
+  only allowed to be absent now compiles, which is what an assembly building
+  options from `readModuleConfigFile` was already doing. Nothing narrows, so no
+  existing call breaks.
+
 ### Fixed
 
 - **`create-kelpie`** — a scaffolded project failed its own `npm run typecheck`.

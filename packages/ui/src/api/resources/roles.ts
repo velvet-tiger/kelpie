@@ -31,10 +31,10 @@ const roles = createResourceHooks<Role, CreateRoleInput, RoleInput>({
 /** The documented filters on `GET /v1/roles`. */
 export interface RoleFilters {
   /** Matches the role's title, which is what the mockup's filter box matches. */
-  readonly term?: string
+  readonly term?: string | undefined
   /** Roles in any of these statuses. Repeats on the wire. */
-  readonly statuses?: readonly RoleStatus[]
-  readonly limit?: number
+  readonly statuses?: readonly RoleStatus[] | undefined
+  readonly limit?: number | undefined
 }
 
 function roleQuery(filters: RoleFilters): QueryParameters {

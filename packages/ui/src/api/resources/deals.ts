@@ -35,16 +35,16 @@ const deals = createResourceHooks<Deal, CreateDealInput, DealInput>({
 /** The documented filters on `GET /v1/deals`. */
 export interface DealFilters {
   /** Matches the deal's name, summary, tags, competitors, and its company's name. */
-  readonly term?: string
+  readonly term?: string | undefined
   /** Deals at any of these companies. Repeats on the wire. */
-  readonly companyIds?: readonly string[]
+  readonly companyIds?: readonly string[] | undefined
   /** Deals sitting in any of these stages. Repeats on the wire. */
-  readonly stageIds?: readonly string[]
+  readonly stageIds?: readonly string[] | undefined
   /** Deals any of these people are on. Repeats on the wire. */
-  readonly personIds?: readonly string[]
-  readonly limit?: number
+  readonly personIds?: readonly string[] | undefined
+  readonly limit?: number | undefined
   /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
-  readonly sort?: string
+  readonly sort?: string | undefined
 }
 
 function dealQuery(filters: DealFilters): QueryParameters {

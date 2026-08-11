@@ -23,6 +23,19 @@
 
     "strict": true,
     "noUncheckedIndexedAccess": true,
+
+    /*
+     * Separates "this property may be absent" from "this property may be
+     * present and undefined". The scaffolder's templates have always set it, so
+     * without it here the repository compiles code a generated project rejects,
+     * which is how a broken `npm run typecheck` shipped in two releases.
+     *
+     * The UI already treats `undefined` as a value rather than an absence:
+     * `undefined` means "not sent" and `null` means "clear the field", which is
+     * what `definedFields` and `mergeDefined` are for. A property that accepts
+     * it therefore declares `?: T | undefined` and says so.
+     */
+    "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,

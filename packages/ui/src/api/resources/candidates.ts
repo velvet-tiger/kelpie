@@ -32,12 +32,12 @@ const candidates = createResourceHooks<Candidate, CreateCandidateInput, Candidat
 /** The documented filters on `GET /v1/candidates`. */
 export interface CandidateFilters {
   /** Candidacies on any of these roles. Repeats on the wire. */
-  readonly roleIds?: readonly string[]
+  readonly roleIds?: readonly string[] | undefined
   /** Candidacies held by any of these people. Repeats on the wire. */
-  readonly personIds?: readonly string[]
+  readonly personIds?: readonly string[] | undefined
   /** Candidacies in any of these pipeline states. Repeats on the wire. */
-  readonly statuses?: readonly CandidateStatus[]
-  readonly limit?: number
+  readonly statuses?: readonly CandidateStatus[] | undefined
+  readonly limit?: number | undefined
 }
 
 function candidateQuery(filters: CandidateFilters): QueryParameters {

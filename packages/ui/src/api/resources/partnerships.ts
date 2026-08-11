@@ -36,18 +36,18 @@ const partnerships = createResourceHooks<Partnership, CreatePartnershipInput, Pa
 /** The documented filters on `GET /v1/partnerships`. */
 export interface PartnershipFilters {
   /** Matches the partnership's name, kind, summary, tags, and its company's name. */
-  readonly term?: string
+  readonly term?: string | undefined
   /** Exact kinds ("Integration", "Co-marketing", …). Repeats on the wire. */
-  readonly kinds?: readonly string[]
+  readonly kinds?: readonly string[] | undefined
   /** Partnerships with any of these companies. Repeats on the wire. */
-  readonly companyIds?: readonly string[]
+  readonly companyIds?: readonly string[] | undefined
   /** Partnerships sitting in any of these stages. Repeats on the wire. */
-  readonly stageIds?: readonly string[]
+  readonly stageIds?: readonly string[] | undefined
   /** Partnerships any of these people are on. Repeats on the wire. */
-  readonly personIds?: readonly string[]
-  readonly limit?: number
+  readonly personIds?: readonly string[] | undefined
+  readonly limit?: number | undefined
   /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
-  readonly sort?: string
+  readonly sort?: string | undefined
 }
 
 function partnershipQuery(filters: PartnershipFilters): QueryParameters {

@@ -120,8 +120,21 @@ function enumeration(
   return canonicalEnum(values, mapped[column]) ?? undefined
 }
 
-/** Drops the keys whose value is undefined, so a draft holds only what it sets. */
-function present<T extends object>(draft: T): T {
+/**
+ * Drops the keys whose value is undefined, so a draft holds only what it sets.
+ *
+ * The parameter is not `T`. Under `exactOptionalPropertyTypes` an optional key
+ * declared `name?: string` may be absent but may not be present holding
+ * `undefined`, and every literal below spells out all of its keys and lets the
+ * extractors return `undefined` for the columns the row did not carry. So the
+ * input is `T` with every key required and `undefined` allowed, and the return
+ * is `T`, where the absences this function creates are the only ones. Requiring
+ * the keys is the useful half: a field left out of a literal is a compile error
+ * rather than a column that silently never imports.
+ */
+type Supplied<T> = { [K in keyof T]-?: T[K] | undefined }
+
+function present<T extends object>(draft: Supplied<T>): T {
   return Object.fromEntries(Object.entries(draft).filter(([, value]) => value !== undefined)) as T
 }
 

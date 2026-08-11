@@ -3,10 +3,10 @@ import type { ReactNode } from 'react'
 export interface Column<TRow> {
   readonly key: string
   readonly header: string
-  readonly className?: string
+  readonly className?: string | undefined
   readonly render: (row: TRow) => ReactNode
   /** The `?sort=` field this column drives. Omit for a column with no server-side sort. */
-  readonly sortKey?: string
+  readonly sortKey?: string | undefined
 }
 
 export interface DataTableGroup<TRow> {
@@ -22,19 +22,19 @@ export interface EmptyStateAction {
 
 export interface DataTableProps<TRow> {
   readonly columns: readonly Column<TRow>[]
-  readonly rows?: readonly TRow[]
-  readonly groups?: readonly DataTableGroup<TRow>[]
-  readonly onRowClick?: (row: TRow) => void
-  readonly emptyMessage?: string
+  readonly rows?: readonly TRow[] | undefined
+  readonly groups?: readonly DataTableGroup<TRow>[] | undefined
+  readonly onRowClick?: ((row: TRow) => void) | undefined
+  readonly emptyMessage?: string | undefined
   /** Replaces the default "Add a record to get started." line under `emptyMessage`. */
-  readonly emptyDescription?: string
+  readonly emptyDescription?: string | undefined
   /** A button rendered in the empty state. Omit when there is nothing to do about it — a filter miss, not a genuinely empty list. */
-  readonly emptyAction?: EmptyStateAction
+  readonly emptyAction?: EmptyStateAction | undefined
   readonly getRowId: (row: TRow) => string
   /** Current `?sort=` value: `field` ascending, `-field` descending, `undefined` for the resource's default. */
-  readonly sort?: string
+  readonly sort?: string | undefined
   /** Fires with the next `?sort=` value when a sortable header is clicked. Required for any column to be clickable. */
-  readonly onSortChange?: (sort: string | undefined) => void
+  readonly onSortChange?: ((sort: string | undefined) => void) | undefined
 }
 
 type SortDirection = 'asc' | 'desc'
@@ -162,7 +162,7 @@ function GroupRows<TRow>({
 }: {
   readonly group: DataTableGroup<TRow>
   readonly columns: readonly Column<TRow>[]
-  readonly onRowClick?: (row: TRow) => void
+  readonly onRowClick?: ((row: TRow) => void) | undefined
   readonly getRowId: (row: TRow) => string
 }): React.JSX.Element {
   return (
@@ -189,7 +189,7 @@ function DataRow<TRow>({
 }: {
   readonly row: TRow
   readonly columns: readonly Column<TRow>[]
-  readonly onRowClick?: (row: TRow) => void
+  readonly onRowClick?: ((row: TRow) => void) | undefined
 }): React.JSX.Element {
   return (
     <tr

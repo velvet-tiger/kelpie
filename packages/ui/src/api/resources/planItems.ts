@@ -35,15 +35,15 @@ const planItems = createResourceHooks<PlanItem, CreatePlanItemInput, PlanItemInp
 export const MAX_PAGE_SIZE = 200
 
 export interface PlanItemFilters {
-  readonly targetType?: PipelineKind
+  readonly targetType?: PipelineKind | undefined
   /** The records to read steps for. Repeats on the wire: `?target_id=a&target_id=b`. */
-  readonly targetIds?: readonly string[]
-  readonly statuses?: readonly PlanItemStatus[]
+  readonly targetIds?: readonly string[] | undefined
+  readonly statuses?: readonly PlanItemStatus[] | undefined
   /** Inclusive `YYYY-MM-DD` bounds. The calendar asks for one month with the pair. */
-  readonly from?: string
-  readonly to?: string
+  readonly from?: string | undefined
+  readonly to?: string | undefined
   /** Page size. Worth setting only when the filter already bounds the answer. */
-  readonly limit?: number
+  readonly limit?: number | undefined
 }
 
 function planItemQuery(filters: PlanItemFilters): QueryParameters {

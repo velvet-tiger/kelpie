@@ -41,7 +41,7 @@ const webhooks = createResourceHooks<Webhook, CreateWebhookInput, WebhookInput>(
 })
 
 export interface WebhookFilters {
-  readonly status?: Webhook['status']
+  readonly status?: Webhook['status'] | undefined
 }
 
 function webhookQuery(filters: WebhookFilters): QueryParameters {
@@ -61,7 +61,7 @@ export function useDeleteWebhook(): MutationResult<string, void> {
 }
 
 export interface WebhookDeliveryFilters {
-  readonly status?: WebhookDelivery['status']
+  readonly status?: WebhookDelivery['status'] | undefined
 }
 
 /**

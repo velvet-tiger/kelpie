@@ -34,16 +34,16 @@ const opportunities = createResourceHooks<Opportunity, CreateOpportunityInput, O
 /** The documented filters on `GET /v1/opportunities`. */
 export interface OpportunityFilters {
   /** Matches the opportunity's name, kind, summary, tags, and its company's name. */
-  readonly term?: string
+  readonly term?: string | undefined
   /** Exact kinds ("Grant", "Accelerator", …). Repeats on the wire. */
-  readonly kinds?: readonly string[]
+  readonly kinds?: readonly string[] | undefined
   /** Opportunities at any of these companies. Repeats on the wire. */
-  readonly companyIds?: readonly string[]
+  readonly companyIds?: readonly string[] | undefined
   /** Opportunities sitting in any of these stages. Repeats on the wire. */
-  readonly stageIds?: readonly string[]
-  readonly limit?: number
+  readonly stageIds?: readonly string[] | undefined
+  readonly limit?: number | undefined
   /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
-  readonly sort?: string
+  readonly sort?: string | undefined
 }
 
 function opportunityQuery(filters: OpportunityFilters): QueryParameters {

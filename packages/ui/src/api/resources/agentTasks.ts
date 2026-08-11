@@ -106,8 +106,8 @@ const runs = createReadOnlyResourceHooks<AgentRun>({
 })
 
 export interface AgentRunFilters {
-  readonly agentId?: string
-  readonly status?: AgentRunStatus
+  readonly agentId?: string | undefined
+  readonly status?: AgentRunStatus | undefined
 }
 
 export function useAgentRuns(

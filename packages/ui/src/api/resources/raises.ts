@@ -35,16 +35,16 @@ const raises = createResourceHooks<Raise, CreateRaiseInput, RaiseInput>({
 /** The documented filters on `GET /v1/raises`. */
 export interface RaiseFilters {
   /** Matches the raise's name, summary, tags, and its firm's name. */
-  readonly term?: string
+  readonly term?: string | undefined
   /** Raises with any of these firms. Repeats on the wire. */
-  readonly companyIds?: readonly string[]
+  readonly companyIds?: readonly string[] | undefined
   /** Raises sitting in any of these stages. Repeats on the wire. */
-  readonly stageIds?: readonly string[]
+  readonly stageIds?: readonly string[] | undefined
   /** Raises any of these people are key on. Repeats on the wire. */
-  readonly personIds?: readonly string[]
-  readonly limit?: number
+  readonly personIds?: readonly string[] | undefined
+  readonly limit?: number | undefined
   /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
-  readonly sort?: string
+  readonly sort?: string | undefined
 }
 
 function raiseQuery(filters: RaiseFilters): QueryParameters {

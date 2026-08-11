@@ -214,6 +214,24 @@ port no matter what its own flags say.
 
 `packages/server/src/lib/config.ts` is the only place that reads the environment. Everything else takes configuration as an argument.
 
+### Optional properties
+
+`exactOptionalPropertyTypes` is on. `prop?: T` therefore means the key may be **absent**, and nothing more. A key present holding `undefined` is a different type, and the compiler says so.
+
+That distinction is not pedantry here. Most values reaching an optional parameter come from a parsed request body, from React state, or from a function like `readModuleConfigFile` that returns `T | undefined`. All three produce a key that exists and holds `undefined`.
+
+So the default is to write `prop?: T | undefined` and mean it. The filter types in `packages/ui/src/api/resources`, the shared component props, `ModuleRuntimeOptions` and `UpdateWorkspaceInput` all do. Reach for a conditional spread only when the target type is not yours to change:
+
+```ts
+...(body === undefined ? {} : { body: JSON.stringify(body) }),
+```
+
+`RequestInit.body` in `api/client.ts` is the case: it comes from the DOM library.
+
+If you find a place where an absent key and an `undefined` one genuinely behave differently, that is worth a comment at minimum and is usually a bug.
+
+The templates set the flag themselves as well. A generated project has no base config to extend, so those lines do work rather than repeat this one. The flag went on here because they had it and this repository did not, which let a broken `npm run typecheck` ship in two releases.
+
 ### Serving the web bundle
 
 `createApp` answers `/v1`, `/v1/public`, `/mcp` and `/healthz`. It serves no pages. In development the Vite dev server builds them and proxies the API, which is two jobs in one tool: rebuilding on edit is development only, putting the pages and the API on one origin is permanent. Only the first goes away in production.

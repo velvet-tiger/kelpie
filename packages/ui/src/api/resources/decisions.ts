@@ -29,10 +29,10 @@ const decisions = createResourceHooks<Decision, CreateDecisionInput, DecisionInp
 })
 
 export interface DecisionFilters {
-  readonly targetType?: RecordTargetType
-  readonly targetId?: string
+  readonly targetType?: RecordTargetType | undefined
+  readonly targetId?: string | undefined
   /** Matches the body, the rationale, the target type, and the target's name. */
-  readonly term?: string
+  readonly term?: string | undefined
 }
 
 function decisionQuery(filters: DecisionFilters): QueryParameters {
