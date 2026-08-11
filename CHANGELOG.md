@@ -8,6 +8,39 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [0.3.0] - 2026-08-11
+
+### Added
+
+- **`@kelpie/server`** — `serveWebBundle(app, { directory })`, which serves a
+  built web bundle from the same origin as the API. Nothing did this before:
+  `createApp` answers `/v1`, `/v1/public`, `/mcp` and `/healthz` and serves no
+  pages, so a deployed assembly answered API calls and showed a blank page to
+  every browser. The Vite dev server was hiding it, because it builds the pages
+  and proxies the API in one tool, and only the first of those two jobs is
+  development-only.
+- **`@kelpie/server`** — `WEB_BUNDLE_DIR`, optional. Set it to the built bundle
+  and one process serves the pages and the API. Leave it unset in development.
+  Boot fails when it names a directory holding no `index.html`, so a deployment
+  whose build did not run stops rather than serving invisible pages.
+- **`create-kelpie`** — the generated entry point calls `serveWebBundle`, and
+  the generated README has a Deploying section covering the production build and
+  `--no-migrate` for more than one instance.
+
+### Notes
+
+- Upgrading is `npm update`. Nothing changes for an assembly that does not set
+  `WEB_BUNDLE_DIR`, which includes every development setup.
+- A deep link such as `/people/per_01J…` answers with `index.html`, because the
+  app decides what to draw from the address. Unknown paths under `/v1`, `/mcp`
+  and `/healthz` are left to the API, so a misspelled endpoint is still a JSON
+  error rather than a web page with a 200.
+- `@hono/node-server` is now a dependency of `@kelpie/server` rather than only
+  of the assemblies. It supplies the static file middleware.
+- `npm run verify:packaging` gained a fifth check: it restarts the scaffolded
+  service with no dev server in front of it and asserts the API serves what it
+  built. The four checks before it all passed while this was broken.
+
 ## [0.2.0] - 2026-08-10
 
 ### Added
@@ -52,6 +85,7 @@ First public release.
 - `react` and `react-dom` are peer dependencies of `@kelpie/ui`.
 - The packages export their TypeScript source under a `kelpie-source` condition and their compiled JavaScript under the default one. Consumers get JavaScript; the condition exists so the repository can develop without a build step. It is not part of the public contract.
 
+[0.3.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.3.0
 [0.2.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.2.0
 [0.1.1]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.1.1
 [0.1.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.1.0

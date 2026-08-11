@@ -214,6 +214,19 @@ port no matter what its own flags say.
 
 `packages/server/src/lib/config.ts` is the only place that reads the environment. Everything else takes configuration as an argument.
 
+### Serving the web bundle
+
+`createApp` answers `/v1`, `/v1/public`, `/mcp` and `/healthz`. It serves no pages. In development the Vite dev server builds them and proxies the API, which is two jobs in one tool: rebuilding on edit is development only, putting the pages and the API on one origin is permanent. Only the first goes away in production.
+
+`serveWebBundle(app, { directory })` in `packages/server/src/webBundle.ts` is the second job. An assembly calls it after `createApp`, driven by the optional `WEB_BUNDLE_DIR`, and one process then serves both. All three assemblies use it: `apps/kelpie`, a scaffolded project, and `kelpie-cloud`.
+
+Two rules live in there rather than in each entry point:
+
+- **A deep link gets `index.html`.** The app decides what to draw from the address, so `/people/per_01J…` has to answer with the shell even though no file sits at that path.
+- **An unknown API path does not.** `app.notFound` renders `api.md`'s JSON 404 and only fires when nothing matched, so a bare catch-all would answer `GET /v1/typo` with the shell and a 200. The fallback skips the API prefixes, and skips any method other than `GET` and `HEAD`.
+
+Boot fails when `WEB_BUNDLE_DIR` names a directory with no `index.html` in it. A deployment whose build did not run should stop, not serve an API whose pages are invisible.
+
 ## Packaging
 
 `@kelpie/schemas`, `@kelpie/server`, and `@kelpie/ui` are installed by assemblies
@@ -262,6 +275,10 @@ project, installs the tarballs into it, and then:
 - runs `npm run dev` and asserts the dev server proxies `/healthz` to the API,
   serves `/signup`, and accepts a signup through the proxy
 - builds the web bundle and asserts the Tailwind theme utilities are in the CSS
+- restarts the service with `WEB_BUNDLE_DIR` set and no dev server in front of
+  it, then asserts the API serves the shell at `/` and at a deep link, serves a
+  hashed asset as JavaScript, and still answers an unknown `/v1` path with the
+  JSON 404
 
 The scaffolder writes that project rather than the script hand-rolling one, so
 the generated manifest's dependency list is under test too. A devDependency

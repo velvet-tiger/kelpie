@@ -31,6 +31,12 @@ export interface KelpieConfig {
    * settings decide.
    */
   readonly moduleConfigPath: string | undefined
+  /**
+   * Directory holding the built web bundle, served from the same origin as the
+   * API (`webBundle.ts`). Undefined is the development case: the Vite dev server
+   * builds the pages and proxies the API, so there is no bundle on disk to serve.
+   */
+  readonly webBundleDirectory: string | undefined
   readonly rateLimit: RateLimitConfig
 }
 
@@ -62,6 +68,7 @@ const environmentSchema = z.object({
     .refine(isPostgresUrl, { message: 'must be a postgres:// or postgresql:// connection string' }),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']),
   KELPIE_MODULE_CONFIG_PATH: z.string().min(1).optional(),
+  WEB_BUNDLE_DIR: z.string().min(1).optional(),
   ...emailConfigSchema.shape,
   ...rateLimitConfigSchema.shape,
 })
@@ -86,6 +93,7 @@ export function loadConfig(environment: Environment): KelpieConfig {
     logLevel: result.data.LOG_LEVEL,
     email: { EMAIL_PROVIDER: result.data.EMAIL_PROVIDER, EMAIL_FROM: result.data.EMAIL_FROM },
     moduleConfigPath: result.data.KELPIE_MODULE_CONFIG_PATH,
+    webBundleDirectory: result.data.WEB_BUNDLE_DIR,
     rateLimit: rateLimitConfigFrom(result.data),
   }
 }

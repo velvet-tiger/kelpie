@@ -27,6 +27,10 @@
  *      Tailwind ignores `node_modules` during automatic source detection, so if
  *      the `@source` in `styles.css` does not reach the components beside it,
  *      the build still succeeds and every page ships unstyled.
+ *   5. The API serves that build on its own, with `WEB_BUNDLE_DIR` set and no
+ *      dev server in front of it. Checks 3 and 4 both pass while a deployment
+ *      shows a blank page, because one runs Vite and the other never serves what
+ *      it built.
  *
  * Needs Postgres, through `TEST_DATABASE_URL` in `.env` / `.env.local` or the
  * environment. `make up` writes it. Run the whole thing with
@@ -449,6 +453,158 @@ function assertThemeUtilitiesEmitted(project: string): void {
   report(`  web bundle builds, ${REQUIRED_UTILITIES.length} theme utilities present in the CSS`)
 }
 
+/** A hashed asset the build emitted, to prove the file server reaches real files. */
+function firstBuiltScript(project: string): string {
+  const assets = join(project, 'dist', 'assets')
+  const script = readdirSync(assets).find((entry) => entry.endsWith('.js'))
+
+  if (script === undefined) {
+    throw new PackagingError(`The scaffolded build emitted no JavaScript into ${assets}.`)
+  }
+
+  return `/assets/${script}`
+}
+
+/**
+ * Serves the built bundle from the API alone, the way a deployment does.
+ *
+ * `bootAndSignUp` above runs `npm run dev`, where Vite serves the pages and
+ * proxies the API. That hides whether anything serves them without Vite, which
+ * for a long time nothing did: `createApp` answers `/v1`, `/mcp` and `/healthz`,
+ * so a deployed assembly returned a blank page to every browser. The dev proxy
+ * was the only path ever exercised, which is exactly why this check is here and
+ * not left to the one above.
+ *
+ * `npm start` rather than `npm run dev`: no Vite, no proxy, one process on
+ * `API_PORT`, which is the shape a Dockerfile runs.
+ */
+async function serveBuiltBundle(project: string): Promise<void> {
+  const environment: Record<string, string | undefined> = { ...process.env }
+
+  for (const name of PROJECT_OWNED_VARIABLES) {
+    delete environment[name]
+  }
+
+  // Node leaves an already-set variable alone when it reads `--env-file`, so
+  // this reaches the child even though the generated `.env` never mentions it.
+  environment.WEB_BUNDLE_DIR = join(project, 'dist')
+
+  const service = spawn('npm', ['start'], {
+    cwd: project,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: environment,
+    detached: true,
+  })
+  const output: string[] = []
+
+  service.stdout.on('data', (chunk: Buffer) => output.push(chunk.toString()))
+  service.stderr.on('data', (chunk: Buffer) => output.push(chunk.toString()))
+
+  const origin = `http://localhost:${API_PORT}`
+
+  try {
+    const deadline = Date.now() + BOOT_TIMEOUT_MS
+    let ready = false
+
+    while (Date.now() < deadline) {
+      if (service.exitCode !== null) {
+        throw new PackagingError(
+          `The scaffolded service exited with ${service.exitCode} while serving its bundle.\n${output.join('')}`,
+        )
+      }
+
+      const answer = await fetchOrUndefined(`${origin}/healthz`)
+
+      if (answer !== undefined && answer.status === 200) {
+        ready = true
+        break
+      }
+
+      await delay(500)
+    }
+
+    if (!ready) {
+      throw new PackagingError(
+        `Nothing answered 200 on ${origin}/healthz within ${BOOT_TIMEOUT_MS / 1000}s with WEB_BUNDLE_DIR set. ` +
+          `That is the API alone, with no dev server in front of it.\n${output.join('')}`,
+      )
+    }
+
+    for (const path of ['/', '/signup', '/people/per_01JABCDEFGHJKMNPQRSTVWXYZ']) {
+      const page = await fetchOrUndefined(`${origin}${path}`)
+
+      if (page === undefined || page.status !== 200) {
+        throw new PackagingError(
+          `GET ${path} returned ${page?.status ?? 'nothing'} from the API. A deep link has to answer with ` +
+            `index.html, because the app decides what to draw from the address.\n${output.join('')}`,
+        )
+      }
+
+      const html = await page.text()
+
+      if (!html.includes('<div id="root">')) {
+        throw new PackagingError(`GET ${path} returned something other than the app shell:\n${html.slice(0, 500)}`)
+      }
+    }
+
+    report('  the API serves the app shell at /, /signup, and a deep link')
+
+    const scriptPath = firstBuiltScript(project)
+    const asset = await fetchOrUndefined(`${origin}${scriptPath}`)
+
+    if (asset === undefined || asset.status !== 200) {
+      throw new PackagingError(`GET ${scriptPath} returned ${asset?.status ?? 'nothing'} from the API.`)
+    }
+
+    const assetType = asset.headers.get('content-type') ?? ''
+
+    if (!assetType.includes('javascript')) {
+      throw new PackagingError(`GET ${scriptPath} came back as ${assetType} rather than JavaScript.`)
+    }
+
+    report(`  built assets serve with their own content type (${scriptPath})`)
+
+    // The rule the fallback is easiest to get wrong on. A bare catch-all would
+    // answer this with the shell and a 200, telling a client nothing about the
+    // endpoint it misspelled.
+    //
+    // The status is deliberately not pinned. Every toggleable module's router
+    // carries a `/v1/*` gate that resolves the caller before routing, so an
+    // unauthenticated request to an unknown path is `401` from the gate rather
+    // than `404` from the router. Which of the two answers is a question for
+    // auth, not for this check. What this check owns is that the answer is a
+    // JSON error and not a web page.
+    const missing = await fetchOrUndefined(`${origin}/v1/no-such-endpoint`)
+
+    if (missing === undefined) {
+      throw new PackagingError(`GET /v1/no-such-endpoint did not answer.\n${output.join('')}`)
+    }
+
+    const missingType = missing.headers.get('content-type') ?? ''
+
+    if (missing.status === 200 || !missingType.includes('application/json')) {
+      throw new PackagingError(
+        `GET /v1/no-such-endpoint returned ${missing.status} as ${missingType || 'no content type'}. The ` +
+          'single-page fallback is swallowing unknown API paths and answering them with the app shell.',
+      )
+    }
+
+    report(`  an unknown API path is still a JSON error (${missing.status}), not the app shell`)
+  } finally {
+    const group = service.pid
+
+    if (group === undefined) {
+      service.kill('SIGTERM')
+    } else {
+      try {
+        process.kill(-group, 'SIGTERM')
+      } catch {
+        // Already gone, which is the outcome we wanted.
+      }
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const databaseUrl = testDatabaseUrl()
   const scratch = mkdtempSync(join(tmpdir(), 'kelpie-packaging-'))
@@ -479,7 +635,10 @@ async function main(): Promise<void> {
     run('npm', ['run', 'build'], project)
     assertThemeUtilitiesEmitted(project)
 
-    report('\npackaging verified: create-kelpie writes a project that installs, boots, and builds')
+    report('\nserving the built bundle from the API, with no dev server in front of it')
+    await serveBuiltBundle(project)
+
+    report('\npackaging verified: create-kelpie writes a project that installs, boots, builds, and serves')
   } finally {
     if (process.env.KELPIE_KEEP_SCRATCH === undefined) {
       rmSync(scratch, { recursive: true, force: true })

@@ -4,6 +4,7 @@ import {
   ConfigurationError,
   ModuleBootError,
   ModuleConfigFileError,
+  WebBundleError,
   connectDatabase,
   createApp,
   createEmailSender,
@@ -16,6 +17,7 @@ import {
   registerModules,
   resolveActorFrom,
   runMigrations,
+  serveWebBundle,
 } from '@kelpie/server'
 import type { CredentialDependencies } from '@kelpie/server'
 
@@ -80,6 +82,15 @@ async function start(): Promise<void> {
     resolveClientIp: (context) => getConnInfo(context).remote.address ?? 'unknown',
   })
 
+  // After `createApp`, so every API route is registered ahead of the fallback.
+  // Unset while developing, where the Vite dev server builds the pages itself
+  // and proxies `/v1` here. Set it in a deployment, after `npm run build`, and
+  // one process serves the pages and the API on one address.
+  if (config.webBundleDirectory !== undefined) {
+    serveWebBundle(app, { directory: config.webBundleDirectory })
+    logger.info('serving web bundle', { directory: config.webBundleDirectory })
+  }
+
   const server = serve({ fetch: app.fetch, port: config.port }, (address) => {
     logger.info('listening', { port: address.port, runtimeMode: config.runtimeMode })
   })
@@ -117,6 +128,12 @@ try {
   if (error instanceof ModuleBootError) {
     reportFatal(error.message)
     reportFatal('Fix the module list in kelpie.config.ts, or the configuration it needs.')
+    process.exit(1)
+  }
+
+  if (error instanceof WebBundleError) {
+    reportFatal(error.message)
+    reportFatal('Run `npm run build` to produce one, or unset WEB_BUNDLE_DIR to serve the API alone.')
     process.exit(1)
   }
 

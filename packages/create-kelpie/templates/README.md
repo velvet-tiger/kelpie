@@ -67,6 +67,7 @@ stops the service at boot and lists every problem at once.
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64, generated for this project |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |
 | `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional, default 30 |
+| `WEB_BUNDLE_DIR` | Optional. A built web bundle to serve from the same origin as the API. Unset while developing; see Deploying below |
 | `RATE_LIMIT_FORMS_LIMIT` / `RATE_LIMIT_FORMS_WINDOW_SECONDS` | Optional. Requests per window per IP on a public form submit, default 20 / 60 |
 | `RATE_LIMIT_AUTH_LIMIT` / `RATE_LIMIT_AUTH_WINDOW_SECONDS` | Optional. Requests per window per IP on signup, login, and password reset, default 10 / 60 |
 | `RATE_LIMIT_API_LIMIT` / `RATE_LIMIT_API_WINDOW_SECONDS` | Optional. Requests per window per API key on the rest of `/v1`, default 600 / 60 |
@@ -82,6 +83,26 @@ unreadable, so rotate rather than replace:
    previous one.
 3. Re-encrypt everything still under the old key. Safe to run more than once.
 4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
+
+## Deploying
+
+`npm run dev` runs two processes. Vite builds the pages as you edit them and
+passes API calls through to the service, so your browser talks to one address.
+Vite is a development tool and has no part in a deployment.
+
+Build the pages once, then point the service at what it wrote:
+
+```bash
+npm run build
+WEB_BUNDLE_DIR=./dist npm start
+```
+
+One process now serves the pages and the API on `PORT`. Boot fails if
+`WEB_BUNDLE_DIR` holds no `index.html`, so a deployment whose build did not run
+stops rather than answering every browser with a blank page.
+
+Migrations apply at boot. Running more than one instance makes that a race, so
+migrate once in a release step and start the instances with `--no-migrate`.
 
 ## Upgrading
 

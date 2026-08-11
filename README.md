@@ -170,6 +170,7 @@ starting in a broken state.
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Seals secrets the service has to read back, such as webhook signing secrets |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |
 | `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional, default 30. How many days of webhook delivery history to keep |
+| `WEB_BUNDLE_DIR` | Optional. Directory holding a built web bundle, served from the same origin as the API. Leave it unset in development, where the Vite dev server builds the pages and proxies the API. Set it in a deployment, after `npm run build`, and one process serves both. Boot fails if the directory holds no `index.html` |
 
 `make setup` generates `SECRET_ENCRYPTION_KEY` for you. See
 [`docs/development.md`](docs/development.md) for the rest of the variables

@@ -1,5 +1,8 @@
 export { createApp } from './app.ts'
-export type { AppDependencies } from './app.ts'
+export type { AppDependencies, AppBindings } from './app.ts'
+
+export { WebBundleError, serveWebBundle } from './webBundle.ts'
+export type { WebBundleOptions } from './webBundle.ts'
 
 export { ConfigurationError, loadConfig } from './lib/config.ts'
 export type { Environment, KelpieConfig, LogLevel, RuntimeMode } from './lib/config.ts'
