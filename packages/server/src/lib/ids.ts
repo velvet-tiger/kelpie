@@ -36,7 +36,6 @@ export const idPrefixes = {
   agentRegistration: 'ag',
   agentRun: 'run',
   importJob: 'imp',
-  integrationConnection: 'int',
   /** Never returns over the wire either: identified by `(workspace_id, module_id)` instead. */
   moduleSetting: 'mset',
   /**

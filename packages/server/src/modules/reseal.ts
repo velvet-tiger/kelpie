@@ -4,7 +4,6 @@ import type { Database } from '../lib/database.ts'
 import { SecretDecryptionError } from '../lib/secrets.ts'
 import type { SecretCipher } from '../lib/secrets.ts'
 import { agentRegistrations } from './agent-tasks/schema.ts'
-import { integrationConnections } from './integrations/schema.ts'
 import { webhooks } from './webhooks/schema.ts'
 
 /**
@@ -37,18 +36,20 @@ interface SealedColumn {
 }
 
 /**
- * Every column holding a value sealed by `lib/secrets.ts`.
+ * Every column in core's schema holding a value sealed by `lib/secrets.ts`.
  *
- * All three that exist are here, including the two nothing writes yet. Covering
- * a column before its first write is the cheap half of this: the expensive half
- * is noticing, a year later, that a rotation reported success while stranding a
- * customer's stored OAuth credential with no way back. `resealTest` asserts this
- * list against the schema, so a fourth `_encrypted` column fails a test the day
- * it is added rather than at the next rotation.
+ * All three that exist are here, including `agent_registrations`, which nothing
+ * writes yet. Covering a column before its first write is the cheap half of
+ * this: the expensive half is noticing, a year later, that a rotation reported
+ * success while stranding a customer's stored credential with no way back. The
+ * test asserts this list against the schema, so a fourth `_encrypted` column
+ * fails the day it is added rather than at the next rotation.
  *
  * There is no registry for modules to declare these through, on purpose. One
  * caller does not need an extension point, and a sealed column that nothing
- * re-seals is a bug whichever way it was registered.
+ * re-seals is a bug whichever way it was registered. A module outside core
+ * seals under the same key through `createSecretCipher` and brings its own pass
+ * over its own tables, which this one cannot see.
  */
 const SEALED_COLUMNS: readonly SealedColumn[] = [
   {
@@ -77,19 +78,6 @@ const SEALED_COLUMNS: readonly SealedColumn[] = [
         .update(agentRegistrations)
         .set({ authHeaderEncrypted: sealed })
         .where(eq(agentRegistrations.id, id))
-    },
-  },
-  {
-    label: 'integration_connections.secrets_encrypted',
-    read: async (db) =>
-      db
-        .select({ id: integrationConnections.id, sealed: integrationConnections.secretsEncrypted })
-        .from(integrationConnections),
-    write: async (db, id, sealed) => {
-      await db
-        .update(integrationConnections)
-        .set({ secretsEncrypted: sealed })
-        .where(eq(integrationConnections.id, id))
     },
   },
 ]

@@ -8,6 +8,39 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [0.4.0] - 2026-08-12
+
+### Removed
+
+- **`@kelpie/server`, `@kelpie/ui`** — the integration framework is now cloud,
+  not core. Integrations need vendor accounts the cloud manages, and a
+  self-hosted CRM is not broken without a catalog page listing providers it
+  cannot connect to, so core no longer carries the half it had. `modules.md`
+  records the change.
+
+  Gone from `@kelpie/server`: the `integration_connections` table, its
+  `integrations` module, and the `integrationConnection` id prefix. Gone from
+  `@kelpie/ui`: `IntegrationProvider`, `IntegrationCategory`,
+  `INTEGRATION_CATEGORIES`, `useIntegrationProviders`, the
+  `integrationProvider()` contribution method, and `integrationProviders()` on
+  `UiExtensions`.
+
+  Migration `0017` drops the table. Nothing ever wrote to it, in core or
+  anywhere else, so no data is lost. A module contributing a provider catalog
+  now owns the descriptor type as well, which is where it belonged.
+
+### Fixed
+
+- **`@kelpie/ui`** — the `nav.account` slot rendered nowhere. `Shell.tsx` reads
+  `primary` and `admin` and never read `account`, so a module contributing an
+  account tab got a page with nothing anywhere pointing at it. `AccountLayout`
+  now merges the slot into its tab strip, and core numbers its own three tabs in
+  hundreds so a module can land between them. Present since the registry landed.
+- **`@kelpie/ui`** — a module route under `account/` now renders inside
+  `AccountLayout` rather than as a sibling of it, so it keeps the account tab
+  strip instead of losing it the moment its own tab is clicked. Routes outside
+  that prefix mount under the shell exactly as before.
+
 ## [0.3.1] - 2026-08-11
 
 ### Changed

@@ -1,17 +1,26 @@
 import { NavLink, Outlet } from 'react-router'
 
+import type { NavItem } from '../../registry/contributions.ts'
+import { useNavItems } from '../../registry/context.ts'
+import { inSlotOrder } from '../../registry/registry.ts'
+
 /**
  * Tabs across the account's own settings, from the mockup's `AccountNav`.
  *
- * Three of its five tabs are here. Personal API keys and integrations arrive
- * with the features behind them, the same rule the shell's sidebar follows.
+ * Three of its five tabs are core's. The rest come from `nav.account`, which is
+ * where a module's own account page announces itself: a module route mounts as
+ * a sibling of `/account` rather than a child of it, so without this the page
+ * would render with no tab strip and nothing anywhere pointing at it.
+ *
+ * Core numbers itself in hundreds, the same convention the shell's sidebar
+ * uses, so a module can land between two core tabs without core renumbering.
  */
 
-const TABS = [
-  { to: '/account/profile', label: 'Profile' },
-  { to: '/account/security', label: 'Security' },
-  { to: '/account/preferences', label: 'Preferences' },
-] as const
+const CORE_TABS: readonly NavItem[] = [
+  { id: 'profile', to: '/account/profile', label: 'Profile', order: 100 },
+  { id: 'security', to: '/account/security', label: 'Security', order: 200 },
+  { id: 'preferences', to: '/account/preferences', label: 'Preferences', order: 300 },
+]
 
 function tabClass({ isActive }: { isActive: boolean }): string {
   return [
@@ -23,11 +32,13 @@ function tabClass({ isActive }: { isActive: boolean }): string {
 }
 
 export function AccountLayout(): React.JSX.Element {
+  const tabs = inSlotOrder([...CORE_TABS, ...useNavItems('account')])
+
   return (
     <div className="animate-fade-in mx-auto max-w-4xl">
       <nav className="mb-6 flex flex-wrap gap-1 border-b border-border pb-3">
-        {TABS.map((tab) => (
-          <NavLink key={tab.to} to={tab.to} className={tabClass}>
+        {tabs.map((tab) => (
+          <NavLink key={tab.id} to={tab.to} className={tabClass}>
             {tab.label}
           </NavLink>
         ))}

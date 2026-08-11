@@ -1,5 +1,5 @@
 import type { ExtensibleRecordType } from '@kelpie/schemas'
-import type { ComponentType, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 /**
  * What a UI module may add to the shell, per the slot table in `modules.md`.
@@ -68,22 +68,3 @@ export interface DashboardCard {
   readonly render: () => ReactNode
 }
 
-export const INTEGRATION_CATEGORIES = [
-  'messaging',
-  'identity',
-  'enrichment',
-  'email',
-  'calendar',
-] as const
-
-export type IntegrationCategory = (typeof INTEGRATION_CATEGORIES)[number]
-
-/** A catalog entry on the admin integrations page. Core owns the page and the connection lifecycle. */
-export interface IntegrationProvider {
-  readonly id: string
-  readonly name: string
-  readonly category: IntegrationCategory
-  readonly description: string
-  /** Rendered on the provider's own settings panel once connected. */
-  readonly settings?: ComponentType<Record<string, never>>
-}

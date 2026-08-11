@@ -4,7 +4,6 @@ import type { ComponentType } from 'react'
 import type {
   DashboardCard,
   ExtensibleRecordType,
-  IntegrationProvider,
   NavItem,
   NavSlot,
   RecordSidebarCard,
@@ -52,10 +51,6 @@ export function useRecordSidebarCards(objectType: ExtensibleRecordType): readonl
 
 export function useDashboardCards(): readonly DashboardCard[] {
   return useUiExtensions().dashboardCards()
-}
-
-export function useIntegrationProviders(): readonly IntegrationProvider[] {
-  return useUiExtensions().integrationProviders()
 }
 
 /**

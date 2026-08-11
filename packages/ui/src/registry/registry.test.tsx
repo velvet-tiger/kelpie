@@ -65,7 +65,7 @@ function TestShell(): React.JSX.Element {
   )
 }
 
-/** One module exercising every slot, the way a real integration module would. */
+/** One module exercising every slot, the way a real module would. */
 const gmailModule: UiModule = {
   id: 'gmail-sync',
 
@@ -82,12 +82,6 @@ const gmailModule: UiModule = {
       render: () => <p>Last emailed yesterday</p>,
     })
     context.dashboardCard({ id: 'gmail-unread', render: () => <p>Twelve unread</p> })
-    context.integrationProvider({
-      id: 'gmail',
-      name: 'Gmail',
-      category: 'email',
-      description: 'Read-only mailbox sync',
-    })
     context.override(recordHeader, ({ title }) => <h2>Gmail header: {title}</h2>)
   },
 }
@@ -108,7 +102,7 @@ describe('an assembly with no UI modules', () => {
     expect(NO_UI_MODULES.recordTabs('person')).toEqual([])
     expect(NO_UI_MODULES.recordSidebarCards('company')).toEqual([])
     expect(NO_UI_MODULES.dashboardCards()).toEqual([])
-    expect(NO_UI_MODULES.integrationProviders()).toEqual([])
+    expect(NO_UI_MODULES.navItems('account')).toEqual([])
   })
 
   it('renders core components, and nothing where the slots are', () => {
@@ -138,7 +132,6 @@ describe('a registered module', () => {
     expect(extensions.recordTabs('person').map((tab) => tab.label)).toEqual(['Email'])
     expect(extensions.recordSidebarCards('person').map((card) => card.id)).toEqual(['gmail-last-seen'])
     expect(extensions.dashboardCards().map((card) => card.id)).toEqual(['gmail-unread'])
-    expect(extensions.integrationProviders().map((provider) => provider.name)).toEqual(['Gmail'])
   })
 
   it('renders into the shell', () => {

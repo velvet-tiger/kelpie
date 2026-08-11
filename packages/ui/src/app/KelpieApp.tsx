@@ -47,6 +47,7 @@ import { HandbookStepPage } from '../pages/onboarding/HandbookStepPage.tsx'
 import { InvitesStepPage } from '../pages/onboarding/InvitesStepPage.tsx'
 import { WorkspaceStepPage } from '../pages/onboarding/WorkspaceStepPage.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
+import type { RouteContribution } from '../registry/contributions.ts'
 import { useModuleRoutes } from '../registry/context.ts'
 import type { UiExtensions } from '../registry/registry.ts'
 import { SessionGate } from './SessionGate.tsx'
@@ -80,8 +81,25 @@ export function KelpieApp({ extensions, baseUrl }: KelpieAppProps): React.JSX.El
   )
 }
 
+/**
+ * A module route under `account/` renders inside `AccountLayout`, everything
+ * else directly under the shell.
+ *
+ * The prefix is the whole rule, and it is what makes `nav.account` mean
+ * anything: a module contributing a tab there needs its page to keep the tab
+ * strip, and a route mounted as a sibling of `account` would lose it the moment
+ * the tab was clicked. Core's own account pages are nested for the same reason.
+ */
+const ACCOUNT_PREFIX = 'account/'
+
+function isAccountRoute(route: RouteContribution): boolean {
+  return route.path.startsWith(ACCOUNT_PREFIX)
+}
+
 function AppRoutes(): React.JSX.Element {
   const moduleRoutes = useModuleRoutes()
+  const accountRoutes = moduleRoutes.filter(isAccountRoute)
+  const shellRoutes = moduleRoutes.filter((route) => !isAccountRoute(route))
 
   return (
     <Routes>
@@ -146,8 +164,15 @@ function AppRoutes(): React.JSX.Element {
             <Route path="profile" element={<ProfilePage />} />
             <Route path="security" element={<SecurityPage />} />
             <Route path="preferences" element={<PreferencesPage />} />
+            {accountRoutes.map((route) => (
+              <Route
+                key={route.path}
+                path={route.path.slice(ACCOUNT_PREFIX.length)}
+                element={route.element}
+              />
+            ))}
           </Route>
-          {moduleRoutes.map((route) => (
+          {shellRoutes.map((route) => (
             <Route key={route.path} path={route.path} element={route.element} />
           ))}
           {/* Last so every named route above wins first. Nested here rather than

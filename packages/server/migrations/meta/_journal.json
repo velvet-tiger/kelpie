@@ -120,6 +120,13 @@
       "when": 1786410884983,
       "tag": "0016_misty_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786490413323,
+      "tag": "0017_drop_integration_connections",
+      "breakpoints": true
     }
   ]
 }

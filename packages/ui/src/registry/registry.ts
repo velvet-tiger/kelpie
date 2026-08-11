@@ -3,7 +3,6 @@ import type { ComponentType } from 'react'
 import type {
   DashboardCard,
   ExtensibleRecordType,
-  IntegrationProvider,
   NavItem,
   NavSlot,
   RecordSidebarCard,
@@ -32,7 +31,6 @@ export interface UiModuleContext {
   recordTab(objectType: ExtensibleRecordType, tab: RecordTab): void
   recordSidebarCard(objectType: ExtensibleRecordType, card: RecordSidebarCard): void
   dashboardCard(card: DashboardCard): void
-  integrationProvider(provider: IntegrationProvider): void
   /** Replaces a core component. Prefer a slot; see `modules.md`. */
   override<Props>(token: Overridable<Props>, component: ComponentType<Props>): void
 }
@@ -49,7 +47,6 @@ export interface UiExtensions {
   recordTabs(objectType: ExtensibleRecordType): readonly RecordTab[]
   recordSidebarCards(objectType: ExtensibleRecordType): readonly RecordSidebarCard[]
   dashboardCards(): readonly DashboardCard[]
-  integrationProviders(): readonly IntegrationProvider[]
   componentFor<Props>(token: Overridable<Props>): ComponentType<Props>
 }
 
@@ -73,7 +70,6 @@ interface Accumulator {
   readonly recordTabs: Map<ExtensibleRecordType, RecordTab[]>
   readonly recordSidebarCards: Map<ExtensibleRecordType, RecordSidebarCard[]>
   readonly dashboardCards: DashboardCard[]
-  readonly integrationProviders: IntegrationProvider[]
   readonly overrides: OverrideStore
 }
 
@@ -138,11 +134,6 @@ function createModuleContext(
       accumulator.dashboardCards.push(card)
     },
 
-    integrationProvider(provider) {
-      claim(taken, module.id, 'admin.integrations.catalog', provider.id)
-      accumulator.integrationProviders.push(provider)
-    },
-
     override(token, component) {
       if (accumulator.overrides.has(token.key)) {
         throw new UiModuleError(
@@ -167,7 +158,6 @@ export function registerUiModules(modules: readonly UiModule[]): UiExtensions {
     recordTabs: new Map(),
     recordSidebarCards: new Map(),
     dashboardCards: [],
-    integrationProviders: [],
     overrides: createOverrideStore(),
   }
   const taken = new Set<string>()
@@ -189,7 +179,6 @@ export function registerUiModules(modules: readonly UiModule[]): UiExtensions {
     recordSidebarCards: (objectType) =>
       inSlotOrder(accumulator.recordSidebarCards.get(objectType) ?? []),
     dashboardCards: () => inSlotOrder(accumulator.dashboardCards),
-    integrationProviders: () => accumulator.integrationProviders,
     componentFor: (token) => accumulator.overrides.get(token),
   }
 }

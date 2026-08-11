@@ -13,7 +13,6 @@ import { createFormsModule } from './forms/index.ts'
 import { createHandbookModule } from './handbook/index.ts'
 import { createHiringModule } from './hiring/index.ts'
 import { createImportExportModule } from './import-export/index.ts'
-import * as integrations from './integrations/schema.ts'
 import { createNotesModule } from './notes/index.ts'
 import { createOpportunitiesModule } from './opportunities/index.ts'
 import { createPartnershipsModule } from './partnerships/index.ts'
@@ -40,21 +39,6 @@ import { createWorkspaceModule } from './workspace/index.ts'
  */
 export const coreMigrationsDirectory = fileURLToPath(new URL('../../migrations', import.meta.url))
 
-interface CoreModuleDefinition {
-  readonly id: string
-  readonly requires?: readonly string[]
-  readonly tables: Readonly<Record<string, unknown>>
-}
-
-const definitions: readonly CoreModuleDefinition[] = [
-  { id: 'integrations', requires: ['workspace'], tables: integrations },
-]
-
-/**
- * Modules with behaviour are written out; the rest contribute only tables so far
- * and are generated from the table above. As each grows routes and services it
- * moves out of `definitions` into its own module file, like `auth` has.
- */
 export const coreModules: readonly KelpieModule[] = [
   createAuthModule(coreMigrationsDirectory),
   createWorkspaceModule(coreMigrationsDirectory),
@@ -81,13 +65,4 @@ export const coreModules: readonly KelpieModule[] = [
   createImportExportModule(coreMigrationsDirectory),
   createAgentTasksModule(coreMigrationsDirectory),
   createWebhooksModule(coreMigrationsDirectory),
-  ...definitions.map((definition): KelpieModule => ({
-    id: definition.id,
-    ...(definition.requires === undefined ? {} : { requires: definition.requires }),
-    register(context) {
-      context.schema(definition.tables, coreMigrationsDirectory)
-
-      return Promise.resolve()
-    },
-  })),
 ]
