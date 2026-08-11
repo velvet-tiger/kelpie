@@ -8,7 +8,7 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
-## [Unreleased]
+## [0.3.1] - 2026-08-11
 
 ### Changed
 
@@ -108,6 +108,7 @@ First public release.
 - `react` and `react-dom` are peer dependencies of `@kelpie/ui`.
 - The packages export their TypeScript source under a `kelpie-source` condition and their compiled JavaScript under the default one. Consumers get JavaScript; the condition exists so the repository can develop without a build step. It is not part of the public contract.
 
+[0.3.1]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.3.1
 [0.3.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.3.0
 [0.2.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.2.0
 [0.1.1]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.1.1
