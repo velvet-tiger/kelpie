@@ -1,4 +1,5 @@
 import { serve } from '@hono/node-server'
+import { getConnInfo } from '@hono/node-server/conninfo'
 import {
   ConfigurationError,
   ModuleBootError,
@@ -73,6 +74,12 @@ async function start(): Promise<void> {
     contributions,
     credentials,
     createId,
+    rateLimit: config.rateLimit,
+    // The real socket address. `getConnInfo` needs `@hono/node-server`'s own
+    // request context, which is why this is resolved here rather than
+    // defaulted inside `createApp`: a header-based fallback would be
+    // spoofable, and this is the one place that actually knows the connection.
+    resolveClientIp: (context) => getConnInfo(context).remote.address ?? 'unknown',
   })
 
   const server = serve({ fetch: app.fetch, port: config.port }, (address) => {

@@ -67,6 +67,9 @@ stops the service at boot and lists every problem at once.
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64, generated for this project |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |
 | `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional, default 30 |
+| `RATE_LIMIT_FORMS_LIMIT` / `RATE_LIMIT_FORMS_WINDOW_SECONDS` | Optional. Requests per window per IP on a public form submit, default 20 / 60 |
+| `RATE_LIMIT_AUTH_LIMIT` / `RATE_LIMIT_AUTH_WINDOW_SECONDS` | Optional. Requests per window per IP on signup, login, and password reset, default 10 / 60 |
+| `RATE_LIMIT_API_LIMIT` / `RATE_LIMIT_API_WINDOW_SECONDS` | Optional. Requests per window per API key on the rest of `/v1`, default 600 / 60 |
 
 ### Rotating the encryption key
 

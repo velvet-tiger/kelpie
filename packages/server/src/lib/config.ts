@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { emailConfigSchema } from './email.ts'
 import type { EmailConfig } from './email.ts'
 import { describeValidationIssue } from './errors.ts'
+import { rateLimitConfigFrom, rateLimitConfigSchema } from './rateLimit.ts'
+import type { RateLimitConfig } from './rateLimit.ts'
 
 /**
  * The single place the service reads environment variables. Every other module
@@ -29,6 +31,7 @@ export interface KelpieConfig {
    * settings decide.
    */
   readonly moduleConfigPath: string | undefined
+  readonly rateLimit: RateLimitConfig
 }
 
 /** Thrown at boot when the environment cannot produce a valid configuration. */
@@ -60,6 +63,7 @@ const environmentSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']),
   KELPIE_MODULE_CONFIG_PATH: z.string().min(1).optional(),
   ...emailConfigSchema.shape,
+  ...rateLimitConfigSchema.shape,
 })
 
 /**
@@ -82,5 +86,6 @@ export function loadConfig(environment: Environment): KelpieConfig {
     logLevel: result.data.LOG_LEVEL,
     email: { EMAIL_PROVIDER: result.data.EMAIL_PROVIDER, EMAIL_FROM: result.data.EMAIL_FROM },
     moduleConfigPath: result.data.KELPIE_MODULE_CONFIG_PATH,
+    rateLimit: rateLimitConfigFrom(result.data),
   }
 }

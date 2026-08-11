@@ -6,6 +6,8 @@ import type { Actor } from '../lib/actor.ts'
 import type { Environment } from '../lib/config.ts'
 import type { DatabaseProbe } from '../lib/database.ts'
 import { createLogger } from '../lib/logger.ts'
+import { rateLimitConfigFrom, rateLimitConfigSchema } from '../lib/rateLimit.ts'
+import type { RateLimitConfig } from '../lib/rateLimit.ts'
 import type { KelpieModule } from '../runtime/module.ts'
 import type { ModuleContributions } from '../runtime/registry.ts'
 import type { EntitlementRegistry } from '../runtime/entitlements.ts'
@@ -13,6 +15,19 @@ import { registerModules } from '../runtime/registry.ts'
 import { TEST_ENVIRONMENT } from './environment.ts'
 import { createTestServices } from './services.ts'
 import type { TestServices } from './services.ts'
+
+/** The same defaults `loadConfig` produces from an empty environment: one source of numbers for both. */
+const DEFAULT_TEST_RATE_LIMIT: RateLimitConfig = rateLimitConfigFrom(rateLimitConfigSchema.parse({}))
+
+/**
+ * A caller's IP, for tests. Real entry points resolve this from the socket
+ * (`apps/kelpie/src/server.ts`); a test using `app.request()` has no socket, so
+ * it reads `X-Forwarded-For` when a test sets one to simulate distinct
+ * callers, falling back to a fixed address for everything else.
+ */
+function testClientIp(context: Context): string {
+  return context.req.header('X-Forwarded-For') ?? '203.0.113.1'
+}
 
 /**
  * Assembles an app for tests. Unlike the real boot it defaults every dependency,
@@ -38,6 +53,10 @@ export interface TestAppOptions {
    * route behaves as it did before module toggling existed.
    */
   readonly resolveActor?: (context: Context) => Promise<Actor>
+  /** Defaults to the same numbers `loadConfig` would, from an empty environment. */
+  readonly rateLimit?: RateLimitConfig
+  /** Defaults to reading `X-Forwarded-For`, so a test can simulate distinct callers. */
+  readonly resolveClientIp?: (context: Context) => string
 }
 
 export interface TestApp {
@@ -73,6 +92,8 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     credentials: { db: services.db, now: services.now },
     generateRequestId: options.generateRequestId ?? (() => 'req-test'),
     createId: services.createId,
+    rateLimit: options.rateLimit ?? DEFAULT_TEST_RATE_LIMIT,
+    resolveClientIp: options.resolveClientIp ?? testClientIp,
   })
 
   return { app, contributions, logLines, services }

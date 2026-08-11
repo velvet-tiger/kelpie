@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { cors } from 'hono/cors'
 
 import type { DatabaseProbe } from './lib/database.ts'
@@ -7,9 +8,15 @@ import { PUBLIC_ROUTE_PREFIX } from './lib/http.ts'
 import { createIdFactory } from './lib/ids.ts'
 import type { IdFactory } from './lib/ids.ts'
 import type { Logger } from './lib/logger.ts'
+import type { RateLimitConfig } from './lib/rateLimit.ts'
+import { securityHeadersMiddleware } from './lib/securityHeaders.ts'
 import type { CredentialDependencies } from './modules/auth/credentials.ts'
 import { MCP_INSTRUCTIONS, MCP_ROUTE_PREFIX, MCP_SERVER_INFO } from './modules/mcp/index.ts'
 import { createMcpEndpoint } from './modules/mcp/router.ts'
+import {
+  createAuthAndApiRateLimitMiddleware,
+  createFormSubmitRateLimitMiddleware,
+} from './modules/rate-limit/middleware.ts'
 import { createIdempotencyMiddleware } from './modules/workspace/idempotencyMiddleware.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 
@@ -34,6 +41,15 @@ export interface AppDependencies {
   readonly generateRequestId?: () => string
   /** Injected so tests can pin the ids `idempotencyMiddleware` reserves rows under. */
   readonly createId?: IdFactory
+  readonly rateLimit: RateLimitConfig
+  /**
+   * Required rather than defaulted: a wrong-but-plausible fallback (trusting a
+   * spoofable header, say) would degrade the rate limiter silently instead of
+   * failing to build. The real entry points resolve this from the actual
+   * socket (`apps/kelpie/src/server.ts`); tests resolve it from a header they
+   * control (`testing/app.ts`).
+   */
+  readonly resolveClientIp: (context: Context) => string
 }
 
 /** Per-request values the middleware chain sets and handlers read. */
@@ -87,6 +103,23 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
     })
   })
 
+  app.use('*', securityHeadersMiddleware)
+
+  const rateLimitDependencies = {
+    db: dependencies.credentials.db,
+    now: dependencies.credentials.now,
+    createId,
+    credentials: dependencies.credentials,
+    resolveClientIp: dependencies.resolveClientIp,
+    config: dependencies.rateLimit,
+  }
+
+  // Ahead of idempotency, so a rate-limited request never reserves an
+  // idempotency key it will not be allowed to spend. Skips `/v1/public/*`
+  // itself; `createFormSubmitRateLimitMiddleware` below covers it, mounted
+  // where the public CORS middleware requires.
+  app.use('/v1/*', createAuthAndApiRateLimitMiddleware(rateLimitDependencies))
+
   // Every module's `POST` gets this the same way, decided once here rather than
   // per route (`api.md`). It skips `/v1/public/*` itself — a public request has
   // no `Actor` to scope a key to — so it is mounted ahead of the public CORS
@@ -107,6 +140,11 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   // middleware is attached before anything can answer under the prefix.
   app.use(`${PUBLIC_ROUTE_PREFIX}/*`, PUBLIC_CORS)
 
+  // After CORS, not before: a throw ahead of it would strip the CORS headers a
+  // cross-origin embed needs to read the 429 body, and would apply to the
+  // preflight `OPTIONS` request CORS itself answers without reaching here.
+  app.use(`${PUBLIC_ROUTE_PREFIX}/*`, createFormSubmitRateLimitMiddleware(rateLimitDependencies))
+
   for (const { router } of dependencies.contributions.publicRouters) {
     app.route(PUBLIC_ROUTE_PREFIX, router)
   }
@@ -122,6 +160,14 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
     instructions: MCP_INSTRUCTIONS,
     logger: dependencies.logger,
   })
+
+  // The transport takes bearer keys only (`api.md`), so every call that
+  // reaches it is already the `api_key` traffic the `api` budget above
+  // exists for. Shared with `/v1` rather than a separate budget: one key's
+  // usage is one thing to protect the workspace from, whichever surface it
+  // comes through. No CORS layer to mind the order of here, unlike the forms
+  // budget — the transport checks its own `Origin` inside the handler.
+  app.use(MCP_ROUTE_PREFIX, createAuthAndApiRateLimitMiddleware(rateLimitDependencies))
 
   app.route(MCP_ROUTE_PREFIX, mcp.transport)
   app.route('/v1', mcp.catalog)

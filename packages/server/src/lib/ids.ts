@@ -46,6 +46,11 @@ export const idPrefixes = {
    * database is generated the same, injectable way.
    */
   idempotencyKey: 'idem',
+  /**
+   * Not returned over the wire either, for the same reason as `idempotencyKey`:
+   * a bucket is bookkeeping the rate limiter owns, not a resource with routes.
+   */
+  rateLimitBucket: 'rl',
 } as const
 
 export type ObjectKind = keyof typeof idPrefixes

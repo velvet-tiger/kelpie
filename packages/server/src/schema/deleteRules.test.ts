@@ -275,7 +275,8 @@ describe.skipIf(connectionString === undefined)('migrations', () => {
       expect(names).toContain('password_reset_tokens')
       expect(names).toContain('import_job_rows')
       expect(names).toContain('workspace_module_settings')
-      expect(names).toHaveLength(38)
+      expect(names).toContain('rate_limit_buckets')
+      expect(names).toHaveLength(39)
     } finally {
       await database.close()
     }

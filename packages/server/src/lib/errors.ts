@@ -77,6 +77,10 @@ export class AppError extends Error {
   static conflict(message: string, details?: readonly ErrorDetail[]): AppError {
     return new AppError('conflict', message, details)
   }
+
+  static rateLimited(message = 'Too many requests'): AppError {
+    return new AppError('rate_limited', message)
+  }
 }
 
 /**

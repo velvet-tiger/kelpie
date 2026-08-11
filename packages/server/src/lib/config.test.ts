@@ -19,6 +19,11 @@ describe('loadConfig', () => {
       databaseUrl: 'postgres://kelpie:kelpie@localhost:5432/kelpie_dev',
       logLevel: 'debug',
       email: { EMAIL_PROVIDER: 'log', EMAIL_FROM: 'kelpie@example.com' },
+      rateLimit: {
+        forms: { limit: 20, windowMs: 60_000 },
+        auth: { limit: 10, windowMs: 60_000 },
+        api: { limit: 600, windowMs: 60_000 },
+      },
     })
   })
 
