@@ -20,15 +20,20 @@
  *   2. `coreMigrationsDirectory` points at real migrations. Drizzle reads them
  *      at runtime and they sit outside `dist`, so only `files` puts them in the
  *      tarball.
- *   3. The service boots against Postgres, applies migrations, answers
+ *   3. The generated project passes its own `npm run typecheck`. Its tsconfig is
+ *      stricter than this repository's, so `apps/kelpie` compiling proves
+ *      nothing about what the scaffolder writes.
+ *   4. The service boots against Postgres, applies migrations, answers
  *      `/healthz`, and accepts a signup. That is the generated `src/server.ts`,
  *      `kelpie.config.ts`, and `.env` all being right together.
- *   4. A production build of the generated web entry emits the theme utilities.
- *      Tailwind ignores `node_modules` during automatic source detection, so if
- *      the `@source` in `styles.css` does not reach the components beside it,
- *      the build still succeeds and every page ships unstyled.
- *   5. The API serves that build on its own, with `WEB_BUNDLE_DIR` set and no
- *      dev server in front of it. Checks 3 and 4 both pass while a deployment
+ *   5. A production build of the generated web entry emits the theme utilities,
+ *      with `.env` moved aside. Tailwind ignores `node_modules` during automatic
+ *      source detection, so if the `@source` in `styles.css` does not reach the
+ *      components beside it, the build still succeeds and every page ships
+ *      unstyled. The missing `.env` is the container case: a build that reads
+ *      the environment works here and fails in an image.
+ *   6. The API serves that build on its own, with `WEB_BUNDLE_DIR` set and no
+ *      dev server in front of it. Checks 4 and 5 both pass while a deployment
  *      shows a blank page, because one runs Vite and the other never serves what
  *      it built.
  *
@@ -39,7 +44,16 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -130,8 +144,36 @@ function readManifest(directory: string): PackageManifest {
   return manifest
 }
 
-function run(command: string, args: readonly string[], cwd: string): void {
-  execFileSync(command, [...args], { cwd, stdio: 'inherit' })
+function run(
+  command: string,
+  args: readonly string[],
+  cwd: string,
+  environment?: Record<string, string | undefined>,
+): void {
+  execFileSync(command, [...args], {
+    cwd,
+    stdio: 'inherit',
+    ...(environment === undefined ? {} : { env: environment }),
+  })
+}
+
+/**
+ * This process's environment, minus everything the generated project owns.
+ *
+ * Reading `TEST_DATABASE_URL` loads this repository's `.env` into our own
+ * environment, so without this a child inherits our `PORT`, `DATABASE_URL` and
+ * `API_PORT` and never reads the generated `.env` at all. Every step that
+ * exercises the generated project has to start from this rather than from
+ * `process.env`.
+ */
+function projectEnvironment(): Record<string, string | undefined> {
+  const environment: Record<string, string | undefined> = { ...process.env }
+
+  for (const name of PROJECT_OWNED_VARIABLES) {
+    delete environment[name]
+  }
+
+  return environment
 }
 
 /**
@@ -320,11 +362,7 @@ async function fetchOrUndefined(url: string, init?: RequestInit): Promise<Respon
  * transaction scope in one request.
  */
 async function bootAndSignUp(project: string): Promise<void> {
-  const environment: Record<string, string | undefined> = { ...process.env }
-
-  for (const name of PROJECT_OWNED_VARIABLES) {
-    delete environment[name]
-  }
+  const environment = projectEnvironment()
 
   // `npm run dev`, not `npm start`, so the Vite config and its proxy are under
   // test too, and every address below is the one the generated README hands out.
@@ -453,6 +491,57 @@ function assertThemeUtilitiesEmitted(project: string): void {
   report(`  web bundle builds, ${REQUIRED_UTILITIES.length} theme utilities present in the CSS`)
 }
 
+/**
+ * Runs the generated project's own `typecheck` script.
+ *
+ * The templates are stricter than this repository: `tsconfig.base.json` leaves
+ * `exactOptionalPropertyTypes` off and `templates/tsconfig.server.json` turns it
+ * on, so `apps/kelpie` can compile code a scaffolded project rejects. Nothing
+ * here ran that script, and a generated project shipped for two releases unable
+ * to typecheck itself.
+ */
+function typecheckProject(project: string): void {
+  run('npm', ['run', 'typecheck'], project)
+  report('  the generated project typechecks against its own tsconfig')
+}
+
+/**
+ * Builds the web bundle with `.env` moved out of the way.
+ *
+ * A production build emits static files and talks to nothing, so it must not
+ * need the environment. Building beside a `.env` is what hid a `vite.config.ts`
+ * that demanded `API_PORT` on every invocation: the check passed here and the
+ * same build failed in a container, which deliberately excludes `.env` because
+ * it holds `SECRET_ENCRYPTION_KEY`.
+ *
+ * Moving the file is not enough on its own. `loadEnv` reads matching variables
+ * out of `process.env` too, and this repository's own `.env` is loaded into ours
+ * by the time we get here, so an inherited `API_PORT` stood in for the file and
+ * the first version of this check passed against the unfixed template.
+ *
+ * Scrubbing the environment also fixed something quieter. Our `.env` sets
+ * `NODE_ENV=development`, Vite leaves an existing `NODE_ENV` alone, and the
+ * build inherited it. Every run of this check until now built a development
+ * bundle: 1,108 kB against the 873 kB a self-hoster actually ships. The
+ * assertions below were made about an artifact nobody deploys.
+ *
+ * Restored in a `finally`, because `serveBuiltBundle` below still needs it.
+ */
+function buildWithoutEnvironmentFile(project: string): void {
+  const envFile = join(project, '.env')
+  const stashed = join(project, '.env.stashed-by-packaging-check')
+
+  renameSync(envFile, stashed)
+
+  try {
+    run('npm', ['run', 'build'], project, projectEnvironment())
+  } finally {
+    renameSync(stashed, envFile)
+  }
+
+  report('  the web bundle builds with no .env beside it and none of its variables set')
+}
+
 /** A hashed asset the build emitted, to prove the file server reaches real files. */
 function firstBuiltScript(project: string): string {
   const assets = join(project, 'dist', 'assets')
@@ -479,11 +568,7 @@ function firstBuiltScript(project: string): string {
  * `API_PORT`, which is the shape a Dockerfile runs.
  */
 async function serveBuiltBundle(project: string): Promise<void> {
-  const environment: Record<string, string | undefined> = { ...process.env }
-
-  for (const name of PROJECT_OWNED_VARIABLES) {
-    delete environment[name]
-  }
+  const environment = projectEnvironment()
 
   // Node leaves an already-set variable alone when it reads `--env-file`, so
   // this reaches the child even though the generated `.env` never mentions it.
@@ -628,11 +713,14 @@ async function main(): Promise<void> {
     report('\nchecking @kelpie/server')
     run('node', ['check-server.js'], project)
 
+    report('\ntypechecking the scaffolded project')
+    typecheckProject(project)
+
     report('\nbooting the scaffolded service')
     await bootAndSignUp(project)
 
     report('\nbuilding the scaffolded web bundle')
-    run('npm', ['run', 'build'], project)
+    buildWithoutEnvironmentFile(project)
     assertThemeUtilitiesEmitted(project)
 
     report('\nserving the built bundle from the API, with no dev server in front of it')

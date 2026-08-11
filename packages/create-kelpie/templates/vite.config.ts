@@ -11,7 +11,7 @@ const projectRoot = fileURLToPath(new URL('./', import.meta.url))
  * origin, so the UI runs against same-origin `/v1` in development exactly as it
  * does in production.
  */
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   // `loadEnv` rather than `process.env`, because `npm run dev:web` runs `vite`
   // directly and nothing has read `.env` into the environment by then. Reading
   // `process.env.WEB_PORT` here means the port in `.env` is silently ignored and
@@ -24,6 +24,26 @@ export default defineConfig(({ mode }) => {
   // page loads and every `/v1` call times out against the dev server it came
   // from.
   const environment = loadEnv(mode, projectRoot, ['API_', 'WEB_'])
+
+  const shared = {
+    root: fileURLToPath(new URL('./web', import.meta.url)),
+    envDir: projectRoot,
+    plugins: [react(), tailwindcss()],
+    build: {
+      outDir: fileURLToPath(new URL('./dist', import.meta.url)),
+      emptyOutDir: true,
+    },
+  }
+
+  // A production build writes static files and proxies nothing, so it needs no
+  // API port. Demanding one for every invocation breaks any build that runs
+  // without a `.env` beside it, which is exactly what a container build is: the
+  // image leaves `.env` out because it holds `SECRET_ENCRYPTION_KEY`, and the
+  // build then dies over a variable it was never going to read.
+  if (command !== 'serve') {
+    return shared
+  }
+
   const apiPort = environment.API_PORT
 
   if (apiPort === undefined || apiPort.length === 0) {
@@ -33,13 +53,7 @@ export default defineConfig(({ mode }) => {
   const apiOrigin = `http://localhost:${apiPort}`
 
   return {
-    root: fileURLToPath(new URL('./web', import.meta.url)),
-    envDir: projectRoot,
-    plugins: [react(), tailwindcss()],
-    build: {
-      outDir: fileURLToPath(new URL('./dist', import.meta.url)),
-      emptyOutDir: true,
-    },
+    ...shared,
     server: {
       port: Number(environment.WEB_PORT ?? 5173),
       // Refuse rather than quietly taking the next port. A launcher that was

@@ -272,6 +272,9 @@ project, installs the tarballs into it, and then:
   one that shipped
 - checks `coreMigrationsDirectory` reaches real migrations, which sit outside
   `dist` and only ship because `files` names them
+- runs the generated project's own `npm run typecheck`. Its tsconfig is stricter
+  than this repository's, so `apps/kelpie` compiling proves nothing about what
+  the scaffolder writes
 - runs `npm run dev` and asserts the dev server proxies `/healthz` to the API,
   serves `/signup`, and accepts a signup through the proxy
 - builds the web bundle and asserts the Tailwind theme utilities are in the CSS
@@ -284,6 +287,8 @@ The scaffolder writes that project rather than the script hand-rolling one, so
 the generated manifest's dependency list is under test too. A devDependency
 missing from the template surfaces here as a failed build rather than as a
 self-hoster's first five minutes.
+
+Every step that exercises the generated project runs with this repository's own variables stripped out, through `projectEnvironment()`. That is not tidiness. `TEST_DATABASE_URL` is read by loading our `.env`, which puts our `PORT`, `API_PORT` and `NODE_ENV` into the process; a child inheriting them stops testing the generated project and starts testing ours. The build additionally runs with the generated `.env` moved aside, because a production build must not need one. A container leaves `.env` out, and a build that quietly read it here fails there.
 
 It needs Postgres, through `TEST_DATABASE_URL`. `make up` writes it.
 

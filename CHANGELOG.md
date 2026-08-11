@@ -8,6 +8,19 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [Unreleased]
+
+### Fixed
+
+- **`create-kelpie`** — a scaffolded project failed its own `npm run typecheck`.
+  The generated `tsconfig.server.json` sets `exactOptionalPropertyTypes`, under
+  which passing `moduleConfig: undefined` is not the same as omitting the key.
+  Present since `0.2.0`.
+- **`create-kelpie`** — a scaffolded `vite build` demanded `API_PORT`, which only
+  the dev server's proxy uses. Any build without a `.env` beside it failed, which
+  is every container build, since the image leaves `.env` out. Present since
+  `0.2.0`.
+
 ## [0.3.0] - 2026-08-11
 
 ### Added
