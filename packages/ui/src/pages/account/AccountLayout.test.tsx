@@ -1,10 +1,13 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { ApiProvider } from '../../api/ApiProvider.tsx'
+import type { ApiClient } from '../../api/client.ts'
 import { UiExtensionProvider } from '../../registry/UiExtensionProvider.tsx'
 import { registerUiModules } from '../../registry/registry.ts'
-import type { UiExtensions, UiModule } from '../../registry/registry.ts'
+import type { UiModule } from '../../registry/registry.ts'
+import { stubClient } from '../../testing/stubClient.ts'
 import { AccountLayout } from './AccountLayout.tsx'
 
 afterEach(cleanup)
@@ -14,34 +17,71 @@ afterEach(cleanup)
  *
  * That slot was declared in `modules.md` and read by nobody: `Shell.tsx` asks
  * for `primary` and `admin` only, so a module contributing an account tab got a
- * page with no way in. These assert the fix, and the ordering rule that lets a
- * module land between two core tabs.
+ * page with no way in. These cover the fix, the ordering rule that lets a
+ * module land between two core tabs, and the case that made the shell and this
+ * strip worth sharing one hook: a module switched off in workspace settings
+ * disappears from both.
  */
 
-const integrationsModule: UiModule = {
-  id: 'integrations',
+const mailboxModule: UiModule = {
+  id: 'gmail-sync',
 
   register(context) {
     context.nav('account', {
-      id: 'integrations',
-      label: 'Integrations',
-      to: '/account/integrations',
+      id: 'gmail-sync',
+      label: 'Mailbox',
+      to: '/account/mailbox',
       order: 250,
     })
   },
 }
 
-function renderWith(extensions: UiExtensions): void {
+interface Stubs {
+  /** Module ids the workspace has switched off. */
+  readonly disabled?: readonly string[]
+}
+
+function accountClient(stubs: Stubs): ApiClient {
+  return stubClient({
+    get: (path) => {
+      if (path !== '/auth/me') {
+        throw new Error(`Unexpected get ${path}`)
+      }
+
+      return { user_id: 'usr_1', session_id: 'ses_1', workspace_id: 'ws_1', role: 'owner' }
+    },
+    list: (path) => {
+      if (path !== '/workspaces/ws_1/modules') {
+        throw new Error(`Unexpected list ${path}`)
+      }
+
+      const disabled = stubs.disabled ?? []
+
+      return {
+        items: ['gmail-sync', 'raises'].map((moduleId) => ({
+          module_id: moduleId,
+          enabled: !disabled.includes(moduleId),
+          locked: false,
+        })),
+        nextCursor: null,
+      }
+    },
+  })
+}
+
+function renderWith(modules: readonly UiModule[], stubs: Stubs = {}): void {
   render(
-    <UiExtensionProvider extensions={extensions}>
-      <MemoryRouter initialEntries={['/account/profile']}>
-        <Routes>
-          <Route path="account" element={<AccountLayout />}>
-            <Route path="profile" element={<p>Profile page</p>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    </UiExtensionProvider>,
+    <ApiProvider baseUrl="http://localhost/v1" client={accountClient(stubs)}>
+      <UiExtensionProvider extensions={registerUiModules(modules)}>
+        <MemoryRouter initialEntries={['/account/profile']}>
+          <Routes>
+            <Route path="account" element={<AccountLayout />}>
+              <Route path="profile" element={<p>Profile page</p>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </UiExtensionProvider>
+    </ApiProvider>,
   )
 }
 
@@ -50,16 +90,12 @@ function tabLabels(): readonly string[] {
 }
 
 describe('the account tab strip', () => {
-  it('shows core tabs and nothing else when no module contributes one', () => {
-    renderWith(registerUiModules([]))
+  it('shows core tabs and nothing else when no module contributes one', async () => {
+    renderWith([])
 
-    expect(tabLabels()).toEqual(['Profile', 'Security', 'Preferences'])
-  })
-
-  it('renders a module tab from the account nav slot', () => {
-    renderWith(registerUiModules([integrationsModule]))
-
-    expect(tabLabels()).toContain('Integrations')
+    await waitFor(() => {
+      expect(tabLabels()).toEqual(['Profile', 'Security', 'Preferences'])
+    })
   })
 
   /**
@@ -67,15 +103,27 @@ describe('the account tab strip', () => {
    * hundreds is what makes that possible without core renumbering, so an
    * appended-to-the-end result would mean the order was being ignored.
    */
-  it('places a module tab by its order among the core ones', () => {
-    renderWith(registerUiModules([integrationsModule]))
+  it('places a module tab by its order among the core ones', async () => {
+    renderWith([mailboxModule])
 
-    expect(tabLabels()).toEqual(['Profile', 'Security', 'Integrations', 'Preferences'])
+    await waitFor(() => {
+      expect(tabLabels()).toEqual(['Profile', 'Security', 'Mailbox', 'Preferences'])
+    })
   })
 
-  it('still renders the page inside the strip', () => {
-    renderWith(registerUiModules([integrationsModule]))
+  it('drops a module tab when the workspace has switched that module off', async () => {
+    renderWith([mailboxModule], { disabled: ['gmail-sync'] })
 
-    expect(screen.getByText('Profile page')).toBeDefined()
+    await waitFor(() => {
+      expect(tabLabels()).toEqual(['Profile', 'Security', 'Preferences'])
+    })
+  })
+
+  it('still renders the page inside the strip', async () => {
+    renderWith([mailboxModule])
+
+    await waitFor(() => {
+      expect(screen.getByText('Profile page')).toBeDefined()
+    })
   })
 })

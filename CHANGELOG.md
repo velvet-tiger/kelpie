@@ -40,6 +40,11 @@ While the major version is `0`, a minor bump may break the API.
   `AccountLayout` rather than as a sibling of it, so it keeps the account tab
   strip instead of losing it the moment its own tab is clicked. Routes outside
   that prefix mount under the shell exactly as before.
+- **`@kelpie/ui`** — the shell's sidebar and the account tab strip now share one
+  rule for hiding the nav items of a disabled module, `useVisibleNavItems`. The
+  filter previously lived in `Shell.tsx` alone, so the new account tabs would
+  have kept showing a module the workspace had switched off, leading to a page
+  that answers `403`.
 
 ## [0.3.1] - 2026-08-11
 

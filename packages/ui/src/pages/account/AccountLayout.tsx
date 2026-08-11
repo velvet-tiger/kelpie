@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router'
 
 import type { NavItem } from '../../registry/contributions.ts'
 import { useNavItems } from '../../registry/context.ts'
-import { inSlotOrder } from '../../registry/registry.ts'
+import { useVisibleNavItems } from '../../registry/visibleNav.ts'
 
 /**
  * Tabs across the account's own settings, from the mockup's `AccountNav`.
@@ -32,7 +32,7 @@ function tabClass({ isActive }: { isActive: boolean }): string {
 }
 
 export function AccountLayout(): React.JSX.Element {
-  const tabs = inSlotOrder([...CORE_TABS, ...useNavItems('account')])
+  const tabs = useVisibleNavItems(CORE_TABS, useNavItems('account'))
 
   return (
     <div className="animate-fade-in mx-auto max-w-4xl">

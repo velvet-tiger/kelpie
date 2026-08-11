@@ -2,13 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
 import { useAccount, useTheme } from '../api/resources/account.ts'
-import { useModuleSettings } from '../api/resources/moduleSettings.ts'
 import { useLogOut } from '../api/resources/session.ts'
 import { initialsOf } from '../lib/names.ts'
 import type { ThemePreference } from '../lib/theme.ts'
 import { useNavItems } from '../registry/context.ts'
 import type { NavItem } from '../registry/contributions.ts'
-import { inSlotOrder } from '../registry/registry.ts'
+import { useVisibleNavItems } from '../registry/visibleNav.ts'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 
 /**
@@ -51,16 +50,6 @@ const CORE_NAV: readonly NavItem[] = [
  */
 const TOP_LEVEL_NAV_IDS: ReadonlySet<string> = new Set(['dashboard', 'handbook', 'planning', 'decisions'])
 
-/**
- * A nav item whose id does not match its module id. Everything else looks
- * itself up directly, which is what keeps a toggleable module's own nav entry
- * working with no change here when one is added later.
- */
-const NAV_ID_TO_MODULE_ID: Readonly<Record<string, string>> = {
-  fundraising: 'raises',
-  data: 'import-export',
-}
-
 function linkClass({ isActive }: { isActive: boolean }): string {
   return [
     'block rounded-md px-2 py-1 text-[13px] transition-colors duration-100',
@@ -89,12 +78,6 @@ export function Shell(): React.JSX.Element {
   const logOut = useLogOut()
   const moduleNav = useNavItems('primary')
   const moduleAdminNav = useNavItems('admin')
-  const { settings } = useModuleSettings()
-  const disabledModuleIds = new Set(
-    settings.filter((setting) => !setting.enabled).map((setting) => setting.moduleId),
-  )
-  const isModuleHidden = (navId: string): boolean =>
-    disabledModuleIds.has(NAV_ID_TO_MODULE_ID[navId] ?? navId)
   const [menuOpen, setMenuOpen] = useState(false)
   // The same preference the account page writes, so this button and that page
   // cannot disagree about which theme the account is on.
@@ -128,12 +111,10 @@ export function Shell(): React.JSX.Element {
     }
   }, [menuOpen])
 
-  const navItems = inSlotOrder([...CORE_NAV, ...moduleNav]).filter((item) => !isModuleHidden(item.id))
+  const navItems = useVisibleNavItems(CORE_NAV, moduleNav)
   const topLevelItems = navItems.filter((item) => TOP_LEVEL_NAV_IDS.has(item.id))
   const crmItems = navItems.filter((item) => !TOP_LEVEL_NAV_IDS.has(item.id))
-  const adminItems = inSlotOrder([...CORE_ADMIN_NAV, ...moduleAdminNav]).filter(
-    (item) => !isModuleHidden(item.id),
-  )
+  const adminItems = useVisibleNavItems(CORE_ADMIN_NAV, moduleAdminNav)
 
   return (
     <div className="flex min-h-screen bg-surface">
