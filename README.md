@@ -232,7 +232,9 @@ shipped yet.
   is not built yet
 - [`docs/development.md`](docs/development.md) — working on this repository:
   package layout, the module system, packaging, and releasing
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contributing, and the copyright
+  assignment every contribution includes
 
 ## License
 
-AGPL-3.0. See [`LICENSE`](LICENSE).
+AGPL-3.0, copyright the Kelpie project. See [`LICENSE`](LICENSE).
