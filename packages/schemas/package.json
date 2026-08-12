@@ -1,6 +1,6 @@
 {
   "name": "@kelpie/schemas",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Wire contract for the Kelpie API, as Zod schemas. Shared by the service, the UI, and any agent decoding /v1 responses.",
   "keywords": [
     "kelpie",
