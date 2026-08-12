@@ -89,7 +89,8 @@ unreadable, so rotate rather than replace:
    `SECRET_ENCRYPTION_KEY`.
 2. Deploy. New secrets seal under the new key; existing ones still read with the
    previous one.
-3. Re-encrypt everything still under the old key. Safe to run more than once.
+3. Run `npm run reseal`. It rewrites every row still sealed under the old key.
+   Safe to run more than once.
 4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
 
 ## Deploying

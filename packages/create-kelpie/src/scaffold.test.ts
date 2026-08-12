@@ -74,6 +74,7 @@ describe('scaffold', () => {
       'kelpie.config.ts',
       'kelpie.ui.config.ts',
       'package.json',
+      'src/reseal.ts',
       'src/server.ts',
       'tsconfig.server.json',
       'tsconfig.web.json',

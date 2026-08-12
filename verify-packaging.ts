@@ -26,14 +26,18 @@
  *   4. The service boots against Postgres, applies migrations, answers
  *      `/healthz`, and accepts a signup. That is the generated `src/server.ts`,
  *      `kelpie.config.ts`, and `.env` all being right together.
- *   5. A production build of the generated web entry emits the theme utilities,
+ *   5. `npm run reseal` runs against the generated `.env` and exits clean. The
+ *      README documents this as the key-rotation command; nothing else here
+ *      calls it, so a missing script or a broken import would otherwise
+ *      surface only when a self-hoster rotates their key for the first time.
+ *   6. A production build of the generated web entry emits the theme utilities,
  *      with `.env` moved aside. Tailwind ignores `node_modules` during automatic
  *      source detection, so if the `@source` in `styles.css` does not reach the
  *      components beside it, the build still succeeds and every page ships
  *      unstyled. The missing `.env` is the container case: a build that reads
  *      the environment works here and fails in an image.
- *   6. The API serves that build on its own, with `WEB_BUNDLE_DIR` set and no
- *      dev server in front of it. Checks 4 and 5 both pass while a deployment
+ *   7. The API serves that build on its own, with `WEB_BUNDLE_DIR` set and no
+ *      dev server in front of it. Checks 4 and 6 both pass while a deployment
  *      shows a blank page, because one runs Vite and the other never serves what
  *      it built.
  *
@@ -464,6 +468,21 @@ async function bootAndSignUp(project: string): Promise<void> {
   }
 }
 
+/**
+ * Runs the generated project's own `reseal` script.
+ *
+ * Proves the documented key-rotation command actually works: the script
+ * resolves its `@kelpie/server` imports from the installed tarball, reads the
+ * scaffolded `.env`, and reaches the database. Nothing else in this file
+ * exercises `npm run reseal`, so a missing script or a broken import here
+ * would otherwise surface only when a self-hoster rotates their key for the
+ * first time.
+ */
+function resealAssembly(project: string): void {
+  run('npm', ['run', 'reseal'], project, projectEnvironment())
+  report('  the scaffolded reseal script runs against the generated .env')
+}
+
 function assertThemeUtilitiesEmitted(project: string): void {
   const assets = join(project, 'dist', 'assets')
 
@@ -718,6 +737,9 @@ async function main(): Promise<void> {
 
     report('\nbooting the scaffolded service')
     await bootAndSignUp(project)
+
+    report('\nrunning the scaffolded reseal script')
+    resealAssembly(project)
 
     report('\nbuilding the scaffolded web bundle')
     buildWithoutEnvironmentFile(project)

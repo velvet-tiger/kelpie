@@ -20,6 +20,7 @@ package.json           @kelpie/server and @kelpie/ui, pinned to this version
 kelpie.config.ts       the server module list
 kelpie.ui.config.ts    the UI module list
 src/server.ts          the entry point: config, modules, migrations, serve
+src/reseal.ts          re-seals stored secrets after a SECRET_ENCRYPTION_KEY change
 web/index.html         the web entry
 web/main.tsx
 vite.config.ts         dev server, proxying /v1 to the API
