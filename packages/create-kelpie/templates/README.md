@@ -40,8 +40,10 @@ Then open <http://localhost:__WEB_PORT__/signup> and create an account.
 Passwords need at least 12 characters. Signup names your workspace, invites your
 team, and leaves you on People with a starter handbook in place.
 
-Kelpie does not send email yet. Invitation and password-reset links print to the
-API's log. Copy them from there to follow either flow.
+This default configuration doesn't send email. `EMAIL_PROVIDER=log` prints
+invitation and password-reset links to the API's log instead of mailing them;
+copy them from there to follow either flow. Set `EMAIL_PROVIDER=smtp` below to
+send them for real.
 
 ## Adding a module
 
@@ -51,8 +53,9 @@ on an unknown id or an unmet dependency rather than starting without it.
 
 ## Configuration
 
-Everything below is required unless marked optional. A missing or invalid value
-stops the service at boot and lists every problem at once.
+Everything below is required unless marked optional or conditional on another
+variable's value. A missing or invalid value stops the service at boot and
+lists every problem at once.
 
 | Variable | Values |
 | --- | --- |
@@ -62,8 +65,13 @@ stops the service at boot and lists every problem at once.
 | `WEB_PORT` | The Vite dev server's port. Development only |
 | `DATABASE_URL` | A `postgres://` or `postgresql://` connection string |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
-| `EMAIL_PROVIDER` | `log`. Writes invitations and resets to the log instead of sending them |
+| `EMAIL_PROVIDER` | `log` or `smtp`. `log` writes invitations and resets to the log instead of sending them |
 | `EMAIL_FROM` | The address transactional mail comes from |
+| `SMTP_HOST` | Required when `EMAIL_PROVIDER=smtp`. The mail server to connect to |
+| `SMTP_PORT` | Required when `EMAIL_PROVIDER=smtp`. The mail server's port |
+| `SMTP_SECURE` | Required when `EMAIL_PROVIDER=smtp`. `true` or `false`. Whether to connect over TLS from the start (typically port 465) rather than upgrading with STARTTLS (typically port 587 or 25) |
+| `SMTP_USER` | Required when `EMAIL_PROVIDER=smtp`. The SMTP username |
+| `SMTP_PASSWORD` | Required when `EMAIL_PROVIDER=smtp`. The SMTP password |
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64, generated for this project |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |
 | `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional, default 30 |

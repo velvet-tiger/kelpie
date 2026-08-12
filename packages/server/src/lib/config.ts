@@ -69,31 +69,41 @@ const environmentSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']),
   KELPIE_MODULE_CONFIG_PATH: z.string().min(1).optional(),
   WEB_BUNDLE_DIR: z.string().min(1).optional(),
-  ...emailConfigSchema.shape,
   ...rateLimitConfigSchema.shape,
 })
 
 /**
  * Parses an environment into a validated config.
  *
+ * `emailConfigSchema` is a discriminated union, so it is parsed separately
+ * from the rest: a union has no flat `.shape` to spread into `environmentSchema`,
+ * only its own `EMAIL_PROVIDER`-keyed branches. Problems from both parses are
+ * combined into one error, preserving the "every missing variable at once" rule.
+ *
  * @param environment Raw variables, normally `process.env`.
  * @throws ConfigurationError listing every invalid or missing variable.
  */
 export function loadConfig(environment: Environment): KelpieConfig {
-  const result = environmentSchema.safeParse(environment)
+  const environmentResult = environmentSchema.safeParse(environment)
+  const emailResult = emailConfigSchema.safeParse(environment)
 
-  if (!result.success) {
-    throw new ConfigurationError(result.error.issues.map(describeValidationIssue))
+  if (!environmentResult.success || !emailResult.success) {
+    const problems = [
+      ...(environmentResult.success ? [] : environmentResult.error.issues.map(describeValidationIssue)),
+      ...(emailResult.success ? [] : emailResult.error.issues.map(describeValidationIssue)),
+    ]
+
+    throw new ConfigurationError(problems)
   }
 
   return {
-    runtimeMode: result.data.NODE_ENV,
-    port: result.data.PORT,
-    databaseUrl: result.data.DATABASE_URL,
-    logLevel: result.data.LOG_LEVEL,
-    email: { EMAIL_PROVIDER: result.data.EMAIL_PROVIDER, EMAIL_FROM: result.data.EMAIL_FROM },
-    moduleConfigPath: result.data.KELPIE_MODULE_CONFIG_PATH,
-    webBundleDirectory: result.data.WEB_BUNDLE_DIR,
-    rateLimit: rateLimitConfigFrom(result.data),
+    runtimeMode: environmentResult.data.NODE_ENV,
+    port: environmentResult.data.PORT,
+    databaseUrl: environmentResult.data.DATABASE_URL,
+    logLevel: environmentResult.data.LOG_LEVEL,
+    email: emailResult.data,
+    moduleConfigPath: environmentResult.data.KELPIE_MODULE_CONFIG_PATH,
+    webBundleDirectory: environmentResult.data.WEB_BUNDLE_DIR,
+    rateLimit: rateLimitConfigFrom(environmentResult.data),
   }
 }

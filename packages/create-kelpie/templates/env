@@ -22,6 +22,16 @@ DATABASE_URL=__DATABASE_URL__
 SECRET_ENCRYPTION_KEY=__SECRET_ENCRYPTION_KEY__
 
 # `log` writes invitations and password resets to the log instead of sending
-# them. Real providers ship as modules.
+# them. `smtp` sends for real, through the server and credentials below.
 EMAIL_PROVIDER=log
 EMAIL_FROM=__EMAIL_FROM__
+
+# Required only when EMAIL_PROVIDER=smtp; ignored otherwise. SMTP_SECURE is
+# "true" for a server that expects TLS from the first byte (usually port 465),
+# "false" for one you connect to in plain text and that upgrades with STARTTLS
+# (usually port 587 or 25).
+# SMTP_HOST=smtp.example.com
+# SMTP_PORT=587
+# SMTP_SECURE=false
+# SMTP_USER=
+# SMTP_PASSWORD=
