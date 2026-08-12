@@ -8,6 +8,26 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [0.4.1] - 2026-08-12
+
+### Added
+
+- **`@kelpie/server`** — `EMAIL_PROVIDER=smtp`, backed by `nodemailer`, behind
+  the existing `EmailSender` port. `log` was the only option core shipped, so
+  a self-hosted install had no way to actually deliver an invite or a
+  password reset. `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, and
+  `SMTP_PASSWORD` are required only when `EMAIL_PROVIDER=smtp`, matching the
+  config layer's no-defaults rule.
+- **`create-kelpie`** — the scaffolded `.env` and README document the new
+  provider and its variables, and no longer state that Kelpie cannot send
+  email at all.
+
+### Notes
+
+- A vendor-managed provider (Resend, Postmark, Mailtrap, SendGrid) needs an
+  account core does not manage, so it belongs in a module rather than this
+  switch, per `modules.md`'s split test.
+
 ## [0.4.0] - 2026-08-12
 
 ### Removed
@@ -146,6 +166,8 @@ First public release.
 - `react` and `react-dom` are peer dependencies of `@kelpie/ui`.
 - The packages export their TypeScript source under a `kelpie-source` condition and their compiled JavaScript under the default one. Consumers get JavaScript; the condition exists so the repository can develop without a build step. It is not part of the public contract.
 
+[0.4.1]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.4.1
+[0.4.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.4.0
 [0.3.1]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.3.1
 [0.3.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.3.0
 [0.2.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.2.0
