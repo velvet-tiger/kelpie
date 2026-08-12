@@ -107,8 +107,8 @@ export function McpPage(): React.JSX.Element {
         </div>
         <p className="mt-1 text-[12px] text-ink-muted">
           Paste into your MCP client config, and replace the bearer token with a workspace key from{' '}
-          <Link to="/admin/workspace" className="text-accent hover:underline">
-            workspace settings
+          <Link to="/admin/api-keys" className="text-accent hover:underline">
+            API keys
           </Link>
           .
         </p>

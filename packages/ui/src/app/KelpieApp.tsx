@@ -27,9 +27,11 @@ import { RaiseDetail } from '../pages/RaiseDetail.tsx'
 import { RaiseStageSettingsPage } from '../pages/RaiseStageSettingsPage.tsx'
 import { RoleDetail } from '../pages/RoleDetail.tsx'
 import { AccountLayout } from '../pages/account/AccountLayout.tsx'
+import { PersonalApiKeysPage } from '../pages/account/PersonalApiKeysPage.tsx'
 import { PreferencesPage } from '../pages/account/PreferencesPage.tsx'
 import { ProfilePage } from '../pages/account/ProfilePage.tsx'
 import { SecurityPage } from '../pages/account/SecurityPage.tsx'
+import { ApiKeysPage } from '../pages/admin/ApiKeysPage.tsx'
 import { DataPage } from '../pages/admin/DataPage.tsx'
 import { McpPage } from '../pages/admin/McpPage.tsx'
 import { ModulesPage } from '../pages/admin/ModulesPage.tsx'
@@ -155,6 +157,7 @@ function AppRoutes(): React.JSX.Element {
           <Route path="admin/workspace" element={<WorkspaceSettingsPage />} />
           <Route path="admin/team" element={<TeamPage />} />
           <Route path="admin/data" element={<DataPage />} />
+          <Route path="admin/api-keys" element={<ApiKeysPage />} />
           <Route path="admin/mcp" element={<McpPage />} />
           <Route path="admin/webhooks" element={<WebhooksPage />} />
           <Route path="admin/modules" element={<ModulesPage />} />
@@ -164,6 +167,7 @@ function AppRoutes(): React.JSX.Element {
             <Route path="profile" element={<ProfilePage />} />
             <Route path="security" element={<SecurityPage />} />
             <Route path="preferences" element={<PreferencesPage />} />
+            <Route path="api-keys" element={<PersonalApiKeysPage />} />
             {accountRoutes.map((route) => (
               <Route
                 key={route.path}

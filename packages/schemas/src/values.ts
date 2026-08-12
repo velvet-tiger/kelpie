@@ -274,6 +274,14 @@ export const INVITE_STATUSES = ['pending', 'expired'] as const
 export type InviteStatus = (typeof INVITE_STATUSES)[number]
 
 /**
+ * A `workspace` key belongs to the workspace and needs the admin role to create
+ * or revoke. A `personal` key belongs to one member and is theirs alone.
+ */
+export const API_KEY_KINDS = ['workspace', 'personal'] as const
+
+export type ApiKeyKind = (typeof API_KEY_KINDS)[number]
+
+/**
  * Light, dark, or whatever the operating system says.
  *
  * `system` is a stored answer rather than the absence of one: a reader who has

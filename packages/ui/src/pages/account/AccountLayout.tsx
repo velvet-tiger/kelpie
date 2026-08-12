@@ -20,6 +20,7 @@ const CORE_TABS: readonly NavItem[] = [
   { id: 'profile', to: '/account/profile', label: 'Profile', order: 100 },
   { id: 'security', to: '/account/security', label: 'Security', order: 200 },
   { id: 'preferences', to: '/account/preferences', label: 'Preferences', order: 300 },
+  { id: 'api-keys', to: '/account/api-keys', label: 'API keys', order: 400 },
 ]
 
 function tabClass({ isActive }: { isActive: boolean }): string {

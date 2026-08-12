@@ -20,6 +20,7 @@ export {
   AGENT_RUN_STATUSES,
   AGENT_TASK_PLACEMENTS,
   AGENT_TASK_TARGET_TYPES,
+  API_KEY_KINDS,
   CANDIDATE_STATUS_LABELS,
   CANDIDATE_STATUSES,
   COMPANY_STAGES,
@@ -66,6 +67,7 @@ export type {
   AgentRunStatus,
   AgentTaskPlacement,
   AgentTaskTargetType,
+  ApiKeyKind,
   CandidateStatus,
   CompanyStage,
   ExtensibleRecordType,
@@ -227,6 +229,9 @@ export type {
   WebhookDelivery,
   WebhookInput,
 } from './webhook.ts'
+
+export { apiKeySchema, createApiKeyBody, createdApiKeySchema } from './apiKey.ts'
+export type { ApiKey, CreateApiKeyInput, CreatedApiKey } from './apiKey.ts'
 
 export {
   agentRunSchema,
