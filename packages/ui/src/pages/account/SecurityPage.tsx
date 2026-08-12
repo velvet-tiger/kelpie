@@ -7,6 +7,7 @@ import {
   useAccountSessions,
   useChangePassword,
   useRevokeAccountSession,
+  useTimezone,
 } from '../../api/resources/account.ts'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
@@ -208,6 +209,8 @@ function SessionRow({
   readonly onRevoke: () => void
   readonly isRevoking: boolean
 }): React.JSX.Element {
+  const timezone = useTimezone()
+
   return (
     <tr className="border-b border-border last:border-0">
       <td className="px-4 py-3">
@@ -219,7 +222,7 @@ function SessionRow({
           is on the wire and a session says where it is from once something can
           tell. */}
       <td className="px-4 py-3 text-ink-muted">{session.location ?? 'Unknown'}</td>
-      <td className="px-4 py-3 text-ink-muted">{formatDateTime(session.lastActiveAt)}</td>
+      <td className="px-4 py-3 text-ink-muted">{formatDateTime(session.lastActiveAt, timezone)}</td>
       <td className="px-4 py-3 text-right">
         {!session.current && (
           <button

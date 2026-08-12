@@ -13,6 +13,7 @@ import type { HandbookPage } from '@kelpie/schemas'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
+import { useTimezone } from '../../api/resources/account.ts'
 import {
   useCreateHandbookPage,
   useDeleteHandbookPage,
@@ -384,6 +385,7 @@ function HandbookEditor({
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(page.title)
   const [body, setBody] = useState(page.body)
+  const timezone = useTimezone()
 
   useEffect(() => {
     setTitle(page.title)
@@ -415,7 +417,7 @@ function HandbookEditor({
             <h1 className="text-[18px] font-semibold tracking-tight text-ink">{page.title}</h1>
           )}
           <div className="mt-1 text-[11px] text-ink-faint">
-            Updated {formatDateTime(page.updatedAt)}
+            Updated {formatDateTime(page.updatedAt, timezone)}
             {authorName === undefined ? '' : ` · ${authorName}`}
           </div>
         </div>

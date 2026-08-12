@@ -106,10 +106,12 @@ export function ActivityFeed({
   activities,
   nameById,
   now,
+  timezone,
 }: {
   readonly activities: readonly DashboardActivity[]
   readonly nameById: ReadonlyMap<string, string>
   readonly now: Date
+  readonly timezone: string
 }): React.JSX.Element {
   return (
     <section>
@@ -145,7 +147,7 @@ export function ActivityFeed({
                     dateTime={activity.createdAt.toISOString()}
                     className="shrink-0 text-[11px] text-ink-faint"
                   >
-                    {formatRelativeTime(activity.createdAt, now)}
+                    {formatRelativeTime(activity.createdAt, timezone, now)}
                   </time>
                 </div>
                 <p className="text-[11px] leading-snug text-ink-faint">
@@ -184,10 +186,12 @@ export function NotesList({
   notes,
   nameById,
   now,
+  timezone,
 }: {
   readonly notes: readonly DashboardNote[]
   readonly nameById: ReadonlyMap<string, string>
   readonly now: Date
+  readonly timezone: string
 }): React.JSX.Element {
   return (
     <section>
@@ -211,7 +215,7 @@ export function NotesList({
                 <span>·</span>
                 <span>{note.authorId === null ? 'System' : (nameById.get(note.authorId) ?? 'Unknown')}</span>
                 <span>·</span>
-                <span>{formatRelativeTime(note.createdAt, now)}</span>
+                <span>{formatRelativeTime(note.createdAt, timezone, now)}</span>
               </div>
             </li>
           ))}
@@ -224,9 +228,11 @@ export function NotesList({
 export function DecisionsList({
   decisions,
   nameById,
+  timezone,
 }: {
   readonly decisions: readonly DashboardDecision[]
   readonly nameById: ReadonlyMap<string, string>
+  readonly timezone: string
 }): React.JSX.Element {
   return (
     <section>
@@ -254,7 +260,7 @@ export function DecisionsList({
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
                 <TargetLink target={decision} />
                 <span>·</span>
-                <span>{formatDate(decision.decidedAt)}</span>
+                <span>{formatDate(decision.decidedAt, timezone)}</span>
                 <span>·</span>
                 <span>
                   {decision.ownerId === null ? '—' : (nameById.get(decision.ownerId) ?? 'Unknown')}

@@ -18,11 +18,13 @@ import type {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
+import { resolveTimezone } from '../../lib/dates.ts'
 import { applyTheme, getStoredTheme, setStoredTheme, watchSystemTheme } from '../../lib/theme.ts'
 import { useApiClient } from '../context.ts'
 import { toError } from '../errors.ts'
 import type { MutationResult } from '../resource.ts'
 import { asMutationResult } from './mutation.ts'
+import { useWorkspace } from './workspace.ts'
 
 /**
  * The signed-in person, as the `/account/*` pages read and write them.
@@ -217,4 +219,15 @@ export function useTheme(): ThemeControl {
   }
 
   return { theme, setTheme }
+}
+
+/**
+ * The zone dates render in: the account's own choice, falling back to the
+ * workspace's while either query is still loading.
+ */
+export function useTimezone(): string {
+  const { preferences } = useAccountPreferences()
+  const { workspace } = useWorkspace()
+
+  return resolveTimezone(preferences?.timezone, workspace?.timezone)
 }

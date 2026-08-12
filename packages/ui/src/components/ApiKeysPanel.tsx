@@ -2,6 +2,7 @@ import type { ApiKey, ApiKeyKind, CreatedApiKey } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useTimezone } from '../api/resources/account.ts'
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '../api/resources/apiKeys.ts'
 import { formatDate } from '../lib/dates.ts'
 import { CopyButton } from './CopyButton.tsx'
@@ -256,14 +257,15 @@ function ApiKeyRow({
   readonly isRevoking: boolean
 }): React.JSX.Element {
   const [isConfirming, setIsConfirming] = useState(false)
+  const timezone = useTimezone()
 
   return (
     <tr className="border-b border-border last:border-0">
       <td className="px-4 py-3 font-medium">{apiKey.name}</td>
       <td className="px-4 py-3 font-mono text-[12px] text-ink-muted">{apiKey.displayPrefix}</td>
-      <td className="px-4 py-3 text-ink-muted">{formatDate(apiKey.createdAt)}</td>
+      <td className="px-4 py-3 text-ink-muted">{formatDate(apiKey.createdAt, timezone)}</td>
       <td className="px-4 py-3 text-ink-muted">
-        {apiKey.lastUsedAt === null ? 'Never' : formatDate(apiKey.lastUsedAt)}
+        {apiKey.lastUsedAt === null ? 'Never' : formatDate(apiKey.lastUsedAt, timezone)}
       </td>
       <td className="px-4 py-3 text-right">
         {isConfirming ? (

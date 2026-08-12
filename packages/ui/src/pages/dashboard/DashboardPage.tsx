@@ -1,5 +1,6 @@
 import type { Dashboard } from '@kelpie/schemas'
 
+import { useTimezone } from '../../api/resources/account.ts'
 import { useDashboard } from '../../api/resources/dashboard.ts'
 import { useMembers } from '../../api/resources/members.ts'
 import { useWorkspace } from '../../api/resources/workspace.ts'
@@ -20,7 +21,7 @@ import { ActivityFeed, AttentionList, DecisionsList, NotesList } from './section
 
 /** The heading date, written in the workspace's own day rather than the browser's. */
 function briefHeading(dashboard: Dashboard): string {
-  return new Intl.DateTimeFormat('en-AU', {
+  return new Intl.DateTimeFormat(undefined, {
     weekday: 'long',
     month: 'short',
     day: 'numeric',
@@ -32,6 +33,7 @@ export function DashboardPage(): React.JSX.Element {
   const { dashboard, isLoading, error } = useDashboard()
   const { workspace } = useWorkspace()
   const { nameById } = useMembers()
+  const timezone = useTimezone()
 
   return (
     <div className="animate-fade-in">
@@ -46,6 +48,7 @@ export function DashboardPage(): React.JSX.Element {
           workspaceId={workspace?.id}
           workspaceName={workspace?.name ?? 'This workspace'}
           nameById={nameById}
+          timezone={timezone}
         />
       )}
     </div>
@@ -57,11 +60,13 @@ function DashboardBody({
   workspaceId,
   workspaceName,
   nameById,
+  timezone,
 }: {
   readonly dashboard: Dashboard
   readonly workspaceId: string | undefined
   readonly workspaceName: string
   readonly nameById: ReadonlyMap<string, string>
+  readonly timezone: string
 }): React.JSX.Element {
   // `generatedAt` rather than a fresh `new Date()`: every relative time on the
   // page is then measured from the same instant the counts were, so a tab left
@@ -97,11 +102,16 @@ function DashboardBody({
 
       <div className="mb-8 grid gap-8 lg:grid-cols-2">
         <AttentionList rows={attentionRows(dashboard)} />
-        <ActivityFeed activities={dashboard.recentActivity} nameById={nameById} now={now} />
+        <ActivityFeed
+          activities={dashboard.recentActivity}
+          nameById={nameById}
+          now={now}
+          timezone={timezone}
+        />
       </div>
       <div className="grid gap-8 lg:grid-cols-2">
-        <NotesList notes={dashboard.recentNotes} nameById={nameById} now={now} />
-        <DecisionsList decisions={dashboard.recentDecisions} nameById={nameById} />
+        <NotesList notes={dashboard.recentNotes} nameById={nameById} now={now} timezone={timezone} />
+        <DecisionsList decisions={dashboard.recentDecisions} nameById={nameById} timezone={timezone} />
       </div>
     </div>
   )

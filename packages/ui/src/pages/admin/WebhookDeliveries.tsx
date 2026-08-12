@@ -1,6 +1,7 @@
 import type { WebhookDelivery, WebhookDeliveryStatus } from '@kelpie/schemas'
 import { useState } from 'react'
 
+import { useTimezone } from '../../api/resources/account.ts'
 import { useWebhookDeliveries } from '../../api/resources/webhooks.ts'
 import { Chip } from '../../components/Chip.tsx'
 import type { ChipTone } from '../../components/Chip.tsx'
@@ -37,6 +38,7 @@ const STATUS_TONES: Readonly<Record<WebhookDeliveryStatus, ChipTone>> = {
 export function WebhookDeliveries({ webhookId }: { readonly webhookId: string }): React.JSX.Element {
   const [status, setStatus] = useState<StatusFilter>('all')
   const [openPayloadId, setOpenPayloadId] = useState<string | null>(null)
+  const timezone = useTimezone()
   const deliveries = useWebhookDeliveries(webhookId, {
     status: status === 'all' ? undefined : status,
   })
@@ -68,7 +70,7 @@ export function WebhookDeliveries({ webhookId }: { readonly webhookId: string })
       className: 'w-32',
       render: (delivery) => (
         <span className="font-mono text-[12px] text-ink-muted">
-          {formatDateTime(delivery.createdAt)}
+          {formatDateTime(delivery.createdAt, timezone)}
         </span>
       ),
     },
@@ -80,7 +82,7 @@ export function WebhookDeliveries({ webhookId }: { readonly webhookId: string })
       // reader is looking for. An em dash says "never" without claiming a time.
       render: (delivery) => (
         <span className="font-mono text-[12px] text-ink-muted">
-          {delivery.deliveredAt === null ? '—' : formatDateTime(delivery.deliveredAt)}
+          {delivery.deliveredAt === null ? '—' : formatDateTime(delivery.deliveredAt, timezone)}
         </span>
       ),
     },

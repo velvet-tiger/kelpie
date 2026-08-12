@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router'
 
+import { useTimezone } from '../api/resources/account.ts'
 import { useCreateDecision, useDecisions, useDeleteDecision } from '../api/resources/decisions.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { formatDate } from '../lib/dates.ts'
@@ -208,6 +209,8 @@ function DecisionItem({
   readonly ownerName: string | undefined
   readonly onRemove: () => void
 }): React.JSX.Element {
+  const timezone = useTimezone()
+
   return (
     <li className="border-b border-border px-4 py-3 last:border-0">
       <div className="flex items-start justify-between gap-2">
@@ -224,8 +227,8 @@ function DecisionItem({
         <p className="mt-1 text-[12px] text-ink-muted">{decision.rationale}</p>
       )}
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-faint">
-        <span>Decided {formatDate(decision.decidedAt)}</span>
-        {decision.dueAt !== null && <span>By {formatDate(decision.dueAt)}</span>}
+        <span>Decided {formatDate(decision.decidedAt, timezone)}</span>
+        {decision.dueAt !== null && <span>By {formatDate(decision.dueAt, timezone)}</span>}
         {ownerName !== undefined && <span>{ownerName}</span>}
       </div>
     </li>

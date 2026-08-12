@@ -2,6 +2,7 @@ import type { Note, RecordTargetType } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useTimezone } from '../api/resources/account.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useCreateNote, useNotes } from '../api/resources/notes.ts'
 import { formatDateTime } from '../lib/dates.ts'
@@ -149,6 +150,8 @@ function NoteItem({
   readonly note: Note
   readonly authorName: string
 }): React.JSX.Element {
+  const timezone = useTimezone()
+
   return (
     <li className="rounded-md border border-border bg-surface-raised px-3.5 py-3">
       <div className="flex items-start justify-between gap-2">
@@ -162,7 +165,7 @@ function NoteItem({
       <div className="mt-2 flex items-center gap-2 text-[11px] text-ink-faint">
         <span>{authorName}</span>
         <span>·</span>
-        <span>{formatDateTime(note.createdAt)}</span>
+        <span>{formatDateTime(note.createdAt, timezone)}</span>
       </div>
     </li>
   )

@@ -33,7 +33,7 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 /** How many of a day's items a calendar cell shows before summarising the rest. */
 const CELL_ITEM_LIMIT = 3
 
-const MONTH_AND_YEAR = new Intl.DateTimeFormat('en-AU', { month: 'long', year: 'numeric' })
+const MONTH_AND_YEAR = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' })
 
 export function PlanningPage(): React.JSX.Element {
   const [view, setView] = useState<ViewMode>('list')

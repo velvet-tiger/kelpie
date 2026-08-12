@@ -3,6 +3,7 @@ import type { AgentRun, McpTool } from '@kelpie/schemas'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 
+import { useTimezone } from '../../api/resources/account.ts'
 import {
   useAgentRuns,
   useAgents,
@@ -133,6 +134,7 @@ function RegisteredAgents(): React.JSX.Element {
   const { records, isLoading, error } = useAgents()
   const createAgent = useCreateAgent()
   const deleteAgent = useDeleteAgent()
+  const timezone = useTimezone()
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [endpoint, setEndpoint] = useState('')
@@ -253,7 +255,7 @@ function RegisteredAgents(): React.JSX.Element {
                 <span>
                   {agent.lastRunAt === null
                     ? 'Never run'
-                    : `Last run ${formatRelativeTime(agent.lastRunAt)}`}
+                    : `Last run ${formatRelativeTime(agent.lastRunAt, timezone)}`}
                 </span>
                 <button
                   type="button"
@@ -283,6 +285,7 @@ function RecentRuns(): React.JSX.Element {
   const { records: runs, isLoading, error } = useAgentRuns()
   const catalog = useAllAgentTasks()
   const agents = useAgents()
+  const timezone = useTimezone()
 
   const taskLabels = useMemo(
     () => new Map(catalog.records.map((task) => [task.id, task.label])),
@@ -333,7 +336,7 @@ function RecentRuns(): React.JSX.Element {
                 <span className={run.status === 'failed' ? 'font-medium text-danger' : 'text-ink-muted'}>
                   {AGENT_RUN_STATUS_LABELS[run.status]}
                 </span>
-                <span className="text-ink-faint">{formatRelativeTime(run.updatedAt)}</span>
+                <span className="text-ink-faint">{formatRelativeTime(run.updatedAt, timezone)}</span>
               </div>
             </li>
           ))}

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 
+import { useTimezone } from '../api/resources/account.ts'
 import { useCreateRole, useRoles } from '../api/resources/roles.ts'
 import { Chip } from '../components/Chip.tsx'
 import { DataTable } from '../components/DataTable.tsx'
@@ -27,6 +28,7 @@ export function HiringPage(): React.JSX.Element {
   const roles = useRoles({ term: term.trim().length > 0 ? term.trim() : undefined })
   const counts = useRoleCandidateCounts(roles.records.map((role) => role.id))
   const createRole = useCreateRole()
+  const timezone = useTimezone()
 
   function reset(): void {
     setAdding(false)
@@ -76,7 +78,7 @@ export function HiringPage(): React.JSX.Element {
     {
       key: 'created',
       header: 'Created',
-      render: (role) => formatDate(role.createdAt),
+      render: (role) => formatDate(role.createdAt, timezone),
     },
   ]
 

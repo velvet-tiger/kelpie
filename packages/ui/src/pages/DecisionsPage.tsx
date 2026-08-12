@@ -2,6 +2,7 @@ import type { Decision, RecordTargetType } from '@kelpie/schemas'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 
+import { useTimezone } from '../api/resources/account.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
 import { useDecisions } from '../api/resources/decisions.ts'
@@ -127,6 +128,7 @@ export function DecisionsPage(): React.JSX.Element {
   const decisions = useDecisions({ term: term.trim().length > 0 ? term.trim() : undefined })
   const directory = useTargetDirectory()
   const members = useMembers()
+  const timezone = useTimezone()
 
   const columns: readonly Column<Decision>[] = [
     {
@@ -149,14 +151,16 @@ export function DecisionsPage(): React.JSX.Element {
     {
       key: 'decided',
       header: 'Decided',
-      render: (decision) => <span className="text-ink-muted">{formatDate(decision.decidedAt)}</span>,
+      render: (decision) => (
+        <span className="text-ink-muted">{formatDate(decision.decidedAt, timezone)}</span>
+      ),
     },
     {
       key: 'due',
       header: 'By',
       render: (decision) => (
         <span className="text-ink-muted">
-          {decision.dueAt === null ? '—' : formatDate(decision.dueAt)}
+          {decision.dueAt === null ? '—' : formatDate(decision.dueAt, timezone)}
         </span>
       ),
     },

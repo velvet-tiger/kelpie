@@ -133,7 +133,7 @@ function PreferencesForm({
         <div className="max-w-md">
           <Field
             label="Timezone"
-            hint="Stored on your account. Kelpie does not format dates by it yet."
+            hint="Stored on your account. Dates across Kelpie use this zone."
           >
             <EntitySearch
               options={zones.map((zone) => ({ id: zone, label: zone }))}

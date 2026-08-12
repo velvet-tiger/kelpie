@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router'
 
 import type { RecordListResult } from '../../api/resource.ts'
+import { useTimezone } from '../../api/resources/account.ts'
 import { useCompanies } from '../../api/resources/companies.ts'
 import { usePeople } from '../../api/resources/people.ts'
 import { DataTable } from '../../components/DataTable.tsx'
@@ -31,6 +32,7 @@ export interface SubmissionsTableProps {
 export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): React.JSX.Element {
   const people = usePeople({ limit: MAX_PAGE })
   const companies = useCompanies({ limit: MAX_PAGE })
+  const timezone = useTimezone()
 
   const nameById = useMemo(
     () => new Map([...people.records, ...companies.records].map((record) => [record.id, record.name])),
@@ -44,7 +46,7 @@ export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): 
       className: 'w-40',
       render: (submission) => (
         <span className="font-mono text-[12px] text-ink-muted">
-          {formatDateTime(submission.submittedAt)}
+          {formatDateTime(submission.submittedAt, timezone)}
         </span>
       ),
     },

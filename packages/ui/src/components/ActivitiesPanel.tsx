@@ -1,5 +1,6 @@
 import type { Activity, ActivityKind, RecordTargetType } from '@kelpie/schemas'
 
+import { useTimezone } from '../api/resources/account.ts'
 import { useActivities } from '../api/resources/activities.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { formatRelativeTime, monthLabel } from '../lib/dates.ts'
@@ -55,11 +56,15 @@ interface MonthGroup {
 }
 
 /** Consecutive runs, not a map: the list is already ordered, so a month never recurs. */
-function groupByMonth(activities: readonly Activity[], now: Date): readonly MonthGroup[] {
+function groupByMonth(
+  activities: readonly Activity[],
+  timezone: string,
+  now: Date,
+): readonly MonthGroup[] {
   const groups: { label: string; items: Activity[] }[] = []
 
   for (const activity of activities) {
-    const label = monthLabel(activity.createdAt, now)
+    const label = monthLabel(activity.createdAt, timezone, now)
     const last = groups.at(-1)
 
     if (last?.label === label) {
@@ -78,7 +83,8 @@ export function ActivitiesPanel({
 }: ActivitiesPanelProps): React.JSX.Element {
   const activities = useActivities({ targetType, targetId })
   const members = useMembers()
-  const groups = groupByMonth(activities.records, new Date())
+  const timezone = useTimezone()
+  const groups = groupByMonth(activities.records, timezone, new Date())
 
   return (
     <section>
@@ -104,6 +110,7 @@ export function ActivitiesPanel({
                   contextType={targetType}
                   contextId={targetId}
                   isLast={index === group.items.length - 1}
+                  timezone={timezone}
                 />
               ))}
             </ol>
@@ -137,6 +144,7 @@ export function LatestActivity({
 }: ActivitiesPanelProps): React.JSX.Element {
   const activities = useActivities({ targetType, targetId })
   const members = useMembers()
+  const timezone = useTimezone()
   const latest = activities.records[0]
 
   return (
@@ -158,6 +166,7 @@ export function LatestActivity({
             contextType={targetType}
             contextId={targetId}
             isLast
+            timezone={timezone}
           />
         </ol>
       )}
@@ -183,12 +192,14 @@ function ActivityEvent({
   contextType,
   contextId,
   isLast,
+  timezone,
 }: {
   readonly activity: Activity
   readonly actorName: string
   readonly contextType: RecordTargetType
   readonly contextId: string
   readonly isLast: boolean
+  readonly timezone: string
 }): React.JSX.Element {
   const isRolledUp = activity.targetType !== contextType || activity.targetId !== contextId
 
@@ -218,7 +229,7 @@ function ActivityEvent({
             dateTime={activity.createdAt.toISOString()}
             className="shrink-0 text-[11px] text-ink-faint"
           >
-            {formatRelativeTime(activity.createdAt)}
+            {formatRelativeTime(activity.createdAt, timezone)}
           </time>
         </div>
         {isRolledUp && (

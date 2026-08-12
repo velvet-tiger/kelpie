@@ -7,6 +7,7 @@ import type { CreatedWebhook, Webhook, WebhookEvent, WebhookStatus } from '@kelp
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { useTimezone } from '../../api/resources/account.ts'
 import { useSession } from '../../api/resources/session.ts'
 import {
   useCreateWebhook,
@@ -250,6 +251,7 @@ function WebhookRow({
   const updateWebhook = useUpdateWebhook()
   const deleteWebhook = useDeleteWebhook()
   const rotateSecret = useRotateWebhookSecret()
+  const timezone = useTimezone()
   const [isConfirmingRemoval, setIsConfirmingRemoval] = useState(false)
   const [isShowingDeliveries, setIsShowingDeliveries] = useState(false)
   const [isRotating, setIsRotating] = useState(false)
@@ -319,7 +321,7 @@ function WebhookRow({
 
       <div className="mt-3 flex flex-wrap items-center gap-4 text-[11px] text-ink-faint">
         <span className="font-mono">Secret {webhook.secretPrefix}</span>
-        <span>Last delivery: {describeLastDelivery(webhook)}</span>
+        <span>Last delivery: {describeLastDelivery(webhook, timezone)}</span>
         <button
           type="button"
           aria-expanded={isShowingDeliveries}
@@ -434,10 +436,10 @@ function RotatePanel({
 }
 
 /** Both fields are null together until the first delivery settles. */
-function describeLastDelivery(webhook: Webhook): string {
+function describeLastDelivery(webhook: Webhook, timezone: string): string {
   if (webhook.lastDeliveryAt === null || webhook.lastDeliveryStatus === null) {
     return 'Never'
   }
 
-  return `${formatDateTime(webhook.lastDeliveryAt)} (${webhook.lastDeliveryStatus})`
+  return `${formatDateTime(webhook.lastDeliveryAt, timezone)} (${webhook.lastDeliveryStatus})`
 }
