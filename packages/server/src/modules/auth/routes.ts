@@ -22,6 +22,8 @@ const signUpBody = z.object({
   email: z.string().min(1),
   name: z.string().min(1),
   password: z.string().min(1),
+  /** Where the emailed verification link points. `{token}` is replaced with the token. */
+  verify_url_template: z.string().min(1).includes('{token}'),
 })
 
 const logInBody = z.object({
@@ -43,6 +45,15 @@ const resetConfirmBody = z.object({
 const changePasswordBody = z.object({
   current_password: z.string().min(1),
   new_password: z.string().min(1),
+})
+
+const verifyEmailRequestBody = z.object({
+  /** Where the emailed link points. `{token}` is replaced with the verification token. */
+  verify_url_template: z.string().min(1).includes('{token}'),
+})
+
+const verifyEmailConfirmBody = z.object({
+  token: z.string().min(1),
 })
 
 const updateAccountBody = z
@@ -95,13 +106,18 @@ function describeClient(context: Context): { device?: string; location?: string 
 
 function accountResponse(issued: IssuedSession): Record<string, unknown> {
   return {
-    account: { id: issued.account.id, email: issued.account.email, name: issued.account.name },
+    account: accountBody(issued.account),
     active_workspace_id: issued.activeWorkspaceId,
   }
 }
 
 function accountBody(account: AccountView): Record<string, unknown> {
-  return { id: account.id, email: account.email, name: account.name }
+  return {
+    id: account.id,
+    email: account.email,
+    name: account.name,
+    email_verified: account.emailVerified,
+  }
 }
 
 function preferencesResponse(preferences: PreferenceValues): Record<string, unknown> {
@@ -131,7 +147,13 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
 
   router.post('/auth/signup', async (context) => {
     const body = await readBody(context, signUpBody)
-    const issued = await dependencies.service.signUp({ ...body, ...describeClient(context) })
+    const issued = await dependencies.service.signUp({
+      email: body.email,
+      name: body.name,
+      password: body.password,
+      verifyUrlTemplate: body.verify_url_template,
+      ...describeClient(context),
+    })
 
     writeSessionCookie(context, issued.sessionToken, dependencies.cookie)
 
@@ -156,12 +178,14 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
 
   router.get('/auth/me', async (context) => {
     const actor = await requireActor(context)
+    const account = await dependencies.service.getAccount(actor)
 
     return context.json({
       user_id: actor.userId,
       session_id: actor.sessionId,
       workspace_id: actor.workspaceId,
       role: actor.role,
+      email_verified: account.emailVerified,
     })
   })
 
@@ -241,6 +265,21 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
   router.post('/auth/password-reset/confirm', async (context) => {
     const body = await readBody(context, resetConfirmBody)
     await dependencies.service.confirmPasswordReset(body.token, body.password)
+
+    return context.body(null, 204)
+  })
+
+  /** Also what a "resend" button calls: a fresh token each time, and a no-op once verified. */
+  router.post('/auth/verify-email', async (context) => {
+    const body = await readBody(context, verifyEmailRequestBody)
+    await dependencies.service.requestEmailVerification(await requireActor(context), body.verify_url_template)
+
+    return context.body(null, 202)
+  })
+
+  router.post('/auth/verify-email/confirm', async (context) => {
+    const body = await readBody(context, verifyEmailConfirmBody)
+    await dependencies.service.confirmEmailVerification(body.token)
 
     return context.body(null, 204)
   })

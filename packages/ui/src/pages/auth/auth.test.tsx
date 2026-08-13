@@ -11,6 +11,8 @@ import { stubClient } from '../../testing/stubClient.ts'
 import { ForgotPasswordPage } from './ForgotPasswordPage.tsx'
 import { ResetPasswordPage } from './ResetPasswordPage.tsx'
 import { SignUpPage } from './SignUpPage.tsx'
+import { VerifyEmailConfirmPage } from './VerifyEmailConfirmPage.tsx'
+import { VerifyEmailPendingPage } from './VerifyEmailPendingPage.tsx'
 
 afterEach(cleanup)
 
@@ -23,7 +25,13 @@ afterEach(cleanup)
  * rejection. The rest is that each page spends its one request correctly.
  */
 
-const SESSION = { user_id: 'usr_1', session_id: 'ses_1', workspace_id: null, role: null }
+const SESSION = {
+  user_id: 'usr_1',
+  session_id: 'ses_1',
+  workspace_id: null,
+  role: null,
+  email_verified: true,
+}
 
 interface Calls {
   posted: { path: string; body: unknown }[]
@@ -51,7 +59,7 @@ function authClient(calls: Calls, stubs: Stubs = {}): ApiClient {
       }
 
       return {
-        account: { id: 'usr_1', email: 'ada@example.com', name: 'Ada' },
+        account: { id: 'usr_1', email: 'ada@example.com', name: 'Ada', email_verified: false },
         active_workspace_id: null,
       }
     },
@@ -101,6 +109,7 @@ function renderAt(
           {/* Standing in for the pages this one hands off to, so a redirect is
               something the test can see rather than infer. */}
           <Route path="/onboarding/workspace" element={<p>onboarding step 1</p>} />
+          <Route path="/verify-email/pending" element={<p>verify your email</p>} />
         </Routes>
       </ApiProvider>
     </MemoryRouter>,
@@ -112,7 +121,7 @@ function noCalls(): Calls {
 }
 
 describe('SignUpPage', () => {
-  it('creates the account and hands off to onboarding', async () => {
+  it('creates the account and hands off to email verification', async () => {
     const calls = noCalls()
 
     renderAt('/signup', <SignUpPage />, calls)
@@ -123,19 +132,22 @@ describe('SignUpPage', () => {
     await press('Continue')
 
     await waitFor(() => {
-      expect(calls.posted).toEqual([
-        {
-          path: '/auth/signup',
-          body: {
-            name: 'Ada Lovelace',
-            email: 'ada@example.com',
-            password: 'a long enough password',
-          },
-        },
-      ])
+      expect(calls.posted).toHaveLength(1)
     })
 
-    expect(await screen.findByText('onboarding step 1')).toBeTruthy()
+    expect(calls.posted[0]).toMatchObject({
+      path: '/auth/signup',
+      body: {
+        name: 'Ada Lovelace',
+        email: 'ada@example.com',
+        password: 'a long enough password',
+      },
+    })
+
+    const body = calls.posted[0]?.body as Record<string, string>
+
+    expect(body.verify_url_template).toContain('/verify-email?token={token}')
+    expect(await screen.findByText('verify your email')).toBeTruthy()
   })
 
   /**
@@ -257,5 +269,71 @@ describe('ResetPasswordPage', () => {
     expect(screen.getByText('This link is incomplete')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Set new password' })).toBeNull()
     expect(calls.posted).toEqual([])
+  })
+})
+
+describe('VerifyEmailPendingPage', () => {
+  it('asks for a fresh link on resend', async () => {
+    const calls = noCalls()
+
+    renderAt('/verify-email/pending', <VerifyEmailPendingPage />, calls)
+
+    await press('Resend link')
+
+    await waitFor(() => {
+      expect(calls.posted).toHaveLength(1)
+    })
+
+    expect(calls.posted[0]?.path).toBe('/auth/verify-email')
+
+    const body = calls.posted[0]?.body as Record<string, string>
+
+    expect(body.verify_url_template).toContain('/verify-email?token={token}')
+    expect(await screen.findByText('A new link is on its way.')).toBeTruthy()
+  })
+
+  it('signs out', async () => {
+    const calls = noCalls()
+
+    renderAt('/verify-email/pending', <VerifyEmailPendingPage />, calls)
+
+    await press('Sign out')
+
+    await waitFor(() => {
+      expect(calls.posted).toEqual([{ path: '/auth/logout', body: undefined }])
+    })
+  })
+})
+
+describe('VerifyEmailConfirmPage', () => {
+  it('confirms the token from the link, then hands off to the workspace step', async () => {
+    const calls = noCalls()
+
+    renderAt('/verify-email?token=tok_abc', <VerifyEmailConfirmPage />, calls)
+
+    await waitFor(() => {
+      expect(calls.posted).toEqual([{ path: '/auth/verify-email/confirm', body: { token: 'tok_abc' } }])
+    })
+
+    expect(await screen.findByText('onboarding step 1')).toBeTruthy()
+  })
+
+  it('says the link is incomplete rather than posting an empty token', async () => {
+    const calls = noCalls()
+
+    renderAt('/verify-email', <VerifyEmailConfirmPage />, calls)
+
+    expect(screen.getByText('This link is incomplete')).toBeTruthy()
+    expect(calls.posted).toEqual([])
+  })
+
+  it('shows what the service refused', async () => {
+    const calls = noCalls()
+
+    renderAt('/verify-email?token=tok_abc', <VerifyEmailConfirmPage />, calls, {
+      writeFails: new ApiError(401, 'unauthorized', 'That verification link is invalid or has expired'),
+    })
+
+    expect(await screen.findByText('That verification link is invalid or has expired')).toBeTruthy()
   })
 })

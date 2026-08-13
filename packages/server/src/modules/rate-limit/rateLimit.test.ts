@@ -133,7 +133,7 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
   describe('the forms budget', () => {
     it('answers 429 with Retry-After once one IP exceeds it, and lets another IP through', async () => {
       const harness = await harnessWithBudgets(rateLimitConfig({ forms: { limit: 2, windowMs: 60_000 } }))
-      const client = createTestClient(harness.app)
+      const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const form = await createForm(client, owner)
       const ids = fieldIds(form)
@@ -157,7 +157,7 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
         rateLimitConfig({ forms: { limit: 1, windowMs: 1000 } }),
         () => now,
       )
-      const client = createTestClient(harness.app)
+      const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const form = await createForm(client, owner)
       const ids = fieldIds(form)
@@ -173,7 +173,7 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
 
     it('does not limit the embed page, only the submit route', async () => {
       const harness = await harnessWithBudgets(rateLimitConfig({ forms: { limit: 1, windowMs: 60_000 } }))
-      const client = createTestClient(harness.app)
+      const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const form = await createForm(client, owner)
       const publicKey = readString(form, 'public_key')
@@ -230,7 +230,7 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
   describe('the api budget', () => {
     it('answers 429 for an API key over budget but never limits a session', async () => {
       const harness = await harnessWithBudgets(rateLimitConfig({ api: { limit: 2, windowMs: 60_000 } }))
-      const client = createTestClient(harness.app)
+      const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const secret = await mintApiKey(client, owner.cookie)
 
@@ -255,7 +255,7 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
 
     it('is shared with the MCP transport, since every call there already carries an API key', async () => {
       const harness = await harnessWithBudgets(rateLimitConfig({ api: { limit: 2, windowMs: 60_000 } }))
-      const client = createTestClient(harness.app)
+      const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const secret = await mintApiKey(client, owner.cookie)
 
@@ -299,7 +299,7 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
 
     it('omits X-Frame-Options on the embed page, which sets its own CSP instead', async () => {
       const harness = await harnessWithBudgets(rateLimitConfig({}))
-      const client = createTestClient(harness.app)
+      const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const form = await createForm(client, owner)
       const publicKey = readString(form, 'public_key')

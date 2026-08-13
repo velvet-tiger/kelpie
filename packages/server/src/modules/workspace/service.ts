@@ -293,6 +293,26 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
   }
 
   /**
+   * Refuses an actor whose account has not verified its email address.
+   *
+   * Creating a workspace is the one action that turns a bare account into
+   * something with real access (`schema.md`), so it is where the gate lives:
+   * every CRM endpoint already refuses an actor with no workspace, which means
+   * blocking this one call is enough to block the rest.
+   */
+  async function requireVerifiedEmail(actor: SessionActor): Promise<void> {
+    const user = await authRepository.findUserById(dependencies.db, actor.userId)
+
+    if (user === undefined) {
+      throw new Error(`Session ${actor.sessionId} outlived the user row behind it`)
+    }
+
+    if (user.emailVerifiedAt === null) {
+      throw new AppError('forbidden', 'Verify your email before creating a workspace')
+    }
+  }
+
+  /**
    * The membership being acted on.
    *
    * A member of another workspace is not found rather than forbidden, for the
@@ -370,6 +390,8 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
   return {
     async create(actor, input) {
+      await requireVerifiedEmail(actor)
+
       const now = dependencies.now()
       const workspaceId = dependencies.createId('workspace')
       const memberId = dependencies.createId('teamMember')
@@ -702,10 +724,10 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         actor.userId,
       )
 
-      // The invitation is left alone. A link is forwarded often enough that the
-      // address on this one may not be the caller's, and revoking somebody
-      // else's invitation because you clicked their link would be worse than
-      // the refusal.
+      // The invitation is left alone rather than deleted: the caller already
+      // belongs, so this token cannot be theirs, and deleting somebody else's
+      // invitation because a different account presented it would strand the
+      // person it was actually sent to.
       if (existing !== undefined) {
         throw AppError.conflict('You already belong to that workspace')
       }
@@ -714,6 +736,14 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
       if (joiner === undefined) {
         throw new Error(`Session ${actor.sessionId} outlived the user row behind it`)
+      }
+
+      // An invitation names an address, not a person. Accepting it with a
+      // different account would let a leaked or forwarded token seat anyone,
+      // and would let that account claim credit for controlling an address
+      // it never proved control of.
+      if (joiner.email !== invite.email) {
+        throw AppError.unauthorized('That invitation is invalid or has expired')
       }
 
       // Ownership is never invited, only created or transferred. The column's
@@ -740,14 +770,12 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
           throw error
         }
 
-        await repository.deleteInvite(tx, invite.id)
+        // A real invite link already proves control of the invited address, so
+        // accepting one satisfies the same gate a verification link would.
+        // A no-op if the account was already verified.
+        await authRepository.markEmailVerified(tx, actor.userId, now)
 
-        // Any other invitation to the joiner's own address, which their joining
-        // has just killed: accepting one is now the refusal above, and until it
-        // expires it holds a seat and lists them beside their own membership.
-        // Accepting a token addressed to somebody else is how one survives the
-        // line before it.
-        await repository.deleteInvitesForEmail(tx, invite.workspaceId, joiner.email)
+        await repository.deleteInvite(tx, invite.id)
 
         await authRepository.setActiveWorkspace(tx, actor.sessionId, invite.workspaceId)
 

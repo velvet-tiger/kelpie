@@ -19,6 +19,8 @@ export const users = pgTable('users', {
   email: citext('email').notNull().unique(),
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
+  /** Null until the address is verified, either by confirming a token or by accepting a workspace invite. */
+  emailVerifiedAt: moment('email_verified_at'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 })
@@ -66,6 +68,21 @@ export const userPreferences = pgTable(
  * treated as an unknown token.
  */
 export const passwordResetTokens = pgTable('password_reset_tokens', {
+  id: primaryId(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: moment('expires_at').notNull(),
+  usedAt: moment('used_at'),
+  createdAt: createdAt(),
+})
+
+/**
+ * One-shot tokens for the sign-up verification link. Same shape and the same
+ * reasoning as `passwordResetTokens`: hashed, marked used rather than deleted.
+ */
+export const emailVerificationTokens = pgTable('email_verification_tokens', {
   id: primaryId(),
   userId: text('user_id')
     .notNull()

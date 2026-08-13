@@ -32,7 +32,7 @@ const WEBHOOK = {
 }
 
 function session(role: string): Record<string, unknown> {
-  return { user_id: 'usr_1', session_id: 'ses_1', workspace_id: 'ws_1', role }
+  return { user_id: 'usr_1', session_id: 'ses_1', workspace_id: 'ws_1', role, email_verified: true }
 }
 
 /** One settled delivery, as `GET /v1/webhooks/:id/deliveries` returns it. */

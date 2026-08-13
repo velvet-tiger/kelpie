@@ -1,7 +1,9 @@
 import {
+  confirmEmailVerificationBody,
   confirmPasswordResetBody,
   createWorkspaceBody,
   logInBody,
+  requestEmailVerificationBody,
   requestPasswordResetBody,
   sessionSchema,
   signUpBody,
@@ -9,9 +11,11 @@ import {
   workspaceSchema,
 } from '@kelpie/schemas'
 import type {
+  ConfirmEmailVerificationInput,
   ConfirmPasswordResetInput,
   CreateWorkspaceInput,
   LogInInput,
+  RequestEmailVerificationInput,
   RequestPasswordResetInput,
   Session,
   SignUpInput,
@@ -63,6 +67,8 @@ export interface SessionState {
   readonly isSignedOut: boolean
   /** Signed in, but the account has no workspace yet. Every CRM endpoint answers `403` until it does. */
   readonly needsWorkspace: boolean
+  /** No workspace yet, and creating one will answer `403` until the account verifies its email. */
+  readonly needsEmailVerification: boolean
   readonly error: Error | null
 }
 
@@ -70,12 +76,14 @@ export function useSession(): SessionState {
   const client = useApiClient()
   const result = useQuery(sessionQuery(client))
   const isSignedOut = result.error instanceof ApiError && result.error.status === 401
+  const needsWorkspace = result.data !== undefined && result.data.workspaceId === null
 
   return {
     session: result.data,
     isLoading: result.isPending,
     isSignedOut,
-    needsWorkspace: result.data !== undefined && result.data.workspaceId === null,
+    needsWorkspace,
+    needsEmailVerification: needsWorkspace && result.data?.emailVerified === false,
     error: isSignedOut ? null : toError(result.error),
   }
 }
@@ -137,6 +145,11 @@ export function resetUrlTemplate(origin: string): string {
   return `${origin}/reset-password?token={token}`
 }
 
+/** Where a verification email lands. `VerifyEmailConfirmPage` reads the token out of the query string. */
+export function verifyEmailUrlTemplate(origin: string): string {
+  return `${origin}/verify-email?token={token}`
+}
+
 /**
  * Asks for a reset link.
  *
@@ -170,6 +183,42 @@ export function useConfirmPasswordReset(): MutationResult<ConfirmPasswordResetIn
       client.postEmpty('/auth/password-reset/confirm', confirmPasswordResetBody(input)),
     onSuccess: () => {
       queryClient.clear()
+    },
+  })
+
+  return asMutationResult(mutation)
+}
+
+/**
+ * Asks for a fresh verification link. The same call a "resend" button makes,
+ * and a no-op once the account is already verified.
+ *
+ * Nothing in the cache changes: this signs nobody in or out.
+ */
+export function useRequestEmailVerification(): MutationResult<RequestEmailVerificationInput, void> {
+  const client = useApiClient()
+  const mutation = useMutation({
+    mutationFn: (input: RequestEmailVerificationInput) =>
+      client.postEmpty('/auth/verify-email', requestEmailVerificationBody(input)),
+  })
+
+  return asMutationResult(mutation)
+}
+
+/**
+ * Spends a verification token from that email.
+ *
+ * Unlike a password reset this ends no session, so the caller only needs the
+ * session re-read: `needsEmailVerification` flips once it lands.
+ */
+export function useConfirmEmailVerification(): MutationResult<ConfirmEmailVerificationInput, void> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (input: ConfirmEmailVerificationInput) =>
+      client.postEmpty('/auth/verify-email/confirm', confirmEmailVerificationBody(input)),
+    onSuccess: async () => {
+      await queryClient.fetchQuery(sessionQuery(client))
     },
   })
 

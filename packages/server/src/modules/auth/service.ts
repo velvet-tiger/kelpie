@@ -22,6 +22,8 @@ import * as repository from './repository.ts'
 
 const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
 const RESET_TOKEN_LIFETIME_MS = 60 * 60 * 1000
+/** Longer than a reset token: there is no stolen-account urgency, and an inbox is checked on its own time. */
+const EMAIL_VERIFICATION_TOKEN_LIFETIME_MS = 24 * 60 * 60 * 1000
 
 export interface AuthDependencies {
   readonly db: Database
@@ -37,6 +39,7 @@ export interface AccountView {
   readonly id: string
   readonly email: string
   readonly name: string
+  readonly emailVerified: boolean
 }
 
 /** A session plus the plaintext token, which exists only in this return value. */
@@ -59,6 +62,8 @@ export interface SignUpInput {
   readonly email: string
   readonly name: string
   readonly password: string
+  /** Where the emailed verification link points. `{token}` is replaced with the token. */
+  readonly verifyUrlTemplate: string
   readonly device?: string
   readonly location?: string
 }
@@ -79,7 +84,7 @@ export interface LogInInput {
 }
 
 function toAccountView(user: repository.UserRecord): AccountView {
-  return { id: user.id, email: user.email, name: user.name }
+  return { id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerifiedAt !== null }
 }
 
 function toPreferenceValues(record: repository.UserPreferencesRecord): PreferenceValues {
@@ -132,6 +137,9 @@ export interface AuthService {
   requestPasswordReset(email: string, resetUrlTemplate: string): Promise<void>
   confirmPasswordReset(token: string, newPassword: string): Promise<void>
   changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<void>
+  /** Issues a fresh verification token and emails it. A no-op once already verified. */
+  requestEmailVerification(actor: SessionActor, verifyUrlTemplate: string): Promise<void>
+  confirmEmailVerification(token: string): Promise<void>
 }
 
 export function createAuthService(dependencies: AuthDependencies): AuthService {
@@ -181,6 +189,14 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     }
   }
 
+  function sendVerificationEmail(to: string, token: string, urlTemplate: string): Promise<void> {
+    return dependencies.email.send({
+      to,
+      subject: 'Verify your Kelpie email address',
+      body: `Confirm this address to finish setting up your account:\n\n${urlTemplate.replace('{token}', token)}\n\nThe link expires in 24 hours.`,
+    })
+  }
+
   return {
     /** Creates the account only. The first workspace comes from onboarding. */
     async signUp(input: SignUpInput): Promise<IssuedSession> {
@@ -192,8 +208,10 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       const email = normaliseEmail(input.email)
       const passwordHash = await hashPassword(input.password)
+      const now = dependencies.now()
+      const verificationToken = newToken()
 
-      return dependencies.transaction(async ({ tx }) => {
+      const issued = await dependencies.transaction(async ({ tx }) => {
         let user: repository.UserRecord
 
         try {
@@ -215,8 +233,20 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           throw error
         }
 
+        await repository.insertEmailVerificationToken(tx, {
+          id: dependencies.createId('emailVerificationToken'),
+          userId: user.id,
+          tokenHash: hashToken(verificationToken),
+          expiresAt: new Date(now.getTime() + EMAIL_VERIFICATION_TOKEN_LIFETIME_MS),
+        })
+
         return issueSession(tx, user, input.device, input.location)
       })
+
+      // Sent after commit, so a rolled-back signup never emails a token.
+      await sendVerificationEmail(email, verificationToken, input.verifyUrlTemplate)
+
+      return issued
     },
 
     async logIn(input: LogInInput): Promise<IssuedSession> {
@@ -435,6 +465,44 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       await dependencies.transaction(async ({ tx }) => {
         await repository.updateUserPassword(tx, user.id, passwordHash, now)
         await repository.deleteOtherSessionsForUser(tx, user.id, actor.sessionId)
+      })
+    },
+
+    async requestEmailVerification(actor: SessionActor, verifyUrlTemplate: string): Promise<void> {
+      const user = await requireUser(actor.userId)
+
+      if (user.emailVerifiedAt !== null) {
+        return
+      }
+
+      const now = dependencies.now()
+      const token = newToken()
+
+      await repository.insertEmailVerificationToken(dependencies.db, {
+        id: dependencies.createId('emailVerificationToken'),
+        userId: user.id,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(now.getTime() + EMAIL_VERIFICATION_TOKEN_LIFETIME_MS),
+      })
+
+      await sendVerificationEmail(user.email, token, verifyUrlTemplate)
+    },
+
+    async confirmEmailVerification(token: string): Promise<void> {
+      const now = dependencies.now()
+      const record = await repository.findUsableEmailVerificationToken(
+        dependencies.db,
+        hashToken(token),
+        now,
+      )
+
+      if (record === undefined) {
+        throw AppError.unauthorized('That verification link is invalid or has expired')
+      }
+
+      await dependencies.transaction(async ({ tx }) => {
+        await repository.markEmailVerificationTokenUsed(tx, record.id, now)
+        await repository.markEmailVerified(tx, record.userId, now)
       })
     },
   }

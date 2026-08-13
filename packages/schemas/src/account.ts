@@ -16,13 +16,24 @@ export interface Account {
   readonly id: string
   readonly email: string
   readonly name: string
+  readonly emailVerified: boolean
 }
 
-export const accountSchema: z.ZodType<Account, unknown> = z.object({
-  id: idSchema,
-  email: z.string(),
-  name: z.string(),
-})
+export const accountSchema: z.ZodType<Account, unknown> = z
+  .object({
+    id: idSchema,
+    email: z.string(),
+    name: z.string(),
+    email_verified: z.boolean(),
+  })
+  .transform(
+    (wire): Account => ({
+      id: wire.id,
+      email: wire.email,
+      name: wire.name,
+      emailVerified: wire.email_verified,
+    }),
+  )
 
 export interface UpdateAccountInput {
   readonly name?: string

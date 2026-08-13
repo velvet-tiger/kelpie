@@ -3,7 +3,13 @@ import { and, desc, eq, gt, isNull, ne } from 'drizzle-orm'
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
-import { passwordResetTokens, sessions, userPreferences, users } from './schema.ts'
+import {
+  emailVerificationTokens,
+  passwordResetTokens,
+  sessions,
+  userPreferences,
+  users,
+} from './schema.ts'
 
 /**
  * Drizzle queries for accounts and sessions. No business logic: the service
@@ -207,6 +213,55 @@ export async function markPasswordResetTokenUsed(db: Queryable, id: string, now:
     .update(passwordResetTokens)
     .set({ usedAt: now })
     .where(eq(passwordResetTokens.id, id))
+}
+
+export async function insertEmailVerificationToken(
+  db: Queryable,
+  values: typeof emailVerificationTokens.$inferInsert,
+): Promise<void> {
+  await db.insert(emailVerificationTokens).values(values)
+}
+
+/** Unused and unexpired. A used or stale token is not a token. */
+export async function findUsableEmailVerificationToken(
+  db: Queryable,
+  tokenHash: string,
+  now: Date,
+): Promise<typeof emailVerificationTokens.$inferSelect | undefined> {
+  const [found] = await db
+    .select()
+    .from(emailVerificationTokens)
+    .where(
+      and(
+        eq(emailVerificationTokens.tokenHash, tokenHash),
+        isNull(emailVerificationTokens.usedAt),
+        gt(emailVerificationTokens.expiresAt, now),
+      ),
+    )
+    .limit(1)
+
+  return found
+}
+
+export async function markEmailVerificationTokenUsed(db: Queryable, id: string, now: Date): Promise<void> {
+  await db
+    .update(emailVerificationTokens)
+    .set({ usedAt: now })
+    .where(eq(emailVerificationTokens.id, id))
+}
+
+/**
+ * Sets `email_verified_at` if it is not already set.
+ *
+ * Guarded in the `WHERE` clause rather than read-then-write, so accepting a
+ * second invite or confirming a stale token after the account is already
+ * verified is a no-op instead of overwriting the original verification time.
+ */
+export async function markEmailVerified(db: Queryable, userId: string, now: Date): Promise<void> {
+  await db
+    .update(users)
+    .set({ emailVerifiedAt: now })
+    .where(and(eq(users.id, userId), isNull(users.emailVerifiedAt)))
 }
 
 /** The membership a session's active workspace resolves to, if any. */

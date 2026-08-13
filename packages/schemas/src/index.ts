@@ -288,9 +288,11 @@ export { createInviteBody, inviteSchema, resendInviteBody } from './invite.ts'
 export type { CreateInviteInput, Invite, ResendInviteInput } from './invite.ts'
 
 export {
+  confirmEmailVerificationBody,
   confirmPasswordResetBody,
   createWorkspaceBody,
   logInBody,
+  requestEmailVerificationBody,
   requestPasswordResetBody,
   sessionSchema,
   signUpBody,
@@ -299,9 +301,11 @@ export {
   workspaceSchema,
 } from './session.ts'
 export type {
+  ConfirmEmailVerificationInput,
   ConfirmPasswordResetInput,
   CreateWorkspaceInput,
   LogInInput,
+  RequestEmailVerificationInput,
   RequestPasswordResetInput,
   Session,
   SignUpInput,

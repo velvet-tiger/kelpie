@@ -92,7 +92,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
     })
-    client = createTestClient(harness.app)
+    client = createTestClient(harness.app, harness.services.db)
     acme = await client.owner()
   })
 
@@ -633,7 +633,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
         environment: { ...TEST_ENVIRONMENT, WEBHOOK_DELIVERY_RETENTION_DAYS: '7' },
         services: createTestServices({ db: database.db }),
       })
-      const scopedClient = createTestClient(scoped.app)
+      const scopedClient = createTestClient(scoped.app, scoped.services.db)
       const owner = await scopedClient.owner('narrow@example.com', 'narrow')
 
       const created = await scopedClient.send('POST', '/v1/webhooks', {

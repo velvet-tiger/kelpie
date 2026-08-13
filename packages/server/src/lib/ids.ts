@@ -9,6 +9,8 @@ export const idPrefixes = {
   user: 'usr',
   session: 'ses',
   passwordResetToken: 'pwr',
+  /** Never returned over the wire either, for the same reason as `passwordResetToken`. */
+  emailVerificationToken: 'evt',
   teamMember: 'mem',
   invite: 'inv',
   apiKey: 'key',

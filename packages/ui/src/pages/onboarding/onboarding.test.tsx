@@ -76,6 +76,7 @@ function onboardingClient(calls: Calls, stubs: Stubs = {}): ApiClient {
     session_id: 'ses_1',
     workspace_id: stubs.workspaceId === undefined ? 'wsp_1' : stubs.workspaceId,
     role: 'owner',
+    email_verified: true,
   }
 
   return stubClient({

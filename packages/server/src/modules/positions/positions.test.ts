@@ -61,7 +61,7 @@ describe.skipIf(connectionString === undefined)('positions', () => {
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
     })
-    client = createTestClient(harness.app)
+    client = createTestClient(harness.app, harness.services.db)
     acme = await client.owner()
     personId = await createPerson('Ada Lovelace')
     companyId = await createCompany('Analytical Engines')

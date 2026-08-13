@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { hashToken } from '../../lib/tokens.ts'
@@ -7,6 +8,7 @@ import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
+import { users } from '../auth/schema.ts'
 import { coreModules } from '../core.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
 import { apiKeys } from './schema.ts'
@@ -78,12 +80,26 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
     )
   }
 
+  /** Signs up and verifies directly against the database: this file is about API keys, not verification. */
   async function signUp(email: string): Promise<string> {
     const response = await send('POST', '/v1/auth/signup', {
-      body: { email, name: 'Someone', password: 'correct horse battery staple' },
+      body: {
+        email,
+        name: 'Someone',
+        password: 'correct horse battery staple',
+        verify_url_template: 'https://app.example.com/verify?token={token}',
+      },
     })
+    const cookie = (response.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+    const payload: unknown = await response.json()
 
-    return (response.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+    if (!isRecord(payload) || !isRecord(payload.account) || typeof payload.account.id !== 'string') {
+      throw new Error(`Expected a signed-up account, got ${JSON.stringify(payload)}`)
+    }
+
+    await database.db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, payload.account.id))
+
+    return cookie
   }
 
   /** A signed-in owner of a fresh workspace. */

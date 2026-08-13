@@ -48,7 +48,13 @@ function accountClient(stubs: Stubs): ApiClient {
         throw new Error(`Unexpected get ${path}`)
       }
 
-      return { user_id: 'usr_1', session_id: 'ses_1', workspace_id: 'ws_1', role: 'owner' }
+      return {
+        user_id: 'usr_1',
+        session_id: 'ses_1',
+        workspace_id: 'ws_1',
+        role: 'owner',
+        email_verified: true,
+      }
     },
     list: (path) => {
       if (path !== '/workspaces/ws_1/modules') {

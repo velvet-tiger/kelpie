@@ -1,6 +1,9 @@
+import { eq } from 'drizzle-orm'
 import type { Hono } from 'hono'
 
 import type { AppBindings } from '../app.ts'
+import type { Database } from '../lib/database.ts'
+import { users } from '../modules/auth/schema.ts'
 
 /**
  * An HTTP client for integration tests, plus the two setups almost every suite
@@ -68,7 +71,8 @@ export function readCursor(payload: unknown): string | null {
   return payload.next_cursor
 }
 
-export function createTestClient(app: Hono<AppBindings>): TestClient {
+/** @param db Verifies a fresh signup directly, so almost every suite can start from a working owner. */
+export function createTestClient(app: Hono<AppBindings>, db: Database): TestClient {
   function send(method: string, path: string, options: TestRequestOptions = {}): Promise<Response> {
     return Promise.resolve(
       app.request(path, {
@@ -83,14 +87,31 @@ export function createTestClient(app: Hono<AppBindings>): TestClient {
     )
   }
 
+  /**
+   * Signs up and verifies directly against the database.
+   *
+   * These suites are about the CRM, not verification: going through the real
+   * emailed link for every signup would mean threading the email spy through
+   * this client too, for a step almost nothing here is testing. `auth.test.ts`
+   * and `workspace.test.ts` cover the real link.
+   */
   async function signUp(email: string): Promise<string> {
     const response = await send('POST', '/v1/auth/signup', {
-      body: { email, name: 'Someone', password: 'correct horse battery staple' },
+      body: {
+        email,
+        name: 'Someone',
+        password: 'correct horse battery staple',
+        verify_url_template: 'https://app.example.com/verify?token={token}',
+      },
     })
 
     if (response.status !== 201) {
       throw new Error(`Signing up ${email} answered ${String(response.status)}`)
     }
+
+    const accountId = readString(readRecord(await response.json()).account, 'id')
+
+    await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, accountId))
 
     // Only the cookie's name=value matters to a later request; the attributes
     // after the first semicolon are for a browser.

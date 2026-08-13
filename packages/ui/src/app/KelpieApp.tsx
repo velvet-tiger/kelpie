@@ -43,6 +43,8 @@ import { JoinPage } from '../pages/auth/JoinPage.tsx'
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage.tsx'
 import { SignInPage } from '../pages/auth/SignInPage.tsx'
 import { SignUpPage } from '../pages/auth/SignUpPage.tsx'
+import { VerifyEmailConfirmPage } from '../pages/auth/VerifyEmailConfirmPage.tsx'
+import { VerifyEmailPendingPage } from '../pages/auth/VerifyEmailPendingPage.tsx'
 import { DashboardPage } from '../pages/dashboard/DashboardPage.tsx'
 import { HandbookLayout } from '../pages/handbook/HandbookPage.tsx'
 import { HandbookStepPage } from '../pages/onboarding/HandbookStepPage.tsx'
@@ -112,10 +114,13 @@ function AppRoutes(): React.JSX.Element {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       {/* Outside the gate: an invitee may have no workspace yet, and this is how
-          they get one. Same for the first onboarding step, which is what the
-          gate sends an account with no workspace to. */}
+          they get one. Same for the first onboarding step, and for the two
+          verification pages, all of which are what the gate sends an account
+          with no workspace to. */}
       <Route path="/join" element={<JoinPage />} />
       <Route path="/onboarding/workspace" element={<WorkspaceStepPage />} />
+      <Route path="/verify-email" element={<VerifyEmailConfirmPage />} />
+      <Route path="/verify-email/pending" element={<VerifyEmailPendingPage />} />
 
       <Route element={<SessionGate />}>
         {/* Inside the gate and outside the Shell: both steps need the workspace

@@ -127,6 +127,13 @@
       "when": 1786490413323,
       "tag": "0017_drop_integration_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786656430307,
+      "tag": "0018_hard_mystique",
+      "breakpoints": true
     }
   ]
 }

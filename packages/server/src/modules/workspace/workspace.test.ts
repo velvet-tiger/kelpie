@@ -10,6 +10,7 @@ import { createTestServices } from '../../testing/services.ts'
 import { hashToken } from '../../lib/tokens.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
+import { users } from '../auth/schema.ts'
 import { coreModules } from '../core.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
@@ -109,11 +110,18 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     )
   }
 
-  async function signUp(email: string): Promise<string> {
+  interface SignedUp {
+    readonly cookie: string
+    readonly accountId: string
+  }
+
+  /** Signs up without verifying. Most tests want `signUp` below instead. */
+  async function rawSignUp(email: string): Promise<SignedUp> {
     const response = await send('POST', '/v1/auth/signup', {
       email,
       name: 'Someone',
       password: 'correct horse battery staple',
+      verify_url_template: 'https://app.example.com/verify?token={token}',
     })
     const header = response.headers.get('Set-Cookie')
 
@@ -121,7 +129,29 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       throw new Error('Expected a session cookie')
     }
 
-    return header.split(';')[0] ?? ''
+    const payload: unknown = await response.json()
+
+    if (!isRecord(payload) || !isRecord(payload.account) || typeof payload.account.id !== 'string') {
+      throw new Error(`Expected a signed-up account, got ${JSON.stringify(payload)}`)
+    }
+
+    return { cookie: header.split(';')[0] ?? '', accountId: payload.account.id }
+  }
+
+  /**
+   * Signs up and verifies directly against the database.
+   *
+   * This file is about workspaces, not verification, and creating one needs a
+   * verified account. Verifying through the real emailed link would collide
+   * with `lastInviteToken()`, which several invite tests below also rely on
+   * reading the most recently sent email.
+   */
+  async function signUp(email: string): Promise<string> {
+    const { cookie, accountId } = await rawSignUp(email)
+
+    await database.db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, accountId))
+
+    return cookie
   }
 
   async function createWorkspace(cookie: string): Promise<string> {
@@ -131,9 +161,18 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     return readString(await response.json(), 'id')
   }
 
-  /** The token out of the most recent invitation email. */
+  /**
+   * The token out of the most recent invitation email.
+   *
+   * Filtered by subject rather than just the last message sent: `signUp` also
+   * sends a verification email, and `addMember` signs the invitee up after
+   * inviting them, so the last message overall is not always the invite.
+   */
   function lastInviteToken(): string {
-    const body = harness.services.sentEmails.at(-1)?.body ?? ''
+    const body =
+      harness.services.sentEmails
+        .filter((message) => message.subject === 'You have been invited to a Kelpie workspace')
+        .at(-1)?.body ?? ''
     const match = /token=([^\s]+)/u.exec(body)
 
     if (match?.[1] === undefined) {
@@ -284,6 +323,14 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
     it('needs a session', async () => {
       expect((await send('POST', '/v1/workspaces', WORKSPACE)).status).toBe(401)
+    })
+
+    it('refuses an account that has not verified its email', async () => {
+      const { cookie } = await rawSignUp('ada@example.com')
+
+      const response = await send('POST', '/v1/workspaces', WORKSPACE, cookie)
+
+      expect(response.status).toBe(403)
     })
   })
 
@@ -687,6 +734,8 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     it('refuses an address that already belongs to a member', async () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
+      // Signing up already sent one verification email; the refusal below must add none.
+      const sentBeforeInviting = harness.services.sentEmails.length
 
       // Mixed case on purpose: the address is normalised before the lookup, and
       // `users.email` is citext, so neither half can be fooled by capitals.
@@ -703,12 +752,14 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       // Nothing was written and nothing was sent: the refusal is the whole of it.
       const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)
       expect(readList(await listed.json())).toHaveLength(0)
-      expect(harness.services.sentEmails).toHaveLength(0)
+      expect(harness.services.sentEmails).toHaveLength(sentBeforeInviting)
     })
 
     it('refuses an address that is already invited', async () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
+      // Signing up already sent one verification email; only the accepted invite adds another.
+      const sentBeforeInviting = harness.services.sentEmails.length
       const body = { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE }
 
       expect((await send('POST', `/v1/workspaces/${workspaceId}/invites`, body, cookie)).status).toBe(201)
@@ -717,7 +768,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       expect(repeated.status).toBe(409)
       expect(readErrorFields(await repeated.json())).toEqual(['email'])
-      expect(harness.services.sentEmails).toHaveLength(1)
+      expect(harness.services.sentEmails).toHaveLength(sentBeforeInviting + 1)
     })
 
     it('replaces an expired invitation rather than listing the address twice', async () => {
@@ -768,6 +819,28 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       expect(response.status).toBe(403)
     })
+
+    it('verifies the joining account on accept, with no separate link needed', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
+        owner,
+      )
+
+      const { cookie } = await rawSignUp('grace@example.com')
+      const accepted = await send('POST', '/v1/invites/accept', { token: lastInviteToken() }, cookie)
+      expect(accepted.status).toBe(200)
+
+      const account = await send('GET', '/v1/account', undefined, cookie)
+      expect(await account.json()).toMatchObject({ email_verified: true })
+
+      // Verified now means allowed through the same gate `rawSignUp` alone hits.
+      const created = await send('POST', '/v1/workspaces', { ...WORKSPACE, slug: 'other' }, cookie)
+      expect(created.status).toBe(201)
+    })
   })
 
   describe('managing an invitation', () => {
@@ -801,10 +874,10 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(second).not.toBe(first)
       expect(harness.services.sentEmails.at(-1)?.to).toBe('grace@example.com')
 
-      const stale = await send('POST', '/v1/invites/accept', { token: first }, await signUp('grace@example.com'))
+      const stale = await send('POST', '/v1/invites/accept', { token: first }, await signUp('mallory@example.com'))
       expect(stale.status).toBe(401)
 
-      const fresh = await send('POST', '/v1/invites/accept', { token: second }, await signUp('gracie@example.com'))
+      const fresh = await send('POST', '/v1/invites/accept', { token: second }, await signUp('grace@example.com'))
       expect(fresh.status).toBe(200)
     })
 
@@ -985,9 +1058,25 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const signup = await limited.app.request('/v1/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'ada@example.com', name: 'Ada', password: 'correct horse battery' }),
+        body: JSON.stringify({
+          email: 'ada@example.com',
+          name: 'Ada',
+          password: 'correct horse battery',
+          verify_url_template: 'https://app.example.com/verify?token={token}',
+        }),
       })
       const cookie = (signup.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+      const signedUp: unknown = await signup.json()
+
+      if (!isRecord(signedUp) || !isRecord(signedUp.account) || typeof signedUp.account.id !== 'string') {
+        throw new Error(`Expected a signed-up account, got ${JSON.stringify(signedUp)}`)
+      }
+
+      await database.db
+        .update(users)
+        .set({ emailVerifiedAt: new Date() })
+        .where(eq(users.id, signedUp.account.id))
+
       const created = await limited.app.request('/v1/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
@@ -1092,16 +1181,9 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(readString(listed[0], 'email')).toBe('henry@example.com')
     })
 
-    it('sweeps a pending invitation to the address that has just joined', async () => {
+    it('refuses a token whose address does not match the accepting account, and leaves it alive for the real invitee', async () => {
       const owner = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(owner)
-      await send(
-        'POST',
-        `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
-        owner,
-      )
-      const graceToken = lastInviteToken()
       await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
@@ -1110,17 +1192,32 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       )
       const henryToken = lastInviteToken()
 
-      // Grace accepts the link addressed to Henry, which the API allows: a token
-      // says which workspace, never who. She is a member either way, so her own
-      // invitation is now dead and goes with his.
-      const joiner = await signUp('grace@example.com')
-      expect((await send('POST', '/v1/invites/accept', { token: henryToken }, joiner)).status).toBe(200)
+      // Grace clicks the link addressed to Henry. An invitation names an
+      // address, not a person: accepting it as somebody else would let a
+      // leaked or forwarded token seat anyone, and would let that account
+      // claim credit for proving control of an address it never controlled.
+      const mismatched = await send(
+        'POST',
+        '/v1/invites/accept',
+        { token: henryToken },
+        await signUp('grace@example.com'),
+      )
+      expect(mismatched.status).toBe(401)
 
-      const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, owner)
-      expect(readList(await listed.json())).toHaveLength(0)
+      const listed = readList(
+        await (await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, owner)).json(),
+      )
+      expect(listed).toHaveLength(1)
+      expect(readString(listed[0], 'email')).toBe('henry@example.com')
 
-      const stale = await send('POST', '/v1/invites/accept', { token: graceToken }, await signUp('gracie@example.com'))
-      expect(stale.status).toBe(401)
+      // Henry's own link still works.
+      const accepted = await send(
+        'POST',
+        '/v1/invites/accept',
+        { token: henryToken },
+        await signUp('henry@example.com'),
+      )
+      expect(accepted.status).toBe(200)
     })
 
     it('refuses a token nobody issued', async () => {
@@ -1145,9 +1242,25 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const signup = await stale.app.request('/v1/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'ada@example.com', name: 'Ada', password: 'correct horse battery' }),
+        body: JSON.stringify({
+          email: 'ada@example.com',
+          name: 'Ada',
+          password: 'correct horse battery',
+          verify_url_template: 'https://app.example.com/verify?token={token}',
+        }),
       })
       const ownerCookie = (signup.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+      const signedUp: unknown = await signup.json()
+
+      if (!isRecord(signedUp) || !isRecord(signedUp.account) || typeof signedUp.account.id !== 'string') {
+        throw new Error(`Expected a signed-up account, got ${JSON.stringify(signedUp)}`)
+      }
+
+      await database.db
+        .update(users)
+        .set({ emailVerifiedAt: new Date() })
+        .where(eq(users.id, signedUp.account.id))
+
       const created = await stale.app.request('/v1/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: ownerCookie },
@@ -1273,8 +1386,20 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         email: 'ada@example.com',
         name: 'Ada',
         password: 'correct horse battery staple',
+        verify_url_template: 'https://app.example.com/verify?token={token}',
       })
       const cookie = (signup.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+      const signedUp: unknown = await signup.json()
+
+      if (!isRecord(signedUp) || !isRecord(signedUp.account) || typeof signedUp.account.id !== 'string') {
+        throw new Error(`Expected a signed-up account, got ${JSON.stringify(signedUp)}`)
+      }
+
+      await database.db
+        .update(users)
+        .set({ emailVerifiedAt: new Date() })
+        .where(eq(users.id, signedUp.account.id))
+
       const created = await send2('POST', '/v1/workspaces', WORKSPACE, cookie)
       const workspaceId = readString(await created.json(), 'id')
 

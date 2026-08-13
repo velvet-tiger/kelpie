@@ -124,7 +124,7 @@ describe.skipIf(connectionString === undefined)('activities', () => {
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
     })
-    client = createTestClient(harness.app)
+    client = createTestClient(harness.app, harness.services.db)
     acme = await client.owner()
   })
 

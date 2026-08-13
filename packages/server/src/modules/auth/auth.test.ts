@@ -18,10 +18,13 @@ import { userPreferences, users } from './schema.ts'
 
 const connectionString = testDatabaseUrl(process.env)
 
+const VERIFY_URL_TEMPLATE = 'https://app.example.com/verify?token={token}'
+
 const SIGNUP = {
   email: 'Ada@Example.com',
   name: 'Ada Lovelace',
   password: 'correct horse battery staple',
+  verify_url_template: VERIFY_URL_TEMPLATE,
 }
 
 describe.skipIf(connectionString === undefined)('auth', () => {
@@ -133,7 +136,12 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
       expect(response.status).toBe(201)
       expect(await response.json()).toEqual({
-        account: { id: expect.stringMatching(/^usr_/u), email: 'ada@example.com', name: 'Ada Lovelace' },
+        account: {
+          id: expect.stringMatching(/^usr_/u),
+          email: 'ada@example.com',
+          name: 'Ada Lovelace',
+          email_verified: false,
+        },
         active_workspace_id: null,
       })
     })
@@ -301,6 +309,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
           email: 'grace@example.com',
           name: 'Grace Hopper',
           password: 'another long enough password',
+          verify_url_template: VERIFY_URL_TEMPLATE,
         }),
       )
       const theirSessions = await readSessionPage(
@@ -321,6 +330,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       email: 'grace@example.com',
       name: 'Grace Hopper',
       password: 'another long enough password',
+      verify_url_template: VERIFY_URL_TEMPLATE,
     }
 
     it('answers with the signed-in account', async () => {
@@ -333,6 +343,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         id: expect.stringMatching(/^usr_/u),
         email: 'ada@example.com',
         name: 'Ada Lovelace',
+        email_verified: false,
       })
     })
 
@@ -426,6 +437,8 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const other = sessionCookieFrom(
         await post('/v1/auth/login', { email: SIGNUP.email, password: SIGNUP.password }),
       )
+      // Signing up already sent one verification email; only the change notice comes next.
+      const sentBeforeChange = harness.services.sentEmails.length
 
       const response = await patch(
         '/v1/account',
@@ -437,9 +450,9 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: keep } })).status).toBe(200)
       expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: other } })).status).toBe(401)
 
-      expect(harness.services.sentEmails).toHaveLength(1)
-      expect(harness.services.sentEmails[0]).toMatchObject({ to: 'ada@example.com' })
-      expect(harness.services.sentEmails[0]?.body).toContain('ada.king@example.com')
+      expect(harness.services.sentEmails).toHaveLength(sentBeforeChange + 1)
+      expect(harness.services.sentEmails.at(-1)).toMatchObject({ to: 'ada@example.com' })
+      expect(harness.services.sentEmails.at(-1)?.body).toContain('ada.king@example.com')
     })
 
     it('refuses a name that is only whitespace', async () => {
@@ -578,6 +591,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
           email: 'grace@example.com',
           name: 'Grace Hopper',
           password: 'another long enough password',
+          verify_url_template: VERIFY_URL_TEMPLATE,
         }),
       )
 
@@ -646,6 +660,8 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
     it('emails a link to a registered address', async () => {
       await signUp()
+      // Signing up already sent one verification email; only the reset link comes next.
+      const sentBeforeReset = harness.services.sentEmails.length
 
       const response = await post('/v1/auth/password-reset', {
         email: SIGNUP.email,
@@ -653,8 +669,8 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       })
 
       expect(response.status).toBe(202)
-      expect(harness.services.sentEmails).toHaveLength(1)
-      expect(harness.services.sentEmails[0]?.to).toBe('ada@example.com')
+      expect(harness.services.sentEmails).toHaveLength(sentBeforeReset + 1)
+      expect(harness.services.sentEmails.at(-1)?.to).toBe('ada@example.com')
     })
 
     it('answers 202 for an unknown address and sends nothing', async () => {
@@ -716,7 +732,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         body: JSON.stringify({ email: 'expiry@example.com', reset_url_template: template }),
       })
 
-      const issuedToken = /token=([^\s]+)/u.exec(expired.services.sentEmails[0]?.body ?? '')?.[1] ?? ''
+      const issuedToken = /token=([^\s]+)/u.exec(expired.services.sentEmails.at(-1)?.body ?? '')?.[1] ?? ''
 
       // The default harness clock is now, which is hours past the one-hour window.
       const response = await post('/v1/auth/password-reset/confirm', {
@@ -732,6 +748,132 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         email: SIGNUP.email,
         reset_url_template: 'https://app.example.com/reset',
       })
+
+      expect(response.status).toBe(422)
+    })
+  })
+
+  describe('email verification', () => {
+    function verificationTokenFromEmail(): string {
+      const message = harness.services.sentEmails.at(-1)
+
+      if (message === undefined) {
+        throw new Error('Expected a verification email to have been sent')
+      }
+
+      const match = /token=([^\s]+)/u.exec(message.body)
+
+      if (match?.[1] === undefined) {
+        throw new Error(`No token in the verification email: ${message.body}`)
+      }
+
+      return match[1]
+    }
+
+    it('emails a link at signup, and leaves the account unverified', async () => {
+      const response = await post('/v1/auth/signup', SIGNUP)
+      const cookie = sessionCookieFrom(response)
+
+      expect(harness.services.sentEmails).toHaveLength(1)
+      expect(harness.services.sentEmails[0]?.to).toBe('ada@example.com')
+      expect(await response.json()).toMatchObject({ account: { email_verified: false } })
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: false })
+      expect(
+        await (await harness.app.request('/v1/auth/me', { headers: { Cookie: cookie } })).json(),
+      ).toMatchObject({ email_verified: false })
+    })
+
+    it('confirms a valid token, verifies the account, and ends no session', async () => {
+      const cookie = await signUp()
+
+      const confirmed = await post('/v1/auth/verify-email/confirm', {
+        token: verificationTokenFromEmail(),
+      })
+
+      expect(confirmed.status).toBe(204)
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
+      expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: cookie } })).status).toBe(200)
+    })
+
+    it('refuses a token that has already been used', async () => {
+      await signUp()
+      const token = verificationTokenFromEmail()
+
+      await post('/v1/auth/verify-email/confirm', { token })
+      const replay = await post('/v1/auth/verify-email/confirm', { token })
+
+      expect(replay.status).toBe(401)
+    })
+
+    it('refuses an expired token', async () => {
+      const past = new Date('2026-08-02T00:00:00.000Z')
+      const expired = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db, now: () => past }),
+      })
+
+      await expired.app.request('/v1/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...SIGNUP, email: 'expiry@example.com' }),
+      })
+
+      const issuedToken = /token=([^\s]+)/u.exec(expired.services.sentEmails[0]?.body ?? '')?.[1] ?? ''
+
+      // The default harness clock is now, which is a day past the 24-hour window.
+      const response = await post('/v1/auth/verify-email/confirm', { token: issuedToken })
+
+      expect(response.status).toBe(401)
+    })
+
+    it('resends a fresh, working link on request', async () => {
+      const cookie = await signUp()
+
+      const response = await post(
+        '/v1/auth/verify-email',
+        { verify_url_template: VERIFY_URL_TEMPLATE },
+        cookie,
+      )
+
+      expect(response.status).toBe(202)
+      expect(harness.services.sentEmails).toHaveLength(2)
+
+      const confirmed = await post('/v1/auth/verify-email/confirm', {
+        token: verificationTokenFromEmail(),
+      })
+
+      expect(confirmed.status).toBe(204)
+    })
+
+    it('is a no-op, and sends nothing, once already verified', async () => {
+      const cookie = await signUp()
+      await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() })
+
+      const response = await post(
+        '/v1/auth/verify-email',
+        { verify_url_template: VERIFY_URL_TEMPLATE },
+        cookie,
+      )
+
+      expect(response.status).toBe(202)
+      expect(harness.services.sentEmails).toHaveLength(1)
+    })
+
+    it('answers 401 without a cookie', async () => {
+      const response = await post('/v1/auth/verify-email', { verify_url_template: VERIFY_URL_TEMPLATE })
+
+      expect(response.status).toBe(401)
+    })
+
+    it('refuses a template that cannot carry the token', async () => {
+      const cookie = await signUp()
+
+      const response = await post(
+        '/v1/auth/verify-email',
+        { verify_url_template: 'https://app.example.com/verify' },
+        cookie,
+      )
 
       expect(response.status).toBe(422)
     })

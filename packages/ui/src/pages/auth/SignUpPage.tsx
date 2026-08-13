@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
-import { useSignUp } from '../../api/resources/session.ts'
+import { useSignUp, verifyEmailUrlTemplate } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SubmitButton, TextField } from './AuthForm.tsx'
 import { AuthLayout } from './AuthLayout.tsx'
@@ -11,9 +11,11 @@ import { AuthLayout } from './AuthLayout.tsx'
 /**
  * Creating an account, against `POST /v1/auth/signup`.
  *
- * Signup makes the user and nothing else, per `onboarding.md`, so success lands
- * on the first onboarding step rather than in the app. The response sets the
- * session cookie, which is why the next page can already write.
+ * Signup makes the user and nothing else, per `onboarding.md`, so success
+ * lands on the email-verification screen rather than in the app or the first
+ * onboarding step: the account cannot create a workspace until it verifies.
+ * The response sets the session cookie, which is why that next page can
+ * already act as the signed-in account.
  *
  * The mockup collected this into `sessionStorage` and committed the lot at the
  * end of the wizard. Here each step commits as it is finished: a draft account
@@ -41,15 +43,20 @@ export function SignUpPage(): React.JSX.Element {
     setLocalError(null)
 
     signUp
-      .runAsync({ name: name.trim(), email: email.trim(), password })
-      .then(() => navigate('/onboarding/workspace', { replace: true }))
+      .runAsync({
+        name: name.trim(),
+        email: email.trim(),
+        password,
+        verifyUrlTemplate: verifyEmailUrlTemplate(window.location.origin),
+      })
+      .then(() => navigate('/verify-email/pending', { replace: true }))
       .catch(() => undefined)
   }
 
   return (
     <AuthLayout
       title="Create account"
-      description="Next you will create a workspace for your company."
+      description="Next you will verify your email, then create a workspace for your company."
       footer={
         <span className="text-ink-muted">
           Already have an account?{' '}

@@ -36,6 +36,7 @@ const SESSION = {
   session_id: 'ses_1',
   workspace_id: 'ws_1',
   role: 'owner',
+  email_verified: true,
 }
 
 interface Stubs {

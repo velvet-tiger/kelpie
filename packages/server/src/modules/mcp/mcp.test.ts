@@ -68,7 +68,7 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
     })
-    client = createTestClient(harness.app)
+    client = createTestClient(harness.app, harness.services.db)
     acme = await client.owner()
     workspaceKey = await mintKey(acme.cookie)
   })
