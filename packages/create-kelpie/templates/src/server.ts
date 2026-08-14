@@ -80,6 +80,7 @@ async function start(): Promise<void> {
     // this is resolved from the connection itself rather than defaulted
     // inside `createApp`.
     resolveClientIp: (context) => getConnInfo(context).remote.address ?? 'unknown',
+    superuserEmails: config.superuserEmails,
   })
 
   // After `createApp`, so every API route is registered ahead of the fallback.

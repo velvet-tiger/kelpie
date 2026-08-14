@@ -4,6 +4,8 @@ export type { AppDependencies, AppBindings } from './app.ts'
 export { WebBundleError, serveWebBundle } from './webBundle.ts'
 export type { WebBundleOptions } from './webBundle.ts'
 
+export { OPERATOR_ROUTE_PREFIX } from './operator.ts'
+
 export { ConfigurationError, loadConfig } from './lib/config.ts'
 export type { Environment, KelpieConfig, LogLevel, RuntimeMode } from './lib/config.ts'
 

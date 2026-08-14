@@ -440,7 +440,12 @@ async function bootAndSignUp(project: string): Promise<void> {
     const signup = await fetchOrUndefined(`${origin}/v1/auth/signup`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, name: 'Packaging Check', password: 'a properly long password' }),
+      body: JSON.stringify({
+        email,
+        name: 'Packaging Check',
+        password: 'a properly long password',
+        verify_url_template: `${origin}/verify-email?token={token}`,
+      }),
     })
 
     if (signup === undefined) {

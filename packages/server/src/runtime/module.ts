@@ -93,6 +93,21 @@ export interface ModuleContext extends ModuleServices {
    * scope every query to that. There is no other way in.
    */
   publicRoutes(mount: (router: Hono) => void): void
+  /**
+   * Registers routes on the operator surface, mounted under `/operator/api`
+   * (`operator.ts`) rather than `/v1`.
+   *
+   * Operator access is a deployment concern, not a workspace role: the surface
+   * answers only to a signed-in user named in `SUPERUSER_EMAILS`, and a
+   * workspace or personal API key is refused outright. The app applies that
+   * guard once, ahead of every contribution here, so a handler receives only
+   * requests a superuser made.
+   *
+   * No `module.<id>` capability gate applies, and toggling a module off in a
+   * workspace's settings does not remove its operator routes: workspaces do
+   * not own the deployment's support tooling.
+   */
+  operatorRoutes(mount: (router: Hono) => void): void
   schema(tables: Readonly<Record<string, unknown>>, migrationsDir: string): void
   readonly mcp: McpToolRegistry
   /**

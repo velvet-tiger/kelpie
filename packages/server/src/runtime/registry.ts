@@ -30,6 +30,8 @@ export interface ModuleContributions {
   readonly routers: readonly ModuleRouter[]
   /** Routers for `/v1/public`: no credentials, CORS open. `architecture.md` boot step 5. */
   readonly publicRouters: readonly ModuleRouter[]
+  /** Routers for `/operator/api`, behind the superuser guard (`operator.ts`). */
+  readonly operatorRouters: readonly ModuleRouter[]
   readonly schemas: readonly SchemaContribution[]
   readonly mcpTools: readonly McpTool[]
   /** The bus every module subscribed to. Services publish through it after commit. */
@@ -87,6 +89,7 @@ export interface ModuleRuntimeOptions {
 interface Accumulator {
   readonly routers: ModuleRouter[]
   readonly publicRouters: ModuleRouter[]
+  readonly operatorRouters: ModuleRouter[]
   readonly schemas: SchemaContribution[]
   readonly mcpTools: McpTool[]
 }
@@ -128,6 +131,15 @@ function createModuleContext(
       const router = new Hono()
       mount(router)
       accumulator.publicRouters.push({ moduleId: module.id, router })
+    },
+
+    // No gate here, unlike `routes`: the app guards the whole operator surface
+    // once (`operator.ts`), and a per-module `module.<id>` check would hand
+    // workspaces a switch over deployment tooling they do not own.
+    operatorRoutes(mount) {
+      const router = new Hono()
+      mount(router)
+      accumulator.operatorRouters.push({ moduleId: module.id, router })
     },
 
     schema(tables, migrationsDir) {
@@ -211,6 +223,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   const accumulator: Accumulator = {
     routers: [],
     publicRouters: [],
+    operatorRouters: [],
     schemas: [],
     mcpTools: [],
   }
@@ -265,6 +278,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   return {
     routers: accumulator.routers,
     publicRouters: accumulator.publicRouters,
+    operatorRouters: accumulator.operatorRouters,
     schemas: accumulator.schemas,
     mcpTools: accumulator.mcpTools,
     events,

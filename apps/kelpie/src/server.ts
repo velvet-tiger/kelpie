@@ -82,6 +82,7 @@ async function start(): Promise<void> {
     // defaulted inside `createApp`: a header-based fallback would be
     // spoofable, and this is the one place that actually knows the connection.
     resolveClientIp: (context) => getConnInfo(context).remote.address ?? 'unknown',
+    superuserEmails: config.superuserEmails,
   })
 
   // After `createApp`, so every API route is registered ahead of the fallback.

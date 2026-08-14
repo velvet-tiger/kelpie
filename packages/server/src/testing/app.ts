@@ -57,6 +57,8 @@ export interface TestAppOptions {
   readonly rateLimit?: RateLimitConfig
   /** Defaults to reading `X-Forwarded-For`, so a test can simulate distinct callers. */
   readonly resolveClientIp?: (context: Context) => string
+  /** Operator allowlist. Defaults to empty: nobody reaches `/operator/api`. */
+  readonly superuserEmails?: ReadonlySet<string>
 }
 
 export interface TestApp {
@@ -94,6 +96,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     createId: services.createId,
     rateLimit: options.rateLimit ?? DEFAULT_TEST_RATE_LIMIT,
     resolveClientIp: options.resolveClientIp ?? testClientIp,
+    superuserEmails: options.superuserEmails ?? new Set(),
   })
 
   return { app, contributions, logLines, services }

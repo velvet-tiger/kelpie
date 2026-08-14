@@ -8,6 +8,25 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [Unreleased]
+
+### Added
+
+- **`@kelpie/server`** — the operator surface: deployment-level support
+  tooling mounted at `/operator/api`, outside `/v1`. Modules contribute
+  routes through the new `ModuleContext.operatorRoutes`; core guards the
+  whole surface once. The only way in is a browser session belonging to an
+  account named in the new `SUPERUSER_EMAILS` variable (optional,
+  comma-separated, empty means nobody). An API key is refused there
+  regardless of role, because operator access is a deployment concern, not a
+  workspace one. Core ships the guard and the mount and no routes of its
+  own. `createApp` now requires `superuserEmails`, threaded from
+  `loadConfig` by every entry point.
+- **`@kelpie/server`** — `serveWebBundle` excludes `/operator/api` from the
+  SPA fallback alongside `/v1`, `/mcp`, and `/healthz`, so a typo'd operator
+  API path answers the JSON 404 while `/operator` pages still serve the
+  shell.
+
 ## [0.4.1] - 2026-08-12
 
 ### Added

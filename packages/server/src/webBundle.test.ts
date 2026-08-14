@@ -134,6 +134,23 @@ describe('serveWebBundle', () => {
     expect(await response.json()).toMatchObject({ error: { code: 'unauthorized' } })
   })
 
+  /**
+   * The operator API base is excluded like `/v1`; the rest of `/operator` is
+   * pages. A stranger probing the API base gets the guard's JSON 401, never
+   * the shell, and the operator UI's own deep links still resolve.
+   */
+  it('leaves /operator/api to the API and /operator to the pages', async () => {
+    const { app } = await appServingBundle()
+
+    const api = await app.request('/operator/api/anything')
+    expect(api.status).toBe(401)
+    expect(api.headers.get('Content-Type')).toContain('application/json')
+
+    const page = await app.request('/operator/workspaces')
+    expect(page.status).toBe(200)
+    expect(await page.text()).toBe(INDEX_HTML)
+  })
+
   it('leaves /healthz to the API', async () => {
     const { app } = await appServingBundle()
     const response = await app.request('/healthz')

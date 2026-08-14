@@ -18,6 +18,7 @@ import {
   createFormSubmitRateLimitMiddleware,
 } from './modules/rate-limit/middleware.ts'
 import { createIdempotencyMiddleware } from './modules/workspace/idempotencyMiddleware.ts'
+import { createOperatorRouter, OPERATOR_ROUTE_PREFIX } from './operator.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 
 /**
@@ -50,6 +51,14 @@ export interface AppDependencies {
    * control (`testing/app.ts`).
    */
   readonly resolveClientIp: (context: Context) => string
+  /**
+   * Accounts allowed onto the operator surface (`operator.ts`), lower-cased,
+   * from `KelpieConfig.superuserEmails`. Required for the same reason as
+   * `resolveClientIp`: defaulting it to empty here would let an entry point
+   * forget to thread it through and ship a deployment whose allowlist
+   * silently never works.
+   */
+  readonly superuserEmails: ReadonlySet<string>
 }
 
 /** Per-request values the middleware chain sets and handlers read. */
@@ -171,6 +180,20 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
 
   app.route(MCP_ROUTE_PREFIX, mcp.transport)
   app.route('/v1', mcp.catalog)
+
+  // Mounted whether or not any module contributed routes: the guard still
+  // answers 401/403 there, so probing the prefix reveals nothing about which
+  // modules a deployment runs. Not rate limited: the `/v1` budgets are
+  // per-workspace-credential and an operator request deliberately has no
+  // workspace. Noted gap, acceptable while the guard fronts every route.
+  app.route(
+    OPERATOR_ROUTE_PREFIX,
+    createOperatorRouter({
+      credentials: dependencies.credentials,
+      superuserEmails: dependencies.superuserEmails,
+      routers: dependencies.contributions.operatorRouters,
+    }),
+  )
 
   app.onError((error, context) => {
     if (error instanceof AppError) {
