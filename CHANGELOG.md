@@ -12,20 +12,25 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
-- **`@kelpie/server`** — the operator surface: deployment-level support
-  tooling mounted at `/operator/api`, outside `/v1`. Modules contribute
-  routes through the new `ModuleContext.operatorRoutes`; core guards the
-  whole surface once. The only way in is a browser session belonging to an
-  account named in the new `SUPERUSER_EMAILS` variable (optional,
-  comma-separated, empty means nobody). An API key is refused there
-  regardless of role, because operator access is a deployment concern, not a
-  workspace one. Core ships the guard and the mount and no routes of its
-  own. `createApp` now requires `superuserEmails`, threaded from
-  `loadConfig` by every entry point.
-- **`@kelpie/server`** — `serveWebBundle` excludes `/operator/api` from the
-  SPA fallback alongside `/v1`, `/mcp`, and `/healthz`, so a typo'd operator
-  API path answers the JSON 404 while `/operator` pages still serve the
-  shell.
+- **`@kelpie/server`** — modules can declare routes and middleware on the app
+  itself, outside `/v1`: `ModuleContext.appRoute(method, path, handler)` and
+  `ModuleContext.appMiddleware(pattern, handler)`. Declarations carry their
+  real, full paths; `createApp` applies every declared middleware, then every
+  declared route, so a pattern covers matching routes from every module. No
+  actor resolution, workspace scoping, or `module.<id>` gate applies: a
+  surface declared this way owns its own access rules. Paths at or under
+  `/v1`, `/mcp`, or `/healthz` are refused at boot. Built for the cloud
+  assembly's operator surface, which lives entirely in its own module.
+- **`@kelpie/server`** — `serveWebBundle` takes `apiPrefixes`, extra prefixes
+  the SPA fallback must leave to the API, for assemblies whose modules answer
+  outside `/v1`.
+
+### Notes
+
+- Between 0.4.1 and this release, main briefly carried an operator-specific
+  surface in core (`SUPERUSER_EMAILS`, a superuser guard, a fixed
+  `/operator/api` mount). It was reworked into the generic declarations above
+  before any release; no published package ever contained it.
 
 ## [0.4.1] - 2026-08-12
 

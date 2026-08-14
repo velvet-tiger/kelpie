@@ -18,7 +18,6 @@ import {
   createFormSubmitRateLimitMiddleware,
 } from './modules/rate-limit/middleware.ts'
 import { createIdempotencyMiddleware } from './modules/workspace/idempotencyMiddleware.ts'
-import { createOperatorRouter, OPERATOR_ROUTE_PREFIX } from './operator.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 
 /**
@@ -51,14 +50,6 @@ export interface AppDependencies {
    * control (`testing/app.ts`).
    */
   readonly resolveClientIp: (context: Context) => string
-  /**
-   * Accounts allowed onto the operator surface (`operator.ts`), lower-cased,
-   * from `KelpieConfig.superuserEmails`. Required for the same reason as
-   * `resolveClientIp`: defaulting it to empty here would let an entry point
-   * forget to thread it through and ship a deployment whose allowlist
-   * silently never works.
-   */
-  readonly superuserEmails: ReadonlySet<string>
 }
 
 /** Per-request values the middleware chain sets and handlers read. */
@@ -181,19 +172,21 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   app.route(MCP_ROUTE_PREFIX, mcp.transport)
   app.route('/v1', mcp.catalog)
 
-  // Mounted whether or not any module contributed routes: the guard still
-  // answers 401/403 there, so probing the prefix reveals nothing about which
-  // modules a deployment runs. Not rate limited: the `/v1` budgets are
-  // per-workspace-credential and an operator request deliberately has no
-  // workspace. Noted gap, acceptable while the guard fronts every route.
-  app.route(
-    OPERATOR_ROUTE_PREFIX,
-    createOperatorRouter({
-      credentials: dependencies.credentials,
-      superuserEmails: dependencies.superuserEmails,
-      routers: dependencies.contributions.operatorRouters,
-    }),
-  )
+  // Module declarations on the app itself, outside /v1 (`runtime/module.ts`).
+  // Middleware first, all of it, then routes: within one request Hono
+  // composes matching handlers in registration order, so this is what makes
+  // a declared pattern cover matching routes from every module, whichever
+  // registered first. Registered after core's own surfaces above, so nothing
+  // here can run ahead of them. Not rate limited: the `/v1` budgets are
+  // per-workspace-credential, and a declared surface owns its own access
+  // rules.
+  for (const middleware of dependencies.contributions.appMiddleware) {
+    app.use(middleware.pattern, middleware.handler)
+  }
+
+  for (const route of dependencies.contributions.appRoutes) {
+    app.on(route.method, route.path, route.handler)
+  }
 
   app.onError((error, context) => {
     if (error instanceof AppError) {

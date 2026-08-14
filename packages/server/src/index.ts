@@ -4,8 +4,6 @@ export type { AppDependencies, AppBindings } from './app.ts'
 export { WebBundleError, serveWebBundle } from './webBundle.ts'
 export type { WebBundleOptions } from './webBundle.ts'
 
-export { OPERATOR_ROUTE_PREFIX } from './operator.ts'
-
 export { ConfigurationError, loadConfig } from './lib/config.ts'
 export type { Environment, KelpieConfig, LogLevel, RuntimeMode } from './lib/config.ts'
 
@@ -107,7 +105,13 @@ export { KEY_KINDS, kindOfSecret, mintKey, parseKeyKind, readBearerToken } from 
 export type { KeyKind, MintedKey } from './modules/api-keys/keys.ts'
 
 export { registerModules } from './runtime/registry.ts'
-export type { ModuleContributions, ModuleRouter, ModuleRuntimeOptions } from './runtime/registry.ts'
+export type {
+  AppMiddlewareContribution,
+  AppRouteContribution,
+  ModuleContributions,
+  ModuleRouter,
+  ModuleRuntimeOptions,
+} from './runtime/registry.ts'
 export type { ModuleServices } from './runtime/module.ts'
 
 export type { Actor, ApiKeyActor, SessionActor } from './modules/auth/actor.ts'

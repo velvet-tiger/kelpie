@@ -135,18 +135,21 @@ describe('serveWebBundle', () => {
   })
 
   /**
-   * The operator API base is excluded like `/v1`; the rest of `/operator` is
-   * pages. A stranger probing the API base gets the guard's JSON 401, never
-   * the shell, and the operator UI's own deep links still resolve.
+   * An assembly's own API prefix, named through `apiPrefixes`, is excluded
+   * like `/v1`; everything else under the same first segment stays pages. The
+   * cloud's operator surface is the case this exists for: JSON at
+   * `/operator/api/...`, the UI's deep links everywhere else in `/operator`.
    */
-  it('leaves /operator/api to the API and /operator to the pages', async () => {
-    const { app } = await appServingBundle()
+  it('excludes a declared API prefix and leaves its sibling paths to the pages', async () => {
+    const built = await createTestApp()
 
-    const api = await app.request('/operator/api/anything')
-    expect(api.status).toBe(401)
+    serveWebBundle(built.app, { directory: bundleDirectory, apiPrefixes: ['/operator/api'] })
+
+    const api = await built.app.request('/operator/api/anything')
+    expect(api.status).toBe(404)
     expect(api.headers.get('Content-Type')).toContain('application/json')
 
-    const page = await app.request('/operator/workspaces')
+    const page = await built.app.request('/operator/workspaces')
     expect(page.status).toBe(200)
     expect(await page.text()).toBe(INDEX_HTML)
   })

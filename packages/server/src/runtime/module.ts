@@ -1,4 +1,4 @@
-import type { Hono } from 'hono'
+import type { Handler, Hono, MiddlewareHandler } from 'hono'
 import type { ZodType } from 'zod'
 
 import type { Actor } from '../lib/actor.ts'
@@ -94,20 +94,29 @@ export interface ModuleContext extends ModuleServices {
    */
   publicRoutes(mount: (router: Hono) => void): void
   /**
-   * Registers routes on the operator surface, mounted under `/operator/api`
-   * (`operator.ts`) rather than `/v1`.
+   * Declares one route at its real, full path on the app itself, outside
+   * `/v1`. Core applies the declaration; no router exists between the module
+   * and the app.
    *
-   * Operator access is a deployment concern, not a workspace role: the surface
-   * answers only to a signed-in user named in `SUPERUSER_EMAILS`, and a
-   * workspace or personal API key is refused outright. The app applies that
-   * guard once, ahead of every contribution here, so a handler receives only
-   * requests a superuser made.
-   *
-   * No `module.<id>` capability gate applies, and toggling a module off in a
-   * workspace's settings does not remove its operator routes: workspaces do
-   * not own the deployment's support tooling.
+   * Nothing is put in front of it: no actor resolution, no workspace, no
+   * `module.<id>` capability gate, and workspace settings cannot toggle it.
+   * A surface declared this way owns its access rules, normally by pairing
+   * these with `appMiddleware`. Paths at or under `/v1`, `/mcp`, or
+   * `/healthz` are refused at boot: those are core's surfaces, and `routes`
+   * is the only way under `/v1`.
    */
-  operatorRoutes(mount: (router: Hono) => void): void
+  appRoute(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, handler: Handler): void
+  /**
+   * Declares middleware for a path pattern (`/operator/api/*`), the other
+   * half of `appRoute`.
+   *
+   * The app applies every declared middleware before any declared route, in
+   * module registration order, so a pattern covers matching routes from
+   * every module, later-registered ones included. That is what lets one
+   * module guard a surface other modules add routes to. Reserved paths are
+   * refused as for `appRoute`.
+   */
+  appMiddleware(pattern: string, handler: MiddlewareHandler): void
   schema(tables: Readonly<Record<string, unknown>>, migrationsDir: string): void
   readonly mcp: McpToolRegistry
   /**

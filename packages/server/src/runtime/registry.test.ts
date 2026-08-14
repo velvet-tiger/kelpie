@@ -160,6 +160,132 @@ describe('module public routes', () => {
   })
 })
 
+/**
+ * A module declaring routes and middleware on the app itself, outside /v1.
+ * Two modules on purpose: the property that matters most is one module's
+ * pattern covering another module's routes, which no single-module test can
+ * show.
+ */
+const consoleModule: KelpieModule = {
+  id: 'console',
+  register(context) {
+    context.appMiddleware('/console/api/*', async (requestContext, next) => {
+      if (requestContext.req.header('X-Console-Key') !== 'sesame') {
+        throw AppError.unauthorized()
+      }
+
+      await next()
+    })
+
+    context.appRoute('GET', '/console/api/ping', (requestContext) => requestContext.json({ pong: true }))
+
+    return Promise.resolve()
+  },
+}
+
+const gadgetModule: KelpieModule = {
+  id: 'gadget',
+  register(context) {
+    context.appRoute('GET', '/console/api/gadget', (requestContext) =>
+      requestContext.json({ gadget: true }),
+    )
+
+    return Promise.resolve()
+  },
+}
+
+describe('module app routes and middleware', () => {
+  const consoleApp = (): ReturnType<typeof createTestApp> =>
+    createTestApp({ modules: [consoleModule, gadgetModule] })
+
+  it('serves a declared route at its full path', async () => {
+    const { app } = await consoleApp()
+    const response = await app.request('/console/api/ping', { headers: { 'X-Console-Key': 'sesame' } })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ pong: true })
+  })
+
+  it('runs declared middleware ahead of the route', async () => {
+    const { app } = await consoleApp()
+    const response = await app.request('/console/api/ping')
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ error: { code: 'unauthorized' } })
+  })
+
+  /** What makes a declared pattern a surface: it covers later modules' routes too. */
+  it("covers another module's route with the declaring module's middleware", async () => {
+    const { app } = await consoleApp()
+
+    expect((await app.request('/console/api/gadget')).status).toBe(401)
+
+    const allowed = await app.request('/console/api/gadget', { headers: { 'X-Console-Key': 'sesame' } })
+    expect(allowed.status).toBe(200)
+    expect(await allowed.json()).toEqual({ gadget: true })
+  })
+
+  it('does not also serve the declared route under /v1', async () => {
+    const { app } = await consoleApp()
+
+    expect((await app.request('/v1/console/api/ping')).status).toBe(404)
+  })
+
+  it('collects the declarations with their modules', async () => {
+    const { contributions } = await consoleApp()
+
+    expect(contributions.appMiddleware.map((entry) => [entry.moduleId, entry.pattern])).toEqual([
+      ['console', '/console/api/*'],
+    ])
+    expect(contributions.appRoutes.map((entry) => [entry.moduleId, entry.method, entry.path])).toEqual([
+      ['console', 'GET', '/console/api/ping'],
+      ['gadget', 'GET', '/console/api/gadget'],
+    ])
+  })
+
+  it.each([
+    ['/v1/console', 'under "/v1"'],
+    ['/mcp/console', 'under "/mcp"'],
+    ['/healthz', 'under "/healthz"'],
+  ])('refuses the reserved path %s at boot', async (path, reason) => {
+    const trespasser: KelpieModule = {
+      id: 'trespasser',
+      register(context) {
+        context.appRoute('GET', path, (requestContext) => requestContext.json({}))
+        return Promise.resolve()
+      },
+    }
+
+    await expect(
+      registerModules({
+        modules: [trespasser],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+      }),
+    ).rejects.toThrow(new RegExp(`module "trespasser".*${reason}`))
+  })
+
+  it('refuses a middleware pattern with no leading slash at boot', async () => {
+    const crooked: KelpieModule = {
+      id: 'crooked',
+      register(context) {
+        context.appMiddleware('console/*', async (_requestContext, next) => next())
+        return Promise.resolve()
+      },
+    }
+
+    await expect(
+      registerModules({
+        modules: [crooked],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+      }),
+    ).rejects.toThrow(/module "crooked".*must start with "\/"/)
+  })
+})
+
 describe('module config', () => {
   it('gives the module its validated slice of the environment', async () => {
     const { app } = await createTestApp({

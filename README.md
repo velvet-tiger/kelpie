@@ -178,7 +178,6 @@ boot and lists every problem, rather than starting in a broken state.
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |
 | `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional, default 30. How many days of webhook delivery history to keep |
 | `WEB_BUNDLE_DIR` | Optional. Directory holding a built web bundle, served from the same origin as the API. Leave it unset in development, where the Vite dev server builds the pages and proxies the API. Set it in a deployment, after `npm run build`, and one process serves both. Boot fails if the directory holds no `index.html` |
-| `SUPERUSER_EMAILS` | Optional, default empty. Comma-separated account emails allowed onto the operator surface at `/operator/api`. Empty means nobody: the surface answers `403` to every signed-in user. Each entry must be a valid email address; a typo stops boot naming the entry. API keys are refused there regardless of this list |
 
 `make setup` generates `SECRET_ENCRYPTION_KEY` for you. See
 [`docs/development.md`](docs/development.md) for the rest of the variables

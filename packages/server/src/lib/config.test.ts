@@ -24,43 +24,6 @@ describe('loadConfig', () => {
         auth: { limit: 10, windowMs: 60_000 },
         api: { limit: 600, windowMs: 60_000 },
       },
-      superuserEmails: new Set(),
-    })
-  })
-
-  describe('SUPERUSER_EMAILS', () => {
-    it('parses absent as an empty set', () => {
-      expect(loadConfig(validEnvironment).superuserEmails).toEqual(new Set())
-    })
-
-    it('parses blank as an empty set', () => {
-      expect(loadConfig({ ...validEnvironment, SUPERUSER_EMAILS: '   ' }).superuserEmails).toEqual(
-        new Set(),
-      )
-    })
-
-    it('parses a comma-separated list, trimmed and lower-cased', () => {
-      expect(
-        loadConfig({ ...validEnvironment, SUPERUSER_EMAILS: ' Ada@Example.com , grace@example.com ' })
-          .superuserEmails,
-      ).toEqual(new Set(['ada@example.com', 'grace@example.com']))
-    })
-
-    it('rejects an entry that is not an email, naming it', () => {
-      let thrown: unknown
-
-      try {
-        loadConfig({ ...validEnvironment, SUPERUSER_EMAILS: 'ada@example.com, not-an-email' })
-      } catch (error: unknown) {
-        thrown = error
-      }
-
-      expect(thrown).toBeInstanceOf(ConfigurationError)
-      if (!(thrown instanceof ConfigurationError)) {
-        throw thrown
-      }
-
-      expect(thrown.problems.join('\n')).toContain('not-an-email')
     })
   })
 
