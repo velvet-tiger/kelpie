@@ -38,6 +38,12 @@ export interface KelpieConfig {
    */
   readonly webBundleDirectory: string | undefined
   readonly rateLimit: RateLimitConfig
+  /**
+   * Accounts allowed onto the operator surface (`operator.ts`), lower-cased.
+   * Empty means nobody: the surface fails closed, and a deployment that never
+   * sets `SUPERUSER_EMAILS` simply has no operators.
+   */
+  readonly superuserEmails: ReadonlySet<string>
 }
 
 /** Thrown at boot when the environment cannot produce a valid configuration. */
@@ -60,6 +66,30 @@ function isPostgresUrl(value: string): boolean {
   }
 }
 
+/**
+ * Comma-separated emails. Blank counts as absent, the
+ * `SECRET_ENCRYPTION_KEY_PREVIOUS` rule: operators empty a line far more often
+ * than they delete it. Each entry is checked as an email address so a typo
+ * stops boot naming the entry, rather than silently locking the intended
+ * operator out.
+ */
+const superuserEmailsSchema = z
+  .string()
+  .optional()
+  .transform((value) =>
+    value === undefined || value.trim().length === 0
+      ? []
+      : value.split(',').map((entry) => entry.trim()),
+  )
+  .superRefine((entries, context) => {
+    for (const entry of entries) {
+      if (!z.email().safeParse(entry).success) {
+        context.addIssue({ code: 'custom', message: `"${entry}" is not an email address` })
+      }
+    }
+  })
+  .transform((entries): ReadonlySet<string> => new Set(entries.map((entry) => entry.toLowerCase())))
+
 const environmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']),
   PORT: z.coerce.number().int().positive().max(65535),
@@ -69,6 +99,7 @@ const environmentSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']),
   KELPIE_MODULE_CONFIG_PATH: z.string().min(1).optional(),
   WEB_BUNDLE_DIR: z.string().min(1).optional(),
+  SUPERUSER_EMAILS: superuserEmailsSchema,
   ...rateLimitConfigSchema.shape,
 })
 
@@ -105,5 +136,6 @@ export function loadConfig(environment: Environment): KelpieConfig {
     moduleConfigPath: environmentResult.data.KELPIE_MODULE_CONFIG_PATH,
     webBundleDirectory: environmentResult.data.WEB_BUNDLE_DIR,
     rateLimit: rateLimitConfigFrom(environmentResult.data),
+    superuserEmails: environmentResult.data.SUPERUSER_EMAILS,
   }
 }

@@ -6,6 +6,7 @@ import type { Hono, MiddlewareHandler } from 'hono'
 
 import type { AppBindings } from './app.ts'
 import { MCP_ROUTE_PREFIX } from './modules/mcp/index.ts'
+import { OPERATOR_ROUTE_PREFIX } from './operator.ts'
 
 /**
  * Serves a built web bundle from the same origin as the API.
@@ -39,9 +40,11 @@ export class WebBundleError extends Error {
  * The prefixes `createApp` answers on.
  *
  * `/v1/public` needs no entry of its own: it sits under `/v1`. `MCP_ROUTE_PREFIX`
- * is imported rather than written out, so moving the endpoint moves this with it.
+ * and `OPERATOR_ROUTE_PREFIX` are imported rather than written out, so moving an
+ * endpoint moves this with it. `/operator` without the `/api` segment is a page,
+ * not an API path: the operator UI lives there, so only the API base is excluded.
  */
-const API_PREFIXES: readonly string[] = ['/v1', MCP_ROUTE_PREFIX, '/healthz']
+const API_PREFIXES: readonly string[] = ['/v1', MCP_ROUTE_PREFIX, OPERATOR_ROUTE_PREFIX, '/healthz']
 
 function isApiRequest(path: string): boolean {
   return API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
