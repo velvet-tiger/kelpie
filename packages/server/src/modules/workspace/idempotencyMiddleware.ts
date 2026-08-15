@@ -128,7 +128,23 @@ export function createIdempotencyMiddleware(dependencies: IdempotencyMiddlewareD
       return
     }
 
-    const actor = await resolveActorFrom(dependencies.credentials, context)
+    const actor = await resolveActorFrom(dependencies.credentials, context).catch((error: unknown) => {
+      if (error instanceof AppError && error.code === 'unauthorized') {
+        // No credential to scope a key to. The unauthenticated auth endpoints
+        // (`POST /v1/auth/login`, `/signup`, the reset pair) are the case: they
+        // must answer without a credential, so a key on one of them cannot 401
+        // here. They handle their own auth; idempotency does not apply.
+        return undefined
+      }
+
+      throw error
+    })
+
+    if (actor === undefined) {
+      await next()
+      return
+    }
+
     const workspaceId = actorWorkspaceId(actor)
 
     // Between signup and a first workspace (`POST /v1/workspaces`, `POST
