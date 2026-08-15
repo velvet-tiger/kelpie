@@ -39,10 +39,25 @@ const UNAUTHENTICATED_AUTH_PATHS: ReadonlySet<string> = new Set([
   '/v1/auth/login',
   '/v1/auth/password-reset',
   '/v1/auth/password-reset/confirm',
+  '/v1/auth/verify-email/confirm',
 ])
 
-function isFormSubmitRoute(context: Context): boolean {
-  return context.req.method === 'POST' && context.req.path.endsWith('/submit')
+/** The one path in the set that also carries a per-account budget. */
+const LOGIN_PATH = '/v1/auth/login'
+
+/**
+ * The public form routes that carry the forms budget: the submit POST and the
+ * embed GET. Both do database work for an unauthenticated caller, so both are
+ * metered by IP. Every other path under the public prefix passes through.
+ */
+function isMeteredFormRoute(context: Context): boolean {
+  const path = context.req.path
+
+  if (context.req.method === 'POST' && path.endsWith('/submit')) {
+    return true
+  }
+
+  return context.req.method === 'GET' && path.endsWith('/embed')
 }
 
 /** Floors `now` to the start of its fixed window, so every caller in the same window shares one row. */
@@ -51,12 +66,45 @@ function windowStart(now: Date, windowMs: number): Date {
 }
 
 /**
- * The largest configured window across all three budgets. A bucket cannot be
- * expired before its own window elapses, so this is a safe cutoff for
- * pruning regardless of which budget created the row.
+ * The largest configured window across every budget. A bucket cannot be expired
+ * before its own window elapses, so this is a safe cutoff for pruning regardless
+ * of which budget created the row. The `login-account` window is the longest by
+ * default, so leaving it out would prune a live account bucket early.
  */
 function maxWindowMs(config: RateLimitConfig): number {
-  return Math.max(config.forms.windowMs, config.auth.windowMs, config.api.windowMs)
+  return Math.max(
+    config.forms.windowMs,
+    config.auth.windowMs,
+    config.loginAccount.windowMs,
+    config.api.windowMs,
+  )
+}
+
+/**
+ * The email a login request names, normalised the way the auth service
+ * normalises it (`modules/auth/service.ts`), or undefined when the body carries
+ * no usable one.
+ *
+ * Reads the body through Hono's cache, so the login handler's own read of it
+ * later is unaffected. A malformed body resolves to undefined here and is left
+ * for the handler to reject.
+ */
+async function readLoginEmail(context: Context): Promise<string | undefined> {
+  const body: unknown = await context.req.json().catch(() => undefined)
+
+  if (typeof body !== 'object' || body === null) {
+    return undefined
+  }
+
+  const email = (body as Record<string, unknown>).email
+
+  if (typeof email !== 'string') {
+    return undefined
+  }
+
+  const normalised = email.trim().toLowerCase()
+
+  return normalised.length === 0 ? undefined : normalised
 }
 
 /**
@@ -94,17 +142,17 @@ async function enforceBudget(
 }
 
 /**
- * Guards `POST /v1/public/forms/:key/submit`, keyed by the caller's IP.
+ * Guards the public form routes that reach the database, keyed by the caller's
+ * IP: the submit `POST` and the embed `GET`.
  *
- * Mount this **after** `PUBLIC_CORS` in `app.ts`. It only recognises the
- * submit route; every other path under the public prefix, including the embed
- * page itself, passes through untouched.
+ * Mount this **after** `PUBLIC_CORS` in `app.ts`. Every other path under the
+ * public prefix passes through untouched.
  */
 export function createFormSubmitRateLimitMiddleware(
   dependencies: RateLimitMiddlewareDependencies,
 ): MiddlewareHandler {
   return async (context, next) => {
-    if (!isFormSubmitRoute(context)) {
+    if (!isMeteredFormRoute(context)) {
       await next()
       return
     }
@@ -146,6 +194,21 @@ export function createAuthAndApiRateLimitMiddleware(
         key: dependencies.resolveClientIp(context),
         budget: dependencies.config.auth,
       })
+
+      // A second budget for login, keyed on the account rather than the IP, so a
+      // distributed attack on one address is capped whatever IPs it comes from.
+      if (path === LOGIN_PATH) {
+        const email = await readLoginEmail(context)
+
+        if (email !== undefined) {
+          await enforceBudget(dependencies, context, {
+            scope: 'login-account',
+            key: email,
+            budget: dependencies.config.loginAccount,
+          })
+        }
+      }
+
       await next()
       return
     }

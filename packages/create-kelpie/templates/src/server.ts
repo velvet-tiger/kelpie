@@ -16,6 +16,7 @@ import {
   readModuleConfigFile,
   registerModules,
   resolveActorFrom,
+  resolveClientIpFrom,
   runMigrations,
   serveWebBundle,
 } from '@kelpie/server'
@@ -76,10 +77,16 @@ async function start(): Promise<void> {
     credentials,
     createId,
     rateLimit: config.rateLimit,
-    // The real socket address. A header-based fallback would be spoofable, so
-    // this is resolved from the connection itself rather than defaulted
-    // inside `createApp`.
-    resolveClientIp: (context) => getConnInfo(context).remote.address ?? 'unknown',
+    // The socket address, then `X-Forwarded-For` only as far as the configured
+    // number of trusted proxies allows. Resolved from the connection itself
+    // rather than defaulted inside `createApp`, and trusting the header any
+    // further than `TRUSTED_PROXY_HOP_COUNT` would be spoofable.
+    resolveClientIp: (context) =>
+      resolveClientIpFrom(
+        getConnInfo(context).remote.address ?? 'unknown',
+        context.req.header('X-Forwarded-For'),
+        config.trustedProxyHopCount,
+      ),
   })
 
   // After `createApp`, so every API route is registered ahead of the fallback.

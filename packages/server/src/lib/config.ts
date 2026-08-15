@@ -38,6 +38,12 @@ export interface KelpieConfig {
    */
   readonly webBundleDirectory: string | undefined
   readonly rateLimit: RateLimitConfig
+  /**
+   * How many trusted proxies stand in front of the service. Zero means it is
+   * reached directly and the socket address is the client. Positive means the
+   * client IP is read from `X-Forwarded-For` (`lib/clientIp.ts`).
+   */
+  readonly trustedProxyHopCount: number
 }
 
 /** Thrown at boot when the environment cannot produce a valid configuration. */
@@ -69,6 +75,7 @@ const environmentSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']),
   KELPIE_MODULE_CONFIG_PATH: z.string().min(1).optional(),
   WEB_BUNDLE_DIR: z.string().min(1).optional(),
+  TRUSTED_PROXY_HOP_COUNT: z.coerce.number().int().nonnegative().default(0),
   ...rateLimitConfigSchema.shape,
 })
 
@@ -105,5 +112,6 @@ export function loadConfig(environment: Environment): KelpieConfig {
     moduleConfigPath: environmentResult.data.KELPIE_MODULE_CONFIG_PATH,
     webBundleDirectory: environmentResult.data.WEB_BUNDLE_DIR,
     rateLimit: rateLimitConfigFrom(environmentResult.data),
+    trustedProxyHopCount: environmentResult.data.TRUSTED_PROXY_HOP_COUNT,
   }
 }
