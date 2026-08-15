@@ -586,7 +586,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       // `schema.md`: removing a member is restricted while they own records.
       // Reported before the delete so every referencing type can be named, which
       // is what the caller needs to know what to reassign.
-      const references = await repository.countMemberReferences(dependencies.db, target.id)
+      const references = await repository.countMemberReferences(dependencies.db, workspaceId, target.id)
 
       if (references.length > 0) {
         throw AppError.conflict(

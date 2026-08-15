@@ -49,12 +49,12 @@ export interface DecisionFilters {
  * away, so a candidate-targeted decision matches on body and rationale only.
  */
 const NAMED_TARGET_TABLES = [
-  { table: people, id: people.id, name: people.name },
-  { table: companies, id: companies.id, name: companies.name },
-  { table: deals, id: deals.id, name: deals.name },
-  { table: opportunities, id: opportunities.id, name: opportunities.name },
-  { table: partnerships, id: partnerships.id, name: partnerships.name },
-  { table: raises, id: raises.id, name: raises.name },
+  { table: people, id: people.id, workspaceId: people.workspaceId, name: people.name },
+  { table: companies, id: companies.id, workspaceId: companies.workspaceId, name: companies.name },
+  { table: deals, id: deals.id, workspaceId: deals.workspaceId, name: deals.name },
+  { table: opportunities, id: opportunities.id, workspaceId: opportunities.workspaceId, name: opportunities.name },
+  { table: partnerships, id: partnerships.id, workspaceId: partnerships.workspaceId, name: partnerships.name },
+  { table: raises, id: raises.id, workspaceId: raises.workspaceId, name: raises.name },
 ]
 
 /**
@@ -64,10 +64,11 @@ const NAMED_TARGET_TABLES = [
  */
 function targetNameMatches(pattern: string): SQL[] {
   return NAMED_TARGET_TABLES.map(
-    ({ table, id, name }) => sql`exists (
+    ({ table, id, workspaceId, name }) => sql`exists (
       select 1
       from ${table}
       where ${id} = ${decisions.targetId}
+        and ${workspaceId} = ${decisions.workspaceId}
         and ${name} ilike ${pattern}
     )`,
   )

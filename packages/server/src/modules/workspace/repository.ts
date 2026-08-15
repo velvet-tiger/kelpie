@@ -132,21 +132,28 @@ export async function deleteMember(db: Queryable, id: string): Promise<void> {
  */
 export async function countMemberReferences(
   db: Queryable,
+  workspaceId: string,
   memberId: string,
 ): Promise<readonly { readonly type: string; readonly count: number }[]> {
   const sources = [
-    { type: 'deal', table: deals, column: deals.ownerId },
-    { type: 'opportunity', table: opportunities, column: opportunities.ownerId },
-    { type: 'partnership', table: partnerships, column: partnerships.ownerId },
-    { type: 'raise', table: raises, column: raises.ownerId },
-    { type: 'plan_item', table: planItems, column: planItems.ownerId },
-    { type: 'decision', table: decisions, column: decisions.ownerId },
-    { type: 'note', table: notes, column: notes.authorId },
+    { type: 'deal', table: deals, column: deals.ownerId, workspaceId: deals.workspaceId },
+    { type: 'opportunity', table: opportunities, column: opportunities.ownerId, workspaceId: opportunities.workspaceId },
+    { type: 'partnership', table: partnerships, column: partnerships.ownerId, workspaceId: partnerships.workspaceId },
+    { type: 'raise', table: raises, column: raises.ownerId, workspaceId: raises.workspaceId },
+    { type: 'plan_item', table: planItems, column: planItems.ownerId, workspaceId: planItems.workspaceId },
+    { type: 'decision', table: decisions, column: decisions.ownerId, workspaceId: decisions.workspaceId },
+    { type: 'note', table: notes, column: notes.authorId, workspaceId: notes.workspaceId },
   ] as const
 
   const counted = await Promise.all(
     sources.map(async (source) => {
-      const [row] = await db.select({ total: count() }).from(source.table).where(eq(source.column, memberId))
+      // A member id is globally unique, so the workspace term is defence in
+      // depth rather than the thing that scopes the count. It keeps the query
+      // safe on its own instead of by that invariant.
+      const [row] = await db
+        .select({ total: count() })
+        .from(source.table)
+        .where(and(eq(source.column, memberId), eq(source.workspaceId, workspaceId)))
 
       return { type: source.type, count: row?.total ?? 0 }
     }),
