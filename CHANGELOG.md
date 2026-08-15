@@ -8,7 +8,24 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
-## [Unreleased]
+## [0.5.0] - 2026-08-15
+
+### Changed
+
+- **Breaking, `@kelpie/server` and `@kelpie/schemas`** — the server builds
+  every emailed link (verification, password reset, invitation) itself from a
+  new required `APP_BASE_URL` variable. The `verify_url_template`,
+  `reset_url_template`, and `invite_url_template` request fields are removed
+  from the wire schemas, the routes, and the MCP invite tool; sending one now
+  answers `422`. Taking the link target from the request let an
+  unauthenticated caller point a genuine Kelpie email at their own host,
+  which is an account-takeover path. Every deployment must set
+  `APP_BASE_URL` before upgrading; boot refuses to start without it.
+- **Breaking, `@kelpie/server`** — a public form submit no longer returns the
+  upserted person and company ids. A Kelpie id is a ULID whose timestamp let
+  an anonymous caller tell a pre-existing contact from a new one. The public
+  response carries the submission id and the thank-you copy; the stored
+  submission, read over the authenticated API, still holds the record ids.
 
 ### Added
 
@@ -25,12 +42,41 @@ While the major version is `0`, a minor bump may break the API.
   the SPA fallback must leave to the API, for assemblies whose modules answer
   outside `/v1`.
 
+### Security
+
+- Login attempts are now also budgeted per account, keyed on the normalised
+  email, so credential stuffing spread across many IPs is capped for the
+  targeted address. A new optional `TRUSTED_PROXY_HOP_COUNT` reads the real
+  client IP from `X-Forwarded-For` up to the deployment's trusted hops;
+  without it, every caller behind a proxy shared one rate-limit bucket. The
+  verify-email confirm and public form embed endpoints are now metered.
+- An optional egress guard (`BLOCK_PRIVATE_EGRESS=true`) refuses webhook and
+  agent-task deliveries to private, loopback, link-local, and reserved
+  addresses, closing the SSRF path from customer-supplied endpoints to
+  cloud metadata services and internal hosts. Off by default: a self-hosted
+  Kelpie legitimately posts to internal automation. A blocked target records
+  a failed delivery rather than crashing, and redirects stay closed.
+- The public form routes now honour the `module.forms` entitlement, so a
+  workspace that switched the module off no longer accepts submissions or
+  serves the embed.
+- Cross-module CRM queries carry explicit workspace predicates as defence in
+  depth; they previously relied on record-id uniqueness alone.
+- The session cookie's `Secure` flag is set outside development, not only in
+  production.
+
+### Fixed
+
+- The idempotency middleware no longer resolves an actor on unauthenticated
+  auth endpoints: `POST /v1/auth/login` or `/signup` with an
+  `Idempotency-Key` header answered `401` before the handler ran.
+
 ### Notes
 
 - Between 0.4.1 and this release, main briefly carried an operator-specific
   surface in core (`SUPERUSER_EMAILS`, a superuser guard, a fixed
   `/operator/api` mount). It was reworked into the generic declarations above
-  before any release; no published package ever contained it.
+  before any release; no published package ever contained it. The cloud
+  assembly's `operator` module now owns all of it.
 
 ## [0.4.1] - 2026-08-12
 
