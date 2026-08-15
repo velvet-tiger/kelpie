@@ -34,11 +34,6 @@ export const updateBody = z
 export const inviteBody = z.object({
   email: z.string().min(1),
   role: z.enum(INVITABLE_ROLES),
-  invite_url_template: z.string().min(1).includes('{token}'),
-})
-
-export const resendBody = z.object({
-  invite_url_template: z.string().min(1).includes('{token}'),
 })
 
 export const memberRoleBody = z.object({ role: z.enum(MEMBER_ROLES) })
@@ -187,7 +182,6 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
       context.req.param('id'),
       body.email,
       body.role,
-      body.invite_url_template,
     )
 
     return context.json(inviteResponse(invite), 201)
@@ -203,12 +197,10 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
   })
 
   router.post('/workspaces/:id/invites/:inviteId/resend', async (context) => {
-    const body = await readBody(context, resendBody)
     const invite = await dependencies.service.resendInvite(
       await requireActor(context),
       context.req.param('id'),
       context.req.param('inviteId'),
-      body.invite_url_template,
     )
 
     return context.json(inviteResponse(invite))

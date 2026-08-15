@@ -101,7 +101,6 @@ export function createTestClient(app: Hono<AppBindings>, db: Database): TestClie
         email,
         name: 'Someone',
         password: 'correct horse battery staple',
-        verify_url_template: 'https://app.example.com/verify?token={token}',
       },
     })
 

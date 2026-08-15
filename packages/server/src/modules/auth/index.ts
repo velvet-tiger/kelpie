@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import { mountAuthRoutes } from './routes.ts'
 import * as schema from './schema.ts'
@@ -12,10 +13,12 @@ import { createAuthService } from './service.ts'
  * `users`.
  */
 
-const authConfigSchema = z.object({
-  /** Cookies go out `Secure` everywhere except development. */
-  NODE_ENV: z.enum(['development', 'test', 'production']),
-})
+const authConfigSchema = z
+  .object({
+    /** Cookies go out `Secure` everywhere except development. */
+    NODE_ENV: z.enum(['development', 'test', 'production']),
+  })
+  .merge(appUrlConfigSchema)
 
 export function createAuthModule(migrationsDirectory: string): KelpieModule {
   return {
@@ -30,6 +33,7 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
         email: context.email,
         createId: context.createId,
         now: context.now,
+        appBaseUrl: config.APP_BASE_URL,
       })
 
       context.schema(schema, migrationsDirectory)
@@ -39,7 +43,10 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
           db: context.db,
           now: context.now,
           service,
-          cookie: { secure: config.NODE_ENV === 'production' },
+          // `Secure` everywhere except development. A test host reaches the API
+          // over http through a test client, which stores the cookie regardless
+          // of the flag, so test is not excluded.
+          cookie: { secure: config.NODE_ENV !== 'development' },
         })
       })
 

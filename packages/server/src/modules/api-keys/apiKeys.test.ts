@@ -87,7 +87,6 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
         email,
         name: 'Someone',
         password: 'correct horse battery staple',
-        verify_url_template: 'https://app.example.com/verify?token={token}',
       },
     })
     const cookie = (response.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
@@ -127,7 +126,7 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
     role: 'admin' | 'member',
   ): Promise<string> {
     const invited = await send('POST', `/v1/workspaces/${account.workspaceId}/invites`, {
-      body: { email, role, invite_url_template: 'https://app.example.com/join?token={token}' },
+      body: { email, role },
       cookie: account.cookie,
     })
     expect(invited.status).toBe(201)
@@ -299,7 +298,6 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
         body: {
           email: 'grace@example.com',
           role: 'member',
-          invite_url_template: 'https://app.example.com/join?token={token}',
         },
         cookie: ownerAccount.cookie,
       })
@@ -342,7 +340,6 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
         body: {
           email: 'grace@example.com',
           role: 'admin',
-          invite_url_template: 'https://app.example.com/join?token={token}',
         },
         cookie: ownerAccount.cookie,
       })

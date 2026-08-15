@@ -1,3 +1,4 @@
+import { APP_LINK_PATHS, buildAppLink } from '../../lib/appUrl.ts'
 import type { EmailSender } from '../../lib/email.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -31,6 +32,8 @@ export interface AuthDependencies {
   readonly email: EmailSender
   readonly createId: IdFactory
   readonly now: () => Date
+  /** The deployment's own base URL. Every emailed link is built from it. */
+  readonly appBaseUrl: string
   /** Injected only so tests can pin tokens. Production uses the crypto default. */
   readonly newToken?: () => string
 }
@@ -62,8 +65,6 @@ export interface SignUpInput {
   readonly email: string
   readonly name: string
   readonly password: string
-  /** Where the emailed verification link points. `{token}` is replaced with the token. */
-  readonly verifyUrlTemplate: string
   readonly device?: string
   readonly location?: string
 }
@@ -134,11 +135,11 @@ export interface AuthService {
   listSessions(actor: SessionActor): Promise<readonly SessionView[]>
   revokeSession(actor: SessionActor, sessionId: string): Promise<void>
   /** Resolves whether or not the address is registered. */
-  requestPasswordReset(email: string, resetUrlTemplate: string): Promise<void>
+  requestPasswordReset(email: string): Promise<void>
   confirmPasswordReset(token: string, newPassword: string): Promise<void>
   changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<void>
   /** Issues a fresh verification token and emails it. A no-op once already verified. */
-  requestEmailVerification(actor: SessionActor, verifyUrlTemplate: string): Promise<void>
+  requestEmailVerification(actor: SessionActor): Promise<void>
   confirmEmailVerification(token: string): Promise<void>
 }
 
@@ -189,11 +190,13 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     }
   }
 
-  function sendVerificationEmail(to: string, token: string, urlTemplate: string): Promise<void> {
+  function sendVerificationEmail(to: string, token: string): Promise<void> {
+    const link = buildAppLink(dependencies.appBaseUrl, APP_LINK_PATHS.verifyEmail, token)
+
     return dependencies.email.send({
       to,
       subject: 'Verify your Kelpie email address',
-      body: `Confirm this address to finish setting up your account:\n\n${urlTemplate.replace('{token}', token)}\n\nThe link expires in 24 hours.`,
+      body: `Confirm this address to finish setting up your account:\n\n${link}\n\nThe link expires in 24 hours.`,
     })
   }
 
@@ -244,7 +247,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       })
 
       // Sent after commit, so a rolled-back signup never emails a token.
-      await sendVerificationEmail(email, verificationToken, input.verifyUrlTemplate)
+      await sendVerificationEmail(email, verificationToken)
 
       return issued
     },
@@ -397,7 +400,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
      * Always resolves, whether or not the address is registered. Telling a
      * stranger which addresses have accounts is the whole attack.
      */
-    async requestPasswordReset(email: string, resetUrlTemplate: string): Promise<void> {
+    async requestPasswordReset(email: string): Promise<void> {
       const user = await repository.findUserByEmail(dependencies.db, normaliseEmail(email))
 
       if (user === undefined) {
@@ -414,10 +417,12 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         expiresAt: new Date(now.getTime() + RESET_TOKEN_LIFETIME_MS),
       })
 
+      const link = buildAppLink(dependencies.appBaseUrl, APP_LINK_PATHS.passwordReset, token)
+
       await dependencies.email.send({
         to: user.email,
         subject: 'Reset your Kelpie password',
-        body: `Use this link within the hour to choose a new password:\n\n${resetUrlTemplate.replace('{token}', token)}\n\nIf you did not ask for this, ignore it.`,
+        body: `Use this link within the hour to choose a new password:\n\n${link}\n\nIf you did not ask for this, ignore it.`,
       })
     },
 
@@ -468,7 +473,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       })
     },
 
-    async requestEmailVerification(actor: SessionActor, verifyUrlTemplate: string): Promise<void> {
+    async requestEmailVerification(actor: SessionActor): Promise<void> {
       const user = await requireUser(actor.userId)
 
       if (user.emailVerifiedAt !== null) {
@@ -485,7 +490,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         expiresAt: new Date(now.getTime() + EMAIL_VERIFICATION_TOKEN_LIFETIME_MS),
       })
 
-      await sendVerificationEmail(user.email, token, verifyUrlTemplate)
+      await sendVerificationEmail(user.email, token)
     },
 
     async confirmEmailVerification(token: string): Promise<void> {

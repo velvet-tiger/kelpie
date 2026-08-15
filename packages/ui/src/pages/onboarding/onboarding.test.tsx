@@ -253,8 +253,8 @@ describe('InvitesStepPage', () => {
     expect(bodies[0]?.role).toBe('member')
     expect(bodies[1]?.email).toBe('alan@example.com')
     expect(bodies[1]?.role).toBe('admin')
-    // The service sends the mail and does not know where this browser is.
-    expect(bodies[0]?.invite_url_template).toContain('/join?token={token}')
+    // The invite link is built server-side now, so the browser sends no URL.
+    expect(bodies[0]?.invite_url_template).toBeUndefined()
 
     expect(await screen.findByText('step 3')).toBeTruthy()
   })

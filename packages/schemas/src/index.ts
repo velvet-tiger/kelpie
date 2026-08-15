@@ -284,15 +284,14 @@ export type { ModuleSetting, UpdateModuleSettingInput } from './moduleSetting.ts
 export { mcpToolSchema } from './mcpTool.ts'
 export type { McpTool } from './mcpTool.ts'
 
-export { createInviteBody, inviteSchema, resendInviteBody } from './invite.ts'
-export type { CreateInviteInput, Invite, ResendInviteInput } from './invite.ts'
+export { createInviteBody, inviteSchema } from './invite.ts'
+export type { CreateInviteInput, Invite } from './invite.ts'
 
 export {
   confirmEmailVerificationBody,
   confirmPasswordResetBody,
   createWorkspaceBody,
   logInBody,
-  requestEmailVerificationBody,
   requestPasswordResetBody,
   sessionSchema,
   signUpBody,
@@ -305,7 +304,6 @@ export type {
   ConfirmPasswordResetInput,
   CreateWorkspaceInput,
   LogInInput,
-  RequestEmailVerificationInput,
   RequestPasswordResetInput,
   Session,
   SignUpInput,

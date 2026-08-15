@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
-import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
+import { TEST_APP_BASE_URL, TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
@@ -22,7 +22,6 @@ import { STARTER_HANDBOOK_PAGES } from './starters.ts'
 const connectionString = testDatabaseUrl(process.env)
 
 const WORKSPACE = { name: 'Acme', slug: 'acme', timezone: 'Australia/Melbourne' }
-const INVITE_TEMPLATE = 'https://app.example.com/join?token={token}'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -121,7 +120,6 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       email,
       name: 'Someone',
       password: 'correct horse battery staple',
-      verify_url_template: 'https://app.example.com/verify?token={token}',
     })
     const header = response.headers.get('Set-Cookie')
 
@@ -197,7 +195,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     const invited = await send(
       'POST',
       `/v1/workspaces/${workspaceId}/invites`,
-      { email, role, invite_url_template: INVITE_TEMPLATE },
+      { email, role },
       ownerCookie,
     )
     expect(invited.status).toBe(201)
@@ -705,13 +703,15 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const created = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'Grace@Example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
+        { email: 'Grace@Example.com', role: 'member' },
         cookie,
       )
 
       expect(created.status).toBe(201)
       expect(readString(await created.json(), 'email')).toBe('grace@example.com')
       expect(harness.services.sentEmails.at(-1)?.to).toBe('grace@example.com')
+      // The link is built server-side from APP_BASE_URL, not from a caller value.
+      expect(harness.services.sentEmails.at(-1)?.body).toContain(`${TEST_APP_BASE_URL}/join?token=`)
 
       const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)
       expect(readList(await listed.json())).toHaveLength(1)
@@ -724,7 +724,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'grace@example.com', role: 'owner', invite_url_template: INVITE_TEMPLATE },
+        { email: 'grace@example.com', role: 'owner' },
         cookie,
       )
 
@@ -742,7 +742,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'Ada@Example.com', role: 'admin', invite_url_template: INVITE_TEMPLATE },
+        { email: 'Ada@Example.com', role: 'admin' },
         cookie,
       )
 
@@ -760,7 +760,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const workspaceId = await createWorkspace(cookie)
       // Signing up already sent one verification email; only the accepted invite adds another.
       const sentBeforeInviting = harness.services.sentEmails.length
-      const body = { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE }
+      const body = { email: 'grace@example.com', role: 'member' }
 
       expect((await send('POST', `/v1/workspaces/${workspaceId}/invites`, body, cookie)).status).toBe(201)
 
@@ -774,7 +774,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     it('replaces an expired invitation rather than listing the address twice', async () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
-      const body = { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE }
+      const body = { email: 'grace@example.com', role: 'member' }
       const first = await send('POST', `/v1/workspaces/${workspaceId}/invites`, body, cookie)
       const staleToken = lastInviteToken()
 
@@ -803,7 +803,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'someone@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
+        { email: 'someone@example.com', role: 'member' },
         await signUp('mallory@example.com'),
       )
 
@@ -826,7 +826,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
+        { email: 'grace@example.com', role: 'member' },
         owner,
       )
 
@@ -848,7 +848,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'grace@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
+        { email: 'grace@example.com', role: 'member' },
         cookie,
       )
       expect(response.status).toBe(201)
@@ -865,7 +865,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`,
-        { invite_url_template: INVITE_TEMPLATE },
+        {},
         cookie,
       )
 
@@ -912,7 +912,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const resent = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`,
-        { invite_url_template: INVITE_TEMPLATE },
+        {},
         mallory.cookie,
       )
       const revoked = await send(
@@ -978,7 +978,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`,
-        { invite_url_template: INVITE_TEMPLATE },
+        {},
         cookie,
       )
 
@@ -1015,7 +1015,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites/${legacy.id}/resend`,
-        { invite_url_template: INVITE_TEMPLATE },
+        {},
         owner,
       )
 
@@ -1034,7 +1034,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         const response = await send(
           'POST',
           `/v1/workspaces/${workspaceId}/invites`,
-          { email, role: 'member', invite_url_template: INVITE_TEMPLATE },
+          { email, role: 'member' },
           cookie,
         )
 
@@ -1062,8 +1062,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
           email: 'ada@example.com',
           name: 'Ada',
           password: 'correct horse battery',
-          verify_url_template: 'https://app.example.com/verify?token={token}',
-        }),
+            }),
       })
       const cookie = (signup.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
       const signedUp: unknown = await signup.json()
@@ -1089,7 +1088,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
           limited.app.request(`/v1/workspaces/${workspaceId}/invites`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Cookie: cookie },
-            body: JSON.stringify({ email, role: 'member', invite_url_template: INVITE_TEMPLATE }),
+            body: JSON.stringify({ email, role: 'member' }),
           }),
         )
       }
@@ -1107,7 +1106,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'grace@example.com', role, invite_url_template: INVITE_TEMPLATE },
+        { email: 'grace@example.com', role },
         cookie,
       )
 
@@ -1164,7 +1163,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const invited = await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'henry@example.com', role: 'member', invite_url_template: INVITE_TEMPLATE },
+        { email: 'henry@example.com', role: 'member' },
         owner,
       )
       expect(invited.status).toBe(201)
@@ -1187,7 +1186,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       await send(
         'POST',
         `/v1/workspaces/${workspaceId}/invites`,
-        { email: 'henry@example.com', role: 'admin', invite_url_template: INVITE_TEMPLATE },
+        { email: 'henry@example.com', role: 'admin' },
         owner,
       )
       const henryToken = lastInviteToken()
@@ -1246,8 +1245,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
           email: 'ada@example.com',
           name: 'Ada',
           password: 'correct horse battery',
-          verify_url_template: 'https://app.example.com/verify?token={token}',
-        }),
+            }),
       })
       const ownerCookie = (signup.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
       const signedUp: unknown = await signup.json()
@@ -1274,7 +1272,6 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         body: JSON.stringify({
           email: 'grace@example.com',
           role: 'member',
-          invite_url_template: INVITE_TEMPLATE,
         }),
       })
       const token = /token=([^\s]+)/u.exec(stale.services.sentEmails.at(-1)?.body ?? '')?.[1] ?? ''
@@ -1386,8 +1383,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         email: 'ada@example.com',
         name: 'Ada',
         password: 'correct horse battery staple',
-        verify_url_template: 'https://app.example.com/verify?token={token}',
-      })
+        })
       const cookie = (signup.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
       const signedUp: unknown = await signup.json()
 
