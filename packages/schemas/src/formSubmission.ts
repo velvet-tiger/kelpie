@@ -58,18 +58,15 @@ export const formSubmissionSchema: z.ZodType<FormSubmission, unknown> = z
 /**
  * What the public submit endpoint answers with.
  *
- * Smaller than the stored submission, as `forms.md` specifies: the ids it
- * produced, and nothing else. The caller is a stranger's browser, and echoing
- * back the answers it just sent would tell it nothing it does not have.
+ * It carries no upserted record ids. The caller is an unauthenticated website,
+ * and a Kelpie id is a ULID whose timestamp would tell that caller whether the
+ * person or company it named was already in the CRM. The stored submission
+ * (`formSubmissionSchema`), read over the authenticated API, still holds them.
  */
 export interface FormSubmitResult {
   readonly id: string
   readonly formId: string
   readonly submittedAt: Date
-  readonly personId: string
-  readonly companyId: string | null
-  readonly positionId: string | null
-  readonly dealId: string | null
   /** The form's configured confirmation, so an embed can render it without a second request. */
   readonly thankYouMessage: string
 }
@@ -79,10 +76,6 @@ export const formSubmitResultSchema: z.ZodType<FormSubmitResult, unknown> = z
     id: idSchema,
     form_id: idSchema,
     submitted_at: timestampSchema,
-    person_id: idSchema,
-    company_id: idSchema.nullable(),
-    position_id: idSchema.nullable(),
-    deal_id: idSchema.nullable(),
     thank_you_message: z.string(),
   })
   .transform(
@@ -90,10 +83,6 @@ export const formSubmitResultSchema: z.ZodType<FormSubmitResult, unknown> = z
       id: wire.id,
       formId: wire.form_id,
       submittedAt: wire.submitted_at,
-      personId: wire.person_id,
-      companyId: wire.company_id,
-      positionId: wire.position_id,
-      dealId: wire.deal_id,
       thankYouMessage: wire.thank_you_message,
     }),
   )
