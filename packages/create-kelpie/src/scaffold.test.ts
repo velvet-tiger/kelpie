@@ -134,6 +134,9 @@ describe('scaffold', () => {
     expect(environment).toContain('PORT=3000')
     expect(environment).toContain('API_PORT=3000')
     expect(environment).toContain('WEB_PORT=5173')
+    // Required at boot since 0.5.0: a scaffolded project must carry it or the
+    // service it just wrote refuses to start.
+    expect(environment).toContain('APP_BASE_URL=http://localhost:5173')
   })
 
   it('omits docker-compose.yml when the project brings its own database', () => {

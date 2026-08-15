@@ -16,6 +16,11 @@ WEB_PORT=__WEB_PORT__
 
 DATABASE_URL=__DATABASE_URL__
 
+# The address people reach this Kelpie on, used to build the links in emails
+# (verification, password reset, invitations). In development that is the Vite
+# dev server below; a deployment sets its real origin.
+APP_BASE_URL=http://localhost:__WEB_PORT__
+
 # Seals secrets the service reads back, such as webhook signing secrets. This
 # one was generated for this project. Losing it makes those secrets unreadable;
 # changing it needs the rotation procedure in README.md.

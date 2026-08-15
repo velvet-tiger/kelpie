@@ -64,6 +64,7 @@ lists every problem at once.
 | `API_PORT` | The same number again, for the dev server's proxy |
 | `WEB_PORT` | The Vite dev server's port. Development only |
 | `DATABASE_URL` | A `postgres://` or `postgresql://` connection string |
+| `APP_BASE_URL` | The address people reach this Kelpie on. Emailed links (verification, password reset, invitations) are built from it. In development that is the Vite dev server; a deployment sets its real origin |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
 | `EMAIL_PROVIDER` | `log` or `smtp`. `log` writes invitations and resets to the log instead of sending them |
 | `EMAIL_FROM` | The address transactional mail comes from |

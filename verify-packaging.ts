@@ -437,6 +437,9 @@ async function bootAndSignUp(project: string): Promise<void> {
     // A unique address per run, so a second run against the same database does
     // not collide with the first one's account.
     const email = `packaging-${process.pid}-${API_PORT}@example.com`
+    // Exactly the fields the signup schema accepts: unknown fields answer 422
+    // (api.md), and this script has now missed two signup contract changes in
+    // a row. The verification link is built server-side from APP_BASE_URL.
     const signup = await fetchOrUndefined(`${origin}/v1/auth/signup`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -444,7 +447,6 @@ async function bootAndSignUp(project: string): Promise<void> {
         email,
         name: 'Packaging Check',
         password: 'a properly long password',
-        verify_url_template: `${origin}/verify-email?token={token}`,
       }),
     })
 
