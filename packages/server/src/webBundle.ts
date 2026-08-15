@@ -6,7 +6,6 @@ import type { Hono, MiddlewareHandler } from 'hono'
 
 import type { AppBindings } from './app.ts'
 import { MCP_ROUTE_PREFIX } from './modules/mcp/index.ts'
-import { OPERATOR_ROUTE_PREFIX } from './operator.ts'
 
 /**
  * Serves a built web bundle from the same origin as the API.
@@ -26,6 +25,14 @@ import { OPERATOR_ROUTE_PREFIX } from './operator.ts'
 export interface WebBundleOptions {
   /** Directory holding the built `index.html` and its assets. */
   readonly directory: string
+  /**
+   * Prefixes the assembly's own modules answer on beyond core's, via
+   * `appRoute`/`appMiddleware`. An unmatched GET under one stays a JSON
+   * error instead of becoming the app shell, the same rule `/v1` gets. The
+   * assembly names them here because only it knows which of its declared
+   * paths are API rather than pages.
+   */
+  readonly apiPrefixes?: readonly string[]
 }
 
 /** The bundle directory does not hold a build. Thrown at boot, never per request. */
@@ -37,17 +44,16 @@ export class WebBundleError extends Error {
 }
 
 /**
- * The prefixes `createApp` answers on.
+ * The prefixes `createApp` itself answers on.
  *
  * `/v1/public` needs no entry of its own: it sits under `/v1`. `MCP_ROUTE_PREFIX`
- * and `OPERATOR_ROUTE_PREFIX` are imported rather than written out, so moving an
- * endpoint moves this with it. `/operator` without the `/api` segment is a page,
- * not an API path: the operator UI lives there, so only the API base is excluded.
+ * is imported rather than written out, so moving the endpoint moves this with it.
+ * An assembly's own API prefixes arrive through `WebBundleOptions.apiPrefixes`.
  */
-const API_PREFIXES: readonly string[] = ['/v1', MCP_ROUTE_PREFIX, OPERATOR_ROUTE_PREFIX, '/healthz']
+const CORE_API_PREFIXES: readonly string[] = ['/v1', MCP_ROUTE_PREFIX, '/healthz']
 
-function isApiRequest(path: string): boolean {
-  return API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
+function isApiRequestFor(prefixes: readonly string[]): (path: string) => boolean {
+  return (path) => prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
 }
 
 /**
@@ -63,7 +69,10 @@ function isApiRequest(path: string): boolean {
  * not a page request, and only a `GET` or a `HEAD` can sensibly be answered with
  * a document.
  */
-function webRequestsOnly(handler: MiddlewareHandler): MiddlewareHandler {
+function webRequestsOnly(
+  isApiRequest: (path: string) => boolean,
+  handler: MiddlewareHandler,
+): MiddlewareHandler {
   return async (context, next) => {
     const isDocumentRequest = context.req.method === 'GET' || context.req.method === 'HEAD'
 
@@ -96,10 +105,12 @@ export function serveWebBundle(app: Hono<AppBindings>, options: WebBundleOptions
     )
   }
 
+  const isApiRequest = isApiRequestFor([...CORE_API_PREFIXES, ...(options.apiPrefixes ?? [])])
+
   // Two registrations rather than one: `serveStatic` calls `next()` when it
   // finds no file, which is exactly the signal the fallback needs. A request
   // for a real asset is answered by the first and never reaches the second.
-  app.use('*', webRequestsOnly(serveStatic({ root: directory })))
+  app.use('*', webRequestsOnly(isApiRequest, serveStatic({ root: directory })))
 
   // The single-page fallback. The app decides what to draw from the address, so
   // a deep link to `/people/per_01J…` has to return the same `index.html` even
@@ -109,5 +120,5 @@ export function serveWebBundle(app: Hono<AppBindings>, options: WebBundleOptions
   // does by default. Narrowing this by `Accept` would turn a stale asset
   // reference into a clean 404, and would also turn `curl /people/per_01J…`
   // into one, so it is left alone.
-  app.use('*', webRequestsOnly(serveStatic({ path: indexHtml })))
+  app.use('*', webRequestsOnly(isApiRequest, serveStatic({ path: indexHtml })))
 }

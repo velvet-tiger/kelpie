@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { Context } from 'hono'
+import type { Context, Handler, MiddlewareHandler } from 'hono'
 
 import type { Actor } from '../lib/actor.ts'
 import { requireWorkspaceId } from '../lib/actor.ts'
@@ -30,8 +30,10 @@ export interface ModuleContributions {
   readonly routers: readonly ModuleRouter[]
   /** Routers for `/v1/public`: no credentials, CORS open. `architecture.md` boot step 5. */
   readonly publicRouters: readonly ModuleRouter[]
-  /** Routers for `/operator/api`, behind the superuser guard (`operator.ts`). */
-  readonly operatorRouters: readonly ModuleRouter[]
+  /** Middleware declared on the app itself. Applied before every `appRoutes` entry. */
+  readonly appMiddleware: readonly AppMiddlewareContribution[]
+  /** Routes declared at full paths on the app itself, outside `/v1`. */
+  readonly appRoutes: readonly AppRouteContribution[]
   readonly schemas: readonly SchemaContribution[]
   readonly mcpTools: readonly McpTool[]
   /** The bus every module subscribed to. Services publish through it after commit. */
@@ -43,6 +45,41 @@ export interface ModuleContributions {
 export interface ModuleRouter {
   readonly moduleId: string
   readonly router: Hono
+}
+
+export interface AppRouteContribution {
+  readonly moduleId: string
+  readonly method: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  readonly path: string
+  readonly handler: Handler
+}
+
+export interface AppMiddlewareContribution {
+  readonly moduleId: string
+  readonly pattern: string
+  readonly handler: MiddlewareHandler
+}
+
+/**
+ * Paths `appRoute`/`appMiddleware` may not touch. `/v1` because `routes` with
+ * its gates is the only way there, the rest because they are core's own
+ * surfaces. `/mcp` mirrors `MCP_ROUTE_PREFIX`, written out because `runtime/`
+ * must not import a feature module.
+ */
+const RESERVED_APP_PATHS: readonly string[] = ['/v1', '/mcp', '/healthz']
+
+function assertMountablePath(moduleId: string, kind: string, path: string): void {
+  if (!path.startsWith('/')) {
+    throw new ModuleBootError([`module "${moduleId}" declares ${kind} "${path}", which must start with "/"`])
+  }
+
+  for (const reserved of RESERVED_APP_PATHS) {
+    if (path === reserved || path.startsWith(`${reserved}/`)) {
+      throw new ModuleBootError([
+        `module "${moduleId}" declares ${kind} "${path}" under "${reserved}", which is core's surface`,
+      ])
+    }
+  }
 }
 
 /**
@@ -89,7 +126,8 @@ export interface ModuleRuntimeOptions {
 interface Accumulator {
   readonly routers: ModuleRouter[]
   readonly publicRouters: ModuleRouter[]
-  readonly operatorRouters: ModuleRouter[]
+  readonly appMiddleware: AppMiddlewareContribution[]
+  readonly appRoutes: AppRouteContribution[]
   readonly schemas: SchemaContribution[]
   readonly mcpTools: McpTool[]
 }
@@ -133,13 +171,17 @@ function createModuleContext(
       accumulator.publicRouters.push({ moduleId: module.id, router })
     },
 
-    // No gate here, unlike `routes`: the app guards the whole operator surface
-    // once (`operator.ts`), and a per-module `module.<id>` check would hand
+    // No gate on either, unlike `routes`: a surface declared here owns its
+    // own access rules, and a per-module `module.<id>` check would hand
     // workspaces a switch over deployment tooling they do not own.
-    operatorRoutes(mount) {
-      const router = new Hono()
-      mount(router)
-      accumulator.operatorRouters.push({ moduleId: module.id, router })
+    appRoute(method, path, handler) {
+      assertMountablePath(module.id, 'app route', path)
+      accumulator.appRoutes.push({ moduleId: module.id, method, path, handler })
+    },
+
+    appMiddleware(pattern, handler) {
+      assertMountablePath(module.id, 'app middleware', pattern)
+      accumulator.appMiddleware.push({ moduleId: module.id, pattern, handler })
     },
 
     schema(tables, migrationsDir) {
@@ -223,7 +265,8 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   const accumulator: Accumulator = {
     routers: [],
     publicRouters: [],
-    operatorRouters: [],
+    appMiddleware: [],
+    appRoutes: [],
     schemas: [],
     mcpTools: [],
   }
@@ -278,7 +321,8 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   return {
     routers: accumulator.routers,
     publicRouters: accumulator.publicRouters,
-    operatorRouters: accumulator.operatorRouters,
+    appMiddleware: accumulator.appMiddleware,
+    appRoutes: accumulator.appRoutes,
     schemas: accumulator.schemas,
     mcpTools: accumulator.mcpTools,
     events,
