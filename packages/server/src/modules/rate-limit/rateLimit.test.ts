@@ -24,7 +24,7 @@ const connectionString = testDatabaseUrl(process.env)
 const GENEROUS = { limit: 1000, windowMs: 60_000 }
 
 function rateLimitConfig(overrides: Partial<RateLimitConfig>): RateLimitConfig {
-  return { forms: GENEROUS, auth: GENEROUS, api: GENEROUS, ...overrides }
+  return { forms: GENEROUS, auth: GENEROUS, loginAccount: GENEROUS, api: GENEROUS, ...overrides }
 }
 
 const CONTACT_FIELDS = [
@@ -171,23 +171,17 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       expect((await submit(harness.app, publicKey, ids, '203.0.113.30')).status).toBe(201)
     })
 
-    it('does not limit the embed page, only the submit route', async () => {
+    it('limits the embed page as well as the submit route', async () => {
       const harness = await harnessWithBudgets(rateLimitConfig({ forms: { limit: 1, windowMs: 60_000 } }))
       const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const form = await createForm(client, owner)
       const publicKey = readString(form, 'public_key')
+      const embed = (): Promise<Response> =>
+        sendFrom(harness.app, 'GET', `/v1/public/forms/${publicKey}/embed`, '203.0.113.40')
 
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const response = await sendFrom(
-          harness.app,
-          'GET',
-          `/v1/public/forms/${publicKey}/embed`,
-          '203.0.113.40',
-        )
-
-        expect(response.status).toBe(200)
-      }
+      expect((await embed()).status).toBe(200)
+      expect((await embed()).status).toBe(429)
     })
   })
 
@@ -224,6 +218,22 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       })
 
       expect(signup.status).toBe(429)
+    })
+
+    it('caps login attempts on one account across every IP', async () => {
+      // The per-IP budget stays generous, so only the per-account one can bite.
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 2, windowMs: 60_000 } }),
+      )
+      const attempt = (ip: string, email: string): Promise<Response> =>
+        sendFrom(harness.app, 'POST', '/v1/auth/login', ip, { email, password: 'wrong' })
+
+      expect((await attempt('203.0.113.80', 'target@example.com')).status).toBe(401)
+      expect((await attempt('203.0.113.81', 'target@example.com')).status).toBe(401)
+      // A third IP, but the same address: over the account budget.
+      expect((await attempt('203.0.113.82', 'target@example.com')).status).toBe(429)
+      // A different address from that same IP still gets through.
+      expect((await attempt('203.0.113.82', 'someone-else@example.com')).status).toBe(401)
     })
   })
 

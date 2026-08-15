@@ -41,6 +41,7 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
           createId: context.createId,
           now: context.now,
         }),
+        entitlements: context.entitlements,
       })
 
       context.schema(schema, migrationsDirectory)
@@ -50,7 +51,11 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
       })
 
       context.publicRoutes((router) => {
-        mountPublicFormRoutes(router, { db: context.db, submissions })
+        mountPublicFormRoutes(router, {
+          db: context.db,
+          submissions,
+          entitlements: context.entitlements,
+        })
       })
 
       registerFormsTools(context.mcp, service)

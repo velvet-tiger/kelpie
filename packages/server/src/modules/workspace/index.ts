@@ -1,3 +1,4 @@
+import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import { parseModuleCapability } from '../../runtime/moduleConfig.ts'
 import { SEATS_LIMIT } from './capabilities.ts'
@@ -20,6 +21,8 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
     structural: true,
 
     register(context) {
+      const config = context.config(appUrlConfigSchema)
+
       context.entitlements.declare(SEATS_LIMIT)
 
       // Answers `module.<id>` for whatever a config override left undecided
@@ -44,6 +47,7 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
         createId: context.createId,
         now: context.now,
         entitlements: context.entitlements,
+        appBaseUrl: config.APP_BASE_URL,
         toggleableModuleIds: context.moduleCatalog
           .filter((entry) => !entry.structural)
           .map((entry) => entry.id),

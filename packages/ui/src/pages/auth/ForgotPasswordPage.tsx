@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router'
 
-import { resetUrlTemplate, useRequestPasswordReset } from '../../api/resources/session.ts'
+import { useRequestPasswordReset } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SubmitButton, TextField } from './AuthForm.tsx'
 import { AuthLayout } from './AuthLayout.tsx'
@@ -29,7 +29,7 @@ export function ForgotPasswordPage(): React.JSX.Element {
     const address = email.trim()
 
     request
-      .runAsync({ email: address, resetUrlTemplate: resetUrlTemplate(window.location.origin) })
+      .runAsync({ email: address })
       .then(() => {
         setSentTo(address)
       })

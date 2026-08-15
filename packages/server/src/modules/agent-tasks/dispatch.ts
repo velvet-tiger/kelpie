@@ -1,4 +1,5 @@
 import type { Database } from '../../lib/database.ts'
+import type { EgressGuard } from '../../lib/egress.ts'
 import { describeThrown } from '../../lib/errors.ts'
 import type { Logger } from '../../lib/logger.ts'
 import { SecretDecryptionError } from '../../lib/secrets.ts'
@@ -49,11 +50,17 @@ export type SendDispatch = (request: DispatchRequest) => Promise<DispatchOutcome
  * The catch is broad because this is the process boundary: `fetch` rejects
  * with anything from a DNS failure to an abort, and turning all of it into one
  * outcome is the port's whole job. Nothing is swallowed — the reason lands on
- * the run.
+ * the run. A blocked private address (`egress.check`) reaches the same catch
+ * and lands on the run the same way.
  */
-export function createHttpSender(fetchImplementation: typeof fetch = fetch): SendDispatch {
+export function createHttpSender(
+  egress: EgressGuard,
+  fetchImplementation: typeof fetch = fetch,
+): SendDispatch {
   return async (request) => {
     try {
+      await egress.check(request.url)
+
       const response = await fetchImplementation(request.url, {
         method: 'POST',
         body: request.body,

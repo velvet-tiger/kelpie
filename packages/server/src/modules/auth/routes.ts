@@ -22,8 +22,6 @@ const signUpBody = z.object({
   email: z.string().min(1),
   name: z.string().min(1),
   password: z.string().min(1),
-  /** Where the emailed verification link points. `{token}` is replaced with the token. */
-  verify_url_template: z.string().min(1).includes('{token}'),
 })
 
 const logInBody = z.object({
@@ -33,8 +31,6 @@ const logInBody = z.object({
 
 const resetRequestBody = z.object({
   email: z.string().min(1),
-  /** Where the emailed link points. `{token}` is replaced with the reset token. */
-  reset_url_template: z.string().min(1).includes('{token}'),
 })
 
 const resetConfirmBody = z.object({
@@ -45,11 +41,6 @@ const resetConfirmBody = z.object({
 const changePasswordBody = z.object({
   current_password: z.string().min(1),
   new_password: z.string().min(1),
-})
-
-const verifyEmailRequestBody = z.object({
-  /** Where the emailed link points. `{token}` is replaced with the verification token. */
-  verify_url_template: z.string().min(1).includes('{token}'),
 })
 
 const verifyEmailConfirmBody = z.object({
@@ -151,7 +142,6 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
       email: body.email,
       name: body.name,
       password: body.password,
-      verifyUrlTemplate: body.verify_url_template,
       ...describeClient(context),
     })
 
@@ -257,7 +247,7 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
    */
   router.post('/auth/password-reset', async (context) => {
     const body = await readBody(context, resetRequestBody)
-    await dependencies.service.requestPasswordReset(body.email, body.reset_url_template)
+    await dependencies.service.requestPasswordReset(body.email)
 
     return context.body(null, 202)
   })
@@ -271,8 +261,7 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
 
   /** Also what a "resend" button calls: a fresh token each time, and a no-op once verified. */
   router.post('/auth/verify-email', async (context) => {
-    const body = await readBody(context, verifyEmailRequestBody)
-    await dependencies.service.requestEmailVerification(await requireActor(context), body.verify_url_template)
+    await dependencies.service.requestEmailVerification(await requireActor(context))
 
     return context.body(null, 202)
   })

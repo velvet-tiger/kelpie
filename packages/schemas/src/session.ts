@@ -140,15 +140,13 @@ export function logInBody(input: LogInInput): Record<string, unknown> {
  * Creating an account. It answers the same shape sign-in does, with
  * `activeWorkspaceId` null: signup makes the user and stops there.
  *
- * `verifyUrlTemplate` carries the literal `{token}`, the same convention as a
- * password reset or an invite: the service sends the mail and has no idea
- * what address the browser reached it at.
+ * The verification link is built by the service from its own configured base
+ * URL, so the caller sends no URL.
  */
 export interface SignUpInput {
   readonly name: string
   readonly email: string
   readonly password: string
-  readonly verifyUrlTemplate: string
 }
 
 export function signUpBody(input: SignUpInput): Record<string, unknown> {
@@ -156,26 +154,23 @@ export function signUpBody(input: SignUpInput): Record<string, unknown> {
     name: input.name,
     email: input.email,
     password: input.password,
-    verify_url_template: input.verifyUrlTemplate,
   }
 }
 
 /**
  * Asking for a reset link.
  *
- * `resetUrlTemplate` carries the literal `{token}`, which the email replaces.
- * The caller supplies it for the same reason an invitation does: the service
- * sends the mail and has no idea what address the browser reached it at.
+ * The reset link is built by the service from its own configured base URL, so
+ * the caller sends only the address.
  */
 export interface RequestPasswordResetInput {
   readonly email: string
-  readonly resetUrlTemplate: string
 }
 
 export function requestPasswordResetBody(
   input: RequestPasswordResetInput,
 ): Record<string, unknown> {
-  return { email: input.email, reset_url_template: input.resetUrlTemplate }
+  return { email: input.email }
 }
 
 /** Spending the token from that email. Answers `204`; it does not sign anyone in. */
@@ -188,20 +183,6 @@ export function confirmPasswordResetBody(
   input: ConfirmPasswordResetInput,
 ): Record<string, unknown> {
   return { token: input.token, password: input.password }
-}
-
-/**
- * Asking for a fresh verification link, the same call the "resend" button
- * makes. Answers `202`. A no-op once the account is already verified.
- */
-export interface RequestEmailVerificationInput {
-  readonly verifyUrlTemplate: string
-}
-
-export function requestEmailVerificationBody(
-  input: RequestEmailVerificationInput,
-): Record<string, unknown> {
-  return { verify_url_template: input.verifyUrlTemplate }
 }
 
 /** Spending the token from that email. Answers `204` and does not sign anyone in or out. */

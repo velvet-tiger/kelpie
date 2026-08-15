@@ -1,4 +1,4 @@
-import { createInviteBody, inviteSchema, resendInviteBody } from '@kelpie/schemas'
+import { createInviteBody, inviteSchema } from '@kelpie/schemas'
 import type { InvitableRole, Invite } from '@kelpie/schemas'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -15,17 +15,11 @@ import { useSession } from './session.ts'
  * only renders this half for an admin, which keeps the refusal off screen
  * without the browser being what decides it.
  *
- * The URL the emailed link points at is built here rather than server-side: the
- * service knows nothing about where a browser reached it from, and `{token}` is
- * the placeholder it fills in.
+ * The URL the emailed link points at is built server-side from the deployment's
+ * own base URL, so nothing here sends one.
  */
 
 const INVITES_KEY = 'invites'
-
-/** Where an invitee lands. `JoinPage` reads the token out of the query string. */
-export function inviteUrlTemplate(origin: string): string {
-  return `${origin}/join?token={token}`
-}
 
 export interface InviteListResult {
   readonly invites: readonly Invite[]
@@ -64,7 +58,7 @@ export function useSendInvite(): MutationResult<SendInviteArguments, Invite> {
     mutationFn: ({ email, role }: SendInviteArguments) =>
       client.post(
         `/workspaces/${workspaceId}/invites`,
-        createInviteBody({ email, role, inviteUrlTemplate: inviteUrlTemplate(window.location.origin) }),
+        createInviteBody({ email, role }),
         inviteSchema.parse,
       ),
     onSuccess: async () => {
@@ -83,11 +77,7 @@ export function useResendInvite(): MutationResult<string, Invite> {
   const workspaceId = session?.workspaceId ?? ''
   const mutation = useMutation({
     mutationFn: (inviteId: string) =>
-      client.post(
-        `/workspaces/${workspaceId}/invites/${inviteId}/resend`,
-        resendInviteBody({ inviteUrlTemplate: inviteUrlTemplate(window.location.origin) }),
-        inviteSchema.parse,
-      ),
+      client.post(`/workspaces/${workspaceId}/invites/${inviteId}/resend`, {}, inviteSchema.parse),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: [INVITES_KEY, workspaceId] })
     },

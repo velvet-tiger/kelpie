@@ -91,6 +91,24 @@ describe.skipIf(connectionString === undefined)('idempotency keys', () => {
     expect(await countPeople()).toBe(2)
   })
 
+  it('does not require a credential on an unauthenticated auth endpoint', async () => {
+    // Idempotency is workspace-scoped, so an unauthenticated auth POST has
+    // nothing to key on. The middleware must skip it rather than resolve an
+    // actor and answer 401, which would make the header unusable on exactly the
+    // endpoints most likely to be retried.
+    const response = await harness.app.request('/v1/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'onboarding-key' },
+      body: JSON.stringify({
+        email: 'newcomer@example.com',
+        name: 'Newcomer',
+        password: 'correct horse battery staple',
+      }),
+    })
+
+    expect(response.status).toBe(201)
+  })
+
   it('replays the first response for a repeated key and body, without creating a second record', async () => {
     const first = await postPeople({ name: 'Ada Lovelace' }, 'key-1')
     expect(first.status).toBe(201)

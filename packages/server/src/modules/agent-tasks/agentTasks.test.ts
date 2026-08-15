@@ -31,7 +31,6 @@ const connectionString = testDatabaseUrl(process.env)
 
 const DELIVERED: DispatchOutcome = { delivered: true, status: 200, reason: null }
 
-const INVITE_TEMPLATE = 'https://app.example.com/join?token={token}'
 
 describe.skipIf(connectionString === undefined)('agent tasks', () => {
   let database: TestDatabase
@@ -144,7 +143,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
   /** Invites an address as a plain member and accepts as a fresh account. */
   async function addMember(email: string, role: 'admin' | 'member'): Promise<string> {
     const invited = await client.send('POST', `/v1/workspaces/${acme.workspaceId}/invites`, {
-      body: { email, role, invite_url_template: INVITE_TEMPLATE },
+      body: { email, role },
       cookie: acme.cookie,
     })
     expect(invited.status).toBe(201)

@@ -11,9 +11,8 @@ import { idSchema, timestampSchema } from './wire.ts'
  * nobody has looked at still reports its stale invitations correctly. Nothing
  * sweeps the table.
  *
- * Both write bodies carry `invite_url_template`: the service sends the email and
- * has no idea what URL the caller's browser or agent is reachable at, so the
- * caller supplies the address the token goes into.
+ * The invitation link is built by the service from its own configured base URL,
+ * so no write body carries a URL.
  */
 
 export interface Invite {
@@ -48,22 +47,11 @@ export const inviteSchema: z.ZodType<Invite, unknown> = z
 export interface CreateInviteInput {
   readonly email: string
   readonly role: InvitableRole
-  /** An absolute URL containing the literal `{token}`, which the email replaces. */
-  readonly inviteUrlTemplate: string
 }
 
 export function createInviteBody(input: CreateInviteInput): Record<string, unknown> {
   return {
     email: input.email,
     role: input.role,
-    invite_url_template: input.inviteUrlTemplate,
   }
-}
-
-export interface ResendInviteInput {
-  readonly inviteUrlTemplate: string
-}
-
-export function resendInviteBody(input: ResendInviteInput): Record<string, unknown> {
-  return { invite_url_template: input.inviteUrlTemplate }
 }

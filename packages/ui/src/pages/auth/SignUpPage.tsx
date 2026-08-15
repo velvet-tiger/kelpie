@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
-import { useSignUp, verifyEmailUrlTemplate } from '../../api/resources/session.ts'
+import { useSignUp } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SubmitButton, TextField } from './AuthForm.tsx'
 import { AuthLayout } from './AuthLayout.tsx'
@@ -47,7 +47,6 @@ export function SignUpPage(): React.JSX.Element {
         name: name.trim(),
         email: email.trim(),
         password,
-        verifyUrlTemplate: verifyEmailUrlTemplate(window.location.origin),
       })
       .then(() => navigate('/verify-email/pending', { replace: true }))
       .catch(() => undefined)

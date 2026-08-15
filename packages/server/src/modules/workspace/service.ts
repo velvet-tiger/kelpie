@@ -1,3 +1,4 @@
+import { APP_LINK_PATHS, buildAppLink } from '../../lib/appUrl.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import type { EmailSender } from '../../lib/email.ts'
@@ -36,6 +37,8 @@ export interface WorkspaceDependencies {
   readonly createId: IdFactory
   readonly now: () => Date
   readonly entitlements: EntitlementRegistry
+  /** The deployment's own base URL. Every invitation link is built from it. */
+  readonly appBaseUrl: string
   readonly newToken?: () => string
   /** Every non-structural module id (`runtime/module.ts`'s `moduleCatalog`), in assembly order. */
   readonly toggleableModuleIds: readonly string[]
@@ -117,10 +120,10 @@ export interface WorkspaceService {
   /** Changes a member's role, or transfers ownership when `role` is `owner`. */
   setMemberRole(actor: Actor, workspaceId: string, memberId: string, role: MemberRole): Promise<MemberView>
   removeMember(actor: Actor, workspaceId: string, memberId: string): Promise<void>
-  invite(actor: Actor, workspaceId: string, email: string, role: InvitableRole, urlTemplate: string): Promise<InviteView>
+  invite(actor: Actor, workspaceId: string, email: string, role: InvitableRole): Promise<InviteView>
   listInvites(actor: Actor, workspaceId: string): Promise<readonly InviteView[]>
   /** Issues a fresh token and expiry for an invitation, and emails it again. */
-  resendInvite(actor: Actor, workspaceId: string, inviteId: string, urlTemplate: string): Promise<InviteView>
+  resendInvite(actor: Actor, workspaceId: string, inviteId: string): Promise<InviteView>
   revokeInvite(actor: Actor, workspaceId: string, inviteId: string): Promise<void>
   /** Joins the invited workspace as the calling account. */
   acceptInvite(actor: SessionActor, token: string): Promise<WorkspaceView>
@@ -329,11 +332,13 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
     return target
   }
 
-  function sendInviteEmail(to: string, token: string, urlTemplate: string): Promise<void> {
+  function sendInviteEmail(to: string, token: string): Promise<void> {
+    const link = buildAppLink(dependencies.appBaseUrl, APP_LINK_PATHS.inviteAccept, token)
+
     return dependencies.email.send({
       to,
       subject: 'You have been invited to a Kelpie workspace',
-      body: `Accept the invitation within seven days:\n\n${urlTemplate.replace('{token}', token)}`,
+      body: `Accept the invitation within seven days:\n\n${link}`,
     })
   }
 
@@ -581,7 +586,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       // `schema.md`: removing a member is restricted while they own records.
       // Reported before the delete so every referencing type can be named, which
       // is what the caller needs to know what to reassign.
-      const references = await repository.countMemberReferences(dependencies.db, target.id)
+      const references = await repository.countMemberReferences(dependencies.db, workspaceId, target.id)
 
       if (references.length > 0) {
         throw AppError.conflict(
@@ -611,7 +616,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       }
     },
 
-    async invite(actor, workspaceId, email, role, urlTemplate) {
+    async invite(actor, workspaceId, email, role) {
       const inviter = await requireMembership(actor, workspaceId, 'admin')
       const address = email.trim().toLowerCase()
       const now = dependencies.now()
@@ -659,7 +664,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       })
 
       // Sent after commit, so a rolled-back invite never reaches an inbox.
-      await sendInviteEmail(invite.email, token, urlTemplate)
+      await sendInviteEmail(invite.email, token)
 
       return toInviteView(invite, now)
     },
@@ -672,7 +677,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       return records.map((record) => toInviteView(record, now))
     },
 
-    async resendInvite(actor, workspaceId, inviteId, urlTemplate) {
+    async resendInvite(actor, workspaceId, inviteId) {
       await requireMembership(actor, workspaceId, 'admin')
       const invite = await requireInvite(workspaceId, inviteId)
 
@@ -696,7 +701,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         throw AppError.notFound('Invitation not found')
       }
 
-      await sendInviteEmail(updated.email, token, urlTemplate)
+      await sendInviteEmail(updated.email, token)
 
       return toInviteView(updated, now)
     },

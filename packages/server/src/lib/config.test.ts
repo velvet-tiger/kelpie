@@ -22,8 +22,10 @@ describe('loadConfig', () => {
       rateLimit: {
         forms: { limit: 20, windowMs: 60_000 },
         auth: { limit: 10, windowMs: 60_000 },
+        loginAccount: { limit: 10, windowMs: 900_000 },
         api: { limit: 600, windowMs: 60_000 },
       },
+      trustedProxyHopCount: 0,
     })
   })
 

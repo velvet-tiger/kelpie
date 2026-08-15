@@ -7,6 +7,8 @@ export type { WebBundleOptions } from './webBundle.ts'
 export { ConfigurationError, loadConfig } from './lib/config.ts'
 export type { Environment, KelpieConfig, LogLevel, RuntimeMode } from './lib/config.ts'
 
+export { resolveClientIpFrom } from './lib/clientIp.ts'
+
 export { ModuleConfigFileError, readModuleConfigFile } from './lib/moduleConfig.ts'
 
 export {

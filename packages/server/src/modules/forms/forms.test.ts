@@ -358,7 +358,8 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     it('needs no credentials at all', async () => {
       const result = await submitContact((ids) => filledIn(ids))
 
-      expect(formSubmitResultSchema.parse(result).personId).not.toBe('')
+      // The submit answered a well-formed result, with no session or key sent.
+      expect(formSubmitResultSchema.parse(result).id).not.toBe('')
     })
 
     it('echoes the thank-you copy so an embed needs no second request', async () => {
@@ -368,6 +369,27 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       )
 
       expect(formSubmitResultSchema.parse(result).thankYouMessage).toBe('Got it. Speak soon.')
+    })
+
+    /**
+     * The public routes are ungated by the runtime (it gates only credentialled
+     * routes), so the module-off check lives in the handlers. A workspace that
+     * turns forms off must stop accepting submissions and stop serving the embed,
+     * not just hide the management screens.
+     */
+    it('refuses submit and embed when the workspace has the forms module off', async () => {
+      const form = await createForm()
+      const publicKey = readString(form, 'public_key')
+      const ids = fieldIds(form)
+
+      const off = await client.send('PATCH', `/v1/workspaces/${acme.workspaceId}/modules/forms`, {
+        body: { enabled: false },
+        cookie: acme.cookie,
+      })
+      expect(off.status).toBe(200)
+
+      expect((await submit(publicKey, filledIn(ids))).status).toBe(403)
+      expect((await client.send('GET', `/v1/public/forms/${publicKey}/embed`)).status).toBe(403)
     })
 
     it('creates the Person with the defaults from forms.md', async () => {
@@ -407,7 +429,9 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(company?.accountType).toBe('prospect')
       expect(company?.icpFit).toBe('unknown')
       expect(position?.title).toBe('Head of Ops')
-      expect(formSubmitResultSchema.parse(result).positionId).toBe(position?.id)
+      // The response no longer echoes the record ids; the stored submission does,
+      // and the dedicated submission test asserts that link.
+      expect(formSubmitResultSchema.parse(result).id).not.toBe('')
     })
 
     /**
@@ -557,7 +581,6 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const parsed = formSubmitResultSchema.parse(readRecord(await response.json()))
 
       expect(parsed.formId).toBe(readString(form, 'id'))
-      expect(parsed.dealId).toBeNull()
 
       const listed = await client.send(`GET`, `/v1/forms/${readString(form, 'id')}/submissions`, {
         cookie: acme.cookie,
@@ -566,6 +589,9 @@ describe.skipIf(connectionString === undefined)('forms', () => {
 
       expect(rows).toHaveLength(1)
       expect(rows[0]?.answers[ids.Message ?? '']).toBe('Interested in a demo')
+      // The record ids live on the stored submission, read over the
+      // authenticated API, not on the public submit response.
+      expect(rows[0]?.dealId).toBeNull()
     })
 
     it('files the submission on the person timeline, attributed to the form', async () => {
@@ -648,21 +674,21 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     const dealForm = { create_deal: true, deal_name_template: '{{company.name}} — website' }
 
     it('creates the deal, names it from the template, and links the person', async () => {
-      const result = await submitContact(
-        (ids) => filledIn(ids, { [ids.Company ?? '']: 'Example Co' }),
-        dealForm,
-      )
+      await submitContact((ids) => filledIn(ids, { [ids.Company ?? '']: 'Example Co' }), dealForm)
 
       const [deal] = await database.db
         .select()
         .from(deals)
         .where(eq(deals.workspaceId, acme.workspaceId))
+      const [person] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.workspaceId, acme.workspaceId))
 
       expect(deal?.name).toBe('Example Co — website')
       expect(deal?.valueCents).toBe(0)
       expect(deal?.ownerId).not.toBeNull()
       expect(deal?.expectedClose).not.toBeNull()
-      expect(formSubmitResultSchema.parse(result).dealId).toBe(deal?.id)
 
       const linked = await client.send(
         'GET',
@@ -671,7 +697,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       )
       const body = readRecord(await linked.json())
 
-      expect(body.person_ids).toEqual([formSubmitResultSchema.parse(result).personId])
+      expect(body.person_ids).toEqual([person?.id])
     })
 
     it('opens the deal in the first open stage when the form names none', async () => {
@@ -696,9 +722,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
      * the submission says so rather than inventing one.
      */
     it('creates no deal when the visitor named no company', async () => {
-      const result = await submitContact((ids) => filledIn(ids), dealForm)
-
-      expect(formSubmitResultSchema.parse(result).dealId).toBeNull()
+      await submitContact((ids) => filledIn(ids), dealForm)
 
       const rows = await database.db
         .select()

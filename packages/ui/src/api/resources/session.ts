@@ -3,7 +3,6 @@ import {
   confirmPasswordResetBody,
   createWorkspaceBody,
   logInBody,
-  requestEmailVerificationBody,
   requestPasswordResetBody,
   sessionSchema,
   signUpBody,
@@ -15,7 +14,6 @@ import type {
   ConfirmPasswordResetInput,
   CreateWorkspaceInput,
   LogInInput,
-  RequestEmailVerificationInput,
   RequestPasswordResetInput,
   Session,
   SignUpInput,
@@ -140,16 +138,6 @@ export function useLogOut(): MutationResult<void, void> {
   return asMutationResult(mutation)
 }
 
-/** Where a reset email lands. `ResetPasswordPage` reads the token out of the query string. */
-export function resetUrlTemplate(origin: string): string {
-  return `${origin}/reset-password?token={token}`
-}
-
-/** Where a verification email lands. `VerifyEmailConfirmPage` reads the token out of the query string. */
-export function verifyEmailUrlTemplate(origin: string): string {
-  return `${origin}/verify-email?token={token}`
-}
-
 /**
  * Asks for a reset link.
  *
@@ -195,11 +183,10 @@ export function useConfirmPasswordReset(): MutationResult<ConfirmPasswordResetIn
  *
  * Nothing in the cache changes: this signs nobody in or out.
  */
-export function useRequestEmailVerification(): MutationResult<RequestEmailVerificationInput, void> {
+export function useRequestEmailVerification(): MutationResult<void, void> {
   const client = useApiClient()
   const mutation = useMutation({
-    mutationFn: (input: RequestEmailVerificationInput) =>
-      client.postEmpty('/auth/verify-email', requestEmailVerificationBody(input)),
+    mutationFn: () => client.postEmpty('/auth/verify-email'),
   })
 
   return asMutationResult(mutation)

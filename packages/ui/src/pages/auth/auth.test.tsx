@@ -144,9 +144,10 @@ describe('SignUpPage', () => {
       },
     })
 
+    // The verification link is built server-side now, so the browser sends no URL.
     const body = calls.posted[0]?.body as Record<string, string>
 
-    expect(body.verify_url_template).toContain('/verify-email?token={token}')
+    expect(body.verify_url_template).toBeUndefined()
     expect(await screen.findByText('verify your email')).toBeTruthy()
   })
 
@@ -220,7 +221,8 @@ describe('ForgotPasswordPage', () => {
 
     expect(calls.posted[0]?.path).toBe('/auth/password-reset')
     expect(body.email).toBe('ada@example.com')
-    expect(body.reset_url_template).toContain('/reset-password?token={token}')
+    // The reset link is built server-side, so the browser sends only the address.
+    expect(body.reset_url_template).toBeUndefined()
   })
 })
 
@@ -286,9 +288,10 @@ describe('VerifyEmailPendingPage', () => {
 
     expect(calls.posted[0]?.path).toBe('/auth/verify-email')
 
-    const body = calls.posted[0]?.body as Record<string, string>
+    // No body: the verification link is built server-side now.
+    const body = calls.posted[0]?.body as Record<string, string> | undefined
 
-    expect(body.verify_url_template).toContain('/verify-email?token={token}')
+    expect(body?.verify_url_template).toBeUndefined()
     expect(await screen.findByText('A new link is on its way.')).toBeTruthy()
   })
 

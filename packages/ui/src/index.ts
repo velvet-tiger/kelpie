@@ -70,7 +70,6 @@ export {
 export type { DecisionFilters } from './api/resources/decisions.ts'
 
 export {
-  resetUrlTemplate,
   useAcceptInvite,
   useConfirmPasswordReset,
   useCreateWorkspace,

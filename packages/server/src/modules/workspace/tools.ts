@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { requireWorkspaceId } from '../../lib/actor.ts'
 import type { McpToolRegistry } from '../../runtime/module.ts'
 import { deleteResult, idArg } from '../crudTools.ts'
-import { inviteBody, inviteResponse, memberResponse, memberRoleBody, resendBody, updateBody, workspaceResponse } from './routes.ts'
+import { inviteBody, inviteResponse, memberResponse, memberRoleBody, updateBody, workspaceResponse } from './routes.ts'
 import type { WorkspaceService } from './service.ts'
 
 /**
@@ -82,19 +82,12 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
   mcp.tool({
     name: 'workspace_invites_create',
     description:
-      'Invite somebody by email and send them the invitation. invite_url_template is the page ' +
-      'that accepts it and must contain {token}. Admin only. ' +
-      'Mirrors POST /v1/workspaces/{id}/invites.',
+      'Invite somebody by email and send them the invitation. The link is built from the ' +
+      'deployment\'s own base URL. Admin only. Mirrors POST /v1/workspaces/{id}/invites.',
     inputSchema: inviteBody,
     invoke: async (body, actor) =>
       inviteResponse(
-        await service.invite(
-          actor,
-          requireWorkspaceId(actor),
-          body.email,
-          body.role,
-          body.invite_url_template,
-        ),
+        await service.invite(actor, requireWorkspaceId(actor), body.email, body.role),
       ),
   })
 
@@ -114,16 +107,9 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
     description:
       'Issue a fresh token and expiry for an invitation and email it again. Admin only. ' +
       'Mirrors POST /v1/workspaces/{id}/invites/{inviteId}/resend.',
-    inputSchema: resendBody.extend({ invite_id: idArg }),
-    invoke: async (args, actor) =>
-      inviteResponse(
-        await service.resendInvite(
-          actor,
-          requireWorkspaceId(actor),
-          args.invite_id,
-          args.invite_url_template,
-        ),
-      ),
+    inputSchema: z.strictObject({ invite_id: idArg }),
+    invoke: async ({ invite_id: inviteId }, actor) =>
+      inviteResponse(await service.resendInvite(actor, requireWorkspaceId(actor), inviteId)),
   })
 
   mcp.tool({

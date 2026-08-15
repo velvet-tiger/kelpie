@@ -46,6 +46,7 @@ function companyNameMatches(pattern: string): SQL {
     select 1
     from ${companies}
     where ${companies.id} = ${partnerships.companyId}
+      and ${companies.workspaceId} = ${partnerships.workspaceId}
       and ${companies.name} ilike ${pattern}
   )`
 }

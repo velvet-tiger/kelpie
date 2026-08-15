@@ -10,6 +10,7 @@ import {
   retryDelayAfter,
 } from './delivery.ts'
 import type { DeliveryRequest } from './delivery.ts'
+import { createEgressGuard } from '../../lib/egress.ts'
 
 /**
  * The pure halves of the engine. Fanning out, recording and status transitions
@@ -85,23 +86,25 @@ describe('retentionCutoff', () => {
 })
 
 describe('createHttpSender', () => {
+  const allowAll = createEgressGuard({ BLOCK_PRIVATE_EGRESS: false })
+
   function respondWith(status: number): typeof fetch {
     return () => Promise.resolve(new Response(null, { status }))
   }
 
   it('treats a 2xx as delivered', async () => {
-    const send = createHttpSender(respondWith(204))
+    const send = createHttpSender(allowAll, respondWith(204))
 
     expect(await send(request)).toEqual({ delivered: true, status: 204, reason: null })
   })
 
   it('treats a 4xx and a 5xx as failed, keeping the status for the log', async () => {
-    expect(await createHttpSender(respondWith(410))(request)).toEqual({
+    expect(await createHttpSender(allowAll, respondWith(410))(request)).toEqual({
       delivered: false,
       status: 410,
       reason: 'endpoint answered 410',
     })
-    expect((await createHttpSender(respondWith(503))(request)).delivered).toBe(false)
+    expect((await createHttpSender(allowAll, respondWith(503))(request)).delivered).toBe(false)
   })
 
   /**
@@ -110,6 +113,7 @@ describe('createHttpSender', () => {
    */
   it('treats a redirect as failed', async () => {
     const send = createHttpSender(
+      allowAll,
       () => Promise.resolve(new Response(null, { status: 301, headers: { Location: 'https://elsewhere.example' } })),
     )
 
@@ -117,7 +121,7 @@ describe('createHttpSender', () => {
   })
 
   it('turns a transport failure into an outcome rather than a rejection', async () => {
-    const send = createHttpSender(() => Promise.reject(new TypeError('fetch failed')))
+    const send = createHttpSender(allowAll, () => Promise.reject(new TypeError('fetch failed')))
 
     expect(await send(request)).toEqual({
       delivered: false,
@@ -126,11 +130,28 @@ describe('createHttpSender', () => {
     })
   })
 
+  it('records a blocked private address as a failed attempt, and never fetches', async () => {
+    const blockAll = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () => Promise.resolve(['127.0.0.1']))
+    let fetched = false
+    const send = createHttpSender(blockAll, () => {
+      fetched = true
+
+      return Promise.resolve(new Response(null, { status: 200 }))
+    })
+
+    const outcome = await send(request)
+
+    expect(fetched).toBe(false)
+    expect(outcome.delivered).toBe(false)
+    expect(outcome.status).toBeNull()
+    expect(outcome.reason).toContain('private or reserved')
+  })
+
   it('posts the body and headers it was given', async () => {
     // `| undefined` on both: `fetch` declares `init` optional, so the stub is
     // handed `RequestInit | undefined` and records exactly that.
     const seen: { url?: string | undefined; init?: RequestInit | undefined } = {}
-    const send = createHttpSender((url, init) => {
+    const send = createHttpSender(allowAll, (url, init) => {
       seen.url = String(url)
       seen.init = init
 

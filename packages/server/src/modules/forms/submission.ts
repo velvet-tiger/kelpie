@@ -1,6 +1,9 @@
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
+import { requireCapability } from '../../runtime/entitlements.ts'
+import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
+import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import type { BufferedEvents, Transaction, TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder, SystemActor } from '../activities/recorder.ts'
 import { describeCreationVia, describeFormSubmission } from '../activities/wording.ts'
@@ -85,6 +88,8 @@ export interface SubmissionDependencies {
   readonly createId: IdFactory
   readonly now: () => Date
   readonly recordActivity: ActivityRecorder
+  /** A submit into a workspace that has turned the forms module off is refused. */
+  readonly entitlements: EntitlementRegistry
 }
 
 /** What the submit created or matched. Each id is null when the rule did not apply. */
@@ -393,6 +398,11 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     if (form === undefined) {
       throw AppError.notFound('Form not found')
     }
+
+    // The public surface is ungated by the runtime (`runtime/registry.ts` gates
+    // only credentialled routes), so a workspace that has turned the forms
+    // module off is refused here, the same 403 the REST surface gives.
+    await requireCapability(dependencies.entitlements, form.workspaceId, moduleCapabilityName('forms'))
 
     if (form.status === 'paused') {
       throw AppError.conflict('This form is not accepting submissions')

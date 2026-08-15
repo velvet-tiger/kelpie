@@ -1,12 +1,7 @@
 import { useState } from 'react'
 import { Navigate } from 'react-router'
 
-import {
-  useLogOut,
-  useRequestEmailVerification,
-  useSession,
-  verifyEmailUrlTemplate,
-} from '../../api/resources/session.ts'
+import { useLogOut, useRequestEmailVerification, useSession } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { AuthLayout } from './AuthLayout.tsx'
 
@@ -30,7 +25,7 @@ export function VerifyEmailPendingPage(): React.JSX.Element {
 
   function resend(): void {
     requestVerification
-      .runAsync({ verifyUrlTemplate: verifyEmailUrlTemplate(window.location.origin) })
+      .runAsync()
       .then(() => {
         setResent(true)
       })

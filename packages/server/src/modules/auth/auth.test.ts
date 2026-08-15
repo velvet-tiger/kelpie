@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { verifyPassword } from '../../lib/passwords.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
-import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
+import { TEST_APP_BASE_URL, TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
@@ -18,13 +18,10 @@ import { userPreferences, users } from './schema.ts'
 
 const connectionString = testDatabaseUrl(process.env)
 
-const VERIFY_URL_TEMPLATE = 'https://app.example.com/verify?token={token}'
-
 const SIGNUP = {
   email: 'Ada@Example.com',
   name: 'Ada Lovelace',
   password: 'correct horse battery staple',
-  verify_url_template: VERIFY_URL_TEMPLATE,
 }
 
 describe.skipIf(connectionString === undefined)('auth', () => {
@@ -309,7 +306,6 @@ describe.skipIf(connectionString === undefined)('auth', () => {
           email: 'grace@example.com',
           name: 'Grace Hopper',
           password: 'another long enough password',
-          verify_url_template: VERIFY_URL_TEMPLATE,
         }),
       )
       const theirSessions = await readSessionPage(
@@ -330,7 +326,6 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       email: 'grace@example.com',
       name: 'Grace Hopper',
       password: 'another long enough password',
-      verify_url_template: VERIFY_URL_TEMPLATE,
     }
 
     it('answers with the signed-in account', async () => {
@@ -591,7 +586,6 @@ describe.skipIf(connectionString === undefined)('auth', () => {
           email: 'grace@example.com',
           name: 'Grace Hopper',
           password: 'another long enough password',
-          verify_url_template: VERIFY_URL_TEMPLATE,
         }),
       )
 
@@ -640,8 +634,6 @@ describe.skipIf(connectionString === undefined)('auth', () => {
   })
 
   describe('password reset', () => {
-    const template = 'https://app.example.com/reset?token={token}'
-
     function tokenFromEmail(): string {
       const message = harness.services.sentEmails.at(-1)
 
@@ -663,21 +655,20 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       // Signing up already sent one verification email; only the reset link comes next.
       const sentBeforeReset = harness.services.sentEmails.length
 
-      const response = await post('/v1/auth/password-reset', {
-        email: SIGNUP.email,
-        reset_url_template: template,
-      })
+      const response = await post('/v1/auth/password-reset', { email: SIGNUP.email })
 
       expect(response.status).toBe(202)
       expect(harness.services.sentEmails).toHaveLength(sentBeforeReset + 1)
       expect(harness.services.sentEmails.at(-1)?.to).toBe('ada@example.com')
+      // The link is built server-side from APP_BASE_URL, not from anything the
+      // caller sent, which is the whole point of the change.
+      expect(harness.services.sentEmails.at(-1)?.body).toContain(
+        `${TEST_APP_BASE_URL}/reset-password?token=`,
+      )
     })
 
     it('answers 202 for an unknown address and sends nothing', async () => {
-      const response = await post('/v1/auth/password-reset', {
-        email: 'nobody@example.com',
-        reset_url_template: template,
-      })
+      const response = await post('/v1/auth/password-reset', { email: 'nobody@example.com' })
 
       expect(response.status).toBe(202)
       expect(harness.services.sentEmails).toHaveLength(0)
@@ -685,7 +676,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
     it('sets the new password and ends every session', async () => {
       const cookie = await signUp()
-      await post('/v1/auth/password-reset', { email: SIGNUP.email, reset_url_template: template })
+      await post('/v1/auth/password-reset', { email: SIGNUP.email })
 
       const confirmed = await post('/v1/auth/password-reset/confirm', {
         token: tokenFromEmail(),
@@ -701,7 +692,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
     it('refuses a token that has already been used', async () => {
       await signUp()
-      await post('/v1/auth/password-reset', { email: SIGNUP.email, reset_url_template: template })
+      await post('/v1/auth/password-reset', { email: SIGNUP.email })
       const token = tokenFromEmail()
 
       await post('/v1/auth/password-reset/confirm', { token, password: 'a brand new long password' })
@@ -729,7 +720,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       await expired.app.request('/v1/auth/password-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'expiry@example.com', reset_url_template: template }),
+        body: JSON.stringify({ email: 'expiry@example.com' }),
       })
 
       const issuedToken = /token=([^\s]+)/u.exec(expired.services.sentEmails.at(-1)?.body ?? '')?.[1] ?? ''
@@ -743,14 +734,6 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect(response.status).toBe(401)
     })
 
-    it('refuses a template that cannot carry the token', async () => {
-      const response = await post('/v1/auth/password-reset', {
-        email: SIGNUP.email,
-        reset_url_template: 'https://app.example.com/reset',
-      })
-
-      expect(response.status).toBe(422)
-    })
   })
 
   describe('email verification', () => {
@@ -830,11 +813,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     it('resends a fresh, working link on request', async () => {
       const cookie = await signUp()
 
-      const response = await post(
-        '/v1/auth/verify-email',
-        { verify_url_template: VERIFY_URL_TEMPLATE },
-        cookie,
-      )
+      const response = await post('/v1/auth/verify-email', {}, cookie)
 
       expect(response.status).toBe(202)
       expect(harness.services.sentEmails).toHaveLength(2)
@@ -850,32 +829,16 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const cookie = await signUp()
       await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() })
 
-      const response = await post(
-        '/v1/auth/verify-email',
-        { verify_url_template: VERIFY_URL_TEMPLATE },
-        cookie,
-      )
+      const response = await post('/v1/auth/verify-email', {}, cookie)
 
       expect(response.status).toBe(202)
       expect(harness.services.sentEmails).toHaveLength(1)
     })
 
     it('answers 401 without a cookie', async () => {
-      const response = await post('/v1/auth/verify-email', { verify_url_template: VERIFY_URL_TEMPLATE })
+      const response = await post('/v1/auth/verify-email', {})
 
       expect(response.status).toBe(401)
-    })
-
-    it('refuses a template that cannot carry the token', async () => {
-      const cookie = await signUp()
-
-      const response = await post(
-        '/v1/auth/verify-email',
-        { verify_url_template: 'https://app.example.com/verify' },
-        cookie,
-      )
-
-      expect(response.status).toBe(422)
     })
   })
 })
