@@ -1,3 +1,4 @@
+import { createEgressGuard, egressConfigSchema } from '../../lib/egress.ts'
 import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secrets.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createDispatchEngine, createHttpSender } from './dispatch.ts'
@@ -48,12 +49,13 @@ export function createAgentTasksModule(
       // key means no stored auth header can ever be read back, and finding that
       // out when a dispatch quietly fails is far too late.
       const cipher = createSecretCipher(context.config(secretEncryptionConfigSchema))
+      const egress = createEgressGuard(context.config(egressConfigSchema))
 
       const engine = createDispatchEngine({
         db: context.db,
         now: context.now,
         cipher,
-        send: options.send ?? createHttpSender(),
+        send: options.send ?? createHttpSender(egress),
         log: context.log,
       })
 

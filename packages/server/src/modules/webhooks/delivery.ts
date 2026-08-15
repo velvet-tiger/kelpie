@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { Database } from '../../lib/database.ts'
+import type { EgressGuard } from '../../lib/egress.ts'
 import { describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
@@ -115,11 +116,18 @@ export function sleepFor(milliseconds: number): Promise<void> {
  * The catch is broad because this is the process boundary: `fetch` rejects with
  * anything from a DNS failure to an abort, the set is open, and turning all of
  * it into one outcome is the port's whole job. Nothing is swallowed — the
- * reason reaches the log and the delivery is recorded as failed.
+ * reason reaches the log and the delivery is recorded as failed. A blocked
+ * private address (`egress.check`) reaches the same catch and is recorded the
+ * same way, as a failed attempt rather than a crash.
  */
-export function createHttpSender(fetchImplementation: typeof fetch = fetch): SendDelivery {
+export function createHttpSender(
+  egress: EgressGuard,
+  fetchImplementation: typeof fetch = fetch,
+): SendDelivery {
   return async (request) => {
     try {
+      await egress.check(request.url)
+
       const response = await fetchImplementation(request.url, {
         method: 'POST',
         body: request.body,

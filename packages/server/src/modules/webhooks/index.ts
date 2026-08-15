@@ -1,3 +1,4 @@
+import { createEgressGuard, egressConfigSchema } from '../../lib/egress.ts'
 import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secrets.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import {
@@ -49,6 +50,7 @@ export function createWebhooksModule(
       // should stop boot, not prune by the wrong window.
       const cipher = createSecretCipher(context.config(secretEncryptionConfigSchema))
       const retention = context.config(deliveryRetentionConfigSchema)
+      const egress = createEgressGuard(context.config(egressConfigSchema))
 
       const service = createWebhooksService({
         db: context.db,
@@ -64,7 +66,7 @@ export function createWebhooksModule(
         createId: context.createId,
         now: context.now,
         cipher,
-        send: options.send ?? createHttpSender(),
+        send: options.send ?? createHttpSender(egress),
         sleep: options.sleep ?? sleepFor,
         retentionDays: retention.WEBHOOK_DELIVERY_RETENTION_DAYS,
         log: context.log,
