@@ -8,6 +8,20 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [0.5.1] - 2026-08-17
+
+### Added
+
+- **`@kelpie/server`** — a new `workspace.access` flag capability, checked
+  once per request by a blanket `/v1` and `/mcp` middleware. `/v1/auth/*`
+  and the workspace-switch endpoint are exempt, so a member can still see
+  why they are locked out or switch to a different workspace. No grant
+  provider answers this capability in a self-hosted assembly, so
+  `EntitlementRegistry`'s open-source default applies and nothing changes
+  for anyone without a module that supplies one. Built for the cloud
+  assembly's operator module, which can now enforce a real workspace
+  suspension instead of only recording one in its own tables.
+
 ## [0.5.0] - 2026-08-15
 
 ### Changed
