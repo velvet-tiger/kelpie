@@ -18,6 +18,7 @@ import {
   createFormSubmitRateLimitMiddleware,
 } from './modules/rate-limit/middleware.ts'
 import { createIdempotencyMiddleware } from './modules/workspace/idempotencyMiddleware.ts'
+import { createWorkspaceAccessMiddleware } from './modules/workspace/workspaceAccessMiddleware.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 
 /**
@@ -120,6 +121,17 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   // where the public CORS middleware requires.
   app.use('/v1/*', createAuthAndApiRateLimitMiddleware(rateLimitDependencies))
 
+  // Ahead of idempotency too, for the same reason: a request this blocks
+  // must never reserve a key it will not be allowed to spend. Inert without
+  // a module granting or denying `workspace.access` (`capabilities.ts`).
+  const workspaceAccessMiddleware = createWorkspaceAccessMiddleware({
+    db: dependencies.credentials.db,
+    now: dependencies.credentials.now,
+    entitlements: dependencies.contributions.entitlements,
+  })
+
+  app.use('/v1/*', workspaceAccessMiddleware)
+
   // Every module's `POST` gets this the same way, decided once here rather than
   // per route (`api.md`). It skips `/v1/public/*` itself — a public request has
   // no `Actor` to scope a key to — so it is mounted ahead of the public CORS
@@ -168,6 +180,10 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   // comes through. No CORS layer to mind the order of here, unlike the forms
   // budget — the transport checks its own `Origin` inside the handler.
   app.use(MCP_ROUTE_PREFIX, createAuthAndApiRateLimitMiddleware(rateLimitDependencies))
+
+  // MCP mirrors `/v1` one-to-one, so a workspace this gate blocks must not
+  // still be reachable through agent tools.
+  app.use(MCP_ROUTE_PREFIX, workspaceAccessMiddleware)
 
   app.route(MCP_ROUTE_PREFIX, mcp.transport)
   app.route('/v1', mcp.catalog)
