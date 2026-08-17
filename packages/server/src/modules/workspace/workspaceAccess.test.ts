@@ -139,6 +139,27 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
 
       expect(response.status).toBe(204)
     })
+
+    it('still allows the blocked workspace owner to delete the workspace', async () => {
+      const response = await client.send('DELETE', `/v1/workspaces/${blocked.workspaceId}?slug=blocked`, {
+        cookie: blocked.cookie,
+      })
+
+      expect(response.status).toBe(204)
+    })
+
+    it('keeps every other verb and sub-resource under /v1/workspaces/:id gated', async () => {
+      const patch = await client.send('PATCH', `/v1/workspaces/${blocked.workspaceId}`, {
+        cookie: blocked.cookie,
+        body: { name: 'Renamed' },
+      })
+      const members = await client.send('GET', `/v1/workspaces/${blocked.workspaceId}/members`, {
+        cookie: blocked.cookie,
+      })
+
+      expect(patch.status).toBe(403)
+      expect(members.status).toBe(403)
+    })
   })
 
   it('is inert with no provider registered, the open-source default', async () => {

@@ -27,9 +27,18 @@ import { WORKSPACE_ACCESS } from './capabilities.ts'
  * chance of understanding why. There is no `/v1` endpoint to switch a
  * session to a different workspace membership — a session is bound to one
  * at login — so there is nothing further to exempt for that case.
+ *
+ * Also exempts `DELETE /v1/workspaces/:id` itself, and only that exact
+ * path: a suspension must never trap an owner into a workspace they can no
+ * longer read or write but also cannot leave by deleting. Every other verb
+ * and every sub-resource under `/v1/workspaces/:id` (members, invites,
+ * modules) stays gated.
  */
-function isExempt(path: string): boolean {
-  return path.startsWith('/v1/auth/') || path.startsWith('/v1/account')
+const WORKSPACE_DELETE_PATH = /^\/v1\/workspaces\/[^/]+$/u
+
+function isExempt(method: string, path: string): boolean {
+  return path.startsWith('/v1/auth/') || path.startsWith('/v1/account') ||
+    (method === 'DELETE' && WORKSPACE_DELETE_PATH.test(path))
 }
 
 export interface WorkspaceAccessMiddlewareDependencies extends CredentialDependencies {
@@ -40,7 +49,7 @@ export function createWorkspaceAccessMiddleware(
   dependencies: WorkspaceAccessMiddlewareDependencies,
 ): MiddlewareHandler {
   return async (context: Context, next) => {
-    if (isExempt(context.req.path)) {
+    if (isExempt(context.req.method, context.req.path)) {
       await next()
       return
     }

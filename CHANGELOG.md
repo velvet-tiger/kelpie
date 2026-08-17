@@ -8,6 +8,16 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [0.5.2] - 2026-08-17
+
+### Fixed
+
+- **`@kelpie/server`** — the `workspace.access` gate (0.5.1) now exempts
+  `DELETE /v1/workspaces/:id`. Without this, a suspended workspace's owner
+  got a `403` trying to delete their own workspace, with no way out of it
+  until an operator reactivated it first. Every other verb and every
+  sub-resource under `/v1/workspaces/:id` stays gated.
+
 ## [0.5.1] - 2026-08-17
 
 ### Added
