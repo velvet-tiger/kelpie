@@ -21,7 +21,18 @@ export interface ResolvedTaskView {
   readonly taskId: string
   readonly targetType: AgentTaskTargetType
   readonly targetId: string
+  /**
+   * The external-agent-framed prompt: opens with "operating via MCP / the
+   * public API", ends with "Done when… applied allowed updates". This is
+   * what Copy hands to a user and what a customer agent reads.
+   */
   readonly prompt: string
+  /**
+   * The shared body without the framing. What an agent that returns
+   * structured data (the hosted AI is the one that ships) reads before
+   * adding its own instructions.
+   */
+  readonly basePrompt: string
   readonly context: ContextPackView
 }
 
@@ -31,6 +42,7 @@ export function resolvedTaskResponse(resolved: ResolvedTaskView): Record<string,
     target_type: resolved.targetType,
     target_id: resolved.targetId,
     prompt: resolved.prompt,
+    base_prompt: resolved.basePrompt,
     context: {
       target_label: resolved.context.targetLabel,
       deep_link: resolved.context.deepLink,

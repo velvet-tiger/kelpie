@@ -95,12 +95,28 @@ const contextPackSchema: z.ZodType<AgentTaskContextPack, unknown> = z
     }),
   )
 
-/** What resolve answers, and what a run dispatches. Identical for copy and run. */
+/**
+ * What resolve answers, and what a run dispatches. Two prompts, one body.
+ *
+ *   - `prompt` — the external-agent-framed prompt: opens with "operating via
+ *     MCP / the public API" and closes with "Done when… applied allowed
+ *     updates". What Copy hands to the user and what dispatch sends by
+ *     default. An agent that runs its own tool loop reads this and works
+ *     from it directly.
+ *   - `basePrompt` — the shared body, without the framing. An agent that
+ *     returns structured data for a caller to apply (the hosted AI in the
+ *     cloud is the one that ships) reads this and adds its own instructions
+ *     for how to reply.
+ *
+ * The wire also carries the base as `base_prompt` alongside `prompt`; a
+ * receiver picks the one that matches how it will execute.
+ */
 export interface ResolvedAgentTask {
   readonly taskId: string
   readonly targetType: AgentTaskTargetType
   readonly targetId: string
   readonly prompt: string
+  readonly basePrompt: string
   readonly context: AgentTaskContextPack
 }
 
@@ -110,6 +126,10 @@ export const resolvedAgentTaskSchema: z.ZodType<ResolvedAgentTask, unknown> = z
     target_type: z.enum(AGENT_TASK_TARGET_TYPES),
     target_id: idSchema,
     prompt: z.string(),
+    // Older core versions did not send this; treat it as optional on parse
+    // and fall back to `prompt` so a client built against the new schema
+    // still works against an older server.
+    base_prompt: z.string().optional(),
     context: contextPackSchema,
   })
   .transform(
@@ -118,6 +138,7 @@ export const resolvedAgentTaskSchema: z.ZodType<ResolvedAgentTask, unknown> = z
       targetType: wire.target_type,
       targetId: wire.target_id,
       prompt: wire.prompt,
+      basePrompt: wire.base_prompt ?? wire.prompt,
       context: wire.context,
     }),
   )

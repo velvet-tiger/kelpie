@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { findTask } from './catalog.ts'
-import { renderPrompt } from './prompt.ts'
+import { renderBasePrompt, renderExternalAgentPrompt, renderPrompt } from './prompt.ts'
 import type { PromptInputs } from './prompt.ts'
 
 function inputs(overrides: Partial<PromptInputs> = {}): PromptInputs {
@@ -117,5 +117,71 @@ describe('renderPrompt', () => {
     const prompt = renderPrompt(requireTask('workspace.daily_brief'), 'workspace', 'ws_1', inputs())
 
     expect(prompt).not.toContain('## Workspace signals')
+  })
+})
+
+describe('renderBasePrompt', () => {
+  it('renders the shared body without the external-agent framing', () => {
+    const prompt = renderBasePrompt(
+      requireTask('company.enrich'),
+      'company',
+      'com_1',
+      inputs(),
+    )
+
+    expect(prompt).toContain('# Agent task: Enrich company')
+    expect(prompt).toContain('- **Id:** `company.enrich`')
+    expect(prompt).toContain('- **Label:** Brightline Health')
+    expect(prompt).toContain('## Instructions')
+    expect(prompt).toContain('## Write policy')
+
+    // The base carries neither the MCP/API opening nor the "Done when" tail.
+    expect(prompt).not.toContain('via MCP / the public API')
+    expect(prompt).not.toContain('Bring your own model')
+    expect(prompt).not.toContain('## Done when')
+    expect(prompt).not.toContain('applied allowed updates via MCP/API')
+  })
+
+  it('includes reads, related ids, and workspace signals when supplied', () => {
+    const prompt = renderBasePrompt(
+      requireTask('workspace.empty_field_sweep'),
+      'workspace',
+      'ws_1',
+      inputs({
+        signals: [{ label: 'People missing a summary', total: 3, ids: ['per_1'] }],
+        related: { person_ids: { ids: ['per_1'], truncated: false } },
+      }),
+    )
+
+    expect(prompt).toContain('1. Load the workspace dashboard: `GET /v1/dashboard`')
+    expect(prompt).toContain('## Related ids')
+    expect(prompt).toContain('## Workspace signals')
+  })
+})
+
+describe('renderExternalAgentPrompt', () => {
+  it('wraps the base with the MCP/API opening and the "Done when" tail', () => {
+    const prompt = renderExternalAgentPrompt(
+      requireTask('company.enrich'),
+      'company',
+      'com_1',
+      inputs(),
+    )
+
+    expect(prompt).toContain('workspace **Acme**')
+    expect(prompt).toContain('via MCP / the public API')
+    expect(prompt).toContain('## Done when')
+    expect(prompt).toContain('applied allowed updates via MCP/API')
+    // Only one `# Agent task:` heading survives the wrap.
+    const headingMatches = prompt.match(/^# Agent task:/gmu) ?? []
+    expect(headingMatches).toHaveLength(1)
+  })
+
+  it('is what renderPrompt aliases to for backwards compatibility', () => {
+    const definition = requireTask('company.enrich')
+    const wrapped = renderExternalAgentPrompt(definition, 'company', 'com_1', inputs())
+    const legacy = renderPrompt(definition, 'company', 'com_1', inputs())
+
+    expect(legacy).toBe(wrapped)
   })
 })

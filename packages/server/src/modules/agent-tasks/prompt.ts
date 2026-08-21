@@ -3,12 +3,22 @@ import type { AgentTaskDefinition, AgentTaskTargetType } from '@kelpie/schemas'
 /**
  * Renders the markdown prompt a ResolvedTask carries. Pure: every fact arrives
  * as an argument, so the template is unit-testable and Copy and Run cannot
- * drift — both read the one string this produces.
+ * drift — both read the strings this file produces.
  *
- * The shape is the mockup's (`mockups/src/data/agentTasks.ts`), with two
- * server-era changes: workspace-scoped tasks are pointed at `GET /v1/dashboard`
- * instead of a single record, and the sweep tasks carry a "Workspace signals"
- * section computed at resolve time.
+ * Two renderers, one shared body.
+ *
+ *   - {@link renderBasePrompt} returns the general request: the task title,
+ *     the target, the required reads, the handbook pages, related ids,
+ *     workspace signals, the task instructions, and the write policy. It
+ *     says nothing about *how* the receiver should apply the changes.
+ *   - {@link renderExternalAgentPrompt} wraps the base with framing for an
+ *     agent that calls the CRM itself — the opening line about MCP / the
+ *     public API and the closing "Done when… applied allowed updates" tail.
+ *
+ * The resolved-task and dispatch payloads carry both. The copy-prompt UI
+ * flow serves the external-agent version by default; the hosted AI in the
+ * cloud reads the base and adds its own structured-output framing. Two
+ * consumers, two wrappers, one body.
  */
 
 /** A handbook page the task requires, resolved to this workspace's own copy. */
@@ -99,16 +109,19 @@ function firstRead(targetType: AgentTaskTargetType): string {
   return 'Load the target record and agent fields.'
 }
 
-export function renderPrompt(
+/**
+ * The shared body. Renders everything a receiver needs to *understand* the
+ * task, without telling it how to apply results. Callers wrap this with an
+ * opening and closing that matches how the receiver will execute (call the
+ * CRM, or return structured data for a caller to apply).
+ */
+export function renderBasePrompt(
   definition: AgentTaskDefinition,
   targetType: AgentTaskTargetType,
   targetId: string,
   inputs: PromptInputs,
 ): string {
   return `# Agent task: ${definition.label}
-
-You are operating on the Kelpie workspace **${inputs.workspaceName}** via MCP / the public API.
-Bring your own model. Kelpie does not bundle AI.
 
 ## Task
 - **Id:** \`${definition.id}\`
@@ -133,8 +146,43 @@ ${definition.instructions}
 
 ## Write policy
 ${definition.writePolicy}
+`
+}
 
+/**
+ * The external-agent-framed prompt. Adds the opening line about MCP / the
+ * public API and the closing "Done when" tail to the base. This is what the
+ * Copy button hands to the user and what dispatch sends by default; an
+ * agent that runs its own tool loop against the CRM reads this and works
+ * from it directly.
+ */
+export function renderExternalAgentPrompt(
+  definition: AgentTaskDefinition,
+  targetType: AgentTaskTargetType,
+  targetId: string,
+  inputs: PromptInputs,
+): string {
+  const opening = `# Agent task: ${definition.label}
+
+You are operating on the Kelpie workspace **${inputs.workspaceName}** via MCP / the public API.
+Bring your own model. Kelpie does not bundle AI.
+`
+
+  // The base opens with its own `# Agent task:` header; strip it so the
+  // combined prompt has one heading rather than two.
+  const base = renderBasePrompt(definition, targetType, targetId, inputs)
+  const bodyWithoutHeading = base.replace(/^# Agent task:[^\n]*\n\n?/u, '')
+
+  return `${opening}
+${bodyWithoutHeading}
 ## Done when
 You have applied allowed updates via MCP/API (or asked the human when blocked), and summarised what changed.
 `
 }
+
+/**
+ * Backwards-compatible alias for the pre-split renderer. Existing callers
+ * that produced the "wrapped" prompt keep working. New callers pick
+ * {@link renderBasePrompt} or {@link renderExternalAgentPrompt} directly.
+ */
+export const renderPrompt = renderExternalAgentPrompt

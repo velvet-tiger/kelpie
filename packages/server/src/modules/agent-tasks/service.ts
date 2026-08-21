@@ -14,7 +14,7 @@ import { requireWorkspaceId } from '../auth/actor.ts'
 import { roleAllows } from '../workspace/roles.ts'
 import { AGENT_TASK_DEFINITIONS, findTask, tasksFor } from './catalog.ts'
 import type { DispatchEngine } from './dispatch.ts'
-import { renderPrompt } from './prompt.ts'
+import { renderBasePrompt, renderExternalAgentPrompt } from './prompt.ts'
 import * as repository from './repository.ts'
 import { AGENT_SORTS, DEFAULT_AGENT_SORT, DEFAULT_RUN_SORT, RUN_SORTS } from './repository.ts'
 import type { AgentRecord, RunFilters, RunRecord } from './repository.ts'
@@ -184,7 +184,8 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
       taskId: definition.id,
       targetType: target.targetType,
       targetId: target.targetId,
-      prompt: renderPrompt(definition, target.targetType, target.targetId, inputs),
+      prompt: renderExternalAgentPrompt(definition, target.targetType, target.targetId, inputs),
+      basePrompt: renderBasePrompt(definition, target.targetType, target.targetId, inputs),
       context: {
         targetLabel: inputs.targetLabel,
         deepLink: inputs.deepLink,
