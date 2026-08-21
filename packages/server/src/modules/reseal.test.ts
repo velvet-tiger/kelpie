@@ -2,14 +2,18 @@ import { randomBytes } from 'node:crypto'
 import { Table, eq, getTableColumns, getTableName, is } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { ConfigurationError, loadConfig } from '../lib/config.ts'
+import type { KelpieConfig } from '../lib/config.ts'
 import { createIdFactory } from '../lib/ids.ts'
+import { createLogger } from '../lib/logger.ts'
 import { SecretDecryptionError, createSecretCipher } from '../lib/secrets.ts'
-import type { SecretCipher } from '../lib/secrets.ts'
+import type { SecretCipher, SecretEncryptionConfig } from '../lib/secrets.ts'
 import * as schema from '../schema/index.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../testing/database.ts'
 import type { TestDatabase } from '../testing/database.ts'
 import { insertWorkspaceFixture } from '../testing/fixtures.ts'
-import { RESEALED_COLUMNS, resealStoredSecrets } from './reseal.ts'
+import { RESEALED_COLUMNS, resealStoredSecrets, runReseal } from './reseal.ts'
+import type { ResealOutcome, ResealPass } from './reseal.ts'
 import { webhooks } from './webhooks/schema.ts'
 
 /**
@@ -286,5 +290,204 @@ describe.skipIf(connectionString === undefined)('re-sealing stored secrets', () 
 
     expect(outcome.unreadable).toBe(1)
     expect(() => rotating.open('not-a-sealed-value')).toThrow(SecretDecryptionError)
+  })
+})
+
+/**
+ * The script wrapper both assemblies (base and cloud) call.
+ *
+ * A separate describe rather than more assertions on the pass above: this
+ * covers the config-branch logic, the pass composition, the exit code and
+ * the printed report — everything the wrapper contributes on top of the
+ * pass function.
+ */
+describe.skipIf(connectionString === undefined)('runReseal', () => {
+  let database: TestDatabase
+  const silentLogger = createLogger('error', () => undefined)
+
+  beforeAll(async () => {
+    if (connectionString === undefined) {
+      throw new Error('unreachable: the suite is skipped without a connection string')
+    }
+
+    database = await connectTestDatabase(connectionString)
+  })
+
+  afterAll(async () => {
+    await database.close()
+  })
+
+  beforeEach(async () => {
+    await database.truncateAll()
+  })
+
+  /**
+   * A minimal `KelpieConfig` for the wrapper. `loadConfig` needs a full env,
+   * so the tests inline what would otherwise take a fixture: the fields
+   * `runReseal` reads are `databaseUrl`, `secretEncryption`, and `env`; the
+   * rest are supplied only to satisfy the shape.
+   */
+  function buildConfig(overrides: {
+    readonly secretEncryption?: SecretEncryptionConfig
+    readonly env?: Record<string, string | undefined>
+  } = {}): KelpieConfig {
+    if (connectionString === undefined) {
+      throw new Error('unreachable: skipped without a connection string')
+    }
+
+    const base = loadConfig({
+      NODE_ENV: 'test',
+      PORT: '3000',
+      DATABASE_URL: connectionString,
+      LOG_LEVEL: 'error',
+      EMAIL_PROVIDER: 'log',
+      EMAIL_FROM: 'kelpie@example.test',
+    })
+
+    return {
+      ...base,
+      env: overrides.env ?? {},
+      secretEncryption: overrides.secretEncryption,
+    }
+  }
+
+  /** Captured stdout/stderr, so a test can assert against what the operator would see. */
+  function makeSinks() {
+    const out: string[] = []
+    const err: string[] = []
+    return {
+      out,
+      err,
+      report: (message: string) => out.push(message),
+      reportFatal: (message: string) => err.push(message),
+    }
+  }
+
+  it('uses config.secretEncryption when set, and ignores config.env', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({
+      secretEncryption: {
+        SECRET_ENCRYPTION_KEY: CURRENT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: PREVIOUS_KEY,
+      },
+      // Deliberately broken. The preferred branch means this is never read;
+      // if it were, the schema would throw and the test would fail loudly.
+      env: { SECRET_ENCRYPTION_KEY: 'not-a-base64-key' },
+    })
+
+    const exit = await runReseal({ config, logger: silentLogger, ...sinks })
+
+    expect(exit).toBe(0)
+    // The composed report starts with each column line, then a summary.
+    expect(sinks.out.some((line) => line.includes('webhooks.secret_encrypted'))).toBe(true)
+  })
+
+  it('falls back to parsing config.env when config.secretEncryption is undefined', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({
+      env: {
+        SECRET_ENCRYPTION_KEY: CURRENT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: PREVIOUS_KEY,
+      },
+    })
+
+    const exit = await runReseal({ config, logger: silentLogger, ...sinks })
+
+    expect(exit).toBe(0)
+  })
+
+  it('throws ConfigurationError listing every issue when neither source is valid', async () => {
+    const config = buildConfig({ env: { SECRET_ENCRYPTION_KEY: 'not-a-base64-key' } })
+
+    await expect(runReseal({ config, logger: silentLogger })).rejects.toBeInstanceOf(
+      ConfigurationError,
+    )
+  })
+
+  it('warns when SECRET_ENCRYPTION_KEY_PREVIOUS is unset', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({
+      secretEncryption: { SECRET_ENCRYPTION_KEY: CURRENT_KEY },
+    })
+
+    await runReseal({ config, logger: silentLogger, ...sinks })
+
+    expect(sinks.out.some((line) => line.includes('SECRET_ENCRYPTION_KEY_PREVIOUS is not set'))).toBe(
+      true,
+    )
+  })
+
+  it('runs extraPasses after core and sums their outcomes into the summary', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({
+      secretEncryption: {
+        SECRET_ENCRYPTION_KEY: CURRENT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: PREVIOUS_KEY,
+      },
+    })
+
+    // A pass that names one column with three examined and one re-sealed,
+    // so the report line and totals can only come from summing across passes.
+    const extraPass: ResealPass = async (): Promise<ResealOutcome> => ({
+      columns: [{ label: 'made_up_module.made_up_column', examined: 3, resealed: 1, unreadable: [] }],
+      examined: 3,
+      resealed: 1,
+      unreadable: 0,
+    })
+
+    const exit = await runReseal({
+      config,
+      logger: silentLogger,
+      extraPasses: [extraPass],
+      ...sinks,
+    })
+
+    expect(exit).toBe(0)
+    expect(sinks.out.some((line) => line.includes('made_up_module.made_up_column: 3 examined, 1 re-sealed'))).toBe(true)
+    // Every _encrypted column plus one extra: the totals summary is derived, so
+    // an extra pass' `examined: 3` must surface in it.
+    expect(sinks.out.some((line) => line.includes('Re-sealed 1 of 3'))).toBe(true)
+  })
+
+  it('returns 1 when any pass reports an unreadable row, and lists the ids', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({
+      secretEncryption: {
+        SECRET_ENCRYPTION_KEY: CURRENT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: PREVIOUS_KEY,
+      },
+    })
+
+    const failing: ResealPass = async (): Promise<ResealOutcome> => ({
+      columns: [{ label: 'made_up.col', examined: 1, resealed: 0, unreadable: ['row_stranded'] }],
+      examined: 1,
+      resealed: 0,
+      unreadable: 1,
+    })
+
+    const exit = await runReseal({
+      config,
+      logger: silentLogger,
+      extraPasses: [failing],
+      ...sinks,
+    })
+
+    expect(exit).toBe(1)
+    expect(sinks.err.some((line) => line.includes('row_stranded'))).toBe(true)
+  })
+
+  it('returns 0 when every pass is clean', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({
+      secretEncryption: {
+        SECRET_ENCRYPTION_KEY: CURRENT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: PREVIOUS_KEY,
+      },
+    })
+
+    const exit = await runReseal({ config, logger: silentLogger, ...sinks })
+
+    expect(exit).toBe(0)
+    expect(sinks.err).toEqual([])
   })
 })

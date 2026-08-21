@@ -1,7 +1,11 @@
 import { eq } from 'drizzle-orm'
 
+import { ConfigurationError } from '../lib/config.ts'
+import type { KelpieConfig } from '../lib/config.ts'
+import { connectDatabase } from '../lib/database.ts'
 import type { Database } from '../lib/database.ts'
-import { SecretDecryptionError } from '../lib/secrets.ts'
+import type { Logger } from '../lib/logger.ts'
+import { createSecretCipher, secretEncryptionConfigSchema, SecretDecryptionError } from '../lib/secrets.ts'
 import type { SecretCipher } from '../lib/secrets.ts'
 import { agentRegistrations } from './agent-tasks/schema.ts'
 import { webhooks } from './webhooks/schema.ts'
@@ -162,5 +166,144 @@ export async function resealStoredSecrets(
     examined: columns.reduce((total, column) => total + column.examined, 0),
     resealed: columns.reduce((total, column) => total + column.resealed, 0),
     unreadable: columns.reduce((total, column) => total + column.unreadable.length, 0),
+  }
+}
+
+/**
+ * One reseal pass over some set of columns. Core's own pass is one; a module
+ * with its own sealed table exports one too, and the assembly wires it in as
+ * an `extraPasses` entry.
+ *
+ * The shape matches `resealStoredSecrets` on purpose, so a pass covering a
+ * single column returns a one-element `columns` and `runReseal` can print
+ * every pass the same way.
+ */
+export type ResealPass = (db: Database, cipher: SecretCipher) => Promise<ResealOutcome>
+
+export interface RunResealOptions {
+  readonly config: KelpieConfig
+  readonly logger: Logger
+  /**
+   * Extra passes to run after core's own. An assembly wires its modules'
+   * sealed columns in here; each pass covers columns core cannot see.
+   */
+  readonly extraPasses?: readonly ResealPass[]
+  /** Where the per-column report goes. Defaults to stdout. */
+  readonly report?: (message: string) => void
+  /** Where unreadable-row ids and the trailing failure summary go. Defaults to stderr. */
+  readonly reportFatal?: (message: string) => void
+}
+
+function defaultReport(message: string): void {
+  process.stdout.write(`${message}\n`)
+}
+
+function defaultReportFatal(message: string): void {
+  process.stderr.write(`${message}\n`)
+}
+
+/**
+ * Runs every reseal pass under the current `SECRET_ENCRYPTION_KEY` and
+ * prints a report. Returns the exit code a script should return: 0 if every
+ * examined value is now under the current key, 1 if any row was unreadable.
+ *
+ * The rotation procedure, in full:
+ *
+ *   1. Keep the current key. Add the new one as `SECRET_ENCRYPTION_KEY` and
+ *      move the old value to `SECRET_ENCRYPTION_KEY_PREVIOUS`.
+ *   2. Deploy. Deliveries keep signing: new secrets seal under the new key,
+ *      and existing ones still open under the previous one.
+ *   3. Run the reseal script. It rewrites every row still sealed under the
+ *      old key.
+ *   4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
+ *
+ * Safe to run at any point, including with no previous key set, where it
+ * reports that everything is already current and writes nothing.
+ *
+ * Prefers `config.secretEncryption` (the top-level field an assembly's
+ * `kelpie.config.ts` declares). Falls back to parsing `config.env` for
+ * older assemblies and for `loadConfig`-based callers that never populate
+ * the top-level field. Either path validates before the pass opens a row,
+ * so a mistyped key throws `ConfigurationError` at boot rather than
+ * reporting every row as unreadable.
+ *
+ * @throws ConfigurationError if neither `config.secretEncryption` nor the
+ *   fallback env parse produces a valid `SecretEncryptionConfig`. The
+ *   database is closed before the throw.
+ */
+export async function runReseal(options: RunResealOptions): Promise<number> {
+  const report = options.report ?? defaultReport
+  const reportFatal = options.reportFatal ?? defaultReportFatal
+  const database = connectDatabase(options.config.databaseUrl, options.logger)
+
+  let secretConfig = options.config.secretEncryption
+
+  if (secretConfig === undefined) {
+    const parsed = secretEncryptionConfigSchema.safeParse(options.config.env)
+
+    if (!parsed.success) {
+      await database.close()
+
+      throw new ConfigurationError(
+        parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
+      )
+    }
+
+    secretConfig = parsed.data
+  }
+
+  const hasPrevious =
+    secretConfig.SECRET_ENCRYPTION_KEY_PREVIOUS !== undefined &&
+    secretConfig.SECRET_ENCRYPTION_KEY_PREVIOUS.trim().length > 0
+
+  if (!hasPrevious) {
+    report('SECRET_ENCRYPTION_KEY_PREVIOUS is not set. Nothing sealed under an older key can be read.')
+  }
+
+  const cipher = createSecretCipher(secretConfig)
+  const passes: readonly ResealPass[] = [resealStoredSecrets, ...(options.extraPasses ?? [])]
+
+  try {
+    // Sequential rather than `Promise.all`, so two full-table passes never
+    // contend for the pool at once. Each pass is idempotent; a run that
+    // dies halfway leaves the finished rows current and re-running
+    // completes the rest.
+    const outcomes: ResealOutcome[] = []
+    for (const pass of passes) {
+      outcomes.push(await pass(database.db, cipher))
+    }
+
+    const columns = outcomes.flatMap((outcome) => outcome.columns)
+    const examined = outcomes.reduce((total, outcome) => total + outcome.examined, 0)
+    const resealed = outcomes.reduce((total, outcome) => total + outcome.resealed, 0)
+    const unreadable = outcomes.reduce((total, outcome) => total + outcome.unreadable, 0)
+
+    for (const column of columns) {
+      report(
+        `${column.label}: ${String(column.examined)} examined, ${String(column.resealed)} re-sealed, ${String(column.unreadable.length)} unreadable`,
+      )
+
+      for (const id of column.unreadable) {
+        reportFatal(`  unreadable: ${id}`)
+      }
+    }
+
+    if (unreadable > 0) {
+      reportFatal(
+        `\n${String(unreadable)} value(s) opened under neither key. They were sealed under a key that is not configured, or the rows have been altered. Nothing here can recover them: set SECRET_ENCRYPTION_KEY_PREVIOUS to the key they were sealed with and run this again, or have those records re-created.`,
+      )
+
+      return 1
+    }
+
+    report(
+      resealed === 0
+        ? `\nNothing to do: all ${String(examined)} value(s) are already sealed under the current key.`
+        : `\nRe-sealed ${String(resealed)} of ${String(examined)} value(s). You can now remove SECRET_ENCRYPTION_KEY_PREVIOUS.`,
+    )
+
+    return 0
+  } finally {
+    await database.close()
   }
 }

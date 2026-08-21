@@ -115,8 +115,8 @@ export type { MigrationPlanStep } from './runtime/migrate.ts'
 
 export { coreMigrationsDirectory, coreModules } from './modules/core.ts'
 
-export { resealStoredSecrets } from './modules/reseal.ts'
-export type { ResealColumnOutcome, ResealOutcome } from './modules/reseal.ts'
+export { resealStoredSecrets, runReseal } from './modules/reseal.ts'
+export type { ResealColumnOutcome, ResealOutcome, ResealPass, RunResealOptions } from './modules/reseal.ts'
 
 export { KEY_KINDS, kindOfSecret, mintKey, parseKeyKind, readBearerToken } from './modules/api-keys/keys.ts'
 export type { KeyKind, MintedKey } from './modules/api-keys/keys.ts'
