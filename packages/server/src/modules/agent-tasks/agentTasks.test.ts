@@ -650,4 +650,30 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       ).toHaveLength(0)
     })
   })
+
+  describe('services.secretEncryption precedence', () => {
+    it('boots the module from services.secretEncryption when SECRET_ENCRYPTION_KEY is missing from the environment', async () => {
+      // TEST_ENVIRONMENT normally carries SECRET_ENCRYPTION_KEY, so most suites
+      // exercise the fallback. Here it is stripped, and services carries the
+      // key instead. If agent-tasks reads through the fallback, boot throws
+      // ModuleBootError. Boot succeeding is the whole assertion.
+      const { SECRET_ENCRYPTION_KEY, ...environmentWithoutKey } = TEST_ENVIRONMENT
+
+      expect(SECRET_ENCRYPTION_KEY).toBeDefined()
+
+      const overridden = await createTestApp({
+        modules: coreModules,
+        environment: environmentWithoutKey,
+        services: createTestServices({
+          db: database.db,
+          secretEncryption: { SECRET_ENCRYPTION_KEY: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=' },
+        }),
+      })
+
+      // Reaching the /v1/agent-tasks surface at all proves the module registered,
+      // which the fallback path would have blocked before this branch existed.
+      const listed = await overridden.app.request('/v1/agent-tasks')
+      expect(listed.status).not.toBe(500)
+    })
+  })
 })

@@ -734,6 +734,37 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect(response.status).toBe(401)
     })
 
+    it('builds the reset link from services.appBaseUrl when set, ignoring APP_BASE_URL in the environment', async () => {
+      // The assembly's `kelpie.config.ts` supplies `appBaseUrl` through
+      // services. The env var still holds a different value, so the assertion
+      // proves services wins — the two values are picked to be visibly
+      // different in the emailed link.
+      const SERVICES_URL = 'https://services-wins.example'
+      const overridden = await createTestApp({
+        modules: coreModules,
+        environment: { ...TEST_ENVIRONMENT, APP_BASE_URL: 'https://env-loses.example' },
+        services: createTestServices({ db: database.db, appBaseUrl: SERVICES_URL }),
+      })
+
+      const signupResponse = await overridden.app.request('/v1/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...SIGNUP, email: 'precedence-reset@example.com' }),
+      })
+      expect(signupResponse.status).toBe(201)
+
+      const resetResponse = await overridden.app.request('/v1/auth/password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'precedence-reset@example.com' }),
+      })
+      expect(resetResponse.status).toBe(202)
+
+      const body = overridden.services.sentEmails.at(-1)?.body ?? ''
+      expect(body).toContain(`${SERVICES_URL}/reset-password?token=`)
+      expect(body).not.toContain('env-loses.example')
+    })
+
   })
 
   describe('email verification', () => {

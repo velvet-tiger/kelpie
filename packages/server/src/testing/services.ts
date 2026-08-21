@@ -4,6 +4,7 @@ import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import { createIdFactory } from '../lib/ids.ts'
 import type { IdFactory } from '../lib/ids.ts'
 import { createLogger } from '../lib/logger.ts'
+import type { SecretEncryptionConfig } from '../lib/secrets.ts'
 import { createEventBus } from '../runtime/events.ts'
 import type { EventBus } from '../runtime/events.ts'
 import type { ModuleServices } from '../runtime/module.ts'
@@ -25,6 +26,10 @@ export interface TestServicesOptions {
   readonly now?: () => Date
   readonly createId?: IdFactory
   readonly events?: EventBus
+  /** Threaded through to `ModuleServices.appBaseUrl`, so a test exercises the preferred path. */
+  readonly appBaseUrl?: string
+  /** Threaded through to `ModuleServices.secretEncryption`, so a test exercises the preferred path. */
+  readonly secretEncryption?: SecretEncryptionConfig
 }
 
 export interface TestServices extends ModuleServices {
@@ -63,5 +68,10 @@ export function createTestServices(options: TestServicesOptions = {}): TestServi
     now: options.now ?? ((): Date => new Date()),
     sentEmails: sent,
     events,
+    // Spread conditionally so the field is absent (not `undefined`) when the
+    // caller does not opt in, keeping the fallback path (context.config) live
+    // for the many suites that never touch these fields.
+    ...(options.appBaseUrl === undefined ? {} : { appBaseUrl: options.appBaseUrl }),
+    ...(options.secretEncryption === undefined ? {} : { secretEncryption: options.secretEncryption }),
   }
 }

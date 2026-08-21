@@ -841,6 +841,56 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const created = await send('POST', '/v1/workspaces', { ...WORKSPACE, slug: 'other' }, cookie)
       expect(created.status).toBe(201)
     })
+
+    it('builds the invite link from services.appBaseUrl when set, ignoring APP_BASE_URL in the environment', async () => {
+      // The assembly's `kelpie.config.ts` supplies `appBaseUrl` through
+      // services. The env var still holds a different value, so the assertion
+      // proves services wins — the two values are picked to be visibly
+      // different in the emailed link.
+      const SERVICES_URL = 'https://services-wins.example'
+      const overridden = await createTestApp({
+        modules: coreModules,
+        environment: { ...TEST_ENVIRONMENT, APP_BASE_URL: 'https://env-loses.example' },
+        services: createTestServices({ db: database.db, appBaseUrl: SERVICES_URL }),
+      })
+
+      const signupResponse = await overridden.app.request('/v1/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'ada-precedence@example.com',
+          name: 'Ada',
+          password: 'correct horse battery staple',
+        }),
+      })
+      expect(signupResponse.status).toBe(201)
+      const signupCookie = signupResponse.headers.get('Set-Cookie')?.split(';')[0] ?? ''
+      const signupPayload: unknown = await signupResponse.json()
+      const accountId = isRecord(signupPayload) && isRecord(signupPayload.account) && typeof signupPayload.account.id === 'string' ? signupPayload.account.id : ''
+      await database.db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, accountId))
+
+      const workspaceResponse = await overridden.app.request('/v1/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: signupCookie },
+        body: JSON.stringify({ ...WORKSPACE, slug: 'precedence' }),
+      })
+      expect(workspaceResponse.status).toBe(201)
+      const workspaceId = readString(await workspaceResponse.json(), 'id')
+
+      const inviteResponse = await overridden.app.request(`/v1/workspaces/${workspaceId}/invites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: signupCookie },
+        body: JSON.stringify({ email: 'grace-precedence@example.com', role: 'member' }),
+      })
+      expect(inviteResponse.status).toBe(201)
+
+      const body =
+        overridden.services.sentEmails
+          .filter((message) => message.subject === 'You have been invited to a Kelpie workspace')
+          .at(-1)?.body ?? ''
+      expect(body).toContain(`${SERVICES_URL}/join?token=`)
+      expect(body).not.toContain('env-loses.example')
+    })
   })
 
   describe('managing an invitation', () => {
