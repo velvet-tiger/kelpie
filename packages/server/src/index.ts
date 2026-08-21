@@ -16,7 +16,11 @@ export type {
   KelpieConfigInput,
   RateLimitBudgetInput,
   RateLimitInput,
+  SecretEncryptionInput,
 } from './lib/kelpieConfigFile.ts'
+
+export { appUrlConfigSchema } from './lib/appUrl.ts'
+export type { AppUrlConfig } from './lib/appUrl.ts'
 
 export { resolveClientIpFrom } from './lib/clientIp.ts'
 

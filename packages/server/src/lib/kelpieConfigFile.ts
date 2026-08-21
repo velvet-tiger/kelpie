@@ -3,6 +3,7 @@ import { ConfigurationError, type Environment, type KelpieConfig, type LogLevel,
 import type { EmailConfig } from './email.ts'
 import { type ConfigValue, resolveMarkers } from './fromEnv.ts'
 import type { RateLimitConfig } from './rateLimit.ts'
+import type { SecretEncryptionConfig } from './secrets.ts'
 
 /**
  * The shape a `kelpie.config.ts` file declares.
@@ -27,6 +28,19 @@ export interface KelpieConfigInput {
   readonly moduleConfigPath?: ConfigValue<string | undefined>
   /** Optional; defaults to 0 (no proxy in front). */
   readonly trustedProxyHopCount?: ConfigValue<number>
+  /**
+   * The deployment's base URL. Every emailed link (password reset, email
+   * verification, invite) is built from it. Required by the workspace and auth
+   * modules. Optional here so an older assembly can omit it and let those
+   * modules fall back to the `context.config(appUrlConfigSchema)` path.
+   */
+  readonly appBaseUrl?: ConfigValue<string>
+  /**
+   * Keys that seal stored secrets (webhook signing secrets, agent-task auth
+   * headers). Required by the webhooks and agent-tasks modules. Optional here
+   * for the same reason `appBaseUrl` is.
+   */
+  readonly secretEncryption?: SecretEncryptionInput
   readonly email: EmailInput
   /** Optional; each unset field falls back to the same defaults `loadConfig` used. */
   readonly rateLimit?: RateLimitInput
@@ -64,6 +78,12 @@ export interface EmailInput {
     readonly user?: ConfigValue<string | undefined>
     readonly password?: ConfigValue<string | undefined>
   }
+}
+
+export interface SecretEncryptionInput {
+  readonly key: ConfigValue<string>
+  /** Absent (or blank) is normal; only set while rotating away from an older key. */
+  readonly previousKey?: ConfigValue<string | undefined>
 }
 
 export interface RateLimitBudgetInput {
@@ -120,6 +140,7 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
   const email = buildEmailConfig(resolved.email, problems)
   const rateLimit = buildRateLimitConfig(resolved.rateLimit)
   const env = mergeEnv(environment, resolved.env)
+  const secretEncryption = buildSecretEncryptionConfig(resolved.secretEncryption)
 
   if (problems.length > 0) {
     throw new ConfigurationError(problems)
@@ -136,6 +157,8 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
     rateLimit,
     trustedProxyHopCount: resolved.trustedProxyHopCount ?? 0,
     env,
+    appBaseUrl: resolved.appBaseUrl,
+    secretEncryption,
   }
 }
 
@@ -163,10 +186,17 @@ interface ResolvedInput {
   readonly webBundleDirectory?: string | undefined
   readonly moduleConfigPath?: string | undefined
   readonly trustedProxyHopCount?: number
+  readonly appBaseUrl?: string
+  readonly secretEncryption?: ResolvedSecretEncryption
   readonly email: ResolvedEmail
   readonly rateLimit?: ResolvedRateLimit
   readonly env?: Readonly<Record<string, string | undefined>>
   readonly modules: readonly KelpieModule[]
+}
+
+interface ResolvedSecretEncryption {
+  readonly key: string
+  readonly previousKey?: string
 }
 
 interface ResolvedEmail {
@@ -241,6 +271,23 @@ function buildEmailConfig(resolved: ResolvedEmail | undefined, problems: string[
     SMTP_USER: user,
     SMTP_PASSWORD: password,
   }
+}
+
+/**
+ * Reshape the resolved leaves into the `SecretEncryptionConfig` shape modules
+ * already consume. Returns undefined when the config file omits the field, in
+ * which case a module falls back to reading `context.config(...)`.
+ */
+function buildSecretEncryptionConfig(
+  resolved: ResolvedSecretEncryption | undefined,
+): SecretEncryptionConfig | undefined {
+  if (resolved === undefined) {
+    return undefined
+  }
+
+  return resolved.previousKey === undefined
+    ? { SECRET_ENCRYPTION_KEY: resolved.key }
+    : { SECRET_ENCRYPTION_KEY: resolved.key, SECRET_ENCRYPTION_KEY_PREVIOUS: resolved.previousKey }
 }
 
 function buildRateLimitConfig(resolved: ResolvedRateLimit | undefined): RateLimitConfig {

@@ -13,12 +13,10 @@ import { createAuthService } from './service.ts'
  * `users`.
  */
 
-const authConfigSchema = z
-  .object({
-    /** Cookies go out `Secure` everywhere except development. */
-    NODE_ENV: z.enum(['development', 'test', 'production']),
-  })
-  .merge(appUrlConfigSchema)
+const nodeEnvSchema = z.object({
+  /** Cookies go out `Secure` everywhere except development. */
+  NODE_ENV: z.enum(['development', 'test', 'production']),
+})
 
 export function createAuthModule(migrationsDirectory: string): KelpieModule {
   return {
@@ -26,14 +24,18 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
     structural: true,
 
     register(context) {
-      const config = context.config(authConfigSchema)
+      const { NODE_ENV } = context.config(nodeEnvSchema)
+      // Prefer the top-level `appBaseUrl` from the assembly's kelpie.config.ts;
+      // fall back to the schema read for older assemblies that don't declare it.
+      const appBaseUrl = context.appBaseUrl ?? context.config(appUrlConfigSchema).APP_BASE_URL
+
       const service = createAuthService({
         db: context.db,
         transaction: context.transaction,
         email: context.email,
         createId: context.createId,
         now: context.now,
-        appBaseUrl: config.APP_BASE_URL,
+        appBaseUrl,
       })
 
       context.schema(schema, migrationsDirectory)
@@ -46,7 +48,7 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
           // `Secure` everywhere except development. A test host reaches the API
           // over http through a test client, which stores the cookie regardless
           // of the flag, so test is not excluded.
-          cookie: { secure: config.NODE_ENV !== 'development' },
+          cookie: { secure: NODE_ENV !== 'development' },
         })
       })
 

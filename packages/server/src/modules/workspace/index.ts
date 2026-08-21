@@ -21,7 +21,9 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
     structural: true,
 
     register(context) {
-      const config = context.config(appUrlConfigSchema)
+      // Prefer the top-level `appBaseUrl` from the assembly's kelpie.config.ts;
+      // fall back to the schema read for older assemblies that don't declare it.
+      const appBaseUrl = context.appBaseUrl ?? context.config(appUrlConfigSchema).APP_BASE_URL
 
       context.entitlements.declare(SEATS_LIMIT)
       context.entitlements.declare(WORKSPACE_ACCESS)
@@ -48,7 +50,7 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
         createId: context.createId,
         now: context.now,
         entitlements: context.entitlements,
-        appBaseUrl: config.APP_BASE_URL,
+        appBaseUrl,
         toggleableModuleIds: context.moduleCatalog
           .filter((entry) => !entry.structural)
           .map((entry) => entry.id),

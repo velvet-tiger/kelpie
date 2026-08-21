@@ -53,6 +53,8 @@ describe('resolveKelpieConfig', () => {
       },
       trustedProxyHopCount: 0,
       env: {},
+      appBaseUrl: undefined,
+      secretEncryption: undefined,
     })
   })
 
@@ -233,6 +235,108 @@ describe('resolveKelpieConfig', () => {
       })
 
       expect(resolveKelpieConfig(input, {}).env.AUTH_TTL).toBe('3600')
+    })
+  })
+
+  describe('appBaseUrl', () => {
+    it('is undefined when the input omits it', () => {
+      expect(resolveKelpieConfig(baseInput(), {}).appBaseUrl).toBeUndefined()
+    })
+
+    it('resolves a literal', () => {
+      const input = baseInput({ appBaseUrl: 'https://crm.example.com' })
+
+      expect(resolveKelpieConfig(input, {}).appBaseUrl).toBe('https://crm.example.com')
+    })
+
+    it('resolves a fromEnv marker', () => {
+      const input = baseInput({ appBaseUrl: fromEnv('APP_BASE_URL', z.string().url()) })
+
+      const config = resolveKelpieConfig(input, { APP_BASE_URL: 'https://crm.example.com' })
+
+      expect(config.appBaseUrl).toBe('https://crm.example.com')
+    })
+
+    it('reports a required marker whose var is missing', () => {
+      const input = baseInput({ appBaseUrl: fromEnv('APP_BASE_URL', z.string().url()) })
+
+      let thrown: unknown
+      try {
+        resolveKelpieConfig(input, {})
+      } catch (error: unknown) {
+        thrown = error
+      }
+
+      expect(thrown).toBeInstanceOf(ConfigurationError)
+      if (!(thrown instanceof ConfigurationError)) {
+        throw thrown
+      }
+      expect(thrown.problems.join('\n')).toContain('APP_BASE_URL')
+    })
+  })
+
+  describe('secretEncryption', () => {
+    const KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+    const OLD = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB='
+
+    it('is undefined when the input omits it', () => {
+      expect(resolveKelpieConfig(baseInput(), {}).secretEncryption).toBeUndefined()
+    })
+
+    it('resolves the key alone into the SecretEncryptionConfig shape', () => {
+      const input = baseInput({ secretEncryption: { key: KEY } })
+
+      expect(resolveKelpieConfig(input, {}).secretEncryption).toEqual({ SECRET_ENCRYPTION_KEY: KEY })
+    })
+
+    it('resolves both key and previousKey when set', () => {
+      const input = baseInput({ secretEncryption: { key: KEY, previousKey: OLD } })
+
+      expect(resolveKelpieConfig(input, {}).secretEncryption).toEqual({
+        SECRET_ENCRYPTION_KEY: KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: OLD,
+      })
+    })
+
+    it('resolves fromEnv markers for both keys', () => {
+      const input = baseInput({
+        secretEncryption: {
+          key: fromEnv('SECRET_ENCRYPTION_KEY', z.string()),
+          previousKey: fromEnv<string | undefined>(
+            'SECRET_ENCRYPTION_KEY_PREVIOUS',
+            z.string().optional(),
+          ),
+        },
+      })
+
+      const config = resolveKelpieConfig(input, {
+        SECRET_ENCRYPTION_KEY: KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: OLD,
+      })
+
+      expect(config.secretEncryption).toEqual({
+        SECRET_ENCRYPTION_KEY: KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: OLD,
+      })
+    })
+
+    it('reports a required key marker whose var is missing', () => {
+      const input = baseInput({
+        secretEncryption: { key: fromEnv('SECRET_ENCRYPTION_KEY', z.string()) },
+      })
+
+      let thrown: unknown
+      try {
+        resolveKelpieConfig(input, {})
+      } catch (error: unknown) {
+        thrown = error
+      }
+
+      expect(thrown).toBeInstanceOf(ConfigurationError)
+      if (!(thrown instanceof ConfigurationError)) {
+        throw thrown
+      }
+      expect(thrown.problems.join('\n')).toContain('SECRET_ENCRYPTION_KEY')
     })
   })
 })

@@ -1,4 +1,10 @@
-import { coreModules, defineKelpieConfig, fromEnv } from '@kelpie/server'
+import {
+  appUrlConfigSchema,
+  coreModules,
+  defineKelpieConfig,
+  fromEnv,
+  secretEncryptionConfigSchema,
+} from '@kelpie/server'
 import { z } from 'zod'
 
 /**
@@ -47,6 +53,22 @@ export default defineKelpieConfig({
   webBundleDirectory: fromEnv<string | undefined>('WEB_BUNDLE_DIR', z.string().min(1).optional(), undefined),
   moduleConfigPath: fromEnv<string | undefined>('KELPIE_MODULE_CONFIG_PATH', z.string().min(1).optional(), undefined),
   trustedProxyHopCount: fromEnv('TRUSTED_PROXY_HOP_COUNT', nonNegativeInt, 0),
+
+  // The deployment's base URL. Every emailed link (invite, password reset,
+  // email verification) is built from it.
+  appBaseUrl: fromEnv('APP_BASE_URL', appUrlConfigSchema.shape.APP_BASE_URL),
+
+  // Keys that seal stored secrets. Generate one with:
+  //   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+  // To rotate, set the current key as `previousKey`, put the new key here,
+  // deploy, then run `npm run reseal`.
+  secretEncryption: {
+    key: fromEnv('SECRET_ENCRYPTION_KEY', secretEncryptionConfigSchema.shape.SECRET_ENCRYPTION_KEY),
+    previousKey: fromEnv<string | undefined>(
+      'SECRET_ENCRYPTION_KEY_PREVIOUS',
+      secretEncryptionConfigSchema.shape.SECRET_ENCRYPTION_KEY_PREVIOUS,
+    ),
+  },
 
   email: {
     provider: fromEnv('EMAIL_PROVIDER', z.enum(['log', 'smtp'])),

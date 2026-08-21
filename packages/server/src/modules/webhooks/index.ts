@@ -48,7 +48,11 @@ export function createWebhooksModule(
       // when a customer's endpoint goes quiet is far too late. The retention
       // window is validated the same way for the same reason — a bad value
       // should stop boot, not prune by the wrong window.
-      const cipher = createSecretCipher(context.config(secretEncryptionConfigSchema))
+      //
+      // Prefer the top-level `secretEncryption` from the assembly's
+      // kelpie.config.ts; fall back to the schema read for older assemblies
+      // that don't declare it.
+      const cipher = createSecretCipher(context.secretEncryption ?? context.config(secretEncryptionConfigSchema))
       const retention = context.config(deliveryRetentionConfigSchema)
       const egress = createEgressGuard(context.config(egressConfigSchema))
 

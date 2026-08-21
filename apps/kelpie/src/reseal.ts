@@ -43,31 +43,37 @@ async function reseal(): Promise<number> {
   const logger = createLogger(config.logLevel)
   const database = connectDatabase(config.databaseUrl, logger)
 
-  // Validated here rather than trusted, so a mistyped key fails before the pass
-  // opens a single row instead of reporting every row unreadable. `config.env`
-  // is the same env vars, with any `env` overrides from `kelpie.config.ts`
-  // applied, so a self-hoster who has locked SECRET_ENCRYPTION_KEY in code
-  // still gets the same key here.
-  const secretConfig = secretEncryptionConfigSchema.safeParse(config.env)
+  // Prefer the top-level `secretEncryption` field the assembly's
+  // `kelpie.config.ts` declares. Fall back to parsing `config.env` for older
+  // assemblies that don't declare it. Either path validates before the pass
+  // opens a row, so a mistyped key fails at boot rather than reporting every
+  // row as unreadable.
+  let secretConfig = config.secretEncryption
 
-  if (!secretConfig.success) {
-    await database.close()
+  if (secretConfig === undefined) {
+    const parsed = secretEncryptionConfigSchema.safeParse(config.env)
 
-    throw new ConfigurationError(
-      secretConfig.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
-    )
+    if (!parsed.success) {
+      await database.close()
+
+      throw new ConfigurationError(
+        parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
+      )
+    }
+
+    secretConfig = parsed.data
   }
 
   const hasPrevious =
-    secretConfig.data.SECRET_ENCRYPTION_KEY_PREVIOUS !== undefined &&
-    secretConfig.data.SECRET_ENCRYPTION_KEY_PREVIOUS.trim().length > 0
+    secretConfig.SECRET_ENCRYPTION_KEY_PREVIOUS !== undefined &&
+    secretConfig.SECRET_ENCRYPTION_KEY_PREVIOUS.trim().length > 0
 
   if (!hasPrevious) {
     report('SECRET_ENCRYPTION_KEY_PREVIOUS is not set. Nothing sealed under an older key can be read.')
   }
 
   try {
-    const outcome = await resealStoredSecrets(database.db, createSecretCipher(secretConfig.data))
+    const outcome = await resealStoredSecrets(database.db, createSecretCipher(secretConfig))
 
     for (const column of outcome.columns) {
       report(

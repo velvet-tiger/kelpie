@@ -5,6 +5,7 @@ import type { EmailConfig } from './email.ts'
 import { describeValidationIssue } from './errors.ts'
 import { rateLimitConfigFrom, rateLimitConfigSchema } from './rateLimit.ts'
 import type { RateLimitConfig } from './rateLimit.ts'
+import type { SecretEncryptionConfig } from './secrets.ts'
 
 /**
  * The single place the service reads environment variables. Every other module
@@ -52,6 +53,20 @@ export interface KelpieConfig {
    * so an old caller keeps the same behaviour.
    */
   readonly env: Environment
+  /**
+   * The deployment's base URL, source of every emailed link. Optional so an
+   * older assembly that omits it from `kelpie.config.ts` still boots: modules
+   * that need it fall back to `context.config(appUrlConfigSchema)` when unset.
+   * A new assembly declares it as a first-class field.
+   */
+  readonly appBaseUrl: string | undefined
+  /**
+   * The key(s) that seal stored secrets. Optional for the same reason
+   * `appBaseUrl` is: modules that need it fall back to
+   * `context.config(secretEncryptionConfigSchema)`. The base assembly declares
+   * it, so both webhooks and agent-tasks receive it through `services`.
+   */
+  readonly secretEncryption: SecretEncryptionConfig | undefined
 }
 
 /** Thrown at boot when the environment cannot produce a valid configuration. */
@@ -122,5 +137,7 @@ export function loadConfig(environment: Environment): KelpieConfig {
     rateLimit: rateLimitConfigFrom(environmentResult.data),
     trustedProxyHopCount: environmentResult.data.TRUSTED_PROXY_HOP_COUNT,
     env: environment,
+    appBaseUrl: undefined,
+    secretEncryption: undefined,
   }
 }

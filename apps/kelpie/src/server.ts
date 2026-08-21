@@ -62,6 +62,8 @@ async function start(): Promise<void> {
       email: createEmailSender(config.email, logger),
       createId,
       now: () => new Date(),
+      appBaseUrl: config.appBaseUrl,
+      secretEncryption: config.secretEncryption,
     },
   })
 

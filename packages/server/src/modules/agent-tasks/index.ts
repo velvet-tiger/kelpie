@@ -48,7 +48,10 @@ export function createAgentTasksModule(
       // Validated at boot rather than on the first run: a missing or malformed
       // key means no stored auth header can ever be read back, and finding that
       // out when a dispatch quietly fails is far too late.
-      const cipher = createSecretCipher(context.config(secretEncryptionConfigSchema))
+      //
+      // Prefer the top-level `secretEncryption` from the assembly's
+      // kelpie.config.ts; fall back to the schema read for older assemblies.
+      const cipher = createSecretCipher(context.secretEncryption ?? context.config(secretEncryptionConfigSchema))
       const egress = createEgressGuard(context.config(egressConfigSchema))
 
       const engine = createDispatchEngine({

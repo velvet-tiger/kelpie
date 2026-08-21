@@ -1,4 +1,10 @@
-import { coreModules, defineKelpieConfig, fromEnv } from '@kelpie/server'
+import {
+  appUrlConfigSchema,
+  coreModules,
+  defineKelpieConfig,
+  fromEnv,
+  secretEncryptionConfigSchema,
+} from '@kelpie/server'
 import { z } from 'zod'
 
 /**
@@ -14,9 +20,10 @@ import { z } from 'zod'
  * resolves markers, validates, and produces the typed `KelpieConfig` the app
  * runs on. Nothing in the app reads `process.env` for these fields after boot.
  *
- * Module configuration (auth, webhooks, secrets, egress) still reads its own
- * env keys through `context.config(schema)`. Migrating those into this file
- * is a separate pass.
+ * A handful of tuning keys (`WEBHOOK_DELIVERY_RETENTION_DAYS`,
+ * `BLOCK_PRIVATE_EGRESS`) still reach their modules through
+ * `context.config(schema)`, since the modules that read them are the only ones
+ * that care. Lock them here through the `env` section if you need to.
  */
 
 const runtimeMode = z.enum(['development', 'test', 'production'])
@@ -54,6 +61,22 @@ export default defineKelpieConfig({
   // means the socket address is the client. Positive reads the client IP from
   // `X-Forwarded-For`, trusting the header for that many hops.
   trustedProxyHopCount: fromEnv('TRUSTED_PROXY_HOP_COUNT', nonNegativeInt, 0),
+
+  // The deployment's base URL, source of every emailed link (invite, password
+  // reset, email verification). Reuses the same validator the workspace and
+  // auth modules used before this field existed.
+  appBaseUrl: fromEnv('APP_BASE_URL', appUrlConfigSchema.shape.APP_BASE_URL),
+
+  // Keys that seal stored secrets (webhook signing keys, agent-task auth
+  // headers). Rotate by moving the current key into `previousKey`, setting the
+  // new key here, deploying, then running `npm run reseal`. See README.md.
+  secretEncryption: {
+    key: fromEnv('SECRET_ENCRYPTION_KEY', secretEncryptionConfigSchema.shape.SECRET_ENCRYPTION_KEY),
+    previousKey: fromEnv<string | undefined>(
+      'SECRET_ENCRYPTION_KEY_PREVIOUS',
+      secretEncryptionConfigSchema.shape.SECRET_ENCRYPTION_KEY_PREVIOUS,
+    ),
+  },
 
   email: {
     provider: fromEnv('EMAIL_PROVIDER', z.enum(['log', 'smtp'])),

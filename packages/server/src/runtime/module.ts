@@ -6,6 +6,7 @@ import type { Database } from '../lib/database.ts'
 import type { EmailSender } from '../lib/email.ts'
 import type { IdFactory } from '../lib/ids.ts'
 import type { Logger } from '../lib/logger.ts'
+import type { SecretEncryptionConfig } from '../lib/secrets.ts'
 import type { EntitlementRegistry } from './entitlements.ts'
 import type { EventBus } from './events.ts'
 import type { TransactionScope } from './transaction.ts'
@@ -75,6 +76,18 @@ export interface ModuleServices {
   readonly createId: IdFactory
   /** The current time, injected so expiry logic is testable. */
   readonly now: () => Date
+  /**
+   * The deployment's base URL, when the assembly declares `appBaseUrl` in
+   * `kelpie.config.ts`. Modules that need it prefer this over
+   * `context.config(appUrlConfigSchema)`, which they fall back to when this is
+   * undefined (older assemblies).
+   */
+  readonly appBaseUrl?: string | undefined
+  /**
+   * The keys that seal stored secrets, when the assembly declares
+   * `secretEncryption`. Same fallback pattern as `appBaseUrl`.
+   */
+  readonly secretEncryption?: SecretEncryptionConfig | undefined
 }
 
 export interface ModuleContext extends ModuleServices {
