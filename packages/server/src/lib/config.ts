@@ -44,6 +44,14 @@ export interface KelpieConfig {
    * client IP is read from `X-Forwarded-For` (`lib/clientIp.ts`).
    */
   readonly trustedProxyHopCount: number
+  /**
+   * What modules see through `context.config(schema)`. `resolveKelpieConfig`
+   * produces this by merging any `env` section in `kelpie.config.ts` over
+   * `process.env`, so a key in the config file wins for that key and unset
+   * keys pass through. `loadConfig` sets it to the environment it was given,
+   * so an old caller keeps the same behaviour.
+   */
+  readonly env: Environment
 }
 
 /** Thrown at boot when the environment cannot produce a valid configuration. */
@@ -113,5 +121,6 @@ export function loadConfig(environment: Environment): KelpieConfig {
     webBundleDirectory: environmentResult.data.WEB_BUNDLE_DIR,
     rateLimit: rateLimitConfigFrom(environmentResult.data),
     trustedProxyHopCount: environmentResult.data.TRUSTED_PROXY_HOP_COUNT,
+    env: environment,
   }
 }

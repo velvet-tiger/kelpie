@@ -50,7 +50,7 @@ async function start(): Promise<void> {
   const moduleConfig = readModuleConfigFile(config.moduleConfigPath)
   const contributions = await registerModules({
     modules: kelpieConfig.modules,
-    environment: process.env,
+    environment: config.env,
     logger,
     events,
     moduleConfig,

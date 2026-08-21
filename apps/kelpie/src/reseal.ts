@@ -44,8 +44,11 @@ async function reseal(): Promise<number> {
   const database = connectDatabase(config.databaseUrl, logger)
 
   // Validated here rather than trusted, so a mistyped key fails before the pass
-  // opens a single row instead of reporting every row unreadable.
-  const secretConfig = secretEncryptionConfigSchema.safeParse(process.env)
+  // opens a single row instead of reporting every row unreadable. `config.env`
+  // is the same env vars, with any `env` overrides from `kelpie.config.ts`
+  // applied, so a self-hoster who has locked SECRET_ENCRYPTION_KEY in code
+  // still gets the same key here.
+  const secretConfig = secretEncryptionConfigSchema.safeParse(config.env)
 
   if (!secretConfig.success) {
     await database.close()

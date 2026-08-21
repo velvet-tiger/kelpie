@@ -45,7 +45,7 @@ async function reseal(): Promise<number> {
 
   // Validated here rather than trusted, so a mistyped key fails before the pass
   // opens a single row instead of reporting every row unreadable.
-  const secretConfig = secretEncryptionConfigSchema.safeParse(process.env)
+  const secretConfig = secretEncryptionConfigSchema.safeParse(config.env)
 
   if (!secretConfig.success) {
     await database.close()

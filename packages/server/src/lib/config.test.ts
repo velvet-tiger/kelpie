@@ -26,6 +26,7 @@ describe('loadConfig', () => {
         api: { limit: 600, windowMs: 60_000 },
       },
       trustedProxyHopCount: 0,
+      env: validEnvironment,
     })
   })
 

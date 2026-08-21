@@ -52,6 +52,7 @@ describe('resolveKelpieConfig', () => {
         api: { limit: 600, windowMs: 60_000 },
       },
       trustedProxyHopCount: 0,
+      env: {},
     })
   })
 
@@ -179,5 +180,59 @@ describe('resolveKelpieConfig', () => {
 
   it('uses the trustedProxyHopCount default of 0 when unset', () => {
     expect(resolveKelpieConfig(baseInput(), {}).trustedProxyHopCount).toBe(0)
+  })
+
+  describe('env merge', () => {
+    it('passes process.env through unchanged when no env section is declared', () => {
+      const config = resolveKelpieConfig(baseInput(), { SECRET_ENCRYPTION_KEY: 'from-env' })
+
+      expect(config.env.SECRET_ENCRYPTION_KEY).toBe('from-env')
+    })
+
+    it('lets a literal in kelpie.config.ts override process.env for one key', () => {
+      const input = baseInput({ env: { AUTH_TTL: '3600' } })
+
+      const config = resolveKelpieConfig(input, { AUTH_TTL: '7200', OTHER: 'kept' })
+
+      expect(config.env.AUTH_TTL).toBe('3600')
+      expect(config.env.OTHER).toBe('kept')
+    })
+
+    it('resolves a fromEnv marker in the env section', () => {
+      const input = baseInput({
+        env: { SECRET_ENCRYPTION_KEY: fromEnv('SECRET_ENCRYPTION_KEY', z.string()) },
+      })
+
+      const config = resolveKelpieConfig(input, { SECRET_ENCRYPTION_KEY: 'from-env' })
+
+      expect(config.env.SECRET_ENCRYPTION_KEY).toBe('from-env')
+    })
+
+    it('reports a required env marker whose var is missing', () => {
+      const input = baseInput({
+        env: { SECRET_ENCRYPTION_KEY: fromEnv('SECRET_ENCRYPTION_KEY', z.string()) },
+      })
+
+      let thrown: unknown
+      try {
+        resolveKelpieConfig(input, {})
+      } catch (error: unknown) {
+        thrown = error
+      }
+
+      expect(thrown).toBeInstanceOf(ConfigurationError)
+      if (!(thrown instanceof ConfigurationError)) {
+        throw thrown
+      }
+      expect(thrown.problems.join('\n')).toContain('SECRET_ENCRYPTION_KEY')
+    })
+
+    it('falls back to a marker default when the var is missing', () => {
+      const input = baseInput({
+        env: { AUTH_TTL: fromEnv<string | undefined>('AUTH_TTL', z.string().optional(), '3600') },
+      })
+
+      expect(resolveKelpieConfig(input, {}).env.AUTH_TTL).toBe('3600')
+    })
   })
 })

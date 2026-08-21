@@ -30,6 +30,21 @@ export interface KelpieConfigInput {
   readonly email: EmailInput
   /** Optional; each unset field falls back to the same defaults `loadConfig` used. */
   readonly rateLimit?: RateLimitInput
+  /**
+   * Env-keyed values the assembly can lock in code, or defer to the
+   * environment. Modules read this through `context.config(schema)`; each
+   * module's own Zod schema still names the keys and validates them.
+   *
+   * A key present here overrides the same key in `process.env`. A key absent
+   * here falls through to `process.env` unchanged, so the section is a
+   * progressive migration: lock what you want to lock, leave the rest.
+   *
+   * Literal: `SECRET_ENCRYPTION_KEY: 'a-committed-key'` (don't do this for
+   * secrets — the point is you can, if the value is not a secret).
+   * Marker: `SECRET_ENCRYPTION_KEY: fromEnv('SECRET_ENCRYPTION_KEY', z.string())`
+   * defers to the environment, same as today.
+   */
+  readonly env?: Readonly<Record<string, ConfigValue<string | undefined>>>
   /** The module list the assembly composes. Same shape it had before. */
   readonly modules: readonly KelpieModule[]
 }
@@ -104,6 +119,7 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
 
   const email = buildEmailConfig(resolved.email, problems)
   const rateLimit = buildRateLimitConfig(resolved.rateLimit)
+  const env = mergeEnv(environment, resolved.env)
 
   if (problems.length > 0) {
     throw new ConfigurationError(problems)
@@ -119,7 +135,24 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
     webBundleDirectory: resolved.webBundleDirectory,
     rateLimit,
     trustedProxyHopCount: resolved.trustedProxyHopCount ?? 0,
+    env,
   }
+}
+
+/**
+ * `kelpie.config.ts` env wins per-key; unset keys pass through from `environment`.
+ * Absent env section returns `environment` unchanged, so a self-hoster who has
+ * not opted in gets the same behaviour they had before pass 2.
+ */
+function mergeEnv(
+  environment: Environment,
+  resolvedEnv: Readonly<Record<string, string | undefined>> | undefined,
+): Environment {
+  if (resolvedEnv === undefined) {
+    return environment
+  }
+
+  return { ...environment, ...resolvedEnv }
 }
 
 interface ResolvedInput {
@@ -132,6 +165,7 @@ interface ResolvedInput {
   readonly trustedProxyHopCount?: number
   readonly email: ResolvedEmail
   readonly rateLimit?: ResolvedRateLimit
+  readonly env?: Readonly<Record<string, string | undefined>>
   readonly modules: readonly KelpieModule[]
 }
 
