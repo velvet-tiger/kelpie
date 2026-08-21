@@ -7,6 +7,17 @@ export type { WebBundleOptions } from './webBundle.ts'
 export { ConfigurationError, loadConfig } from './lib/config.ts'
 export type { Environment, KelpieConfig, LogLevel, RuntimeMode } from './lib/config.ts'
 
+export { fromEnv, isFromEnvMarker, resolveMarker, resolveMarkers } from './lib/fromEnv.ts'
+export type { ConfigValue, FromEnvMarker, FromEnvProblem, ResolveResult } from './lib/fromEnv.ts'
+
+export { defineKelpieConfig, resolveKelpieConfig } from './lib/kelpieConfigFile.ts'
+export type {
+  EmailInput,
+  KelpieConfigInput,
+  RateLimitBudgetInput,
+  RateLimitInput,
+} from './lib/kelpieConfigFile.ts'
+
 export { resolveClientIpFrom } from './lib/clientIp.ts'
 
 export { ModuleConfigFileError, readModuleConfigFile } from './lib/moduleConfig.ts'

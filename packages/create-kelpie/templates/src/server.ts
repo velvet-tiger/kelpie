@@ -12,17 +12,17 @@ import {
   createIdFactory,
   createLogger,
   createTransactionScope,
-  loadConfig,
   readModuleConfigFile,
   registerModules,
   resolveActorFrom,
   resolveClientIpFrom,
+  resolveKelpieConfig,
   runMigrations,
   serveWebBundle,
 } from '@kelpie/server'
 import type { CredentialDependencies } from '@kelpie/server'
 
-import { modules } from '../kelpie.config.ts'
+import kelpieConfig from '../kelpie.config.ts'
 
 /**
  * The entry point. It reads the environment, registers the configured modules,
@@ -41,7 +41,7 @@ function reportFatal(message: string): void {
 }
 
 async function start(): Promise<void> {
-  const config = loadConfig(process.env)
+  const config = resolveKelpieConfig(kelpieConfig, process.env)
   const logger = createLogger(config.logLevel)
   const database = connectDatabase(config.databaseUrl, logger)
   const events = createEventBus(logger)
@@ -49,7 +49,7 @@ async function start(): Promise<void> {
   const credentials: CredentialDependencies = { db: database.db, now: () => new Date() }
   const moduleConfig = readModuleConfigFile(config.moduleConfigPath)
   const contributions = await registerModules({
-    modules,
+    modules: kelpieConfig.modules,
     environment: process.env,
     logger,
     events,

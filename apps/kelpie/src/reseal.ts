@@ -3,10 +3,12 @@ import {
   connectDatabase,
   createLogger,
   createSecretCipher,
-  loadConfig,
   resealStoredSecrets,
+  resolveKelpieConfig,
   secretEncryptionConfigSchema,
 } from '@kelpie/server'
+
+import kelpieConfig from '../kelpie.config.ts'
 
 /**
  * Re-seals stored secrets after `SECRET_ENCRYPTION_KEY` changes.
@@ -37,7 +39,7 @@ function reportFatal(message: string): void {
 }
 
 async function reseal(): Promise<number> {
-  const config = loadConfig(process.env)
+  const config = resolveKelpieConfig(kelpieConfig, process.env)
   const logger = createLogger(config.logLevel)
   const database = connectDatabase(config.databaseUrl, logger)
 

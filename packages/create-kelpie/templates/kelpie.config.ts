@@ -1,21 +1,90 @@
-import { coreModules } from '@kelpie/server'
-import type { KelpieModule } from '@kelpie/server'
+import { coreModules, defineKelpieConfig, fromEnv } from '@kelpie/server'
+import { z } from 'zod'
 
 /**
- * The server module list, and the only place it is declared.
+ * Your Kelpie service's configuration, and the only place it is declared.
  *
- * Boot registers these in order, after resolving what each one requires. An
- * unknown id, an unmet dependency, or invalid module configuration stops boot
- * rather than starting a service that is missing a feature.
+ * Every leaf is either a literal, committed to git and locked in for this
+ * deployment, or `fromEnv(...)`, marking a leaf the environment fills in. Edit
+ * this file for anything that should not change per deploy, and set environment
+ * variables (in `.env`, `.env.local`, or your process manager) for anything
+ * that does (secrets, per-tier limits, per-environment URLs).
  *
- * Add a module by installing it and putting it in this array:
+ * `resolveKelpieConfig(config, process.env)` at boot walks this object,
+ * resolves markers, validates, and produces the typed `KelpieConfig` the app
+ * runs on. Nothing in the app reads `process.env` for these fields after boot.
+ *
+ * Add a module by installing it and putting it in the `modules` array below:
  *
  *   import { smtpEmail } from '@kelpie/module-smtp-email'
  *
- *   export const modules: readonly KelpieModule[] = [...coreModules, smtpEmail]
- *
- * Removing one from `coreModules` is possible too, but core modules depend on
- * each other, so boot will tell you if you have taken out something another
- * module needs.
+ *   modules: [...coreModules, smtpEmail]
  */
-export const modules: readonly KelpieModule[] = [...coreModules]
+
+const runtimeMode = z.enum(['development', 'test', 'production'])
+const logLevel = z.enum(['debug', 'info', 'warn', 'error'])
+const positiveInt = z.coerce.number().int().positive()
+const nonNegativeInt = z.coerce.number().int().nonnegative()
+const port = positiveInt.max(65535)
+const postgresUrl = z.string().refine(
+  (value) => {
+    try {
+      const { protocol } = new URL(value)
+      return protocol === 'postgres:' || protocol === 'postgresql:'
+    } catch {
+      return false
+    }
+  },
+  { message: 'must be a postgres:// or postgresql:// connection string' },
+)
+
+export default defineKelpieConfig({
+  runtimeMode: fromEnv('NODE_ENV', runtimeMode),
+  port: fromEnv('PORT', port),
+  databaseUrl: fromEnv('DATABASE_URL', postgresUrl),
+  logLevel: fromEnv('LOG_LEVEL', logLevel),
+
+  webBundleDirectory: fromEnv<string | undefined>('WEB_BUNDLE_DIR', z.string().min(1).optional(), undefined),
+  moduleConfigPath: fromEnv<string | undefined>('KELPIE_MODULE_CONFIG_PATH', z.string().min(1).optional(), undefined),
+  trustedProxyHopCount: fromEnv('TRUSTED_PROXY_HOP_COUNT', nonNegativeInt, 0),
+
+  email: {
+    provider: fromEnv('EMAIL_PROVIDER', z.enum(['log', 'smtp'])),
+    from: fromEnv('EMAIL_FROM', z.string().min(1)),
+    smtp: {
+      host: fromEnv<string | undefined>('SMTP_HOST', z.string().min(1).optional(), undefined),
+      port: fromEnv<number | undefined>('SMTP_PORT', port.optional(), undefined),
+      secure: fromEnv<boolean | undefined>(
+        'SMTP_SECURE',
+        z
+          .enum(['true', 'false'])
+          .transform((value) => value === 'true')
+          .optional(),
+        undefined,
+      ),
+      user: fromEnv<string | undefined>('SMTP_USER', z.string().min(1).optional(), undefined),
+      password: fromEnv<string | undefined>('SMTP_PASSWORD', z.string().min(1).optional(), undefined),
+    },
+  },
+
+  rateLimit: {
+    forms: {
+      limit: fromEnv('RATE_LIMIT_FORMS_LIMIT', positiveInt, 20),
+      windowSeconds: fromEnv('RATE_LIMIT_FORMS_WINDOW_SECONDS', positiveInt, 60),
+    },
+    auth: {
+      limit: fromEnv('RATE_LIMIT_AUTH_LIMIT', positiveInt, 10),
+      windowSeconds: fromEnv('RATE_LIMIT_AUTH_WINDOW_SECONDS', positiveInt, 60),
+    },
+    loginAccount: {
+      limit: fromEnv('RATE_LIMIT_LOGIN_ACCOUNT_LIMIT', positiveInt, 10),
+      windowSeconds: fromEnv('RATE_LIMIT_LOGIN_ACCOUNT_WINDOW_SECONDS', positiveInt, 900),
+    },
+    api: {
+      limit: fromEnv('RATE_LIMIT_API_LIMIT', positiveInt, 600),
+      windowSeconds: fromEnv('RATE_LIMIT_API_WINDOW_SECONDS', positiveInt, 60),
+    },
+  },
+
+  modules: [...coreModules],
+})
