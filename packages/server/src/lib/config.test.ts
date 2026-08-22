@@ -17,7 +17,10 @@ describe('loadConfig', () => {
       runtimeMode: 'development',
       port: 3000,
       databaseUrl: 'postgres://kelpie:kelpie@localhost:5432/kelpie_dev',
-      logLevel: 'debug',
+      logging: {
+        level: 'debug',
+        destinations: [{ kind: 'stdout' }],
+      },
       email: { EMAIL_PROVIDER: 'log', EMAIL_FROM: 'kelpie@example.com' },
       rateLimit: {
         forms: { limit: 20, windowMs: 60_000 },

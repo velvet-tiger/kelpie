@@ -17,7 +17,7 @@ import type { WebhookEventPayload } from './payloads.ts'
  */
 
 function silentBus(): EventBus {
-  return createEventBus(createLogger('error', () => undefined))
+  return createEventBus(createLogger({ level: 'error', transports: [] }))
 }
 
 function envelope<Data>(

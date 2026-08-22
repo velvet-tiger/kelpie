@@ -48,7 +48,14 @@ export default defineKelpieConfig({
   runtimeMode: fromEnv('NODE_ENV', runtimeMode),
   port: fromEnv('PORT', port),
   databaseUrl: fromEnv('DATABASE_URL', postgresUrl),
-  logLevel: fromEnv('LOG_LEVEL', logLevel),
+
+  // Every log line writes to each entry in `destinations`. Stdout is the
+  // default. Add a destination by extending the `LoggingDestination` union in
+  // `@kelpie/server` and placing an entry here.
+  logging: {
+    level: fromEnv('LOG_LEVEL', logLevel),
+    destinations: [{ kind: 'stdout' }],
+  },
 
   webBundleDirectory: fromEnv<string | undefined>('WEB_BUNDLE_DIR', z.string().min(1).optional(), undefined),
   moduleConfigPath: fromEnv<string | undefined>('KELPIE_MODULE_CONFIG_PATH', z.string().min(1).optional(), undefined),

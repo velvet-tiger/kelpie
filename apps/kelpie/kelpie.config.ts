@@ -47,7 +47,14 @@ export default defineKelpieConfig({
   runtimeMode: fromEnv('NODE_ENV', runtimeMode),
   port: fromEnv('PORT', port),
   databaseUrl: fromEnv('DATABASE_URL', postgresUrl),
-  logLevel: fromEnv('LOG_LEVEL', logLevel),
+
+  // Every log line writes to each entry in `destinations`. Stdout is the
+  // default for this assembly. Add a destination by extending the
+  // `LoggingDestination` union in `@kelpie/server` and placing an entry here.
+  logging: {
+    level: fromEnv('LOG_LEVEL', logLevel),
+    destinations: [{ kind: 'stdout' }],
+  },
 
   // Unset in development, where Vite serves the pages and proxies `/v1` here.
   // Set in a deployment, where nothing else would serve the built bundle.

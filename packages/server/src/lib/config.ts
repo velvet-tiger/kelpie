@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { emailConfigSchema } from './email.ts'
 import type { EmailConfig } from './email.ts'
 import { describeValidationIssue } from './errors.ts'
+import type { LoggingDestination } from './logger.ts'
 import { rateLimitConfigFrom, rateLimitConfigSchema } from './rateLimit.ts'
 import type { RateLimitConfig } from './rateLimit.ts'
 import type { SecretEncryptionConfig } from './secrets.ts'
@@ -19,11 +20,22 @@ export type RuntimeMode = 'development' | 'test' | 'production'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
+/**
+ * Everything the logger needs to boot: the minimum severity to emit, and the
+ * ordered list of destinations each line is written to. Stdout is one such
+ * destination; adding a file or a hosted collector means adding an entry to
+ * `destinations` and extending `LoggingDestination` in `lib/logger.ts`.
+ */
+export interface LoggingConfig {
+  readonly level: LogLevel
+  readonly destinations: readonly LoggingDestination[]
+}
+
 export interface KelpieConfig {
   readonly runtimeMode: RuntimeMode
   readonly port: number
   readonly databaseUrl: string
-  readonly logLevel: LogLevel
+  readonly logging: LoggingConfig
   /** Transactional mail only. Roadmap decision 4: configured, never hardcoded. */
   readonly email: EmailConfig
   /**
@@ -130,7 +142,10 @@ export function loadConfig(environment: Environment): KelpieConfig {
     runtimeMode: environmentResult.data.NODE_ENV,
     port: environmentResult.data.PORT,
     databaseUrl: environmentResult.data.DATABASE_URL,
-    logLevel: environmentResult.data.LOG_LEVEL,
+    logging: {
+      level: environmentResult.data.LOG_LEVEL,
+      destinations: [{ kind: 'stdout' }],
+    },
     email: emailResult.data,
     moduleConfigPath: environmentResult.data.KELPIE_MODULE_CONFIG_PATH,
     webBundleDirectory: environmentResult.data.WEB_BUNDLE_DIR,

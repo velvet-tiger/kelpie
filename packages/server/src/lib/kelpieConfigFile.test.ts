@@ -15,7 +15,10 @@ function baseInput(overrides: Partial<KelpieConfigInput> = {}): KelpieConfigInpu
     runtimeMode: 'development',
     port: 3000,
     databaseUrl: 'postgres://kelpie:kelpie@localhost:5432/kelpie_dev',
-    logLevel: 'debug',
+    logging: {
+      level: 'debug',
+      destinations: [{ kind: 'stdout' }],
+    },
     email: {
       provider: 'log',
       from: 'kelpie@example.com',
@@ -41,7 +44,10 @@ describe('resolveKelpieConfig', () => {
       runtimeMode: 'development',
       port: 3000,
       databaseUrl: 'postgres://kelpie:kelpie@localhost:5432/kelpie_dev',
-      logLevel: 'debug',
+      logging: {
+        level: 'debug',
+        destinations: [{ kind: 'stdout' }],
+      },
       email: { EMAIL_PROVIDER: 'log', EMAIL_FROM: 'kelpie@example.com' },
       moduleConfigPath: undefined,
       webBundleDirectory: undefined,
@@ -74,7 +80,10 @@ describe('resolveKelpieConfig', () => {
     const input = baseInput({
       port: fromEnv('PORT', z.coerce.number()),
       databaseUrl: fromEnv('DATABASE_URL', z.string()),
-      logLevel: fromEnv('LOG_LEVEL', z.enum(['debug', 'info', 'warn', 'error'])),
+      logging: {
+        level: fromEnv('LOG_LEVEL', z.enum(['debug', 'info', 'warn', 'error'])),
+        destinations: [{ kind: 'stdout' }],
+      },
     })
 
     let thrown: unknown
@@ -337,6 +346,39 @@ describe('resolveKelpieConfig', () => {
         throw thrown
       }
       expect(thrown.problems.join('\n')).toContain('SECRET_ENCRYPTION_KEY')
+    })
+  })
+
+  describe('logging', () => {
+    it('resolves a level literal and the declared destinations', () => {
+      const config = resolveKelpieConfig(baseInput(), {})
+
+      expect(config.logging).toEqual({
+        level: 'debug',
+        destinations: [{ kind: 'stdout' }],
+      })
+    })
+
+    it('reads the level from LOG_LEVEL through a marker', () => {
+      const input = baseInput({
+        logging: {
+          level: fromEnv('LOG_LEVEL', z.enum(['debug', 'info', 'warn', 'error']), 'info'),
+          destinations: [{ kind: 'stdout' }],
+        },
+      })
+
+      expect(resolveKelpieConfig(input, { LOG_LEVEL: 'warn' }).logging.level).toBe('warn')
+    })
+
+    it('falls back to the marker default when LOG_LEVEL is unset', () => {
+      const input = baseInput({
+        logging: {
+          level: fromEnv('LOG_LEVEL', z.enum(['debug', 'info', 'warn', 'error']), 'info'),
+          destinations: [{ kind: 'stdout' }],
+        },
+      })
+
+      expect(resolveKelpieConfig(input, {}).logging.level).toBe('info')
     })
   })
 })

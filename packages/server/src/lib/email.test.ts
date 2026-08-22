@@ -3,14 +3,21 @@ import { describe, expect, it } from 'vitest'
 import type { EmailMessage } from './email.ts'
 import { createEmailSender, createSmtpEmailSender } from './email.ts'
 import type { SmtpTransport } from './email.ts'
-import { createLogger } from './logger.ts'
+import { createCaptureTransport, createLogger } from './logger.ts'
 
 const fixedTime = (): Date => new Date('2026-08-12T00:00:00.000Z')
 
 function capture(): { logger: ReturnType<typeof createLogger>; lines: string[] } {
   const lines: string[] = []
 
-  return { logger: createLogger('debug', (line) => lines.push(line), fixedTime), lines }
+  return {
+    logger: createLogger({
+      level: 'debug',
+      transports: [createCaptureTransport((line) => lines.push(line))],
+      now: fixedTime,
+    }),
+    lines,
+  }
 }
 
 const smtpConfig = {

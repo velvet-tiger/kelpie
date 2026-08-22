@@ -232,6 +232,42 @@ If you find a place where an absent key and an `undefined` one genuinely behave 
 
 The templates set the flag themselves as well. A generated project has no base config to extend, so those lines do work rather than repeat this one. The flag went on here because they had it and this repository did not, which let a broken `npm run typecheck` ship in two releases.
 
+### Logging
+
+The service writes one JSON line per log call. `LOG_LEVEL` sets the minimum
+severity. Destinations are declared as an ordered list on
+`KelpieConfigInput.logging.destinations`:
+
+```ts
+logging: {
+  level: fromEnv('LOG_LEVEL', logLevel),
+  destinations: [{ kind: 'stdout' }],
+}
+```
+
+Stdout is the default. Every entry is a `LoggingDestination`, a discriminated
+union in `packages/server/src/lib/logger.ts`. A `kind` picks the transport
+`createTransportForDestination` builds at boot.
+
+To add a destination:
+
+1. Extend the `LoggingDestination` union with the new kind and any fields it
+   carries (a file path, a hosted collector URL).
+2. Add a `case` to `createTransportForDestination` that returns a Winston
+   transport for that kind. Colocate the transport factory with
+   `createStdoutTransport` in the same file. The exhaustive `switch` fails
+   to compile until the new kind is covered, so an unhandled destination
+   cannot slip through.
+3. Add an entry to `destinations` in the assembly's `kelpie.config.ts`.
+
+Every line writes to every entry in order. An empty `destinations` list is
+valid: the logger still filters by level, and nothing writes anywhere. The
+assembly is expected to notice.
+
+Winston 3 sits under the seam. It handles level filtering and transport
+fan-out; the JSON line itself is built in `createLogger` so the envelope
+order (`time`, `level`, `message` last) is preserved bit-for-bit.
+
 ### Serving the web bundle
 
 `createApp` answers `/v1`, `/v1/public`, `/mcp` and `/healthz`. It serves no pages. In development the Vite dev server builds them and proxies the API, which is two jobs in one tool: rebuilding on edit is development only, putting the pages and the API on one origin is permanent. Only the first goes away in production.

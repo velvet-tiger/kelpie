@@ -303,7 +303,7 @@ describe.skipIf(connectionString === undefined)('re-sealing stored secrets', () 
  */
 describe.skipIf(connectionString === undefined)('runReseal', () => {
   let database: TestDatabase
-  const silentLogger = createLogger('error', () => undefined)
+  const silentLogger = createLogger({ level: 'error', transports: [] })
 
   beforeAll(async () => {
     if (connectionString === undefined) {

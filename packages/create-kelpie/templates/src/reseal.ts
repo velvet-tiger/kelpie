@@ -1,4 +1,10 @@
-import { ConfigurationError, createLogger, resolveKelpieConfig, runReseal } from '@kelpie/server'
+import {
+  ConfigurationError,
+  createLogger,
+  createTransportForDestination,
+  resolveKelpieConfig,
+  runReseal,
+} from '@kelpie/server'
 
 import kelpieConfig from '../kelpie.config.ts'
 
@@ -17,7 +23,10 @@ function reportFatal(message: string): void {
 
 try {
   const config = resolveKelpieConfig(kelpieConfig, process.env)
-  const logger = createLogger(config.logLevel)
+  const logger = createLogger({
+    level: config.logging.level,
+    transports: config.logging.destinations.map(createTransportForDestination),
+  })
   process.exit(await runReseal({ config, logger }))
 } catch (error: unknown) {
   if (error instanceof ConfigurationError) {

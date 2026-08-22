@@ -12,6 +12,7 @@ import {
   createIdFactory,
   createLogger,
   createTransactionScope,
+  createTransportForDestination,
   readModuleConfigFile,
   registerModules,
   resolveActorFrom,
@@ -43,7 +44,10 @@ function reportFatal(message: string): void {
 
 async function start(): Promise<void> {
   const config = resolveKelpieConfig(kelpieConfig, process.env)
-  const logger = createLogger(config.logLevel)
+  const logger = createLogger({
+    level: config.logging.level,
+    transports: config.logging.destinations.map(createTransportForDestination),
+  })
   const database = connectDatabase(config.databaseUrl, logger)
   const events = createEventBus(logger)
   const createId = createIdFactory()

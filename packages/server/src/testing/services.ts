@@ -55,7 +55,7 @@ function createCollectingEmailSender(): { sender: EmailSender; sent: EmailMessag
 }
 
 export function createTestServices(options: TestServicesOptions = {}): TestServices {
-  const logger = createLogger('error', () => undefined)
+  const logger = createLogger({ level: 'error', transports: [] })
   const db = options.db ?? connectDatabase(UNUSED_DATABASE_URL, logger).db
   const events = options.events ?? createEventBus(logger)
   const createId = options.createId ?? createIdFactory()

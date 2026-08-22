@@ -2,11 +2,11 @@ import type { KelpieEvent } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { createLogger } from '../lib/logger.ts'
+import { createCaptureTransport, createLogger } from '../lib/logger.ts'
 import { checkEventCycle, createEventBus } from './events.ts'
 
 function silentBus(): ReturnType<typeof createEventBus> {
-  return createEventBus(createLogger('error', () => undefined))
+  return createEventBus(createLogger({ level: 'error', transports: [] }))
 }
 
 function envelope<Data>(
@@ -93,7 +93,12 @@ describe('createEventBus publish', () => {
 
   it('runs the remaining handlers when one throws, and logs it', async () => {
     const logLines: string[] = []
-    const bus = createEventBus(createLogger('error', (line) => logLines.push(line)))
+    const bus = createEventBus(
+      createLogger({
+        level: 'error',
+        transports: [createCaptureTransport((line) => logLines.push(line))],
+      }),
+    )
     let survivorRan = false
 
     bus.subscribe('people.person.created' as never, () =>
@@ -153,9 +158,13 @@ describe('createEventBus publish', () => {
 
   it('logs when a subscribed handler exceeds its timeout', async () => {
     const lines: string[] = []
-    const bus = createEventBus(createLogger('error', (line) => lines.push(line)), {
-      defaultHandlerTimeoutMs: 5,
-    })
+    const bus = createEventBus(
+      createLogger({
+        level: 'error',
+        transports: [createCaptureTransport((line) => lines.push(line))],
+      }),
+      { defaultHandlerTimeoutMs: 5 },
+    )
 
     bus.subscribe('people.person.created' as never, async () => {
       await new Promise((resolve) => setTimeout(resolve, 40))

@@ -20,7 +20,7 @@ import { createTestServices } from './services.ts'
  * magnitude faster and just as isolated.
  */
 
-const silentLogger = createLogger('error', () => undefined)
+const silentLogger = createLogger({ level: 'error', transports: [] })
 
 export interface TestDatabase extends DatabaseConnection {
   /** Empties every table. Cheaper than re-running migrations between tests. */

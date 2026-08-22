@@ -68,7 +68,7 @@ const doorwayModule: KelpieModule = {
 }
 
 function silentLogger(): ReturnType<typeof createLogger> {
-  return createLogger('error', () => undefined)
+  return createLogger({ level: 'error', transports: [] })
 }
 
 describe('module routes', () => {

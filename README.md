@@ -184,6 +184,25 @@ boot and lists every problem, rather than starting in a broken state.
 (`API_PORT`, `WEB_PORT`, and `TEST_DATABASE_URL`) and how `.env` and
 `.env.local` interact.
 
+### Logging
+
+Every log line is one JSON line on stdout. `LOG_LEVEL` sets the minimum
+severity to emit. Destinations are declared in the assembly's
+`kelpie.config.ts` under `logging.destinations`:
+
+```ts
+logging: {
+  level: fromEnv('LOG_LEVEL', logLevel),
+  destinations: [{ kind: 'stdout' }],
+}
+```
+
+Stdout is the default. To add another destination, extend the
+`LoggingDestination` union in `@kelpie/server`, add a `case` to
+`createTransportForDestination` that returns the matching Winston transport,
+and put a new entry in the `destinations` array. Every line writes to every
+entry in order.
+
 ### Rotating the encryption key
 
 Changing `SECRET_ENCRYPTION_KEY` makes every secret sealed under the old one

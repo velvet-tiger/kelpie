@@ -60,6 +60,8 @@
     "nodemailer": "^9.0.5",
     "postgres": "^3.4.9",
     "ulid": "^3.0.2",
+    "winston": "^3.19.0",
+    "winston-transport": "^4.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@ import type { KelpieModule } from '../runtime/module.ts'
 import { ConfigurationError, type Environment, type KelpieConfig, type LogLevel, type RuntimeMode } from './config.ts'
 import type { EmailConfig } from './email.ts'
 import { type ConfigValue, resolveMarkers } from './fromEnv.ts'
+import type { LoggingDestination } from './logger.ts'
 import type { RateLimitConfig } from './rateLimit.ts'
 import type { SecretEncryptionConfig } from './secrets.ts'
 
@@ -21,7 +22,7 @@ export interface KelpieConfigInput {
   readonly runtimeMode: ConfigValue<RuntimeMode>
   readonly port: ConfigValue<number>
   readonly databaseUrl: ConfigValue<string>
-  readonly logLevel: ConfigValue<LogLevel>
+  readonly logging: LoggingInput
   /** Optional; unset in development, set to the built web bundle in a deployment. */
   readonly webBundleDirectory?: ConfigValue<string | undefined>
   /** Optional; unset in development, set to the deploy-time module override file. */
@@ -61,6 +62,19 @@ export interface KelpieConfigInput {
   readonly env?: Readonly<Record<string, ConfigValue<string | undefined>>>
   /** The module list the assembly composes. Same shape it had before. */
   readonly modules: readonly KelpieModule[]
+}
+
+/**
+ * The `logging` sub-tree of the assembly config.
+ *
+ * `level` is the minimum severity to emit. `destinations` is the ordered list
+ * of destinations each line writes to; stdout is the default entry in the
+ * template assembly, and a self-hoster adds another by extending
+ * `LoggingDestination` in `@kelpie/server` and putting a matching entry here.
+ */
+export interface LoggingInput {
+  readonly level: ConfigValue<LogLevel>
+  readonly destinations: readonly LoggingDestination[]
 }
 
 export interface EmailInput {
@@ -150,7 +164,10 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
     runtimeMode: resolved.runtimeMode,
     port: resolved.port,
     databaseUrl: resolved.databaseUrl,
-    logLevel: resolved.logLevel,
+    logging: {
+      level: resolved.logging.level,
+      destinations: resolved.logging.destinations,
+    },
     email,
     moduleConfigPath: resolved.moduleConfigPath,
     webBundleDirectory: resolved.webBundleDirectory,
@@ -182,7 +199,10 @@ interface ResolvedInput {
   readonly runtimeMode: RuntimeMode
   readonly port: number
   readonly databaseUrl: string
-  readonly logLevel: LogLevel
+  readonly logging: {
+    readonly level: LogLevel
+    readonly destinations: readonly LoggingDestination[]
+  }
   readonly webBundleDirectory?: string | undefined
   readonly moduleConfigPath?: string | undefined
   readonly trustedProxyHopCount?: number

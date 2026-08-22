@@ -5,7 +5,7 @@ import type { AppBindings } from '../app.ts'
 import type { Actor } from '../lib/actor.ts'
 import type { Environment } from '../lib/config.ts'
 import type { DatabaseProbe } from '../lib/database.ts'
-import { createLogger } from '../lib/logger.ts'
+import { createCaptureTransport, createLogger } from '../lib/logger.ts'
 import { rateLimitConfigFrom, rateLimitConfigSchema } from '../lib/rateLimit.ts'
 import type { RateLimitConfig } from '../lib/rateLimit.ts'
 import type { KelpieModule } from '../runtime/module.ts'
@@ -71,7 +71,10 @@ const reachableDatabase = (): Promise<DatabaseProbe> => Promise.resolve({ reacha
 
 export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
   const logLines: string[] = []
-  const logger = createLogger('debug', (line) => logLines.push(line))
+  const logger = createLogger({
+    level: 'debug',
+    transports: [createCaptureTransport((line) => logLines.push(line))],
+  })
 
   const services = options.services ?? createTestServices()
   const contributions = await registerModules({

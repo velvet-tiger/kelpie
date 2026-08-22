@@ -24,7 +24,7 @@ import type { TransactionScope } from './transaction.ts'
 
 const connectionString = testDatabaseUrl(process.env)
 const createId = createIdFactory()
-const silentLogger = createLogger('error', () => undefined)
+const silentLogger = createLogger({ level: 'error', transports: [] })
 const TEST_EVENT_NAME = 'runtime.person.created'
 
 describe.skipIf(connectionString === undefined)('createTransactionScope', () => {

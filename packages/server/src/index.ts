@@ -64,8 +64,13 @@ export type { ErrorBody, ErrorCode, ErrorDetail, ErrorStatus, ValidationIssue } 
 export { createIdFactory, idPrefixes } from './lib/ids.ts'
 export type { IdFactory, ObjectKind } from './lib/ids.ts'
 
-export { createLogger } from './lib/logger.ts'
-export type { LogFields, Logger, LogSink } from './lib/logger.ts'
+export {
+  createCaptureTransport,
+  createLogger,
+  createStdoutTransport,
+  createTransportForDestination,
+} from './lib/logger.ts'
+export type { CreateLoggerOptions, LogFields, Logger, LoggingDestination } from './lib/logger.ts'
 
 export type {
   KelpieModule,

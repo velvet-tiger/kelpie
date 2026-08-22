@@ -18,12 +18,15 @@ Needs Node 24 or newer and a Postgres it can reach through `DATABASE_URL`.
 
 ```ts
 import { serve } from '@hono/node-server'
-import { connectDatabase, createApp, createEventBus, createIdFactory, createLogger, loadConfig, registerModules, runMigrations } from '@kelpie/server'
+import { connectDatabase, createApp, createEventBus, createIdFactory, createLogger, createTransportForDestination, loadConfig, registerModules, runMigrations } from '@kelpie/server'
 
 import { modules } from './kelpie.config.ts'
 
 const config = loadConfig(process.env)
-const logger = createLogger(config.logLevel)
+const logger = createLogger({
+  level: config.logging.level,
+  transports: config.logging.destinations.map(createTransportForDestination),
+})
 const database = connectDatabase(config.databaseUrl, logger)
 const events = createEventBus(logger)
 
