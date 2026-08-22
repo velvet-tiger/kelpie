@@ -1,4 +1,4 @@
-import type { MemberRole } from '@kelpie/schemas'
+import type { EventActor, MemberRole } from '@kelpie/schemas'
 
 import { AppError } from './errors.ts'
 
@@ -96,4 +96,18 @@ export function actorUserId(actor: Actor): string | null {
  */
 export function actorMemberId(actor: Actor): string | null {
   return actor.memberId
+}
+
+/**
+ * Maps the request actor to the actor stamped on domain events.
+ *
+ * A signed-in user becomes `user`. A workspace key (no user behind it) becomes
+ * `system`, because the event was caused by the workspace itself rather than
+ * any one person.
+ */
+export function toEventActor(actor: Actor): EventActor {
+  if (actor.userId !== null) {
+    return { kind: 'user', id: actor.userId }
+  }
+  return { kind: 'system' }
 }

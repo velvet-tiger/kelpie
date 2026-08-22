@@ -197,12 +197,10 @@ describe.skipIf(connectionString === undefined)('people', () => {
       expect(response.status).toBe(201)
     })
 
-    it('emits record.created after the transaction commits', async () => {
-      const seen: { recordId: string; objectType: string }[] = []
-      harness.services.events.subscribe('record.created', (payload) => {
-        seen.push({ recordId: payload.recordId, objectType: payload.objectType })
-
-        return Promise.resolve()
+    it('emits people.person.created after the transaction commits', async () => {
+      const seen: { readonly recordId: string; readonly objectType: string }[] = []
+      harness.services.events.subscribe('people.person.created', (event) => {
+        seen.push({ recordId: event.target.id, objectType: event.target.type })
       })
 
       const person = await createPerson({ name: 'Ada' })
@@ -525,10 +523,8 @@ describe.skipIf(connectionString === undefined)('people', () => {
     it('reports which fields changed', async () => {
       const person = await createPerson({ name: 'Ada', summary: 'Original' })
       const changes: (readonly string[])[] = []
-      harness.services.events.subscribe('record.updated', (payload) => {
-        changes.push(payload.changedFields)
-
-        return Promise.resolve()
+      harness.services.events.subscribe('people.person.updated', (event) => {
+        changes.push(event.data.changed)
       })
 
       await client.send('PATCH', `/v1/people/${String(person.id)}`, {
@@ -670,13 +666,11 @@ describe.skipIf(connectionString === undefined)('people', () => {
       expect(response.status).toBe(404)
     })
 
-    it('emits record.deleted', async () => {
+    it('emits people.person.deleted', async () => {
       const person = await createPerson({ name: 'Ada' })
       const seen: string[] = []
-      harness.services.events.subscribe('record.deleted', (payload) => {
-        seen.push(payload.recordId)
-
-        return Promise.resolve()
+      harness.services.events.subscribe('people.person.deleted', (event) => {
+        seen.push(event.target.id)
       })
 
       await client.send('DELETE', `/v1/people/${String(person.id)}`, { cookie: acme.cookie })

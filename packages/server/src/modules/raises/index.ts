@@ -1,5 +1,6 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { raisesEvents } from './events.ts'
 import { mountRaisesRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createRaisesService } from './service.ts'
@@ -17,6 +18,7 @@ export function createRaisesModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'raises',
     requires: ['companies', 'people', 'pipelines', 'activities'],
+    events: raisesEvents,
 
     register(context) {
       const service = createRaisesService({

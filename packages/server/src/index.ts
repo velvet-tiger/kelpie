@@ -91,21 +91,33 @@ export type {
 
 export { SEATS_LIMIT } from './modules/workspace/capabilities.ts'
 
-export { DOMAIN_EVENT_NAMES, RECORD_OBJECT_TYPES, createEventBus } from './runtime/events.ts'
-export type {
-  DomainEventName,
-  DomainEvents,
-  EventBus,
-  EventHandler,
-  RecordObjectType,
-  StagedObjectType,
+export {
+  RECORD_OBJECT_TYPES,
+  checkEventCycle,
+  createEventBus,
+  currentEventChain,
 } from './runtime/events.ts'
+export type {
+  AnyEventHandler,
+  CycleGuardOutcome,
+  EventBus,
+  EventBusOptions,
+  EventCatalog,
+  EventChainEntry,
+  EventHandler,
+  EventName,
+  KelpieEventMap,
+  RecordObjectType,
+  SubscribeOptions,
+} from './runtime/events.ts'
+export type { ModuleEventCatalog } from './runtime/module.ts'
 
 export { createTransactionScope } from './runtime/transaction.ts'
 export type {
   BufferedEvents,
   Transaction,
   TransactionContext,
+  TransactionOptions,
   TransactionScope,
   TransactionScopeDependencies,
 } from './runtime/transaction.ts'

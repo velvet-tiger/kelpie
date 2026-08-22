@@ -1,5 +1,6 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { partnershipsEvents } from './events.ts'
 import { mountPartnershipsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createPartnershipsService } from './service.ts'
@@ -17,6 +18,7 @@ export function createPartnershipsModule(migrationsDirectory: string): KelpieMod
   return {
     id: 'partnerships',
     requires: ['companies', 'people', 'pipelines', 'activities'],
+    events: partnershipsEvents,
 
     register(context) {
       const service = createPartnershipsService({

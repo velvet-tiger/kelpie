@@ -10,8 +10,10 @@ import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { describeCreation, describeUpdate } from '../activities/wording.ts'
 import type { FieldLabels } from '../activities/wording.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import {
   deleteRecordsAttachedTo,
   deleteRecordsAttachedToCandidaciesOf,
@@ -160,45 +162,48 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
       const workspaceId = requireWorkspaceId(actor)
       const id = dependencies.createId('person')
 
-      return dependencies.transaction(async ({ tx, events }) => {
-        let created: PersonRecord
+      return dependencies.transaction(
+        async ({ tx, events }) => {
+          let created: PersonRecord
 
-        try {
-          created = await repository.insertPerson(tx, {
-            id,
-            workspaceId,
-            name: input.name,
-            email: input.email === null ? null : normaliseEmail(input.email),
-            phones: input.phones,
-            socialProfiles: input.socialProfiles,
-            timezone: input.timezone,
-            location: input.location,
-            preferredChannel: input.preferredChannel,
-            influence: input.influence,
-            relationship: input.relationship,
-            summary: input.summary,
-            tags: [...input.tags],
-            lastContactedAt: input.lastContactedAt,
-          })
-        } catch (error: unknown) {
-          if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
-            throw duplicateEmail()
+          try {
+            created = await repository.insertPerson(tx, {
+              id,
+              workspaceId,
+              name: input.name,
+              email: input.email === null ? null : normaliseEmail(input.email),
+              phones: input.phones,
+              socialProfiles: input.socialProfiles,
+              timezone: input.timezone,
+              location: input.location,
+              preferredChannel: input.preferredChannel,
+              influence: input.influence,
+              relationship: input.relationship,
+              summary: input.summary,
+              tags: [...input.tags],
+              lastContactedAt: input.lastContactedAt,
+            })
+          } catch (error: unknown) {
+            if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+              throw duplicateEmail()
+            }
+
+            throw error
           }
 
-          throw error
-        }
+          await dependencies.recordActivity(tx, workspaceId, actor, {
+            targetType: 'person',
+            targetId: created.id,
+            kind: 'created',
+            ...describeCreation('Person'),
+          })
 
-        await dependencies.recordActivity(tx, workspaceId, actor, {
-          targetType: 'person',
-          targetId: created.id,
-          kind: 'created',
-          ...describeCreation('Person'),
-        })
+          events.emit('people.person.created', { type: 'person', id: created.id }, {})
 
-        events.emit('record.created', { workspaceId, objectType: 'person', recordId: created.id })
-
-        return toView(created)
-      })
+          return toView(created)
+        },
+        { workspaceId, actor: toEventActor(actor) },
+      )
     },
 
     async update(actor, id, changes) {
@@ -214,71 +219,76 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
         return toView(existing)
       }
 
-      return dependencies.transaction(async ({ tx, events }) => {
-        let updated: PersonRecord | undefined
+      return dependencies.transaction(
+        async ({ tx, events }) => {
+          let updated: PersonRecord | undefined
 
-        try {
-          updated = await repository.updatePerson(tx, workspaceId, id, {
-            ...columns,
-            updatedAt: dependencies.now(),
-          })
-        } catch (error: unknown) {
-          if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
-            throw duplicateEmail()
+          try {
+            updated = await repository.updatePerson(tx, workspaceId, id, {
+              ...columns,
+              updatedAt: dependencies.now(),
+            })
+          } catch (error: unknown) {
+            if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+              throw duplicateEmail()
+            }
+
+            throw error
           }
 
-          throw error
-        }
+          if (updated === undefined) {
+            throw AppError.notFound('Person not found')
+          }
 
-        if (updated === undefined) {
-          throw AppError.notFound('Person not found')
-        }
+          await dependencies.recordActivity(tx, workspaceId, actor, {
+            targetType: 'person',
+            targetId: id,
+            kind: 'updated',
+            ...describeUpdate(changed, PERSON_FIELD_LABELS, existing, columns),
+          })
 
-        await dependencies.recordActivity(tx, workspaceId, actor, {
-          targetType: 'person',
-          targetId: id,
-          kind: 'updated',
-          ...describeUpdate(changed, PERSON_FIELD_LABELS, existing, columns),
-        })
+          events.emit(
+            'people.person.updated',
+            { type: 'person', id },
+            { changed },
+          )
 
-        events.emit('record.updated', {
-          workspaceId,
-          objectType: 'person',
-          recordId: id,
-          changedFields: changed,
-        })
-
-        return toView(updated)
-      })
+          return toView(updated)
+        },
+        { workspaceId, actor: toEventActor(actor) },
+      )
     },
 
     async remove(actor, id) {
       const workspaceId = requireWorkspaceId(actor)
 
-      await dependencies.transaction(async ({ tx, events }) => {
-        await require(workspaceId, id)
+      await dependencies.transaction(
+        async ({ tx, events }) => {
+          await require(workspaceId, id)
 
-        // Notes, activities and decisions carry no foreign key to their target,
-        // so nothing in the database removes them. Same transaction: if the
-        // delete below is refused, these come back with it.
-        await deleteRecordsAttachedTo(tx, workspaceId, 'person', id)
+          // Notes, activities and decisions carry no foreign key to their target,
+          // so nothing in the database removes them. Same transaction: if the
+          // delete below is refused, these come back with it.
+          await deleteRecordsAttachedTo(tx, workspaceId, 'person', id)
 
-        // The candidacy rows themselves cascade, which is why their interview
-        // notes have to be taken here: no hiring service sees that delete.
-        await deleteRecordsAttachedToCandidaciesOf(tx, workspaceId, id)
+          // The candidacy rows themselves cascade, which is why their interview
+          // notes have to be taken here: no hiring service sees that delete.
+          await deleteRecordsAttachedToCandidaciesOf(tx, workspaceId, id)
 
-        try {
-          await repository.deletePerson(tx, workspaceId, id)
-        } catch (error: unknown) {
-          if (isReferenceViolation(error)) {
-            throw referencedElsewhere(error, 'person')
+          try {
+            await repository.deletePerson(tx, workspaceId, id)
+          } catch (error: unknown) {
+            if (isReferenceViolation(error)) {
+              throw referencedElsewhere(error, 'person')
+            }
+
+            throw error
           }
 
-          throw error
-        }
-
-        events.emit('record.deleted', { workspaceId, objectType: 'person', recordId: id })
-      })
+          events.emit('people.person.deleted', { type: 'person', id }, {})
+        },
+        { workspaceId, actor: toEventActor(actor) },
+      )
     },
   }
 }

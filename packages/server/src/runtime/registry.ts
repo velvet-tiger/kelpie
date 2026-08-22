@@ -295,6 +295,19 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     entitlements.provide(createModuleConfigProvider(options.moduleConfig))
   }
 
+  // Register every module's event catalog before any `register` runs, so a
+  // module that subscribes to another module's event during its own registration
+  // finds a validated name.
+  for (const module of ordered) {
+    if (module.events !== undefined) {
+      try {
+        events.registerCatalog({ moduleId: module.id, events: module.events })
+      } catch (error: unknown) {
+        throw new ModuleBootError([describeThrown(error)], { cause: error })
+      }
+    }
+  }
+
   for (const module of ordered) {
     const context = createModuleContext(module, accumulator, options, events, entitlements, moduleCatalog)
 

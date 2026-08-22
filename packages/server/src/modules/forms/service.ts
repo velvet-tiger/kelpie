@@ -6,8 +6,10 @@ import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import { generateToken } from '../../lib/tokens.ts'
 import type { Transaction, TransactionScope } from '../../runtime/transaction.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import { fieldsDiffer, findFieldProblems, storedOptions } from './fields.ts'
 import type { FieldDraft, FieldShape } from './fields.ts'
@@ -253,10 +255,10 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         })
         const fields = await writeFields(tx, workspaceId, id, input.fields)
 
-        events.emit('record.created', { workspaceId, objectType: 'form', recordId: id })
+        events.emit('forms.form.created', { type: 'form', id }, {})
 
         return toView(created, fields)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -310,15 +312,14 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           return writeFields(tx, workspaceId, id, changes.fields)
         })()
 
-        events.emit('record.updated', {
-          workspaceId,
-          objectType: 'form',
-          recordId: id,
-          changedFields: rewritesFields ? [...written, 'fields'] : written,
-        })
+        events.emit(
+          'forms.form.updated',
+          { type: 'form', id },
+          { changed: rewritesFields ? [...written, 'fields'] : written },
+        )
 
         return toView(updated, fields)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     /**
@@ -339,8 +340,8 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           throw AppError.notFound('Form not found')
         }
 
-        events.emit('record.deleted', { workspaceId, objectType: 'form', recordId: id })
-      })
+        events.emit('forms.form.deleted', { type: 'form', id }, {})
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async listSubmissions(actor, formId, query) {

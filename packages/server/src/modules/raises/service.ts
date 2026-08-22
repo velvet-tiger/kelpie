@@ -14,8 +14,10 @@ import {
   describeUpdate,
 } from '../activities/wording.ts'
 import type { FieldLabels } from '../activities/wording.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
@@ -301,10 +303,10 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
           })
         }
 
-        events.emit('record.created', { workspaceId, objectType: 'raise', recordId: id })
+        events.emit('raises.raise.created', { type: 'raise', id }, {})
 
         return toView(created, personIds)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -402,25 +404,22 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
           })
         }
 
-        events.emit('record.updated', {
-          workspaceId,
-          objectType: 'raise',
-          recordId: id,
-          changedFields: linksChanged ? [...changed, 'personIds'] : changed,
-        })
+        events.emit(
+          'raises.raise.updated',
+          { type: 'raise', id },
+          { changed: linksChanged ? [...changed, 'personIds'] : changed },
+        )
 
         if (stageMove !== undefined) {
-          events.emit('stage.changed', {
-            workspaceId,
-            objectType: 'raise',
-            recordId: id,
-            fromStageId: stageMove.from.id,
-            toStageId: stageMove.to.id,
-          })
+          events.emit(
+            'raises.raise.stage_changed',
+            { type: 'raise', id },
+            { fromStageId: stageMove.from.id, toStageId: stageMove.to.id },
+          )
         }
 
         return toView(updated, nextPeople ?? currentPeople)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async remove(actor, id) {
@@ -435,8 +434,8 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
         await deleteRecordsAttachedTo(tx, workspaceId, 'raise', id)
         await repository.deleteRaise(tx, workspaceId, id)
 
-        events.emit('record.deleted', { workspaceId, objectType: 'raise', recordId: id })
-      })
+        events.emit('raises.raise.deleted', { type: 'raise', id }, {})
+      }, { workspaceId, actor: toEventActor(actor) })
     },
   }
 }

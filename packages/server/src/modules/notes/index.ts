@@ -1,5 +1,6 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { notesEvents } from './events.ts'
 import { mountNotesRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createNotesService } from './service.ts'
@@ -16,6 +17,7 @@ export function createNotesModule(migrationsDirectory: string): KelpieModule {
     id: 'notes',
     requires: ['workspace', 'activities'],
     structural: true,
+    events: notesEvents,
 
     register(context) {
       const service = createNotesService({

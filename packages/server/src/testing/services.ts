@@ -58,14 +58,16 @@ export function createTestServices(options: TestServicesOptions = {}): TestServi
   const logger = createLogger('error', () => undefined)
   const db = options.db ?? connectDatabase(UNUSED_DATABASE_URL, logger).db
   const events = options.events ?? createEventBus(logger)
+  const createId = options.createId ?? createIdFactory()
+  const now = options.now ?? ((): Date => new Date())
   const { sender, sent } = createCollectingEmailSender()
 
   return {
     db,
-    transaction: createTransactionScope({ db, bus: events, logger }),
+    transaction: createTransactionScope({ db, bus: events, logger, createId, now }),
     email: sender,
-    createId: options.createId ?? createIdFactory(),
-    now: options.now ?? ((): Date => new Date()),
+    createId,
+    now,
     sentEmails: sent,
     events,
     // Spread conditionally so the field is absent (not `undefined`) when the

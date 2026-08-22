@@ -1,4 +1,5 @@
 import type { KelpieModule } from '../../runtime/module.ts'
+import { plansEvents } from './events.ts'
 import { mountPlansRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createPlansService } from './service.ts'
@@ -16,6 +17,7 @@ export function createPlansModule(migrationsDirectory: string): KelpieModule {
     id: 'plans',
     requires: ['workspace'],
     structural: true,
+    events: plansEvents,
 
     register(context) {
       const service = createPlansService({

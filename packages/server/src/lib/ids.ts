@@ -52,6 +52,12 @@ export const idPrefixes = {
    * a bucket is bookkeeping the rate limiter owns, not a resource with routes.
    */
   rateLimitBucket: 'rl',
+  /**
+   * One published domain event. Stamped on the envelope so downstream consumers
+   * (webhooks, MCP subscribers, an eventual outbox) have a stable idempotency
+   * key. Not persisted by core.
+   */
+  event: 'ev',
 } as const
 
 export type ObjectKind = keyof typeof idPrefixes

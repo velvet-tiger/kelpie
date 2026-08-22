@@ -24,10 +24,78 @@ import { AppError, describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
-import type { Queryable, TransactionScope } from '../../runtime/transaction.ts'
+import type { BufferedEvents, Queryable, TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
+import { toEventActor } from '../../lib/actor.ts'
+import type { RecordObjectType } from '../../runtime/events.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
+import '../companies/events.ts'
+import '../deals/events.ts'
+import '../people/events.ts'
+import '../positions/events.ts'
+import './events.ts'
+
+/**
+ * Fires the created event owned by the record's module for one imported row.
+ * Split from the loop so TypeScript can correlate the object type with its
+ * typed event name at each call site.
+ */
+function emitImportedRecordCreated(
+  events: BufferedEvents,
+  objectType: RecordObjectType,
+  recordId: string,
+): void {
+  switch (objectType) {
+    case 'person':
+      events.emit('people.person.created', { type: 'person', id: recordId }, {})
+      return
+    case 'company':
+      events.emit('companies.company.created', { type: 'company', id: recordId }, {})
+      return
+    case 'position':
+      events.emit('positions.position.created', { type: 'position', id: recordId }, {})
+      return
+    case 'deal':
+      events.emit('deals.deal.created', { type: 'deal', id: recordId }, {})
+      return
+    // The remaining `RecordObjectType` values are not produced by an import.
+    default:
+      throw new Error(`import produced an unexpected object type: ${objectType}`)
+  }
+}
+
+function emitImportedRecordUpdated(
+  events: BufferedEvents,
+  objectType: RecordObjectType,
+  recordId: string,
+  changed: readonly string[],
+): void {
+  switch (objectType) {
+    case 'person':
+      events.emit('people.person.updated', { type: 'person', id: recordId }, { changed })
+      return
+    case 'company':
+      events.emit(
+        'companies.company.updated',
+        { type: 'company', id: recordId },
+        { changed },
+      )
+      return
+    case 'position':
+      events.emit(
+        'positions.position.updated',
+        { type: 'position', id: recordId },
+        { changed },
+      )
+      return
+    case 'deal':
+      events.emit('deals.deal.updated', { type: 'deal', id: recordId }, { changed })
+      return
+    default:
+      throw new Error(`import produced an unexpected object type: ${objectType}`)
+  }
+}
 import { CsvFormatError, csvLine, fileDigest, parseCsv } from './csv.ts'
 import type { CsvRow, ParsedCsv } from './csv.ts'
 import { headersFor } from './exportRows.ts'
@@ -550,20 +618,16 @@ export function createImportExportService(
         )
 
         if (plan.action === 'create') {
-          events.emit('record.created', {
-            workspaceId,
-            objectType: written.objectType,
-            recordId: written.recordId,
-          })
+          emitImportedRecordCreated(events, written.objectType, written.recordId)
         } else if (written.changedFields.length > 0) {
           // An update that moved nothing publishes nothing. Re-running the same
           // file must not wake every consumer watching for a change.
-          events.emit('record.updated', {
-            workspaceId,
-            objectType: written.objectType,
-            recordId: written.recordId,
-            changedFields: written.changedFields,
-          })
+          emitImportedRecordUpdated(
+            events,
+            written.objectType,
+            written.recordId,
+            written.changedFields,
+          )
         }
       }
 
@@ -579,7 +643,7 @@ export function createImportExportService(
       )
 
       return outcome
-    })
+    }, { workspaceId, actor: toEventActor(actor) })
   }
 
   /**
@@ -658,10 +722,14 @@ export function createImportExportService(
     })
 
     await dependencies.transaction(({ events }) => {
-      events.emit('import.completed', { workspaceId, importJobId: jobId, object: job.object })
+      events.emit(
+        'imports.job.completed',
+        { type: 'import_job', id: jobId },
+        { object: job.object },
+      )
 
       return Promise.resolve()
-    })
+    }, { workspaceId, actor: toEventActor(actor) })
   }
 
   /**

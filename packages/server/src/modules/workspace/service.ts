@@ -9,7 +9,9 @@ import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { limitFor } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor, SessionActor } from '../auth/actor.ts'
+import './events.ts'
 import * as authRepository from '../auth/repository.ts'
 import { SEATS_LIMIT } from './capabilities.ts'
 import * as repository from './repository.ts'
@@ -460,11 +462,19 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         // The session that created the workspace should land in it.
         await authRepository.setActiveWorkspace(tx, actor.sessionId, workspaceId)
 
-        events.emit('workspace.created', { workspaceId, slug: workspace.slug })
-        events.emit('member.joined', { workspaceId, memberId, userId: actor.userId })
+        events.emit(
+          'workspace.workspace.created',
+          { type: 'workspace', id: workspaceId },
+          { slug: workspace.slug },
+        )
+        events.emit(
+          'workspace.member.joined',
+          { type: 'member', id: memberId },
+          { userId: actor.userId },
+        )
 
         return toWorkspaceView(workspace)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async get(actor, workspaceId) {
@@ -526,8 +536,12 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       await dependencies.transaction(async ({ tx, events }) => {
         await repository.deleteWorkspace(tx, workspaceId)
 
-        events.emit('workspace.deleted', { workspaceId, slug: workspace.slug })
-      })
+        events.emit(
+          'workspace.workspace.deleted',
+          { type: 'workspace', id: workspaceId },
+          { slug: workspace.slug },
+        )
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async listMembers(actor, workspaceId) {
@@ -602,8 +616,12 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         await dependencies.transaction(async ({ tx, events }) => {
           await repository.deleteMember(tx, target.id)
 
-          events.emit('member.removed', { workspaceId, memberId: target.id, userId: target.userId })
-        })
+          events.emit(
+            'workspace.member.removed',
+            { type: 'member', id: target.id },
+            { userId: target.userId },
+          )
+        }, { workspaceId, actor: toEventActor(actor) })
       } catch (error: unknown) {
         // A record assigned to them between the count and this delete. The
         // constraint answers the same question the count did, so the caller gets
@@ -658,10 +676,14 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
           expiresAt: new Date(now.getTime() + INVITE_LIFETIME_MS),
         })
 
-        events.emit('member.invited', { workspaceId, inviteId: created.id, email: created.email })
+        events.emit(
+          'workspace.member.invited',
+          { type: 'invite', id: created.id },
+          { inviteId: created.id, email: created.email },
+        )
 
         return created
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
 
       // Sent after commit, so a rolled-back invite never reaches an inbox.
       await sendInviteEmail(invite.email, token)
@@ -790,14 +812,14 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
           throw AppError.notFound('Workspace not found')
         }
 
-        events.emit('member.joined', {
-          workspaceId: invite.workspaceId,
-          memberId,
-          userId: actor.userId,
-        })
+        events.emit(
+          'workspace.member.joined',
+          { type: 'member', id: memberId },
+          { userId: actor.userId },
+        )
 
         return toWorkspaceView(workspace)
-      })
+      }, { workspaceId: invite.workspaceId, actor: toEventActor(actor) })
     },
 
     async listModuleSettings(actor, workspaceId) {

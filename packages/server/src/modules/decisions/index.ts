@@ -1,4 +1,5 @@
 import type { KelpieModule } from '../../runtime/module.ts'
+import { decisionsEvents } from './events.ts'
 import { mountDecisionsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createDecisionsService } from './service.ts'
@@ -17,6 +18,7 @@ export function createDecisionsModule(migrationsDirectory: string): KelpieModule
     id: 'decisions',
     requires: ['workspace'],
     structural: true,
+    events: decisionsEvents,
 
     register(context) {
       const service = createDecisionsService({

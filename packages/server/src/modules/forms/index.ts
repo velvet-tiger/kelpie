@@ -1,5 +1,6 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { formsEvents } from './events.ts'
 import { mountPublicFormRoutes } from './publicRoutes.ts'
 import { mountFormsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
@@ -23,6 +24,7 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'forms',
     requires: ['people', 'companies', 'positions', 'pipelines', 'deals', 'activities'],
+    events: formsEvents,
 
     register(context) {
       const service = createFormsService({

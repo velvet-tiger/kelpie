@@ -9,8 +9,10 @@ import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { describeUnlink } from '../activities/wording.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_ROLE_SORT, ROLE_SORTS } from './repository.ts'
@@ -103,10 +105,10 @@ export function createRolesService(dependencies: RolesDependencies): RolesServic
           status: input.status,
         })
 
-        events.emit('record.created', { workspaceId, objectType: 'role', recordId: id })
+        events.emit('hiring.role.created', { type: 'role', id }, {})
 
         return toView(created)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -129,15 +131,10 @@ export function createRolesService(dependencies: RolesDependencies): RolesServic
           throw AppError.notFound('Role not found')
         }
 
-        events.emit('record.updated', {
-          workspaceId,
-          objectType: 'role',
-          recordId: id,
-          changedFields: changed,
-        })
+        events.emit('hiring.role.updated', { type: 'role', id }, { changed })
 
         return toView(updated)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     /**
@@ -167,8 +164,8 @@ export function createRolesService(dependencies: RolesDependencies): RolesServic
 
         await repository.deleteRole(tx, workspaceId, id)
 
-        events.emit('record.deleted', { workspaceId, objectType: 'role', recordId: id })
-      })
+        events.emit('hiring.role.deleted', { type: 'role', id }, {})
+      }, { workspaceId, actor: toEventActor(actor) })
     },
   }
 }

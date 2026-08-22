@@ -166,6 +166,15 @@ export interface ModuleCatalogEntry {
   readonly structural: boolean
 }
 
+/**
+ * A module's event catalog: the Zod schema for every event name the module
+ * publishes. Registered with the bus at boot; two modules cannot claim the same
+ * name.
+ */
+export interface ModuleEventCatalog {
+  readonly [eventName: string]: ZodType
+}
+
 export interface KelpieModule {
   readonly id: string
   /** Ids of modules that must register first. Missing ones fail boot. */
@@ -180,5 +189,10 @@ export interface KelpieModule {
    * without its author having to opt in.
    */
   readonly structural?: boolean
+  /**
+   * The events this module publishes, as a runtime catalog. Optional: a module
+   * that only consumes events, or contributes none, may omit it.
+   */
+  readonly events?: ModuleEventCatalog
   register(context: ModuleContext): Promise<void>
 }

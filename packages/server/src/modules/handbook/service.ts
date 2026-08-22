@@ -6,8 +6,10 @@ import type { IdFactory } from '../../lib/ids.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { Transaction, TransactionScope } from '../../runtime/transaction.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_HANDBOOK_PAGE_SORT, HANDBOOK_PAGE_SORTS } from './repository.ts'
 import type { HandbookPageFilters, HandbookPageRecord } from './repository.ts'
@@ -292,11 +294,7 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
             updatedBy: actorMemberId(actor),
           })
 
-          events.emit('record.created', {
-            workspaceId,
-            objectType: 'handbook_page',
-            recordId: id,
-          })
+          events.emit('handbook.page.created', { type: 'handbook_page', id }, {})
 
           return toView(created)
         } catch (error: unknown) {
@@ -308,7 +306,7 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
 
           throw error
         }
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -346,16 +344,11 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
         const changed = [...written, ...movedFields]
 
         if (changed.length > 0) {
-          events.emit('record.updated', {
-            workspaceId,
-            objectType: 'handbook_page',
-            recordId: id,
-            changedFields: changed,
-          })
+          events.emit('handbook.page.updated', { type: 'handbook_page', id }, { changed })
         }
 
         return toView(updated)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     /**
@@ -391,9 +384,9 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
         )
 
         for (const recordId of removed) {
-          events.emit('record.deleted', { workspaceId, objectType: 'handbook_page', recordId })
+          events.emit('handbook.page.deleted', { type: 'handbook_page', id: recordId }, {})
         }
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
   }
 }

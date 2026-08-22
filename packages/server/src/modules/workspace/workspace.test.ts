@@ -276,10 +276,10 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       )
     })
 
-    it('emits workspace.created after the transaction commits', async () => {
+    it('emits workspace.workspace.created after the transaction commits', async () => {
       const seen: string[] = []
-      harness.services.events.subscribe('workspace.created', async (payload) => {
-        seen.push(payload.slug)
+      harness.services.events.subscribe('workspace.workspace.created', (event) => {
+        seen.push(event.data.slug)
       })
 
       await createWorkspace(await signUp('ada@example.com'))
@@ -481,10 +481,10 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(response.status).toBe(403)
     })
 
-    it('emits workspace.deleted after the transaction commits', async () => {
+    it('emits workspace.workspace.deleted after the transaction commits', async () => {
       const seen: string[] = []
-      harness.services.events.subscribe('workspace.deleted', async (payload) => {
-        seen.push(payload.slug)
+      harness.services.events.subscribe('workspace.workspace.deleted', (event) => {
+        seen.push(event.data.slug)
       })
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
@@ -624,10 +624,10 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(me).toMatchObject({ workspace_id: null, role: null })
     })
 
-    it('emits member.removed after the transaction commits', async () => {
+    it('emits workspace.member.removed after the transaction commits', async () => {
       const seen: string[] = []
-      harness.services.events.subscribe('member.removed', async (payload) => {
-        seen.push(payload.memberId)
+      harness.services.events.subscribe('workspace.member.removed', (event) => {
+        seen.push(event.target.id)
       })
       const owner = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(owner)

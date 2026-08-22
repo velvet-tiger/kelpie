@@ -2,6 +2,7 @@ import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import { parseModuleCapability } from '../../runtime/moduleConfig.ts'
 import { SEATS_LIMIT, WORKSPACE_ACCESS } from './capabilities.ts'
+import { workspaceEvents } from './events.ts'
 import * as repository from './repository.ts'
 import { mountWorkspaceRoutes } from './routes.ts'
 import * as schema from './schema.ts'
@@ -19,6 +20,7 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
     id: 'workspace',
     requires: ['auth'],
     structural: true,
+    events: workspaceEvents,
 
     register(context) {
       // Prefer the top-level `appBaseUrl` from the assembly's kelpie.config.ts;

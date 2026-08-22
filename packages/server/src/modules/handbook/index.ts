@@ -1,4 +1,5 @@
 import type { KelpieModule } from '../../runtime/module.ts'
+import { handbookEvents } from './events.ts'
 import { mountHandbookRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createHandbookService } from './service.ts'
@@ -20,6 +21,7 @@ export function createHandbookModule(migrationsDirectory: string): KelpieModule 
   return {
     id: 'handbook',
     requires: ['workspace'],
+    events: handbookEvents,
 
     register(context) {
       const service = createHandbookService({

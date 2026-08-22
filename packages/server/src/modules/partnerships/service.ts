@@ -14,8 +14,10 @@ import {
   describeUpdate,
 } from '../activities/wording.ts'
 import type { FieldLabels } from '../activities/wording.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
@@ -301,10 +303,10 @@ export function createPartnershipsService(
           })
         }
 
-        events.emit('record.created', { workspaceId, objectType: 'partnership', recordId: id })
+        events.emit('partnerships.partnership.created', { type: 'partnership', id }, {})
 
         return toView(created, personIds)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -402,25 +404,22 @@ export function createPartnershipsService(
           })
         }
 
-        events.emit('record.updated', {
-          workspaceId,
-          objectType: 'partnership',
-          recordId: id,
-          changedFields: linksChanged ? [...changed, 'personIds'] : changed,
-        })
+        events.emit(
+          'partnerships.partnership.updated',
+          { type: 'partnership', id },
+          { changed: linksChanged ? [...changed, 'personIds'] : changed },
+        )
 
         if (stageMove !== undefined) {
-          events.emit('stage.changed', {
-            workspaceId,
-            objectType: 'partnership',
-            recordId: id,
-            fromStageId: stageMove.from.id,
-            toStageId: stageMove.to.id,
-          })
+          events.emit(
+            'partnerships.partnership.stage_changed',
+            { type: 'partnership', id },
+            { fromStageId: stageMove.from.id, toStageId: stageMove.to.id },
+          )
         }
 
         return toView(updated, nextPeople ?? currentPeople)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async remove(actor, id) {
@@ -435,8 +434,8 @@ export function createPartnershipsService(
         await deleteRecordsAttachedTo(tx, workspaceId, 'partnership', id)
         await repository.deletePartnership(tx, workspaceId, id)
 
-        events.emit('record.deleted', { workspaceId, objectType: 'partnership', recordId: id })
-      })
+        events.emit('partnerships.partnership.deleted', { type: 'partnership', id }, {})
+      }, { workspaceId, actor: toEventActor(actor) })
     },
   }
 }

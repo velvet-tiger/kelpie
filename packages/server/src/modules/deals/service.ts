@@ -14,8 +14,10 @@ import {
   describeUpdate,
 } from '../activities/wording.ts'
 import type { FieldLabels } from '../activities/wording.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
@@ -297,10 +299,10 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
           })
         }
 
-        events.emit('record.created', { workspaceId, objectType: 'deal', recordId: id })
+        events.emit('deals.deal.created', { type: 'deal', id }, {})
 
         return toView(created, personIds)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -393,25 +395,22 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
           })
         }
 
-        events.emit('record.updated', {
-          workspaceId,
-          objectType: 'deal',
-          recordId: id,
-          changedFields: linksChanged ? [...changed, 'personIds'] : changed,
-        })
+        events.emit(
+          'deals.deal.updated',
+          { type: 'deal', id },
+          { changed: linksChanged ? [...changed, 'personIds'] : changed },
+        )
 
         if (stageMove !== undefined) {
-          events.emit('stage.changed', {
-            workspaceId,
-            objectType: 'deal',
-            recordId: id,
-            fromStageId: stageMove.from.id,
-            toStageId: stageMove.to.id,
-          })
+          events.emit(
+            'deals.deal.stage_changed',
+            { type: 'deal', id },
+            { fromStageId: stageMove.from.id, toStageId: stageMove.to.id },
+          )
         }
 
         return toView(updated, nextPeople ?? currentPeople)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async remove(actor, id) {
@@ -426,8 +425,8 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
         await deleteRecordsAttachedTo(tx, workspaceId, 'deal', id)
         await repository.deleteDeal(tx, workspaceId, id)
 
-        events.emit('record.deleted', { workspaceId, objectType: 'deal', recordId: id })
-      })
+        events.emit('deals.deal.deleted', { type: 'deal', id }, {})
+      }, { workspaceId, actor: toEventActor(actor) })
     },
   }
 }

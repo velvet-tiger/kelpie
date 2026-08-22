@@ -5,8 +5,10 @@ import type { IdFactory } from '../../lib/ids.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import { targetExists } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import * as repository from './repository.ts'
@@ -158,15 +160,14 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
         // decisions their own event, carrying the target, because a consumer
         // watching a record wants the commitment without a second lookup to
         // find out what it is attached to.
-        events.emit('decision.added', {
-          workspaceId,
-          decisionId: created.id,
-          targetType: created.targetType,
-          targetId: created.targetId,
-        })
+        events.emit(
+          'decisions.decision.added',
+          { type: created.targetType, id: created.targetId },
+          { decisionId: created.id },
+        )
 
         return toView(created)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {

@@ -7,8 +7,10 @@ import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import { describeNote } from '../activities/wording.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import { missingTargets } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import * as repository from './repository.ts'
@@ -145,15 +147,14 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
         // their own event, carrying the target, because a consumer watching a
         // record wants the note without a second lookup to find out what it is
         // attached to.
-        events.emit('note.added', {
-          workspaceId,
-          noteId: created.id,
-          targetType: created.targetType,
-          targetId: created.targetId,
-        })
+        events.emit(
+          'notes.note.added',
+          { type: created.targetType, id: created.targetId },
+          { noteId: created.id },
+        )
 
         return toView(created)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {

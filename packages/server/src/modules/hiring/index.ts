@@ -1,6 +1,7 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
 import { createCandidatesService } from './candidates.ts'
+import { hiringEvents } from './events.ts'
 import { createRolesService } from './roles.ts'
 import { mountHiringRoutes } from './routes.ts'
 import * as schema from './schema.ts'
@@ -22,6 +23,7 @@ export function createHiringModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'hiring',
     requires: ['people', 'activities'],
+    events: hiringEvents,
 
     register(context) {
       const recordActivity = createActivityRecorder({

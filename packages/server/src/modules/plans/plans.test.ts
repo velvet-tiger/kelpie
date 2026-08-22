@@ -206,13 +206,11 @@ describe.skipIf(connectionString === undefined)('plan items', () => {
       expect(response.status).toBe(422)
     })
 
-    it('emits plan.completed for a step recorded as already done', async () => {
+    it('emits plans.plan_item.completed for a step recorded as already done', async () => {
       const completed: string[] = []
 
-      harness.services.events.subscribe('plan.completed', (payload) => {
-        completed.push(payload.planItemId)
-
-        return Promise.resolve()
+      harness.services.events.subscribe('plans.plan_item.completed', (event) => {
+        completed.push(event.data.planItemId)
       })
 
       const item = await createPlanItem({ status: 'done' })
@@ -378,13 +376,11 @@ describe.skipIf(connectionString === undefined)('plan items', () => {
       expect(readRecord(await response.json()).updated_at).toBe(created.updated_at)
     })
 
-    it('emits plan.completed when a step is finished', async () => {
+    it('emits plans.plan_item.completed when a step is finished', async () => {
       const completed: string[] = []
 
-      harness.services.events.subscribe('plan.completed', (payload) => {
-        completed.push(payload.targetId)
-
-        return Promise.resolve()
+      harness.services.events.subscribe('plans.plan_item.completed', (event) => {
+        completed.push(event.target.id)
       })
 
       const created = await createPlanItem()
@@ -398,10 +394,8 @@ describe.skipIf(connectionString === undefined)('plan items', () => {
     it('stays quiet when a finished step is saved again', async () => {
       const completed: string[] = []
 
-      harness.services.events.subscribe('plan.completed', (payload) => {
-        completed.push(payload.planItemId)
-
-        return Promise.resolve()
+      harness.services.events.subscribe('plans.plan_item.completed', (event) => {
+        completed.push(event.data.planItemId)
       })
 
       const created = await createPlanItem()

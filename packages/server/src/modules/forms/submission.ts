@@ -7,14 +7,19 @@ import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import type { BufferedEvents, Transaction, TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder, SystemActor } from '../activities/recorder.ts'
 import { describeCreationVia, describeFormSubmission } from '../activities/wording.ts'
+import '../companies/events.ts'
 import * as companyRepository from '../companies/repository.ts'
 import type { CompanyRecord } from '../companies/repository.ts'
 import * as dealRepository from '../deals/repository.ts'
+import '../deals/events.ts'
+import '../people/events.ts'
 import * as peopleRepository from '../people/repository.ts'
 import type { PersonRecord } from '../people/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
+import '../positions/events.ts'
 import * as positionRepository from '../positions/repository.ts'
 import * as workspaceRepository from '../workspace/repository.ts'
+import './events.ts'
 import {
   DEAL_CLOSE_HORIZON_DAYS,
   companyNameFrom,
@@ -148,34 +153,80 @@ function emitRecordEvents(
   workspaceId: string,
   touched: TouchedRecords,
 ): void {
-  const upserts = [
-    { objectType: 'person', outcome: touched.person } as const,
-    { objectType: 'company', outcome: touched.company } as const,
-    { objectType: 'position', outcome: touched.position } as const,
-  ]
-
-  for (const { objectType, outcome } of upserts) {
-    if (outcome === undefined) {
-      continue
-    }
-
-    if (outcome.created) {
-      events.emit('record.created', { workspaceId, objectType, recordId: outcome.record.id })
-      continue
-    }
-
-    if (outcome.filled.length > 0) {
-      events.emit('record.updated', {
-        workspaceId,
-        objectType,
-        recordId: outcome.record.id,
-        changedFields: outcome.filled,
-      })
-    }
+  if (touched.person !== undefined) {
+    emitUpsertEvent(events, 'person', touched.person)
+  }
+  if (touched.company !== undefined) {
+    emitUpsertEvent(events, 'company', touched.company)
+  }
+  if (touched.position !== undefined) {
+    emitUpsertEvent(events, 'position', touched.position)
   }
 
   if (touched.dealId !== null) {
-    events.emit('record.created', { workspaceId, objectType: 'deal', recordId: touched.dealId })
+    events.emit('deals.deal.created', { type: 'deal', id: touched.dealId }, {})
+  }
+  // workspaceId is used by the transaction scope's envelope stamping; the
+  // parameter stays on the signature so future call sites keep the same shape.
+  void workspaceId
+}
+
+/**
+ * Dispatches the created/updated event owned by the record's module for one
+ * upsert. Split from the loop above so TypeScript can correlate the object
+ * type with its typed event name at each call site.
+ */
+function emitUpsertEvent(
+  events: BufferedEvents,
+  objectType: 'person' | 'company' | 'position',
+  outcome: { readonly created: boolean; readonly record: { readonly id: string }; readonly filled: readonly string[] },
+): void {
+  if (outcome.created) {
+    switch (objectType) {
+      case 'person':
+        events.emit('people.person.created', { type: 'person', id: outcome.record.id }, {})
+        return
+      case 'company':
+        events.emit('companies.company.created', { type: 'company', id: outcome.record.id }, {})
+        return
+      case 'position':
+        events.emit(
+          'positions.position.created',
+          { type: 'position', id: outcome.record.id },
+          {},
+        )
+        return
+    }
+  }
+
+  if (outcome.filled.length === 0) {
+    return
+  }
+
+  const changed = outcome.filled
+
+  switch (objectType) {
+    case 'person':
+      events.emit(
+        'people.person.updated',
+        { type: 'person', id: outcome.record.id },
+        { changed },
+      )
+      return
+    case 'company':
+      events.emit(
+        'companies.company.updated',
+        { type: 'company', id: outcome.record.id },
+        { changed },
+      )
+      return
+    case 'position':
+      events.emit(
+        'positions.position.updated',
+        { type: 'position', id: outcome.record.id },
+        { changed },
+      )
+      return
   }
 }
 
@@ -484,11 +535,11 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         }
 
         emitRecordEvents(events, workspaceId, { person, company, position, dealId })
-        events.emit('form.submitted', {
-          workspaceId,
-          formId: form.id,
-          submissionId: submission.id,
-        })
+        events.emit(
+          'forms.submission.submitted',
+          { type: 'submission', id: submission.id },
+          { formId: form.id, submissionId: submission.id },
+        )
 
         return {
           submissionId: submission.id,
@@ -500,7 +551,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           submittedAt: submission.submittedAt,
           thankYouMessage: form.thankYouMessage,
         }
-      })
+      }, { workspaceId })
     },
   }
 }

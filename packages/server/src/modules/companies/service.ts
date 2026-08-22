@@ -10,8 +10,10 @@ import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { describeCreation, describeUpdate } from '../activities/wording.ts'
 import type { FieldLabels } from '../activities/wording.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import { referencedElsewhere } from '../references.ts'
 import * as repository from './repository.ts'
@@ -185,10 +187,10 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
           ...describeCreation('Company'),
         })
 
-        events.emit('record.created', { workspaceId, objectType: 'company', recordId: created.id })
+        events.emit('companies.company.created', { type: 'company', id: created.id }, {})
 
         return toView(created)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -228,15 +230,10 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
           ...describeUpdate(changed, COMPANY_FIELD_LABELS, existing, columns),
         })
 
-        events.emit('record.updated', {
-          workspaceId,
-          objectType: 'company',
-          recordId: id,
-          changedFields: changed,
-        })
+        events.emit('companies.company.updated', { type: 'company', id }, { changed })
 
         return toView(updated)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async remove(actor, id) {
@@ -260,8 +257,8 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
           throw error
         }
 
-        events.emit('record.deleted', { workspaceId, objectType: 'company', recordId: id })
-      })
+        events.emit('companies.company.deleted', { type: 'company', id }, {})
+      }, { workspaceId, actor: toEventActor(actor) })
     },
   }
 }

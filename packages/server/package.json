@@ -55,6 +55,7 @@
     "@kelpie/schemas": "^0.5.2",
     "@node-rs/argon2": "^2.0.2",
     "drizzle-orm": "^0.45.2",
+    "emittery": "^2.0.0",
     "hono": "^4.12.32",
     "nodemailer": "^9.0.5",
     "postgres": "^3.4.9",

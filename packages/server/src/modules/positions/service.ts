@@ -7,8 +7,10 @@ import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { describeLink, describeUnlink } from '../activities/wording.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import * as companyRepository from '../companies/repository.ts'
 import * as personRepository from '../people/repository.ts'
 import * as repository from './repository.ts'
@@ -174,10 +176,10 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
           ...describeLink('person', ends.personName),
         })
 
-        events.emit('record.created', { workspaceId, objectType: 'position', recordId: created.id })
+        events.emit('positions.position.created', { type: 'position', id: created.id }, {})
 
         return toView(created)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -210,15 +212,10 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
           throw AppError.notFound('Position not found')
         }
 
-        events.emit('record.updated', {
-          workspaceId,
-          objectType: 'position',
-          recordId: id,
-          changedFields: ['title'],
-        })
+        events.emit('positions.position.updated', { type: 'position', id }, { changed: ['title'] })
 
         return toView(updated)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async remove(actor, id) {
@@ -246,8 +243,8 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
           ...describeUnlink('person', ends.personName),
         })
 
-        events.emit('record.deleted', { workspaceId, objectType: 'position', recordId: id })
-      })
+        events.emit('positions.position.deleted', { type: 'position', id }, {})
+      }, { workspaceId, actor: toEventActor(actor) })
     },
   }
 }

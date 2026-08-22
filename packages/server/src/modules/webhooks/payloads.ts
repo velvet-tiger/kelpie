@@ -1,13 +1,21 @@
-import type { WebhookEvent } from '@kelpie/schemas'
+import type { KelpieEvent, WebhookEvent } from '@kelpie/schemas'
 
-import type { DomainEvents, EventBus } from '../../runtime/events.ts'
+import type { EventBus } from '../../runtime/events.ts'
+import { RECORD_OBJECT_TYPES } from '../../runtime/events.ts'
+import type { RecordObjectType } from '../../runtime/events.ts'
 
 /**
  * The bridge from the internal event catalog to what a webhook receiver sees.
  *
  * `modules.md` makes the webhooks engine a consumer of the bus, so this is the
  * only place that knows both vocabularies. Everything downstream works with a
- * `WebhookEventPayload` and never sees a `DomainEvents` key.
+ * `WebhookEventPayload` and never sees an internal event key.
+ *
+ * A single prefix subscribe (`''`) sees every envelope event, and the
+ * translator below decides whether the event corresponds to a deliverable wire
+ * event. Unrecognised names are dropped, so a module's private events (a
+ * `.stage_changed` on a deal, a `.added` on a note) never reach a receiver
+ * that never subscribed to them.
  *
  * Payload keys are `snake_case`, matching `api.md`, because a receiver has no
  * reason to expect a different convention from a webhook than from the REST
@@ -24,61 +32,99 @@ export interface WebhookEventPayload {
   readonly data: Record<string, unknown>
 }
 
+const recordObjectTypes = new Set<string>(RECORD_OBJECT_TYPES)
+
+interface RecordUpdatedData {
+  readonly changed?: readonly string[]
+}
+
+interface FormSubmittedData {
+  readonly formId?: string
+  readonly submissionId?: string
+}
+
 /**
- * Payload builders, one per deliverable event.
+ * Translates an envelope event into a `WebhookEventPayload`, or `undefined` if
+ * the event does not correspond to any deliverable wire event.
  *
- * `satisfies` is what keeps this honest: adding a name to `WEBHOOK_EVENTS`
- * without a builder here is a compile error rather than an event that resolves
- * to nothing at runtime.
+ * The last segment of the event name (`.created`, `.updated`, `.deleted`,
+ * `.submitted`) picks the wire event. A `.created`/`.updated`/`.deleted` event
+ * is only translated when its target type is one of the CRM record objects
+ * (`RECORD_OBJECT_TYPES`), because those are the only ones the wire catalog
+ * offers. Everything else is skipped.
  */
-const builders = {
-  'record.created': (payload: DomainEvents['record.created']): WebhookEventPayload => ({
-    workspaceId: payload.workspaceId,
-    event: 'record.created',
-    data: { object_type: payload.objectType, record_id: payload.recordId },
-  }),
+export function translateEnvelopeEvent(
+  event: KelpieEvent<string, unknown>,
+): WebhookEventPayload | undefined {
+  const suffix = event.name.slice(event.name.lastIndexOf('.') + 1)
+  const objectType = event.target.type
 
-  'record.updated': (payload: DomainEvents['record.updated']): WebhookEventPayload => ({
-    workspaceId: payload.workspaceId,
-    event: 'record.updated',
-    data: {
-      object_type: payload.objectType,
-      record_id: payload.recordId,
-      // The values stay as the emitting service named them, which is camelCase
-      // (`parentId`, `sortOrder`) even though the keys around them are not.
-      // Translating them to the wire spelling would mean a second copy of every
-      // module's column naming, kept in step by hand.
-      changed_fields: [...payload.changedFields],
-    },
-  }),
+  if (suffix === 'created' || suffix === 'deleted') {
+    if (!recordObjectTypes.has(objectType)) {
+      return undefined
+    }
 
-  'record.deleted': (payload: DomainEvents['record.deleted']): WebhookEventPayload => ({
-    workspaceId: payload.workspaceId,
-    event: 'record.deleted',
-    data: { object_type: payload.objectType, record_id: payload.recordId },
-  }),
+    return {
+      workspaceId: event.workspaceId,
+      event: suffix === 'created' ? 'record.created' : 'record.deleted',
+      data: { object_type: objectType as RecordObjectType, record_id: event.target.id },
+    }
+  }
 
-  'form.submitted': (payload: DomainEvents['form.submitted']): WebhookEventPayload => ({
-    workspaceId: payload.workspaceId,
-    event: 'form.submitted',
-    data: { form_id: payload.formId, submission_id: payload.submissionId },
-  }),
-} satisfies { [Name in WebhookEvent]: (payload: DomainEvents[Name]) => WebhookEventPayload }
+  if (suffix === 'updated') {
+    if (!recordObjectTypes.has(objectType)) {
+      return undefined
+    }
+
+    const data = event.data as RecordUpdatedData
+    return {
+      workspaceId: event.workspaceId,
+      event: 'record.updated',
+      data: {
+        object_type: objectType as RecordObjectType,
+        record_id: event.target.id,
+        changed_fields: data.changed !== undefined ? [...data.changed] : [],
+      },
+    }
+  }
+
+  if (suffix === 'submitted') {
+    // Form submission is the only `.submitted` wire event today. The forms
+    // module emits its envelope with `formId` and `submissionId` in `data`.
+    const data = event.data as FormSubmittedData
+    if (data.formId === undefined || data.submissionId === undefined) {
+      return undefined
+    }
+
+    return {
+      workspaceId: event.workspaceId,
+      event: 'form.submitted',
+      data: { form_id: data.formId, submission_id: data.submissionId },
+    }
+  }
+
+  return undefined
+}
 
 /**
- * Subscribes the engine to every deliverable event.
- *
- * Written out one call at a time rather than looped over `WEBHOOK_EVENTS`,
- * because TypeScript cannot correlate a payload type with a generic key: a loop
- * would need a cast, and the cast is exactly what would let a wrong payload
- * through. A literal key indexes `builders` at its precise signature.
+ * Subscribes the engine to every deliverable event through one prefix match on
+ * `''`, which every envelope event starts with. The translator inside decides
+ * whether the event corresponds to a deliverable wire event; unrecognised
+ * names are dropped.
  */
 export function subscribeDeliverableEvents(
   bus: EventBus,
   deliver: (payload: WebhookEventPayload) => Promise<void>,
 ): void {
-  bus.subscribe('record.created', (payload) => deliver(builders['record.created'](payload)))
-  bus.subscribe('record.updated', (payload) => deliver(builders['record.updated'](payload)))
-  bus.subscribe('record.deleted', (payload) => deliver(builders['record.deleted'](payload)))
-  bus.subscribe('form.submitted', (payload) => deliver(builders['form.submitted'](payload)))
+  bus.subscribePrefix(
+    '',
+    async (event) => {
+      const built = translateEnvelopeEvent(event)
+      if (built === undefined) {
+        return
+      }
+      await deliver(built)
+    },
+    { label: 'webhooks:envelope-bridge' },
+  )
 }

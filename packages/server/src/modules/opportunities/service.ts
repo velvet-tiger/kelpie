@@ -8,8 +8,10 @@ import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { describeCreation, describeStageChange, describeUpdate } from '../activities/wording.ts'
 import type { FieldLabels } from '../activities/wording.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
@@ -236,10 +238,10 @@ export function createOpportunitiesService(
           ...describeCreation('Opportunity'),
         })
 
-        events.emit('record.created', { workspaceId, objectType: 'opportunity', recordId: id })
+        events.emit('opportunities.opportunity.created', { type: 'opportunity', id }, {})
 
         return toView(created)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -302,25 +304,22 @@ export function createOpportunitiesService(
           })
         }
 
-        events.emit('record.updated', {
-          workspaceId,
-          objectType: 'opportunity',
-          recordId: id,
-          changedFields: changed,
-        })
+        events.emit(
+          'opportunities.opportunity.updated',
+          { type: 'opportunity', id },
+          { changed },
+        )
 
         if (stageMove !== undefined) {
-          events.emit('stage.changed', {
-            workspaceId,
-            objectType: 'opportunity',
-            recordId: id,
-            fromStageId: stageMove.from.id,
-            toStageId: stageMove.to.id,
-          })
+          events.emit(
+            'opportunities.opportunity.stage_changed',
+            { type: 'opportunity', id },
+            { fromStageId: stageMove.from.id, toStageId: stageMove.to.id },
+          )
         }
 
         return toView(updated)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async remove(actor, id) {
@@ -335,8 +334,8 @@ export function createOpportunitiesService(
         await deleteRecordsAttachedTo(tx, workspaceId, 'opportunity', id)
         await repository.deleteOpportunity(tx, workspaceId, id)
 
-        events.emit('record.deleted', { workspaceId, objectType: 'opportunity', recordId: id })
-      })
+        events.emit('opportunities.opportunity.deleted', { type: 'opportunity', id }, {})
+      }, { workspaceId, actor: toEventActor(actor) })
     },
   }
 }

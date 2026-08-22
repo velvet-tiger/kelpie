@@ -5,8 +5,10 @@ import type { IdFactory } from '../../lib/ids.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
+import './events.ts'
 import { targetExists } from '../recordTargets.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_PLAN_ITEM_SORT, PLAN_ITEM_SORTS } from './repository.ts'
@@ -149,16 +151,15 @@ export function createPlansService(dependencies: PlansDependencies): PlansServic
         // as already finished. A consumer watching for completed work cares that
         // the work is done, not whether it passed through `todo` on the way.
         if (created.status === 'done') {
-          events.emit('plan.completed', {
-            workspaceId,
-            planItemId: created.id,
-            targetType: created.targetType,
-            targetId: created.targetId,
-          })
+          events.emit(
+            'plans.plan_item.completed',
+            { type: created.targetType, id: created.targetId },
+            { planItemId: created.id },
+          )
         }
 
         return toView(created)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async update(actor, id, changes) {
@@ -196,16 +197,15 @@ export function createPlansService(dependencies: PlansDependencies): PlansServic
         // On the transition only. Re-sending `done` on a finished item changes
         // nothing, and it is caught above before it reaches here.
         if (changed.includes('status') && updated.status === 'done') {
-          events.emit('plan.completed', {
-            workspaceId,
-            planItemId: updated.id,
-            targetType: updated.targetType,
-            targetId: updated.targetId,
-          })
+          events.emit(
+            'plans.plan_item.completed',
+            { type: updated.targetType, id: updated.targetId },
+            { planItemId: updated.id },
+          )
         }
 
         return toView(updated)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async remove(actor, id) {

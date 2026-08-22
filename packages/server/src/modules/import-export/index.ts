@@ -1,5 +1,6 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { importExportEvents } from './events.ts'
 import { mountImportExportRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createImportExportService } from './service.ts'
@@ -21,6 +22,7 @@ export function createImportExportModule(migrationsDirectory: string): KelpieMod
   return {
     id: 'import-export',
     requires: ['people', 'companies', 'positions', 'pipelines', 'deals', 'activities'],
+    events: importExportEvents,
 
     register(context) {
       const service = createImportExportService({

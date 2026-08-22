@@ -8,8 +8,15 @@ import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { Transaction, TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { describeStageChange } from '../activities/wording.ts'
+import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
+// The four owning modules register their `<kind>.<obj>.stage_changed` events;
+// pipelines fires them from cascade reassignments.
+import '../deals/events.ts'
+import '../opportunities/events.ts'
+import '../partnerships/events.ts'
+import '../raises/events.ts'
 import { referencedElsewhere } from '../references.ts'
 import { reassignStagedRecords } from '../stagedRecords.ts'
 import * as repository from './repository.ts'
@@ -310,13 +317,7 @@ export function createPipelineStagesService(
               kind: 'stage_changed',
               ...describeStageChange(stage.label, moveTo.label),
             })
-            events.emit('stage.changed', {
-              workspaceId,
-              objectType: kind,
-              recordId,
-              fromStageId: stage.id,
-              toStageId: moveTo.id,
-            })
+            emitStageChangedFor(events, kind, recordId, stage.id, moveTo.id)
           }
         }
 
@@ -333,7 +334,45 @@ export function createPipelineStagesService(
         }
 
         await renumber(tx, workspaceId, rows.filter((row) => row.id !== id))
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
+  }
+}
+
+/**
+ * Dispatches the stage-changed envelope for a moved record. Each of the four
+ * staged object types has its own event name in its owning module's catalog;
+ * pipelines is the emitter, not the owner.
+ */
+function emitStageChangedFor(
+  events: import('../../runtime/transaction.ts').BufferedEvents,
+  kind: PipelineKind,
+  recordId: string,
+  fromStageId: string,
+  toStageId: string,
+): void {
+  const data = { fromStageId, toStageId } as const
+
+  switch (kind) {
+    case 'deal':
+      events.emit('deals.deal.stage_changed', { type: 'deal', id: recordId }, data)
+      break
+    case 'opportunity':
+      events.emit(
+        'opportunities.opportunity.stage_changed',
+        { type: 'opportunity', id: recordId },
+        data,
+      )
+      break
+    case 'partnership':
+      events.emit(
+        'partnerships.partnership.stage_changed',
+        { type: 'partnership', id: recordId },
+        data,
+      )
+      break
+    case 'raise':
+      events.emit('raises.raise.stage_changed', { type: 'raise', id: recordId }, data)
+      break
   }
 }

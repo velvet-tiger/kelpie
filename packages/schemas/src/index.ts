@@ -100,6 +100,14 @@ export type {
 export { definedFields, idSchema, nullableTimestampSchema, timestampSchema } from './wire.ts'
 export type { RecordTimestamps } from './wire.ts'
 
+export {
+  eventActorSchema,
+  eventEnvelopeSchema,
+  eventTargetSchema,
+  updateEventSchema,
+} from './events.ts'
+export type { EventActor, EventTarget, KelpieEvent, UpdateEventData } from './events.ts'
+
 export { personBody, personSchema } from './person.ts'
 export type { Person, PersonInput, SocialProfile } from './person.ts'
 

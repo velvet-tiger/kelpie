@@ -384,13 +384,25 @@ describe('module MCP tools', () => {
 })
 
 describe('module event subscriptions', () => {
+  function envelope(name: string, target: { type: string; id: string }, data: unknown = {}) {
+    return {
+      id: `ev_${name}_${target.id}`,
+      name,
+      workspaceId: 'ws_1',
+      actor: { kind: 'system' as const },
+      occurredAt: '2026-08-21T00:00:00.000Z',
+      target,
+      data,
+    }
+  }
+
   it('delivers an event to a module that subscribed during registration', async () => {
     const received: string[] = []
     const listening: KelpieModule = {
       id: 'listener',
       register(context) {
-        context.events.subscribe('workspace.created', async (payload) => {
-          received.push(payload.slug)
+        context.events.subscribe('workspace.workspace.created' as never, (event) => {
+          received.push(event.target.id)
         })
 
         return Promise.resolve()
@@ -398,9 +410,11 @@ describe('module event subscriptions', () => {
     }
 
     const { contributions } = await createTestApp({ modules: [listening] })
-    await contributions.events.publish('workspace.created', { workspaceId: 'ws_1', slug: 'acme' })
+    await contributions.events.publish(
+      envelope('workspace.workspace.created', { type: 'workspace', id: 'ws_acme' }) as never,
+    )
 
-    expect(received).toEqual(['acme'])
+    expect(received).toEqual(['ws_acme'])
   })
 
   it('lets two modules subscribe to the same event without shadowing each other', async () => {
@@ -408,20 +422,22 @@ describe('module event subscriptions', () => {
     const subscriber = (id: string): KelpieModule => ({
       id,
       register(context) {
-        context.events.subscribe('member.joined', async (payload) => {
-          received.push(`${id}:${payload.memberId}`)
+        context.events.subscribe('workspace.member.joined' as never, (event) => {
+          received.push(`${id}:${event.target.id}`)
         })
 
         return Promise.resolve()
       },
     })
 
-    const { contributions } = await createTestApp({ modules: [subscriber('audit'), subscriber('billing')] })
-    await contributions.events.publish('member.joined', {
-      workspaceId: 'ws_1',
-      memberId: 'mem_1',
-      userId: 'usr_1',
+    const { contributions } = await createTestApp({
+      modules: [subscriber('audit'), subscriber('billing')],
     })
+    await contributions.events.publish(
+      envelope('workspace.member.joined', { type: 'member', id: 'mem_1' }, {
+        userId: 'usr_1',
+      }) as never,
+    )
 
     expect(received.toSorted()).toEqual(['audit:mem_1', 'billing:mem_1'])
   })

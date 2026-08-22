@@ -58,7 +58,7 @@ async function start(): Promise<void> {
     resolveActor: (context) => resolveActorFrom(credentials, context),
     services: {
       db: database.db,
-      transaction: createTransactionScope({ db: database.db, bus: events, logger }),
+      transaction: createTransactionScope({ db: database.db, bus: events, logger, createId }),
       email: createEmailSender(config.email, logger),
       createId,
       now: () => new Date(),
