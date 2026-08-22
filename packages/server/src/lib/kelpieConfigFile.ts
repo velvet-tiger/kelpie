@@ -81,10 +81,11 @@ export interface LoggingInput {
  * The `email` sub-tree of the assembly config.
  *
  * `provider` names one entry in the runtime's provider registry. `'log'` is a
- * built-in the runtime always registers; other names come from provider
- * modules (`@kelpie/module-smtp-email` registers `'smtp'`, an API-based
- * provider might register `'resend'` or `'postmark'`, and so on). Free-string
- * so a self-hoster can install a module core has never heard of.
+ * built-in the runtime always registers; `'smtp'` is registered by the
+ * built-in `smtp-email` core module; third-party provider modules register
+ * their own names (an API-based provider might register `'resend'` or
+ * `'postmark'`, and so on). Free-string so a self-hoster can install a
+ * module core has never heard of.
  *
  * `from` is the address on every outgoing message. Provider-specific config
  * (SMTP host and credentials, an API key) belongs to the provider module,

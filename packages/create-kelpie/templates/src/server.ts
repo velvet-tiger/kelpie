@@ -67,8 +67,9 @@ async function start(): Promise<void> {
       secretEncryption: config.secretEncryption,
     },
     // `provider` picks a named sender from the runtime's registry. `'log'` is
-    // built in; other names come from provider modules (`smtpEmail()`
-    // registers `'smtp'`). `from` is the address on every outgoing message.
+    // built in; `'smtp'` is registered by the built-in `smtp-email` core
+    // module; other names come from third-party provider modules listed in
+    // `kelpie.config.ts`. `from` is the address on every outgoing message.
     email: { provider: config.email.EMAIL_PROVIDER, from: config.email.EMAIL_FROM },
   })
 

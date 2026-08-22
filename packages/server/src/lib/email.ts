@@ -11,10 +11,11 @@ import type { Logger } from './logger.ts'
  * `email.provider`. The module runtime resolves the name against a registry
  * every module can contribute to via `context.provideEmailSender(name, sender)`.
  * `'log'` is a built-in name the runtime always registers, so a bare install
- * has something to point at; other names come from provider modules like
- * `@kelpie/module-smtp-email` and its API-based cousins (Resend, Postmark,
- * SES). Transport is arbitrary: the module builds one behind the `EmailSender`
- * interface and hands it to core, which knows only how to `send`.
+ * has something to point at. `'smtp'` is registered by the built-in
+ * `smtp-email` core module. Other names come from third-party provider modules
+ * (Resend, Postmark, SES) that follow the same registry pattern. Transport is
+ * arbitrary: the module builds one behind the `EmailSender` interface and
+ * hands it to core, which knows only how to `send`.
  */
 
 export interface EmailMessage {
@@ -41,9 +42,10 @@ export const emailConfigSchema = z.object({
 export type EmailConfig = z.infer<typeof emailConfigSchema>
 
 /**
- * Writes the message to the log instead of sending it. The default in every
- * assembly, swapped out for a real sender by a provider module (typically
- * `@kelpie/module-smtp-email`).
+ * Writes the message to the log instead of sending it. The registry default,
+ * swapped out for a real sender by picking a different provider name in
+ * `email.provider` (`'smtp'` for the built-in SMTP module, or any name a
+ * third-party provider module registers).
  */
 export function createLogEmailSender(logger: Logger, from: string): EmailSender {
   return {

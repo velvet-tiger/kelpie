@@ -99,10 +99,10 @@ export interface ModuleContext extends ModuleServices {
    * `build` is a factory the runtime calls exactly once, and only for the
    * provider `email.provider` picked. A provider that is registered but never
    * picked never has its factory called, so a module can register itself
-   * without demanding its own env up front: a self-hoster who leaves
-   * `smtpEmail()` in `modules:` while running on `EMAIL_PROVIDER=log` will
-   * not be asked for SMTP credentials at boot. The factory may throw; the
-   * runtime wraps the error with the module id.
+   * without demanding its own env up front: a self-hoster who leaves the
+   * built-in `smtp-email` core module in `coreModules` while running on
+   * `EMAIL_PROVIDER=log` will not be asked for SMTP credentials at boot.
+   * The factory may throw; the runtime wraps the error with the module id.
    *
    * Any number of modules may register different names side by side. Two
    * modules registering the same name fails boot. `'log'` is registered by

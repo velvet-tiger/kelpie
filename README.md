@@ -149,13 +149,12 @@ Run these from the repository root, in order.
      -d '{"email":"you@example.com","name":"Your Name","password":"a real long password"}'
    ```
 
-5. The default assembly ships the `@kelpie/module-smtp-email` module and
-   sends invitation and password-reset messages over SMTP. Fill in
-   `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, and `SMTP_PASSWORD`
-   in `.env.local`. To skip email locally, remove `smtpEmail()` from the
-   `modules:` array in `apps/kelpie/kelpie.config.ts`; the service then
-   falls back to the log sender and prints the links to the API's log
-   instead.
+5. The default assembly ships the built-in `smtp-email` core module (inside
+   `@kelpie/server`) and sends invitation and password-reset messages over
+   SMTP when `EMAIL_PROVIDER=smtp`. Fill in `SMTP_HOST`, `SMTP_PORT`,
+   `SMTP_SECURE`, `SMTP_USER`, and `SMTP_PASSWORD` in `.env.local`. To skip
+   email locally, set `EMAIL_PROVIDER=log`; the service then uses the
+   built-in log sender and prints the links to the API's log instead.
 
 ## Configuration
 
@@ -170,11 +169,12 @@ boot and lists every problem, rather than starting in a broken state.
 | `DATABASE_URL` | A `postgres://` or `postgresql://` connection string |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
 | `EMAIL_FROM` | The address transactional mail comes from |
-| `SMTP_HOST` | Read by `@kelpie/module-smtp-email`. The mail server to connect to. Required when that module is in `modules:` (the default) |
-| `SMTP_PORT` | Read by `@kelpie/module-smtp-email`. The mail server's port |
-| `SMTP_SECURE` | Read by `@kelpie/module-smtp-email`. `true` or `false`. Whether to connect over TLS from the start (typically port 465) rather than upgrading with STARTTLS (typically port 587 or 25) |
-| `SMTP_USER` | Read by `@kelpie/module-smtp-email`. The SMTP username |
-| `SMTP_PASSWORD` | Read by `@kelpie/module-smtp-email`. The SMTP password |
+| `EMAIL_PROVIDER` | Name of the transactional-mail sender to use. `log` (built in) writes to the log instead of sending; `smtp` sends over SMTP through the built-in `smtp-email` core module; other names come from third-party provider modules |
+| `SMTP_HOST` | Read by the built-in `smtp-email` core module when `EMAIL_PROVIDER=smtp`. The mail server to connect to |
+| `SMTP_PORT` | Read by the built-in `smtp-email` core module when `EMAIL_PROVIDER=smtp`. The mail server's port |
+| `SMTP_SECURE` | Read by the built-in `smtp-email` core module when `EMAIL_PROVIDER=smtp`. `true` or `false`. Whether to connect over TLS from the start (typically port 465) rather than upgrading with STARTTLS (typically port 587 or 25) |
+| `SMTP_USER` | Read by the built-in `smtp-email` core module when `EMAIL_PROVIDER=smtp`. The SMTP username |
+| `SMTP_PASSWORD` | Read by the built-in `smtp-email` core module when `EMAIL_PROVIDER=smtp`. The SMTP password |
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Seals secrets the service has to read back, such as webhook signing secrets |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |
 | `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional, default 30. How many days of webhook delivery history to keep |

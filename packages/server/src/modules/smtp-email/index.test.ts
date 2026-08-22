@@ -1,8 +1,9 @@
-import { createCaptureTransport, createLogger } from '@kelpie/server'
 import { describe, expect, it } from 'vitest'
 
+import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
+
 import type { EmailMessage, SmtpEmailConfig, SmtpTransport } from './index.ts'
-import { SMTP_EMAIL_PROVIDER, createSmtpEmailSender, smtpEmail } from './index.ts'
+import { SMTP_EMAIL_PROVIDER, createSmtpEmailModule, createSmtpEmailSender } from './index.ts'
 
 const fixedTime = (): Date => new Date('2026-08-12T00:00:00.000Z')
 
@@ -97,13 +98,13 @@ describe('createSmtpEmailSender', () => {
   })
 })
 
-describe('smtpEmail module', () => {
+describe('createSmtpEmailModule', () => {
   it('has the "smtp-email" id and is structural', () => {
-    expect(smtpEmail().id).toBe('smtp-email')
-    expect(smtpEmail().structural).toBe(true)
+    expect(createSmtpEmailModule().id).toBe('smtp-email')
+    expect(createSmtpEmailModule().structural).toBe(true)
   })
 
-  it("exports the provider name it registers under so an assembly can name it", () => {
+  it('exports the provider name it registers under so an assembly can name it', () => {
     // An assembly that hardcodes a string is prone to typos. Importing the
     // constant keeps the module and its callers in step.
     expect(SMTP_EMAIL_PROVIDER).toBe('smtp')

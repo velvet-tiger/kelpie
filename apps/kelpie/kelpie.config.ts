@@ -1,4 +1,3 @@
-import { smtpEmail } from '@kelpie/module-smtp-email'
 import {
   appUrlConfigSchema,
   coreModules,
@@ -88,11 +87,11 @@ export default defineKelpieConfig({
   },
 
   // `provider` picks a named sender from the runtime's registry: `'log'` is
-  // built in, other names come from provider modules (`'smtp'` is registered
-  // by `@kelpie/module-smtp-email`; `'resend'` or `'postmark'` would be
-  // registered by their own modules). `from` is the address on every
-  // outgoing message. Provider-specific config (SMTP host, an API key) lives
-  // in the provider module and is read through `context.config(...)`.
+  // built in and writes the message to the log instead of sending it. `'smtp'`
+  // is registered by the built-in `smtp-email` core module and reads the
+  // `SMTP_*` variables at boot when it is picked. Other names (`'resend'`,
+  // `'postmark'`) come from third-party provider modules added to the list
+  // below. `from` is the address on every outgoing message.
   email: {
     provider: fromEnv('EMAIL_PROVIDER', z.string().min(1)),
     from: fromEnv('EMAIL_FROM', z.string().min(1)),
@@ -123,10 +122,9 @@ export default defineKelpieConfig({
   // an unmet dependency, or invalid module config stops boot. The cloud
   // assembly keeps its own list in its own repo.
   //
-  // `smtpEmail()` registers a provider named `'smtp'`. Set `EMAIL_PROVIDER=log`
-  // to fall back to the built-in log sender (invites and password resets
-  // write to the log instead of going out); the module can stay in the list
-  // either way, since it only becomes the sender when `email.provider` picks
-  // its name.
-  modules: [...coreModules, smtpEmail()],
+  // `coreModules` already includes the built-in `smtp-email` module, which
+  // registers a `'smtp'` provider. Set `EMAIL_PROVIDER=log` to fall back to
+  // the built-in log sender; the `smtp-email` module only reads the SMTP
+  // environment when `email.provider` picks its name.
+  modules: [...coreModules],
 })

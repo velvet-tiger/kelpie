@@ -37,7 +37,6 @@ const MANIFEST_DIRECTORIES = [
   'packages/schemas',
   'packages/server',
   'packages/ui',
-  'packages/modules/smtp-email',
   'packages/create-kelpie',
   'apps/kelpie',
 ] as const

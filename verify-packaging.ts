@@ -70,7 +70,6 @@ const PACKAGE_DIRECTORIES = [
   'packages/schemas',
   'packages/server',
   'packages/ui',
-  'packages/modules/smtp-email',
   'packages/create-kelpie',
 ] as const
 
@@ -302,11 +301,21 @@ function pointAtLocalTarballs(project: string, tarballs: ReadonlyMap<string, str
     }
   }
 
-  const expected = ['@kelpie/server', '@kelpie/ui', '@kelpie/module-smtp-email']
+  const expected = ['@kelpie/server', '@kelpie/ui']
   const missing = expected.filter((name) => !(name in dependencies))
 
   if (missing.length > 0) {
     throw new PackagingError(`The scaffolded manifest does not depend on ${missing.join(' or ')}.`)
+  }
+
+  // The SMTP sender ships inside @kelpie/server as a built-in core module.
+  // A scaffold that pulled it as a separate package would install a version
+  // never published, so this asserts the dependency is not there.
+  if ('@kelpie/module-smtp-email' in dependencies) {
+    throw new PackagingError(
+      'The scaffolded manifest depends on @kelpie/module-smtp-email. That package is not published; ' +
+        'the SMTP sender is now a built-in core module inside @kelpie/server.',
+    )
   }
 
   manifest.overrides = overrides
@@ -332,6 +341,15 @@ for (const [name, value] of Object.entries({ createApp, loadConfig, createTestAp
 
 if (coreModules.length === 0) {
   throw new Error('@kelpie/server exported an empty coreModules list.')
+}
+
+const smtpModule = coreModules.find((entry) => entry.id === 'smtp-email')
+
+if (smtpModule === undefined) {
+  throw new Error(
+    '@kelpie/server\\u0027s coreModules does not include the built-in smtp-email module. ' +
+      'A scaffolded project relies on it for EMAIL_PROVIDER=smtp and pulls no separate package for it.',
+  )
 }
 
 const journal = join(coreMigrationsDirectory, 'meta', '_journal.json')

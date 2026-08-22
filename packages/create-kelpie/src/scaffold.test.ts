@@ -119,7 +119,9 @@ describe('scaffold', () => {
     expect(manifest.name).toBe('acme-crm')
     expect(manifest.dependencies['@kelpie/server']).toBe('^2.5.0')
     expect(manifest.dependencies['@kelpie/ui']).toBe('^2.5.0')
-    expect(manifest.dependencies['@kelpie/module-smtp-email']).toBe('^2.5.0')
+    // The SMTP sender ships inside @kelpie/server as a built-in core module,
+    // so the scaffold no longer pulls a separate package for it.
+    expect(manifest.dependencies).not.toHaveProperty('@kelpie/module-smtp-email')
   })
 
   it('writes the generated key and the database url into .env', () => {

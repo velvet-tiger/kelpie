@@ -1,10 +1,13 @@
-import type { EmailSender, KelpieModule, Logger } from '@kelpie/server'
-import { describeThrown } from '@kelpie/server'
 import nodemailer from 'nodemailer'
 import { z } from 'zod'
 
+import { describeThrown } from '../../lib/errors.ts'
+import type { EmailMessage, EmailSender } from '../../lib/email.ts'
+import type { Logger } from '../../lib/logger.ts'
+import type { KelpieModule } from '../../runtime/module.ts'
+
 /**
- * The first-party SMTP email module.
+ * The built-in SMTP email module.
  *
  * Registers a provider named `'smtp'` with core's email runtime. An assembly
  * that sets `email.provider: 'smtp'` in its `kelpie.config.ts` uses this
@@ -22,11 +25,7 @@ import { z } from 'zod'
  */
 export const SMTP_EMAIL_PROVIDER = 'smtp'
 
-export interface EmailMessage {
-  readonly to: string
-  readonly subject: string
-  readonly body: string
-}
+export type { EmailMessage } from '../../lib/email.ts'
 
 const smtpEmailConfigSchema = z.object({
   EMAIL_FROM: z.string().min(1),
@@ -64,7 +63,7 @@ export function createSmtpEmailSender(
   transport: SmtpTransport = createNodemailerTransport(config),
 ): EmailSender {
   return {
-    async send(message) {
+    async send(message: EmailMessage) {
       try {
         await transport.sendMail({
           from: config.EMAIL_FROM,
@@ -91,17 +90,16 @@ export interface SmtpEmailModuleOptions {
 }
 
 /**
- * The module the assembly lists in `kelpie.config.ts:modules`. Registers a
- * factory under `SMTP_EMAIL_PROVIDER`; the factory reads the SMTP environment
- * and builds the nodemailer sender, but only if the config's
- * `email.provider` picks this module. Boot fails loudly if any SMTP variable
- * is missing or malformed at that point.
+ * The built-in SMTP module. Registers a factory under `SMTP_EMAIL_PROVIDER`;
+ * the factory reads the SMTP environment and builds the nodemailer sender, but
+ * only if the assembly's `email.provider` picks this module. Boot fails loudly
+ * if any SMTP variable is missing or malformed at that point.
  *
- * Leaving the module in `modules:` while running on a different provider
- * (e.g. `EMAIL_PROVIDER=log`) is safe: the factory never runs, so the SMTP
- * environment is not checked.
+ * The module stays in `coreModules` unconditionally: on any other provider
+ * (e.g. `EMAIL_PROVIDER=log`) the factory never runs, so the SMTP environment
+ * is not checked.
  */
-export function smtpEmail(options: SmtpEmailModuleOptions = {}): KelpieModule {
+export function createSmtpEmailModule(options: SmtpEmailModuleOptions = {}): KelpieModule {
   return {
     id: 'smtp-email',
     structural: true,

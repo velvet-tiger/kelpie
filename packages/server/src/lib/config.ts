@@ -43,8 +43,9 @@ export interface KelpieConfig {
   /**
    * The provider name the module runtime looks up in its registry, and the
    * from address every outgoing message uses. See `lib/email.ts` for the
-   * shape and rules; `'log'` is always available, other names come from
-   * provider modules such as `@kelpie/module-smtp-email`.
+   * shape and rules; `'log'` is always available, `'smtp'` is registered by
+   * the built-in `smtp-email` core module, and other names come from
+   * third-party provider modules.
    */
   readonly email: EmailConfig
   /**

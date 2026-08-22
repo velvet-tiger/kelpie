@@ -41,6 +41,9 @@ export * as schema from './schema/index.ts'
 export { createLogEmailSender, emailConfigSchema } from './lib/email.ts'
 export type { EmailConfig, EmailMessage, EmailSender } from './lib/email.ts'
 
+export { SMTP_EMAIL_PROVIDER, createSmtpEmailModule, createSmtpEmailSender } from './modules/smtp-email/index.ts'
+export type { SmtpEmailConfig, SmtpEmailModuleOptions, SmtpTransport } from './modules/smtp-email/index.ts'
+
 export { MINIMUM_PASSWORD_LENGTH, hashPassword, isPasswordStrongEnough, verifyPassword } from './lib/passwords.ts'
 export { generateToken, hashToken, tokenHashesMatch } from './lib/tokens.ts'
 

@@ -1,4 +1,3 @@
-import { smtpEmail } from '@kelpie/module-smtp-email'
 import {
   appUrlConfigSchema,
   coreModules,
@@ -22,8 +21,8 @@ import { z } from 'zod'
  * runs on. Nothing in the app reads `process.env` for these fields after boot.
  *
  * Add a module by installing it and putting it in the `modules` array below.
- * `smtpEmail()` is included by default; remove it to fall back to the log
- * sender.
+ * `coreModules` already includes the built-in `smtp-email` module; set
+ * `EMAIL_PROVIDER=log` to fall back to the log sender.
  */
 
 const runtimeMode = z.enum(['development', 'test', 'production'])
@@ -78,9 +77,11 @@ export default defineKelpieConfig({
   },
 
   // `provider` picks a named sender from the runtime's registry: `'log'` is
-  // built in, other names come from provider modules (`'smtp'` from
-  // `@kelpie/module-smtp-email` below; a Resend or Postmark module would
-  // register its own name). `from` is the address on every outgoing message.
+  // built in and writes the message to the log instead of sending it. `'smtp'`
+  // is registered by the built-in `smtp-email` core module and reads the
+  // `SMTP_*` variables at boot when it is picked. Other names come from
+  // third-party provider modules (Resend, Postmark) added to `modules` below.
+  // `from` is the address on every outgoing message.
   email: {
     provider: fromEnv('EMAIL_PROVIDER', z.string().min(1)),
     from: fromEnv('EMAIL_FROM', z.string().min(1)),
@@ -105,10 +106,9 @@ export default defineKelpieConfig({
     },
   },
 
-  // `smtpEmail()` registers a provider named `'smtp'`. Set `EMAIL_PROVIDER=log`
-  // to fall back to the built-in log sender (invites and password resets
-  // write to the log instead of going out); the module can stay in the list
-  // either way, since it only becomes the sender when `email.provider` picks
-  // its name.
-  modules: [...coreModules, smtpEmail()],
+  // `coreModules` already includes the built-in `smtp-email` module, which
+  // registers a `'smtp'` provider. Set `EMAIL_PROVIDER=log` to fall back to
+  // the built-in log sender; the `smtp-email` module only reads the SMTP
+  // environment when `email.provider` picks its name.
+  modules: [...coreModules],
 })
