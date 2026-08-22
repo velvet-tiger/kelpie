@@ -8,7 +8,7 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
-## [Unreleased]
+## [0.6.0] - 2026-08-23
 
 ### Added
 
@@ -30,6 +30,48 @@ While the major version is `0`, a minor bump may break the API.
   the helpers `createSmtpEmailModule`, `createSmtpEmailSender`, and
   `SMTP_EMAIL_PROVIDER` for assemblies and tests that build their own
   transport.
+- **`@kelpie/schemas`, `@kelpie/server`** — a per-module event bus. Every
+  module publishes typed events (`people.person.created`,
+  `deals.deal.stage_changed`, `workspace.member.joined`, and so on) on a
+  shared `KelpieEvent<Name, Data>` envelope. A module declares its
+  Zod-validated catalog through `KelpieModule.events`; `registerModules`
+  merges every catalog before any module registers and fails boot on a
+  duplicate event name. `runtime/events.ts` exposes `subscribe`,
+  `subscribePrefix`, `publish`, and `registerCatalog`, and guards against an
+  event handler that re-triggers its own event: a depth cap
+  (`KELPIE_EVENT_MAX_DEPTH`) plus a repeat check stop the loop rather than
+  letting it run until the stack overflows. The webhooks engine now
+  subscribes to the whole bus and translates deliverable events into the
+  same `record.created` / `record.updated` / `record.deleted` /
+  `form.submitted` wire payloads as before; nothing on that wire contract
+  changed.
+- **`@kelpie/server`** — `runReseal(options)`, `ResealPass`, and
+  `RunResealOptions` are now exported. `runReseal` was duplicated between
+  `apps/kelpie/src/reseal.ts` and the `create-kelpie` template; both now call
+  the shared implementation, which takes an `extraPasses` list so any
+  assembly, including the cloud one, can plug in a reseal pass over its own
+  sealed columns.
+- **`@kelpie/server`** — `defineKelpieConfig()` and `fromEnv()`, the shape a
+  `kelpie.config.ts` file now uses to declare the full core config. Every
+  leaf is either a literal committed to git or a
+  `fromEnv('KEY', schema, default)` marker the deployment fills in;
+  `resolveKelpieConfig(config, process.env)` resolves the markers and
+  returns the typed `KelpieConfig`. `KelpieConfigInput` also gains an
+  optional `env` section, letting `kelpie.config.ts` lock or pass through
+  arbitrary module environment keys, and optional `appBaseUrl` /
+  `secretEncryption` fields so `APP_BASE_URL` and `SECRET_ENCRYPTION_KEY` can
+  live in the config file instead of only in `process.env`. `loadConfig(env)`
+  and a module's own `context.config(schema)` read both keep working, so an
+  assembly that has not adopted the new file still boots.
+- **`@kelpie/schemas`, `@kelpie/server`** — the agent-task resolve response
+  and every dispatch payload now carry `base_prompt` alongside the existing
+  `prompt`. `prompt` is unchanged: the external-agent-framed text the Copy
+  button and existing agent registrations already expect. `base_prompt` is
+  the same request without that framing, for a receiver that returns
+  structured data for a caller to apply instead of running its own tool
+  loop. `ResolvedAgentTask.basePrompt` falls back to `prompt` when parsing an
+  older server's response, so a new client still works against a server that
+  has not upgraded yet.
 
 ### Changed
 
@@ -46,6 +88,27 @@ While the major version is `0`, a minor bump may break the API.
   runtime owns the email sender and exposes it as `context.email` on every
   `ModuleContext`. Assemblies drop the `email` field from their `services:`
   object.
+- **Breaking, `@kelpie/server`** — `KelpieConfig` replaces the top-level
+  `logLevel` field with a `logging: { level, destinations }` sub-tree. The
+  logger delegates level filtering and transport fan-out to Winston; the
+  JSON line it writes (`time`, `level`, `message` last) is unchanged. Stdout
+  stays the only destination today, declared as `{ kind: 'stdout' }`. A
+  self-hosted deployment that wants a second destination extends the
+  `LoggingDestination` union in `@kelpie/server` and adds a matching entry to
+  `logging.destinations` in its `kelpie.config.ts`.
+- **Breaking, `@kelpie/server`** — `DOMAIN_EVENT_NAMES`, `DomainEventName`,
+  `DomainEvents`, and `StagedObjectType` are removed, along with the legacy
+  `subscribe(name, payload)` / `publish(name, payload)` overloads and the
+  `envelope:` internal channel prefix. They are replaced by the event bus
+  described above; a module or assembly that imported these types moves to
+  `subscribe`, `subscribePrefix`, `publish`, `EventBus`, `EventCatalog`, and
+  `KelpieEventMap`. Nothing on the public webhook wire payloads changed.
+
+### Notes
+
+- `.env.example` now names, for every variable, either the `kelpie.config.ts`
+  field that reads it or the module and schema that does. It also documents
+  `WEB_BUNDLE_DIR`, which was previously missing.
 
 ## [0.5.2] - 2026-08-17
 
@@ -299,6 +362,7 @@ First public release.
 - `react` and `react-dom` are peer dependencies of `@kelpie/ui`.
 - The packages export their TypeScript source under a `kelpie-source` condition and their compiled JavaScript under the default one. Consumers get JavaScript; the condition exists so the repository can develop without a build step. It is not part of the public contract.
 
+[0.6.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.6.0
 [0.4.1]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.4.1
 [0.4.0]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.4.0
 [0.3.1]: https://github.com/velvet-tiger/kelpie/releases/tag/v0.3.1
