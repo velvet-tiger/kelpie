@@ -122,42 +122,30 @@ describe('resolveKelpieConfig', () => {
     expect(thrown.problems.join('\n')).toContain('port:')
   })
 
-  describe('email discriminator', () => {
-    it('produces the log-shape when provider is "log"', () => {
+  describe('email', () => {
+    it('reshapes `provider` and `from` into the EmailConfig core wants', () => {
       const config = resolveKelpieConfig(baseInput(), {})
 
       expect(config.email).toEqual({ EMAIL_PROVIDER: 'log', EMAIL_FROM: 'kelpie@example.com' })
     })
 
-    it('produces the smtp-shape when every smtp field is present', () => {
+    it('resolves the provider name from a fromEnv marker', () => {
       const input = baseInput({
         email: {
-          provider: 'smtp',
+          provider: fromEnv('EMAIL_PROVIDER', z.string().min(1)),
           from: 'kelpie@example.com',
-          smtp: {
-            host: 'smtp.example.com',
-            port: 587,
-            secure: false,
-            user: 'kelpie',
-            password: 'a-real-password',
-          },
         },
       })
 
-      expect(resolveKelpieConfig(input, {}).email).toEqual({
-        EMAIL_PROVIDER: 'smtp',
-        EMAIL_FROM: 'kelpie@example.com',
-        SMTP_HOST: 'smtp.example.com',
-        SMTP_PORT: 587,
-        SMTP_SECURE: false,
-        SMTP_USER: 'kelpie',
-        SMTP_PASSWORD: 'a-real-password',
-      })
+      expect(resolveKelpieConfig(input, { EMAIL_PROVIDER: 'smtp' }).email.EMAIL_PROVIDER).toBe('smtp')
     })
 
-    it('reports every missing smtp field when provider is "smtp"', () => {
+    it('reports a missing `provider` at the email.provider path', () => {
       const input = baseInput({
-        email: { provider: 'smtp', from: 'kelpie@example.com' },
+        email: {
+          provider: fromEnv('EMAIL_PROVIDER', z.string().min(1)),
+          from: 'kelpie@example.com',
+        },
       })
 
       let thrown: unknown
@@ -172,12 +160,30 @@ describe('resolveKelpieConfig', () => {
         throw thrown
       }
 
-      const problems = thrown.problems.join('\n')
-      expect(problems).toContain('email.smtp.host')
-      expect(problems).toContain('email.smtp.port')
-      expect(problems).toContain('email.smtp.secure')
-      expect(problems).toContain('email.smtp.user')
-      expect(problems).toContain('email.smtp.password')
+      expect(thrown.problems.join('\n')).toContain('email.provider')
+    })
+
+    it('reports a missing `from` at the email.from path', () => {
+      const input = baseInput({
+        email: {
+          provider: 'log',
+          from: fromEnv('EMAIL_FROM', z.string().min(1)),
+        },
+      })
+
+      let thrown: unknown
+      try {
+        resolveKelpieConfig(input, {})
+      } catch (error: unknown) {
+        thrown = error
+      }
+
+      expect(thrown).toBeInstanceOf(ConfigurationError)
+      if (!(thrown instanceof ConfigurationError)) {
+        throw thrown
+      }
+
+      expect(thrown.problems.join('\n')).toContain('email.from')
     })
   })
 

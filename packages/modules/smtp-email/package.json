@@ -1,0 +1,54 @@
+{
+  "name": "@kelpie/module-smtp-email",
+  "version": "0.5.2",
+  "description": "First-party Kelpie module that sends transactional mail over SMTP. Reads SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, and EMAIL_FROM from the environment and provides the email sender to core.",
+  "keywords": [
+    "kelpie",
+    "kelpie-module",
+    "email",
+    "smtp",
+    "nodemailer"
+  ],
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/velvet-tiger/kelpie.git",
+    "directory": "packages/modules/smtp-email"
+  },
+  "homepage": "https://github.com/velvet-tiger/kelpie/tree/main/packages/modules/smtp-email#readme",
+  "bugs": "https://github.com/velvet-tiger/kelpie/issues",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "exports": {
+    ".": {
+      "kelpie-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@kelpie/server": "^0.5.2",
+    "nodemailer": "^9.0.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.1",
+    "vitest": "^4.1.10"
+  }
+}

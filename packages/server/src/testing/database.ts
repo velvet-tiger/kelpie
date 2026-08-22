@@ -9,7 +9,7 @@ import { coreModules } from '../modules/core.ts'
 import { runMigrations } from '../runtime/migrate.ts'
 import { registerModules } from '../runtime/registry.ts'
 import { TEST_ENVIRONMENT } from './environment.ts'
-import { createTestServices } from './services.ts'
+import { TEST_EMAIL_FROM, TEST_EMAIL_PROVIDER, createTestServices } from './services.ts'
 
 /**
  * A migrated database for integration tests.
@@ -72,12 +72,15 @@ export async function connectTestDatabase(connectionString: string): Promise<Tes
   await ensureDatabaseExists(connectionString)
 
   const connection = connectDatabase(connectionString, silentLogger)
+  const services = createTestServices({ db: connection.db })
   const contributions = await registerModules({
     modules: coreModules,
     // Enough for core modules to configure themselves; no test reads it further.
     environment: TEST_ENVIRONMENT,
     logger: silentLogger,
-    services: createTestServices({ db: connection.db }),
+    services,
+    email: { provider: TEST_EMAIL_PROVIDER, from: TEST_EMAIL_FROM },
+    additionalEmailProviders: new Map([[TEST_EMAIL_PROVIDER, services.emailSender]]),
   })
 
   await runMigrations(connection.db, contributions.schemas, silentLogger)

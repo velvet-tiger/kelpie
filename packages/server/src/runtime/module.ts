@@ -70,8 +70,6 @@ export interface ModuleServices {
   readonly db: Database
   /** Runs work in one transaction and publishes its events after commit. */
   readonly transaction: TransactionScope
-  /** Transactional mail only: invites and password resets. */
-  readonly email: EmailSender
   /** Generates `<prefix>_<ulid>` ids. Injected so tests can pin them. */
   readonly createId: IdFactory
   /** The current time, injected so expiry logic is testable. */
@@ -93,6 +91,34 @@ export interface ModuleServices {
 export interface ModuleContext extends ModuleServices {
   /** Registers routes. They mount under `/v1` and are public API like any other. */
   routes(mount: (router: Hono) => void): void
+  /**
+   * Registers a named transactional-mail provider. `name` is what the assembly
+   * puts in `kelpie.config.ts`'s `email.provider`; the runtime resolves that
+   * field against the registry after every module has registered.
+   *
+   * `build` is a factory the runtime calls exactly once, and only for the
+   * provider `email.provider` picked. A provider that is registered but never
+   * picked never has its factory called, so a module can register itself
+   * without demanding its own env up front: a self-hoster who leaves
+   * `smtpEmail()` in `modules:` while running on `EMAIL_PROVIDER=log` will
+   * not be asked for SMTP credentials at boot. The factory may throw; the
+   * runtime wraps the error with the module id.
+   *
+   * Any number of modules may register different names side by side. Two
+   * modules registering the same name fails boot. `'log'` is registered by
+   * the runtime itself, so a module that tries to shadow it fails boot too.
+   *
+   * `context.email` is a proxy: every module receives the same object, and
+   * its `send` delegates to whichever provider `email.provider` picked.
+   * Consumer modules capture the proxy at register time; registration order
+   * does not matter.
+   */
+  provideEmailSender(name: string, build: () => EmailSender): void
+  /**
+   * Transactional mail. Every module receives the same proxy; `.send()`
+   * delegates to the provider `email.provider` picked.
+   */
+  readonly email: EmailSender
   /**
    * Registers routes that mount under `/v1/public`, take no credentials, and
    * answer cross-origin requests from any site.

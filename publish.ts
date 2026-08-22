@@ -39,6 +39,7 @@ const PUBLISHED_WORKSPACES = [
   'packages/schemas',
   'packages/server',
   'packages/ui',
+  'packages/modules/smtp-email',
   'packages/create-kelpie',
 ] as const
 

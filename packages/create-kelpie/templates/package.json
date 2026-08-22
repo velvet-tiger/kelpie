@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.12",
+    "@kelpie/module-smtp-email": "^__CORE_VERSION__",
     "@kelpie/server": "^__CORE_VERSION__",
     "@kelpie/ui": "^__CORE_VERSION__",
     "react": "^19.2.8",

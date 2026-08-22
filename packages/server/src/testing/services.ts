@@ -21,6 +21,16 @@ import { createTransactionScope } from '../runtime/transaction.ts'
 /** Never queried. A unit test that reaches the database fails here, loudly. */
 const UNUSED_DATABASE_URL = 'postgres://unused:unused@127.0.0.1:1/unused'
 
+/**
+ * The provider name `createTestApp` seeds and points `email.provider` at.
+ * Exported so a test spawning `registerModules` directly can pass the same
+ * name and reach the same collecting sender.
+ */
+export const TEST_EMAIL_PROVIDER = 'test'
+
+/** The from address the test email config uses. Arbitrary but real. */
+export const TEST_EMAIL_FROM = 'kelpie-test@example.com'
+
 export interface TestServicesOptions {
   readonly db?: Database
   readonly now?: () => Date
@@ -33,6 +43,13 @@ export interface TestServicesOptions {
 }
 
 export interface TestServices extends ModuleServices {
+  /**
+   * The collecting sender `createTestApp` seeds under `TEST_EMAIL_PROVIDER`.
+   * `services.emailSender` (this field) is what actually receives calls; a
+   * consumer module reaches it through `context.email`, which the runtime's
+   * proxy points at whichever provider `email.provider` picked.
+   */
+  readonly emailSender: EmailSender
   /** Everything the email port was asked to send, in order. */
   readonly sentEmails: readonly EmailMessage[]
   readonly events: EventBus
@@ -65,9 +82,9 @@ export function createTestServices(options: TestServicesOptions = {}): TestServi
   return {
     db,
     transaction: createTransactionScope({ db, bus: events, logger, createId, now }),
-    email: sender,
     createId,
     now,
+    emailSender: sender,
     sentEmails: sent,
     events,
     // Spread conditionally so the field is absent (not `undefined`) when the

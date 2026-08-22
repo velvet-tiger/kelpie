@@ -1,12 +1,50 @@
 # Changelog
 
-All notable changes to `@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`, and `create-kelpie`.
+All notable changes to `@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`, `@kelpie/module-smtp-email`, and `create-kelpie`.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 The packages share one version and release together. An assembly pins core, and a mismatched pair has no meaning. `create-kelpie` writes a project pinning core at its own version, so it moves with them. A release note that names no package applies to all of them.
 
 While the major version is `0`, a minor bump may break the API.
+
+## [Unreleased]
+
+### Added
+
+- **`@kelpie/module-smtp-email`** — a new first-party open-source module that
+  sends transactional mail (invites, password resets, verifications) over
+  SMTP. Reads `EMAIL_FROM` and `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` /
+  `SMTP_USER` / `SMTP_PASSWORD` through the module runtime, builds a
+  nodemailer transport, and registers a provider named `'smtp'`. Selected by
+  setting `EMAIL_PROVIDER=smtp`. Included in the open-source assembly
+  (`apps/kelpie`) and the scaffolder's template.
+- **`@kelpie/server`** — a named-provider registry for transactional mail.
+  Modules call `context.provideEmailSender(name, sender)` to register; the
+  assembly's `email.provider` picks one at boot. `'log'` is a built-in the
+  runtime always registers, so a bare install boots. Multiple provider
+  modules coexist safely; two modules registering the same name fails boot,
+  and a config name nothing registered fails boot with the list of available
+  names. `context.email` is unchanged for consumer modules — it is a proxy
+  the runtime points at whichever provider `email.provider` picked. Provider
+  transport is arbitrary: SMTP, a REST API (Resend, Postmark, SES), a log,
+  all fit.
+
+### Changed
+
+- **Breaking, `@kelpie/server`** — `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`,
+  `SMTP_USER`, and `SMTP_PASSWORD` no longer live in core's environment
+  schema and `KelpieConfigInput.email.smtp` is removed. `EMAIL_PROVIDER` stays
+  but is now a free-string that names an entry in the runtime's provider
+  registry, not a fixed `'log' | 'smtp'` union. To send over SMTP, add
+  `@kelpie/module-smtp-email` to your assembly's `modules:` and set
+  `EMAIL_PROVIDER=smtp`. `createEmailSender` is removed; assemblies no
+  longer build a sender themselves — pass `email: { provider, from }` to
+  `registerModules` and it resolves.
+- **Breaking, `@kelpie/server`** — `ModuleServices.email` is removed. The
+  runtime owns the email sender and exposes it as `context.email` on every
+  `ModuleContext`. Assemblies drop the `email` field from their `services:`
+  object.
 
 ## [0.5.2] - 2026-08-17
 

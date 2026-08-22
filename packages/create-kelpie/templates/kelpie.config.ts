@@ -1,3 +1,4 @@
+import { smtpEmail } from '@kelpie/module-smtp-email'
 import {
   appUrlConfigSchema,
   coreModules,
@@ -20,11 +21,9 @@ import { z } from 'zod'
  * resolves markers, validates, and produces the typed `KelpieConfig` the app
  * runs on. Nothing in the app reads `process.env` for these fields after boot.
  *
- * Add a module by installing it and putting it in the `modules` array below:
- *
- *   import { smtpEmail } from '@kelpie/module-smtp-email'
- *
- *   modules: [...coreModules, smtpEmail]
+ * Add a module by installing it and putting it in the `modules` array below.
+ * `smtpEmail()` is included by default; remove it to fall back to the log
+ * sender.
  */
 
 const runtimeMode = z.enum(['development', 'test', 'production'])
@@ -74,26 +73,17 @@ export default defineKelpieConfig({
     previousKey: fromEnv<string | undefined>(
       'SECRET_ENCRYPTION_KEY_PREVIOUS',
       secretEncryptionConfigSchema.shape.SECRET_ENCRYPTION_KEY_PREVIOUS,
+      undefined,
     ),
   },
 
+  // `provider` picks a named sender from the runtime's registry: `'log'` is
+  // built in, other names come from provider modules (`'smtp'` from
+  // `@kelpie/module-smtp-email` below; a Resend or Postmark module would
+  // register its own name). `from` is the address on every outgoing message.
   email: {
-    provider: fromEnv('EMAIL_PROVIDER', z.enum(['log', 'smtp'])),
+    provider: fromEnv('EMAIL_PROVIDER', z.string().min(1)),
     from: fromEnv('EMAIL_FROM', z.string().min(1)),
-    smtp: {
-      host: fromEnv<string | undefined>('SMTP_HOST', z.string().min(1).optional(), undefined),
-      port: fromEnv<number | undefined>('SMTP_PORT', port.optional(), undefined),
-      secure: fromEnv<boolean | undefined>(
-        'SMTP_SECURE',
-        z
-          .enum(['true', 'false'])
-          .transform((value) => value === 'true')
-          .optional(),
-        undefined,
-      ),
-      user: fromEnv<string | undefined>('SMTP_USER', z.string().min(1).optional(), undefined),
-      password: fromEnv<string | undefined>('SMTP_PASSWORD', z.string().min(1).optional(), undefined),
-    },
   },
 
   rateLimit: {
@@ -115,5 +105,10 @@ export default defineKelpieConfig({
     },
   },
 
-  modules: [...coreModules],
+  // `smtpEmail()` registers a provider named `'smtp'`. Set `EMAIL_PROVIDER=log`
+  // to fall back to the built-in log sender (invites and password resets
+  // write to the log instead of going out); the module can stay in the list
+  // either way, since it only becomes the sender when `email.provider` picks
+  // its name.
+  modules: [...coreModules, smtpEmail()],
 })

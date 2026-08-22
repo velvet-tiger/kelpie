@@ -70,6 +70,7 @@ const PACKAGE_DIRECTORIES = [
   'packages/schemas',
   'packages/server',
   'packages/ui',
+  'packages/modules/smtp-email',
   'packages/create-kelpie',
 ] as const
 
@@ -107,8 +108,12 @@ const PROJECT_OWNED_VARIABLES = [
   'TEST_DATABASE_URL',
   'SECRET_ENCRYPTION_KEY',
   'SECRET_ENCRYPTION_KEY_PREVIOUS',
-  'EMAIL_PROVIDER',
   'EMAIL_FROM',
+  'SMTP_HOST',
+  'SMTP_PORT',
+  'SMTP_SECURE',
+  'SMTP_USER',
+  'SMTP_PASSWORD',
 ] as const
 
 /** A step of the check failed. Reported as a message rather than a stack. */
@@ -297,7 +302,7 @@ function pointAtLocalTarballs(project: string, tarballs: ReadonlyMap<string, str
     }
   }
 
-  const expected = ['@kelpie/server', '@kelpie/ui']
+  const expected = ['@kelpie/server', '@kelpie/ui', '@kelpie/module-smtp-email']
   const missing = expected.filter((name) => !(name in dependencies))
 
   if (missing.length > 0) {

@@ -3,9 +3,10 @@ import { z } from 'zod'
 
 import { AppError } from '../lib/errors.ts'
 import { createLogger } from '../lib/logger.ts'
-import { createTestServices } from '../testing/services.ts'
+import { TEST_EMAIL_FROM, TEST_EMAIL_PROVIDER, createTestServices } from '../testing/services.ts'
 import { createTestApp } from '../testing/app.ts'
 import { workspaceKeyActor } from '../testing/fixtures.ts'
+import type { EmailSender } from '../lib/email.ts'
 import type { KelpieModule } from './module.ts'
 import { ModuleBootError } from './order.ts'
 import { registerModules } from './registry.ts'
@@ -262,6 +263,7 @@ describe('module app routes and middleware', () => {
         environment: {},
         logger: silentLogger(),
         services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
       }),
     ).rejects.toThrow(new RegExp(`module "trespasser".*${reason}`))
   })
@@ -281,6 +283,7 @@ describe('module app routes and middleware', () => {
         environment: {},
         logger: silentLogger(),
         services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
       }),
     ).rejects.toThrow(/module "crooked".*must start with "\/"/)
   })
@@ -298,7 +301,7 @@ describe('module config', () => {
 
   it('fails boot naming the module when its config is invalid', async () => {
     await expect(
-      registerModules({ modules: [greetingModule], environment: {}, logger: silentLogger(), services: createTestServices() }),
+      registerModules({ modules: [greetingModule], environment: {}, logger: silentLogger(), services: createTestServices(), email: { provider: 'log', from: TEST_EMAIL_FROM } }),
     ).rejects.toThrow(/module "greeting" config GREETING_WORD/)
   })
 })
@@ -378,7 +381,7 @@ describe('module MCP tools', () => {
     }
 
     await expect(
-      registerModules({ modules: [doubleDeclaring], environment: {}, logger: silentLogger(), services: createTestServices() }),
+      registerModules({ modules: [doubleDeclaring], environment: {}, logger: silentLogger(), services: createTestServices(), email: { provider: 'log', from: TEST_EMAIL_FROM } }),
     ).rejects.toThrow(ModuleBootError)
   })
 })
@@ -455,7 +458,7 @@ describe('registration failures', () => {
     let thrown: unknown
 
     try {
-      await registerModules({ modules: [broken], environment: {}, logger: silentLogger(), services: createTestServices() })
+      await registerModules({ modules: [broken], environment: {}, logger: silentLogger(), services: createTestServices(), email: { provider: 'log', from: TEST_EMAIL_FROM } })
     } catch (error: unknown) {
       thrown = error
     }
@@ -470,6 +473,214 @@ describe('registration failures', () => {
     expect(thrown.cause).toBeInstanceOf(Error)
   })
 
+  describe('email provider registry', () => {
+    it("resolves the 'log' provider from the runtime without any module", async () => {
+      // 'log' is always registered, so a bare install with no provider module
+      // still boots. This proves it: no modules, no additionalEmailProviders,
+      // just email.provider = 'log'.
+      await registerModules({
+        modules: [],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
+      })
+    })
+
+    it('routes sends through the module registered under the picked name', async () => {
+      const services = createTestServices()
+      const providerSent: string[] = []
+      let capturedProxy: EmailSender | undefined
+
+      const consumer: KelpieModule = {
+        id: 'consumer',
+        register(context) {
+          capturedProxy = context.email
+          return Promise.resolve()
+        },
+      }
+
+      const smtpLikeProvider: KelpieModule = {
+        id: 'smtp-like',
+        register(context) {
+          context.provideEmailSender('smtp', () => ({
+            send(message) {
+              providerSent.push(message.to)
+              return Promise.resolve()
+            },
+          }))
+          return Promise.resolve()
+        },
+      }
+
+      await registerModules({
+        modules: [consumer, smtpLikeProvider],
+        environment: {},
+        logger: silentLogger(),
+        services,
+        email: { provider: 'smtp', from: TEST_EMAIL_FROM },
+      })
+
+      await capturedProxy?.send({ to: 'a@example.com', subject: 's', body: 'b' })
+
+      // The proxy captured before the provider ran now delegates to the
+      // provider the config picked, not the log fallback.
+      expect(providerSent).toEqual(['a@example.com'])
+      expect(services.sentEmails).toHaveLength(0)
+    })
+
+    it('lets several provider modules register different names side by side', async () => {
+      let smtpBuilt = 0
+      let resendBuilt = 0
+
+      // Both modules register at once and boot succeeds. Only the chosen
+      // provider's factory runs: the unpicked one never asks for its env.
+      await registerModules({
+        modules: [
+          {
+            id: 'smtp-mod',
+            register(context) {
+              context.provideEmailSender('smtp', () => {
+                smtpBuilt += 1
+                return { send: () => Promise.resolve() }
+              })
+              return Promise.resolve()
+            },
+          },
+          {
+            id: 'resend-mod',
+            register(context) {
+              context.provideEmailSender('resend', () => {
+                resendBuilt += 1
+                return { send: () => Promise.resolve() }
+              })
+              return Promise.resolve()
+            },
+          },
+        ],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+        email: { provider: 'resend', from: TEST_EMAIL_FROM },
+      })
+
+      expect(resendBuilt).toBe(1)
+      expect(smtpBuilt).toBe(0)
+    })
+
+    it('fails boot when two modules register the same name', async () => {
+      const first: KelpieModule = {
+        id: 'first',
+        register(context) {
+          context.provideEmailSender('smtp', () => ({ send: () => Promise.resolve() }))
+          return Promise.resolve()
+        },
+      }
+      const second: KelpieModule = {
+        id: 'second',
+        requires: ['first'],
+        register(context) {
+          context.provideEmailSender('smtp', () => ({ send: () => Promise.resolve() }))
+          return Promise.resolve()
+        },
+      }
+
+      await expect(
+        registerModules({
+          modules: [first, second],
+          environment: {},
+          logger: silentLogger(),
+          services: createTestServices(),
+          email: { provider: 'smtp', from: TEST_EMAIL_FROM },
+        }),
+      ).rejects.toThrow(/module "second" registers email provider "smtp", but module "first" already did/)
+    })
+
+    it("refuses a module that tries to shadow the built-in 'log' provider", async () => {
+      const impostor: KelpieModule = {
+        id: 'impostor',
+        register(context) {
+          context.provideEmailSender('log', () => ({ send: () => Promise.resolve() }))
+          return Promise.resolve()
+        },
+      }
+
+      await expect(
+        registerModules({
+          modules: [impostor],
+          environment: {},
+          logger: silentLogger(),
+          services: createTestServices(),
+          email: { provider: 'log', from: TEST_EMAIL_FROM },
+        }),
+      ).rejects.toThrow(/module "impostor" registers email provider "log", which is reserved by the runtime/)
+    })
+
+    it('fails boot when email.provider names something nothing registered', async () => {
+      await expect(
+        registerModules({
+          modules: [],
+          environment: {},
+          logger: silentLogger(),
+          services: createTestServices(),
+          email: { provider: 'postmark', from: TEST_EMAIL_FROM },
+        }),
+      ).rejects.toThrow(/email.provider is "postmark", which no module registered. Available: log/)
+    })
+
+    it('wraps a chosen provider factory that throws with the module id', async () => {
+      const broken: KelpieModule = {
+        id: 'broken',
+        register(context) {
+          context.provideEmailSender('resend', () => {
+            throw new Error('RESEND_API_KEY is required')
+          })
+          return Promise.resolve()
+        },
+      }
+
+      await expect(
+        registerModules({
+          modules: [broken],
+          environment: {},
+          logger: silentLogger(),
+          services: createTestServices(),
+          email: { provider: 'resend', from: TEST_EMAIL_FROM },
+        }),
+      ).rejects.toThrow(/email provider "resend" \(broken\) failed to build: Error: RESEND_API_KEY is required/)
+    })
+
+    it('seeds a test provider through additionalEmailProviders', async () => {
+      // The path createTestApp uses: give registerModules a preseeded sender
+      // under a name, then point email.provider at it. `services.sentEmails`
+      // sees every send that reaches through the proxy.
+      const services = createTestServices()
+      let capturedProxy: EmailSender | undefined
+
+      await registerModules({
+        modules: [
+          {
+            id: 'capturing',
+            register(context) {
+              capturedProxy = context.email
+              return Promise.resolve()
+            },
+          },
+        ],
+        environment: {},
+        logger: silentLogger(),
+        services,
+        email: { provider: TEST_EMAIL_PROVIDER, from: TEST_EMAIL_FROM },
+        additionalEmailProviders: new Map([[TEST_EMAIL_PROVIDER, services.emailSender]]),
+      })
+
+      await capturedProxy?.send({ to: 'a@example.com', subject: 's', body: 'b' })
+
+      expect(services.sentEmails).toHaveLength(1)
+      expect(services.sentEmails[0]).toMatchObject({ to: 'a@example.com' })
+    })
+  })
+
   it('registers each module exactly once', async () => {
     let registrations = 0
     const counting: KelpieModule = {
@@ -481,7 +692,7 @@ describe('registration failures', () => {
       },
     }
 
-    await registerModules({ modules: [counting], environment: {}, logger: silentLogger(), services: createTestServices() })
+    await registerModules({ modules: [counting], environment: {}, logger: silentLogger(), services: createTestServices(), email: { provider: 'log', from: TEST_EMAIL_FROM } })
 
     expect(registrations).toBe(1)
   })
@@ -584,6 +795,7 @@ describe('module toggling', () => {
         environment: { GREETING_WORD: 'Hello' },
         logger: silentLogger(),
         services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
         moduleConfig: { nonexistent: false },
       }),
     ).rejects.toThrow(/module config names "nonexistent", which is not in the module list/)
@@ -596,6 +808,7 @@ describe('module toggling', () => {
         environment: {},
         logger: silentLogger(),
         services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
         moduleConfig: { 'structural-thing': false },
       }),
     ).rejects.toThrow(/module config names "structural-thing", which is structural and cannot be disabled/)

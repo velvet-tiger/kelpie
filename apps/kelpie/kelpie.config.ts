@@ -1,3 +1,4 @@
+import { smtpEmail } from '@kelpie/module-smtp-email'
 import {
   appUrlConfigSchema,
   coreModules,
@@ -82,26 +83,19 @@ export default defineKelpieConfig({
     previousKey: fromEnv<string | undefined>(
       'SECRET_ENCRYPTION_KEY_PREVIOUS',
       secretEncryptionConfigSchema.shape.SECRET_ENCRYPTION_KEY_PREVIOUS,
+      undefined,
     ),
   },
 
+  // `provider` picks a named sender from the runtime's registry: `'log'` is
+  // built in, other names come from provider modules (`'smtp'` is registered
+  // by `@kelpie/module-smtp-email`; `'resend'` or `'postmark'` would be
+  // registered by their own modules). `from` is the address on every
+  // outgoing message. Provider-specific config (SMTP host, an API key) lives
+  // in the provider module and is read through `context.config(...)`.
   email: {
-    provider: fromEnv('EMAIL_PROVIDER', z.enum(['log', 'smtp'])),
+    provider: fromEnv('EMAIL_PROVIDER', z.string().min(1)),
     from: fromEnv('EMAIL_FROM', z.string().min(1)),
-    smtp: {
-      host: fromEnv<string | undefined>('SMTP_HOST', z.string().min(1).optional(), undefined),
-      port: fromEnv<number | undefined>('SMTP_PORT', port.optional(), undefined),
-      secure: fromEnv<boolean | undefined>(
-        'SMTP_SECURE',
-        z
-          .enum(['true', 'false'])
-          .transform((value) => value === 'true')
-          .optional(),
-        undefined,
-      ),
-      user: fromEnv<string | undefined>('SMTP_USER', z.string().min(1).optional(), undefined),
-      password: fromEnv<string | undefined>('SMTP_PASSWORD', z.string().min(1).optional(), undefined),
-    },
   },
 
   // Budgets applied per `api.md`. Every leaf has a default in `lib/rateLimit.ts`;
@@ -128,5 +122,11 @@ export default defineKelpieConfig({
   // Boot registers these in order, after resolving `requires`. An unknown id,
   // an unmet dependency, or invalid module config stops boot. The cloud
   // assembly keeps its own list in its own repo.
-  modules: [...coreModules],
+  //
+  // `smtpEmail()` registers a provider named `'smtp'`. Set `EMAIL_PROVIDER=log`
+  // to fall back to the built-in log sender (invites and password resets
+  // write to the log instead of going out); the module can stay in the list
+  // either way, since it only becomes the sender when `email.provider` picks
+  // its name.
+  modules: [...coreModules, smtpEmail()],
 })

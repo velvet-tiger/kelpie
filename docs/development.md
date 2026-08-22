@@ -111,18 +111,18 @@ A module is one object:
 import type { KelpieModule } from '@kelpie/server'
 import { z } from 'zod'
 
-export const smtpEmail: KelpieModule = {
-  id: 'smtp-email',
+export const featureFlags: KelpieModule = {
+  id: 'feature-flags',
   requires: ['workspace'],
   async register(context) {
-    const config = context.config(z.object({ SMTP_HOST: z.string() }))
+    const config = context.config(z.object({ FLAG_SERVICE_URL: z.string() }))
 
     context.routes((router) => {
-      router.get('/email/status', (c) => c.json({ host: config.SMTP_HOST }))
+      router.get('/flags/status', (c) => c.json({ host: config.FLAG_SERVICE_URL }))
     })
 
     context.schema(tables, '/abs/path/to/migrations')
-    context.mcp.tool({ name: 'email.status', description: '…', inputSchema, invoke })
+    context.mcp.tool({ name: 'flags.status', description: '…', inputSchema, invoke })
   },
 }
 ```

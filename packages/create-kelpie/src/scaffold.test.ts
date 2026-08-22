@@ -119,6 +119,7 @@ describe('scaffold', () => {
     expect(manifest.name).toBe('acme-crm')
     expect(manifest.dependencies['@kelpie/server']).toBe('^2.5.0')
     expect(manifest.dependencies['@kelpie/ui']).toBe('^2.5.0')
+    expect(manifest.dependencies['@kelpie/module-smtp-email']).toBe('^2.5.0')
   })
 
   it('writes the generated key and the database url into .env', () => {

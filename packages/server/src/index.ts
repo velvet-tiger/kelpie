@@ -38,7 +38,7 @@ export type { Database, DatabaseConnection, DatabaseProbe } from './lib/database
 
 export * as schema from './schema/index.ts'
 
-export { createEmailSender, createLogEmailSender, emailConfigSchema } from './lib/email.ts'
+export { createLogEmailSender, emailConfigSchema } from './lib/email.ts'
 export type { EmailConfig, EmailMessage, EmailSender } from './lib/email.ts'
 
 export { MINIMUM_PASSWORD_LENGTH, hashPassword, isPasswordStrongEnough, verifyPassword } from './lib/passwords.ts'

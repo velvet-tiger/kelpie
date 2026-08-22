@@ -40,10 +40,14 @@ Then open <http://localhost:__WEB_PORT__/signup> and create an account.
 Passwords need at least 12 characters. Signup names your workspace, invites your
 team, and leaves you on People with a starter handbook in place.
 
-This default configuration doesn't send email. `EMAIL_PROVIDER=log` prints
-invitation and password-reset links to the API's log instead of mailing them;
-copy them from there to follow either flow. Set `EMAIL_PROVIDER=smtp` below to
-send them for real.
+This install picks its transactional-mail sender through `EMAIL_PROVIDER` in
+`.env`. Out of the box it is `log`, which writes invitation and password-reset
+messages to the API's log instead of sending them; copy the link from there
+to follow either flow locally. Set `EMAIL_PROVIDER=smtp` and fill in the
+`SMTP_*` variables below to send them over SMTP through
+`@kelpie/module-smtp-email` (already in `kelpie.config.ts`'s `modules:`).
+Other provider modules (Resend, Postmark, …) register their own name; set
+`EMAIL_PROVIDER` to that name to use them instead.
 
 ## Adding a module
 
@@ -66,13 +70,13 @@ lists every problem at once.
 | `DATABASE_URL` | A `postgres://` or `postgresql://` connection string |
 | `APP_BASE_URL` | The address people reach this Kelpie on. Emailed links (verification, password reset, invitations) are built from it. In development that is the Vite dev server; a deployment sets its real origin |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
-| `EMAIL_PROVIDER` | `log` or `smtp`. `log` writes invitations and resets to the log instead of sending them |
+| `EMAIL_PROVIDER` | Name of the transactional-mail sender to use. `log` (built in) writes to the log instead of sending; `smtp` sends over SMTP through `@kelpie/module-smtp-email`; other names come from other provider modules |
 | `EMAIL_FROM` | The address transactional mail comes from |
-| `SMTP_HOST` | Required when `EMAIL_PROVIDER=smtp`. The mail server to connect to |
-| `SMTP_PORT` | Required when `EMAIL_PROVIDER=smtp`. The mail server's port |
-| `SMTP_SECURE` | Required when `EMAIL_PROVIDER=smtp`. `true` or `false`. Whether to connect over TLS from the start (typically port 465) rather than upgrading with STARTTLS (typically port 587 or 25) |
-| `SMTP_USER` | Required when `EMAIL_PROVIDER=smtp`. The SMTP username |
-| `SMTP_PASSWORD` | Required when `EMAIL_PROVIDER=smtp`. The SMTP password |
+| `SMTP_HOST` | Read by `@kelpie/module-smtp-email` when `EMAIL_PROVIDER=smtp`. The mail server to connect to |
+| `SMTP_PORT` | Read by `@kelpie/module-smtp-email` when `EMAIL_PROVIDER=smtp`. The mail server's port |
+| `SMTP_SECURE` | Read by `@kelpie/module-smtp-email` when `EMAIL_PROVIDER=smtp`. `true` or `false`. Whether to connect over TLS from the start (typically port 465) rather than upgrading with STARTTLS (typically port 587 or 25) |
+| `SMTP_USER` | Read by `@kelpie/module-smtp-email` when `EMAIL_PROVIDER=smtp`. The SMTP username |
+| `SMTP_PASSWORD` | Read by `@kelpie/module-smtp-email` when `EMAIL_PROVIDER=smtp`. The SMTP password |
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64, generated for this project |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |
 | `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional, default 30 |

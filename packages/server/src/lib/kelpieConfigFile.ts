@@ -77,21 +77,23 @@ export interface LoggingInput {
   readonly destinations: readonly LoggingDestination[]
 }
 
+/**
+ * The `email` sub-tree of the assembly config.
+ *
+ * `provider` names one entry in the runtime's provider registry. `'log'` is a
+ * built-in the runtime always registers; other names come from provider
+ * modules (`@kelpie/module-smtp-email` registers `'smtp'`, an API-based
+ * provider might register `'resend'` or `'postmark'`, and so on). Free-string
+ * so a self-hoster can install a module core has never heard of.
+ *
+ * `from` is the address on every outgoing message. Provider-specific config
+ * (SMTP host and credentials, an API key) belongs to the provider module,
+ * which reads it through `context.config(...)`; putting it here would tie the
+ * assembly config to a single transport.
+ */
 export interface EmailInput {
-  readonly provider: ConfigValue<'log' | 'smtp'>
+  readonly provider: ConfigValue<string>
   readonly from: ConfigValue<string>
-  /**
-   * Required when provider is `smtp`; ignored when `log`. Every leaf permits
-   * `undefined` so a `fromEnv(..., undefined)` marker can leave it unfilled and
-   * `resolveKelpieConfig` can report which specific SMTP field is missing.
-   */
-  readonly smtp?: {
-    readonly host?: ConfigValue<string | undefined>
-    readonly port?: ConfigValue<number | undefined>
-    readonly secure?: ConfigValue<boolean | undefined>
-    readonly user?: ConfigValue<string | undefined>
-    readonly password?: ConfigValue<string | undefined>
-  }
 }
 
 export interface SecretEncryptionInput {
@@ -151,7 +153,7 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
   // we throw before returning.
   const resolved = walked.value as ResolvedInput
 
-  const email = buildEmailConfig(resolved.email, problems)
+  const email = buildEmailConfig(resolved.email)
   const rateLimit = buildRateLimitConfig(resolved.rateLimit)
   const env = mergeEnv(environment, resolved.env)
   const secretEncryption = buildSecretEncryptionConfig(resolved.secretEncryption)
@@ -220,15 +222,8 @@ interface ResolvedSecretEncryption {
 }
 
 interface ResolvedEmail {
-  readonly provider: 'log' | 'smtp'
+  readonly provider: string
   readonly from: string
-  readonly smtp?: {
-    readonly host?: string
-    readonly port?: number
-    readonly secure?: boolean
-    readonly user?: string
-    readonly password?: string
-  }
 }
 
 interface ResolvedRateLimit {
@@ -238,58 +233,13 @@ interface ResolvedRateLimit {
   readonly api?: { readonly limit?: number; readonly windowSeconds?: number }
 }
 
-function buildEmailConfig(resolved: ResolvedEmail | undefined, problems: string[]): EmailConfig {
-  // A missing `email.provider` is already recorded as a problem by the walker;
-  // return a placeholder so `resolveKelpieConfig` reaches the throw below.
-  if (resolved === undefined || resolved.provider === undefined) {
-    return { EMAIL_PROVIDER: 'log', EMAIL_FROM: resolved?.from ?? '' }
-  }
-
-  if (resolved.provider === 'log') {
-    return { EMAIL_PROVIDER: 'log', EMAIL_FROM: resolved.from }
-  }
-
-  const smtp = resolved.smtp ?? {}
-  const host = smtp.host
-  const port = smtp.port
-  const secure = smtp.secure
-  const user = smtp.user
-  const password = smtp.password
-
-  if (
-    host === undefined ||
-    port === undefined ||
-    secure === undefined ||
-    user === undefined ||
-    password === undefined
-  ) {
-    if (host === undefined) {
-      problems.push('email.smtp.host is required when email.provider is "smtp"')
-    }
-    if (port === undefined) {
-      problems.push('email.smtp.port is required when email.provider is "smtp"')
-    }
-    if (secure === undefined) {
-      problems.push('email.smtp.secure is required when email.provider is "smtp"')
-    }
-    if (user === undefined) {
-      problems.push('email.smtp.user is required when email.provider is "smtp"')
-    }
-    if (password === undefined) {
-      problems.push('email.smtp.password is required when email.provider is "smtp"')
-    }
-
-    return { EMAIL_PROVIDER: 'log', EMAIL_FROM: resolved.from }
-  }
-
+function buildEmailConfig(resolved: ResolvedEmail | undefined): EmailConfig {
+  // Missing `email.provider` or `email.from` is already recorded by the
+  // walker; return a placeholder so `resolveKelpieConfig` reaches its throw
+  // below.
   return {
-    EMAIL_PROVIDER: 'smtp',
-    EMAIL_FROM: resolved.from,
-    SMTP_HOST: host,
-    SMTP_PORT: port,
-    SMTP_SECURE: secure,
-    SMTP_USER: user,
-    SMTP_PASSWORD: password,
+    EMAIL_PROVIDER: resolved?.provider ?? '',
+    EMAIL_FROM: resolved?.from ?? '',
   }
 }
 

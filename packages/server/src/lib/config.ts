@@ -3,6 +3,10 @@ import { z } from 'zod'
 import { emailConfigSchema } from './email.ts'
 import type { EmailConfig } from './email.ts'
 import { describeValidationIssue } from './errors.ts'
+// `EmailConfig` is `{ EMAIL_PROVIDER, EMAIL_FROM }`. `EMAIL_PROVIDER` names one
+// of the registered senders; `'log'` is always available, other names come
+// from provider modules. Provider-specific config (SMTP settings, an API key)
+// belongs to the module that reads it through `context.config(...)`.
 import type { LoggingDestination } from './logger.ts'
 import { rateLimitConfigFrom, rateLimitConfigSchema } from './rateLimit.ts'
 import type { RateLimitConfig } from './rateLimit.ts'
@@ -36,7 +40,12 @@ export interface KelpieConfig {
   readonly port: number
   readonly databaseUrl: string
   readonly logging: LoggingConfig
-  /** Transactional mail only. Roadmap decision 4: configured, never hardcoded. */
+  /**
+   * The provider name the module runtime looks up in its registry, and the
+   * from address every outgoing message uses. See `lib/email.ts` for the
+   * shape and rules; `'log'` is always available, other names come from
+   * provider modules such as `@kelpie/module-smtp-email`.
+   */
   readonly email: EmailConfig
   /**
    * Path to the deploy-time module override file (`lib/moduleConfig.ts`).
@@ -117,10 +126,8 @@ const environmentSchema = z.object({
 /**
  * Parses an environment into a validated config.
  *
- * `emailConfigSchema` is a discriminated union, so it is parsed separately
- * from the rest: a union has no flat `.shape` to spread into `environmentSchema`,
- * only its own `EMAIL_PROVIDER`-keyed branches. Problems from both parses are
- * combined into one error, preserving the "every missing variable at once" rule.
+ * The email variables are parsed separately so a caller sees every missing
+ * variable at once, rather than one at a time.
  *
  * @param environment Raw variables, normally `process.env`.
  * @throws ConfigurationError listing every invalid or missing variable.

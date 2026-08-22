@@ -7,7 +7,6 @@ import {
   WebBundleError,
   connectDatabase,
   createApp,
-  createEmailSender,
   createEventBus,
   createIdFactory,
   createLogger,
@@ -61,13 +60,16 @@ async function start(): Promise<void> {
     resolveActor: (context) => resolveActorFrom(credentials, context),
     services: {
       db: database.db,
-      transaction: createTransactionScope({ db: database.db, bus: events, logger }),
-      email: createEmailSender(config.email, logger),
+      transaction: createTransactionScope({ db: database.db, bus: events, logger, createId }),
       createId,
       now: () => new Date(),
       appBaseUrl: config.appBaseUrl,
       secretEncryption: config.secretEncryption,
     },
+    // `provider` picks a named sender from the runtime's registry. `'log'` is
+    // built in; other names come from provider modules (`smtpEmail()`
+    // registers `'smtp'`). `from` is the address on every outgoing message.
+    email: { provider: config.email.EMAIL_PROVIDER, from: config.email.EMAIL_FROM },
   })
 
   if (process.argv.includes('--no-migrate')) {

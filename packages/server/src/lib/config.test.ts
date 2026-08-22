@@ -30,6 +30,10 @@ describe('loadConfig', () => {
       },
       trustedProxyHopCount: 0,
       env: validEnvironment,
+      appBaseUrl: undefined,
+      secretEncryption: undefined,
+      moduleConfigPath: undefined,
+      webBundleDirectory: undefined,
     })
   })
 
@@ -53,6 +57,7 @@ describe('loadConfig', () => {
     expect(problems).toContain('DATABASE_URL')
     expect(problems).toContain('LOG_LEVEL')
     expect(problems).toContain('EMAIL_PROVIDER')
+    expect(problems).toContain('EMAIL_FROM')
   })
 
   it('rejects a non-postgres database url', () => {
@@ -67,63 +72,5 @@ describe('loadConfig', () => {
 
   it('rejects an unknown log level rather than falling back', () => {
     expect(() => loadConfig({ ...validEnvironment, LOG_LEVEL: 'verbose' })).toThrow(ConfigurationError)
-  })
-
-  describe('EMAIL_PROVIDER=smtp', () => {
-    const smtpEnvironment = {
-      ...validEnvironment,
-      EMAIL_PROVIDER: 'smtp',
-      SMTP_HOST: 'smtp.example.com',
-      SMTP_PORT: '587',
-      SMTP_SECURE: 'false',
-      SMTP_USER: 'kelpie',
-      SMTP_PASSWORD: 'a-real-password',
-    }
-
-    it('parses a complete smtp environment, coercing the port and the boolean', () => {
-      expect(loadConfig(smtpEnvironment).email).toEqual({
-        EMAIL_PROVIDER: 'smtp',
-        EMAIL_FROM: 'kelpie@example.com',
-        SMTP_HOST: 'smtp.example.com',
-        SMTP_PORT: 587,
-        SMTP_SECURE: false,
-        SMTP_USER: 'kelpie',
-        SMTP_PASSWORD: 'a-real-password',
-      })
-    })
-
-    it('coerces SMTP_SECURE=true', () => {
-      expect(loadConfig({ ...smtpEnvironment, SMTP_SECURE: 'true' }).email).toMatchObject({ SMTP_SECURE: true })
-    })
-
-    it('reports every missing SMTP_* variable at once, alongside the rest', () => {
-      let thrown: unknown
-
-      try {
-        loadConfig({ ...validEnvironment, EMAIL_PROVIDER: 'smtp' })
-      } catch (error: unknown) {
-        thrown = error
-      }
-
-      expect(thrown).toBeInstanceOf(ConfigurationError)
-      if (!(thrown instanceof ConfigurationError)) {
-        throw thrown
-      }
-
-      const problems = thrown.problems.join('\n')
-      expect(problems).toContain('SMTP_HOST')
-      expect(problems).toContain('SMTP_PORT')
-      expect(problems).toContain('SMTP_SECURE')
-      expect(problems).toContain('SMTP_USER')
-      expect(problems).toContain('SMTP_PASSWORD')
-    })
-
-    it('rejects a non-numeric SMTP_PORT', () => {
-      expect(() => loadConfig({ ...smtpEnvironment, SMTP_PORT: 'default' })).toThrow(ConfigurationError)
-    })
-
-    it('rejects an SMTP_SECURE value that is not "true" or "false"', () => {
-      expect(() => loadConfig({ ...smtpEnvironment, SMTP_SECURE: 'yes' })).toThrow(ConfigurationError)
-    })
   })
 })
