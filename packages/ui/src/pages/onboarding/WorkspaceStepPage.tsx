@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router'
 
+import { useInstallSampleData } from '../../api/resources/sampleData.ts'
 import { useCreateWorkspace, useSession } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SubmitButton, TextField } from '../auth/AuthForm.tsx'
@@ -48,10 +49,12 @@ export function WorkspaceStepPage(): React.JSX.Element {
   const navigate = useNavigate()
   const { isSignedOut } = useSession()
   const createWorkspace = useCreateWorkspace()
+  const installSampleData = useInstallSampleData()
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugEdited, setSlugEdited] = useState(false)
   const [timezone] = useState(browserTimezone)
+  const [seedSample, setSeedSample] = useState(false)
 
   function changeName(value: string): void {
     setName(value)
@@ -71,7 +74,18 @@ export function WorkspaceStepPage(): React.JSX.Element {
 
     createWorkspace
       .runAsync({ name: name.trim(), slug: slug.trim(), timezone })
-      .then(() => navigate('/onboarding/invites', { replace: true }))
+      .then(async (workspace) => {
+        if (seedSample) {
+          // A refusal here does not block the wizard: the workspace itself is
+          // already created, and the invites step is what comes next either
+          // way. The error stays on screen so the reader sees what failed.
+          await installSampleData
+            .runAsync({ workspaceId: workspace.id })
+            .catch(() => undefined)
+        }
+
+        navigate('/onboarding/invites', { replace: true })
+      })
       .catch(() => undefined)
   }
 
@@ -110,11 +124,25 @@ export function WorkspaceStepPage(): React.JSX.Element {
         <p className="text-[11px] text-ink-faint">
           Timezone: {timezone}. Change it later in Admin → Workspace.
         </p>
+        <label className="flex items-start gap-2 text-[12px] text-ink">
+          <input
+            type="checkbox"
+            checked={seedSample}
+            onChange={(event) => setSeedSample(event.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent"
+          />
+          <span>
+            Install sample data — a small set of companies, people, deals, opportunities,
+            fundraising, partnerships, and hiring so the workspace has something to look at.
+            You can delete it later.
+          </span>
+        </label>
         {createWorkspace.error !== null && <ErrorPanel error={createWorkspace.error} />}
+        {installSampleData.error !== null && <ErrorPanel error={installSampleData.error} />}
         <SubmitButton
           label="Continue"
-          pendingLabel="Creating…"
-          isPending={createWorkspace.isPending}
+          pendingLabel={installSampleData.isPending ? 'Installing sample data…' : 'Creating…'}
+          isPending={createWorkspace.isPending || installSampleData.isPending}
         />
       </form>
     </AuthLayout>

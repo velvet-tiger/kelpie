@@ -21,6 +21,7 @@ import { createPipelinesModule } from './pipelines/index.ts'
 import { createPlansModule } from './plans/index.ts'
 import { createPositionsModule } from './positions/index.ts'
 import { createRaisesModule } from './raises/index.ts'
+import { createSampleDataModule } from './sample-data/index.ts'
 import { createSearchModule } from './search/index.ts'
 import { createSmtpEmailModule } from './smtp-email/index.ts'
 import { createWebhooksModule } from './webhooks/index.ts'
@@ -66,6 +67,9 @@ export const coreModules: readonly KelpieModule[] = [
   createImportExportModule(coreMigrationsDirectory),
   createAgentTasksModule(coreMigrationsDirectory),
   createWebhooksModule(coreMigrationsDirectory),
+  // Owns no tables. One-shot fixture install for a new workspace, called from
+  // the setup wizard's checkbox and the admin data page.
+  createSampleDataModule(),
   // Owns no tables. Registers a `'smtp'` provider with core's email runtime;
   // the factory only runs if the assembly's `email.provider` picks it.
   createSmtpEmailModule(),

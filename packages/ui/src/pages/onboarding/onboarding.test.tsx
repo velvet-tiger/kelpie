@@ -103,6 +103,22 @@ function onboardingClient(calls: Calls, stubs: Stubs = {}): ApiClient {
         return WORKSPACE
       }
 
+      if (path.endsWith('/sample-data')) {
+        return {
+          companies: 5,
+          people: 5,
+          positions: 5,
+          deals: 3,
+          plan_items: 3,
+          notes: 3,
+          opportunities: 3,
+          raises: 1,
+          partnerships: 2,
+          roles: 2,
+          candidates: 3,
+        }
+      }
+
       const sent = body as { email: string; role: string }
 
       if (stubs.rejectEmails?.includes(sent.email) === true) {
@@ -211,6 +227,48 @@ describe('WorkspaceStepPage', () => {
     })
 
     expect((screen.getByLabelText(/^Slug/u) as HTMLInputElement).value).toBe('acme-labs')
+  })
+
+  it('installs the sample fixture when the checkbox is on and moves on', async () => {
+    const calls = noCalls()
+
+    renderStep(<WorkspaceStepPage />, calls, { workspaceId: null })
+
+    await act(async () => {
+      setValue(screen.getByLabelText(/^Workspace name/u), 'Acme Labs')
+    })
+
+    await act(async () => {
+      screen.getByLabelText(/Install sample data/u).click()
+    })
+
+    await press('Continue')
+
+    await waitFor(() => {
+      expect(calls.posted).toHaveLength(2)
+    })
+
+    expect(calls.posted[0]?.path).toBe('/workspaces')
+    expect(calls.posted[1]?.path).toBe('/workspaces/wsp_1/sample-data')
+    expect(await screen.findByText('step 2')).toBeTruthy()
+  })
+
+  it('creates the workspace without seeding when the checkbox is off', async () => {
+    const calls = noCalls()
+
+    renderStep(<WorkspaceStepPage />, calls, { workspaceId: null })
+
+    await act(async () => {
+      setValue(screen.getByLabelText(/^Workspace name/u), 'Acme Labs')
+    })
+
+    await press('Continue')
+
+    await waitFor(() => {
+      expect(calls.posted).toHaveLength(1)
+    })
+
+    expect(calls.posted[0]?.path).toBe('/workspaces')
   })
 })
 

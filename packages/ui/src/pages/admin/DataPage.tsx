@@ -22,6 +22,7 @@ import type {
   ImportRowError,
   ImportSource,
   OnMissingCompany,
+  SampleDataCounts,
 } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
@@ -34,6 +35,8 @@ import {
   useExportCsv,
   useImportJob,
 } from '../../api/resources/importJobs.ts'
+import { useInstallSampleData } from '../../api/resources/sampleData.ts'
+import { useSession } from '../../api/resources/session.ts'
 import { PageHeader } from '../../components/PageHeader.tsx'
 
 /**
@@ -223,7 +226,9 @@ export function DataPage(): ReactNode {
         </p>
       )}
 
-      <section className="space-y-4">
+      <SampleDataSection />
+
+      <section className="space-y-4 border-t border-border pt-8">
         <div>
           <h2 className="text-[15px] font-semibold text-ink">Export</h2>
           <p className="mt-1 text-[13px] text-ink-muted">
@@ -829,4 +834,71 @@ function Field({
 
 function messageOf(error: Error | null | undefined): string | null {
   return error === null || error === undefined ? null : error.message
+}
+
+/**
+ * One button that fills the workspace with a small demo fixture.
+ *
+ * The endpoint refuses on a workspace that already has data, so the button
+ * never doubles the seed and the "already has data" answer surfaces here as
+ * a plain error line.
+ */
+function SampleDataSection(): ReactNode {
+  const { session } = useSession()
+  const workspaceId = session?.workspaceId ?? null
+  const install = useInstallSampleData()
+  const [counts, setCounts] = useState<SampleDataCounts | null>(null)
+
+  function onInstall(): void {
+    if (workspaceId === null) {
+      return
+    }
+
+    install
+      .runAsync({ workspaceId })
+      .then((result) => {
+        setCounts(result)
+      })
+      .catch(() => undefined)
+  }
+
+  const failure = messageOf(install.error)
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-[15px] font-semibold text-ink">Install sample data</h2>
+        <p className="mt-1 text-[13px] text-ink-muted">
+          A small set of companies, people, and deals so a fresh workspace has something
+          to look at. Refuses if this workspace already has CRM data.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onInstall}
+        disabled={install.isPending || workspaceId === null || counts !== null}
+        className="rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
+      >
+        {counts !== null
+          ? 'Installed'
+          : install.isPending
+            ? 'Installing…'
+            : 'Install sample data'}
+      </button>
+      {counts !== null ? (
+        <p className="text-[12px] text-ink-muted">
+          Added {counts.companies} companies, {counts.people} people, {counts.positions}{' '}
+          positions, {counts.deals} deals, {counts.opportunities} opportunities,{' '}
+          {counts.raises} raises, {counts.partnerships} partnerships, {counts.roles} roles,{' '}
+          {counts.candidates} candidates, {counts.planItems} plan items, and{' '}
+          {counts.notes} notes.
+        </p>
+      ) : null}
+      {failure === null ? null : (
+        <p role="alert" className="text-[12px] font-medium text-danger">
+          {failure}
+        </p>
+      )}
+    </section>
+  )
 }
