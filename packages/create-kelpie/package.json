@@ -1,6 +1,6 @@
 {
   "name": "create-kelpie",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Scaffold a self-hosted Kelpie assembly. Run it with npm create kelpie.",
   "keywords": [
     "kelpie",

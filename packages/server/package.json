@@ -1,6 +1,6 @@
 {
   "name": "@kelpie/server",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "The Kelpie service as a library: module runtime, core CRM modules, REST API, MCP surface, and the shared migration pipeline.",
   "keywords": [
     "kelpie",
@@ -52,7 +52,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.12",
-    "@kelpie/schemas": "^0.6.0",
+    "@kelpie/schemas": "^0.7.0",
     "@node-rs/argon2": "^2.0.2",
     "drizzle-orm": "^0.45.2",
     "emittery": "^2.0.0",
