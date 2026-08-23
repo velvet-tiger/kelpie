@@ -3,7 +3,7 @@ import type { Context, Hono } from 'hono'
 import { createApp } from '../app.ts'
 import type { AppBindings } from '../app.ts'
 import type { Actor } from '../lib/actor.ts'
-import type { Environment } from '../lib/config.ts'
+import type { Environment, RuntimeMode } from '../lib/config.ts'
 import type { DatabaseProbe } from '../lib/database.ts'
 import { createCaptureTransport, createLogger } from '../lib/logger.ts'
 import { rateLimitConfigFrom, rateLimitConfigSchema } from '../lib/rateLimit.ts'
@@ -57,6 +57,10 @@ export interface TestAppOptions {
   readonly rateLimit?: RateLimitConfig
   /** Defaults to reading `X-Forwarded-For`, so a test can simulate distinct callers. */
   readonly resolveClientIp?: (context: Context) => string
+  /** Reported through `GET /v1/public/config`. Defaults to `'production'`. */
+  readonly runtimeMode?: RuntimeMode
+  /** Reported through `GET /v1/public/config`. Defaults to unset. */
+  readonly siteName?: string
 }
 
 export interface TestApp {
@@ -102,6 +106,8 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     createId: services.createId,
     rateLimit: options.rateLimit ?? DEFAULT_TEST_RATE_LIMIT,
     resolveClientIp: options.resolveClientIp ?? testClientIp,
+    ...(options.runtimeMode === undefined ? {} : { runtimeMode: options.runtimeMode }),
+    ...(options.siteName === undefined ? {} : { siteName: options.siteName }),
   })
 
   return { app, contributions, logLines, services }

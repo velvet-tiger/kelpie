@@ -64,6 +64,12 @@ export default defineKelpieConfig({
   // where each workspace's own settings decide.
   moduleConfigPath: fromEnv<string | undefined>('KELPIE_MODULE_CONFIG_PATH', z.string().min(1).optional(), undefined),
 
+  // Human-readable name of this install ("dev", "demo", "cloud"). Read by the
+  // browser through `GET /v1/public/config` and painted at the top of the UI
+  // on non-production runs, so three tabs open at the same time are easy to
+  // tell apart. Unset means the mode is used as the label.
+  siteName: fromEnv<string | undefined>('KELPIE_SITE_NAME', z.string().min(1).optional(), undefined),
+
   // How many trusted proxies stand in front of the service. Zero (the default)
   // means the socket address is the client. Positive reads the client IP from
   // `X-Forwarded-For`, trusting the header for that many hops.

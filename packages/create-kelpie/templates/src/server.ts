@@ -50,6 +50,8 @@ async function start(): Promise<void> {
     credentials,
     createId,
     rateLimit: config.rateLimit,
+    runtimeMode: config.runtimeMode,
+    siteName: config.siteName,
     // The socket address, then `X-Forwarded-For` only as far as the configured
     // number of trusted proxies allows. Resolved from the connection itself
     // rather than defaulted inside `createApp`, and trusting the header any

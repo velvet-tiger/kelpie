@@ -27,6 +27,12 @@ export interface KelpieConfigInput {
   readonly webBundleDirectory?: ConfigValue<string | undefined>
   /** Optional; unset in development, set to the deploy-time module override file. */
   readonly moduleConfigPath?: ConfigValue<string | undefined>
+  /**
+   * Human-readable name of this deployment ("dev", "demo", "cloud"). Optional.
+   * Read by the browser through `GET /v1/public/config` so a non-production UI
+   * can name the site it is on. Ignored when `runtimeMode` is `production`.
+   */
+  readonly siteName?: ConfigValue<string | undefined>
   /** Optional; defaults to 0 (no proxy in front). */
   readonly trustedProxyHopCount?: ConfigValue<number>
   /**
@@ -173,6 +179,7 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
     },
     email,
     moduleConfigPath: resolved.moduleConfigPath,
+    siteName: resolved.siteName,
     webBundleDirectory: resolved.webBundleDirectory,
     rateLimit,
     trustedProxyHopCount: resolved.trustedProxyHopCount ?? 0,
@@ -208,6 +215,7 @@ interface ResolvedInput {
   }
   readonly webBundleDirectory?: string | undefined
   readonly moduleConfigPath?: string | undefined
+  readonly siteName?: string | undefined
   readonly trustedProxyHopCount?: number
   readonly appBaseUrl?: string
   readonly secretEncryption?: ResolvedSecretEncryption

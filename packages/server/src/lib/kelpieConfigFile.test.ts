@@ -50,6 +50,7 @@ describe('resolveKelpieConfig', () => {
       },
       email: { EMAIL_PROVIDER: 'log', EMAIL_FROM: 'kelpie@example.com' },
       moduleConfigPath: undefined,
+      siteName: undefined,
       webBundleDirectory: undefined,
       rateLimit: {
         forms: { limit: 20, windowMs: 60_000 },

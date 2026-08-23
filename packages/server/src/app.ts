@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { cors } from 'hono/cors'
 
+import type { RuntimeMode } from './lib/config.ts'
 import type { DatabaseProbe } from './lib/database.ts'
 import { AppError, internalErrorBody, toErrorBody } from './lib/errors.ts'
 import { PUBLIC_ROUTE_PREFIX } from './lib/http.ts'
@@ -51,6 +52,18 @@ export interface AppDependencies {
    * control (`testing/app.ts`).
    */
   readonly resolveClientIp: (context: Context) => string
+  /**
+   * Reported through `GET /v1/public/config` so the browser knows which
+   * runtime it is talking to. Defaults to `'production'` so a caller that has
+   * not thought about it fails safe: no banner shows.
+   */
+  readonly runtimeMode?: RuntimeMode
+  /**
+   * Reported through `GET /v1/public/config` so a non-production UI can name
+   * the site it is on. Undefined is fine and means "this deployment did not
+   * name itself".
+   */
+  readonly siteName?: string | undefined
 }
 
 /** Per-request values the middleware chain sets and handlers read. */
@@ -160,6 +173,19 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   for (const { router } of dependencies.contributions.publicRouters) {
     app.route(PUBLIC_ROUTE_PREFIX, router)
   }
+
+  // Public deployment metadata the browser reads once at boot. Sits under the
+  // public prefix so the CORS and rate-limit layers above cover it, and takes
+  // no credentials for the same reason /healthz does not: the pages that read
+  // it include the sign-in page, which runs before any session exists. The
+  // runtime mode is already visible in error messages, and the site name
+  // exists to be visible; nothing here is sensitive.
+  const runtimeMode: RuntimeMode = dependencies.runtimeMode ?? 'production'
+  const siteName = dependencies.siteName ?? null
+
+  app.get(`${PUBLIC_ROUTE_PREFIX}/config`, (context) =>
+    context.json({ runtime_mode: runtimeMode, site_name: siteName }, 200),
+  )
 
   for (const { router } of dependencies.contributions.routers) {
     app.route('/v1', router)

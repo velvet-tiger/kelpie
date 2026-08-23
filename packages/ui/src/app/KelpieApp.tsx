@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 
 import { ApiProvider } from '../api/ApiProvider.tsx'
+import { EnvironmentBanner } from '../components/EnvironmentBanner.tsx'
 import { Shell } from '../components/Shell.tsx'
 import { CompaniesPage } from '../pages/CompaniesPage.tsx'
 import { CompanyDetail } from '../pages/CompanyDetail.tsx'
@@ -78,6 +79,12 @@ export function KelpieApp({ extensions, baseUrl }: KelpieAppProps): React.JSX.El
     <ApiProvider baseUrl={baseUrl}>
       <UiExtensionProvider extensions={extensions}>
         <BrowserRouter>
+          {/* Above the router so the strip renders on the sign-in page as
+              well as the main app. Nothing forces a height here: on
+              production the banner returns null, and the Shell (or the sign-
+              in layout) fills the viewport as it did before. On non-
+              production the 20px strip stacks above them. */}
+          <EnvironmentBanner />
           <AppRoutes />
         </BrowserRouter>
       </UiExtensionProvider>

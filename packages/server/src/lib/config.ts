@@ -39,6 +39,13 @@ export interface KelpieConfig {
   readonly runtimeMode: RuntimeMode
   readonly port: number
   readonly databaseUrl: string
+  /**
+   * Human-readable name of this deployment ("dev", "demo", "cloud", or
+   * whatever the self-hoster picks). Undefined is normal. Exposed to the
+   * browser through `GET /v1/public/config` so a non-production UI can name
+   * the site it is on. Ignored when `runtimeMode` is `production`.
+   */
+  readonly siteName: string | undefined
   readonly logging: LoggingConfig
   /**
    * The provider name the module runtime looks up in its registry, and the
@@ -119,6 +126,7 @@ const environmentSchema = z.object({
     .refine(isPostgresUrl, { message: 'must be a postgres:// or postgresql:// connection string' }),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']),
   KELPIE_MODULE_CONFIG_PATH: z.string().min(1).optional(),
+  KELPIE_SITE_NAME: z.string().min(1).optional(),
   WEB_BUNDLE_DIR: z.string().min(1).optional(),
   TRUSTED_PROXY_HOP_COUNT: z.coerce.number().int().nonnegative().default(0),
   ...rateLimitConfigSchema.shape,
@@ -156,6 +164,7 @@ export function loadConfig(environment: Environment): KelpieConfig {
     },
     email: emailResult.data,
     moduleConfigPath: environmentResult.data.KELPIE_MODULE_CONFIG_PATH,
+    siteName: environmentResult.data.KELPIE_SITE_NAME,
     webBundleDirectory: environmentResult.data.WEB_BUNDLE_DIR,
     rateLimit: rateLimitConfigFrom(environmentResult.data),
     trustedProxyHopCount: environmentResult.data.TRUSTED_PROXY_HOP_COUNT,

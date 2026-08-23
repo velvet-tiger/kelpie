@@ -51,6 +51,26 @@ describe('request ids', () => {
   })
 })
 
+describe('GET /v1/public/config', () => {
+  it('reports the runtime mode and site name', async () => {
+    const { app } = await createTestApp({ runtimeMode: 'development', siteName: 'dev' })
+
+    const response = await app.request('/v1/public/config')
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ runtime_mode: 'development', site_name: 'dev' })
+  })
+
+  it('defaults to production and a null site name when nothing was passed', async () => {
+    const { app } = await createTestApp()
+
+    const response = await app.request('/v1/public/config')
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ runtime_mode: 'production', site_name: null })
+  })
+})
+
 describe('errors', () => {
   it('renders unknown routes in the api.md error shape', async () => {
     const { app } = await buildApp({ reachable: true })

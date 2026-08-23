@@ -57,6 +57,10 @@ export default defineKelpieConfig({
 
   webBundleDirectory: fromEnv<string | undefined>('WEB_BUNDLE_DIR', z.string().min(1).optional(), undefined),
   moduleConfigPath: fromEnv<string | undefined>('KELPIE_MODULE_CONFIG_PATH', z.string().min(1).optional(), undefined),
+  // A human-readable name for this install ("dev", "demo", "cloud"). Read by
+  // the browser through `GET /v1/public/config` and shown at the top of the
+  // UI on non-production runs.
+  siteName: fromEnv<string | undefined>('KELPIE_SITE_NAME', z.string().min(1).optional(), undefined),
   trustedProxyHopCount: fromEnv('TRUSTED_PROXY_HOP_COUNT', nonNegativeInt, 0),
 
   // The deployment's base URL. Every emailed link (invite, password reset,

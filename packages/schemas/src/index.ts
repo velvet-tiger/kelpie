@@ -340,3 +340,6 @@ export type {
   UpdateAccountInput,
   UpdateAccountPreferencesInput,
 } from './account.ts'
+
+export { publicConfigSchema } from './publicConfig.ts'
+export type { PublicConfig, PublicRuntimeMode } from './publicConfig.ts'

@@ -33,6 +33,7 @@ describe('loadConfig', () => {
       appBaseUrl: undefined,
       secretEncryption: undefined,
       moduleConfigPath: undefined,
+      siteName: undefined,
       webBundleDirectory: undefined,
     })
   })
