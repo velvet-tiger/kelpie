@@ -117,7 +117,8 @@ One process now serves the pages and the API on `PORT`. Boot fails if
 stops rather than answering every browser with a blank page.
 
 Migrations apply at boot. Running more than one instance makes that a race, so
-migrate once in a release step and start the instances with `--no-migrate`.
+migrate once with `npm run migrate` in a release step, then start the instances
+with `--no-migrate`. That command is forward-only and safe to re-run.
 
 ## Upgrading
 

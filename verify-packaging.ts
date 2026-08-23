@@ -26,18 +26,23 @@
  *   4. The service boots against Postgres, applies migrations, answers
  *      `/healthz`, and accepts a signup. That is the generated `src/server.ts`,
  *      `kelpie.config.ts`, and `.env` all being right together.
- *   5. `npm run reseal` runs against the generated `.env` and exits clean. The
+ *   5. `npm run migrate` applies pending migrations as its own process and exits
+ *      clean. Boot already migrated in check 4, so this proves the standalone
+ *      release-step command resolves its tarball imports and reaches the
+ *      database, the way a multi-instance deploy runs it once before starting
+ *      the instances with `--no-migrate`.
+ *   6. `npm run reseal` runs against the generated `.env` and exits clean. The
  *      README documents this as the key-rotation command; nothing else here
  *      calls it, so a missing script or a broken import would otherwise
  *      surface only when a self-hoster rotates their key for the first time.
- *   6. A production build of the generated web entry emits the theme utilities,
+ *   7. A production build of the generated web entry emits the theme utilities,
  *      with `.env` moved aside. Tailwind ignores `node_modules` during automatic
  *      source detection, so if the `@source` in `styles.css` does not reach the
  *      components beside it, the build still succeeds and every page ships
  *      unstyled. The missing `.env` is the container case: a build that reads
  *      the environment works here and fails in an image.
- *   7. The API serves that build on its own, with `WEB_BUNDLE_DIR` set and no
- *      dev server in front of it. Checks 4 and 6 both pass while a deployment
+ *   8. The API serves that build on its own, with `WEB_BUNDLE_DIR` set and no
+ *      dev server in front of it. Checks 4 and 7 both pass while a deployment
  *      shows a blank page, because one runs Vite and the other never serves what
  *      it built.
  *
@@ -499,6 +504,22 @@ async function bootAndSignUp(project: string): Promise<void> {
 }
 
 /**
+ * Runs the generated project's own `migrate` command.
+ *
+ * Boot already applied the migrations in the check before this one, so this is
+ * a clean no-op. That is the point: it proves the standalone release-step
+ * command resolves its `@kelpie/server` imports from the installed tarball,
+ * reads the scaffolded `.env`, reaches the database, and exits clean, the way a
+ * multi-instance deploy runs it before starting instances with `--no-migrate`.
+ * Nothing else here exercises `npm run migrate`, so a missing script or a
+ * broken import would otherwise surface only in a self-hoster's release step.
+ */
+function migrateAssembly(project: string): void {
+  run('npm', ['run', 'migrate'], project, projectEnvironment())
+  report('  the scaffolded migrate command runs against the generated .env')
+}
+
+/**
  * Runs the generated project's own `reseal` script.
  *
  * Proves the documented key-rotation command actually works: the script
@@ -767,6 +788,9 @@ async function main(): Promise<void> {
 
     report('\nbooting the scaffolded service')
     await bootAndSignUp(project)
+
+    report('\nrunning the scaffolded migrate command')
+    migrateAssembly(project)
 
     report('\nrunning the scaffolded reseal script')
     resealAssembly(project)

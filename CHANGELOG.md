@@ -8,6 +8,19 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [Unreleased]
+
+### Added
+
+- **`@kelpie/server`, `create-kelpie`** — a standalone `migrate` command. Until
+  now migrations ran only as a boot side effect, and `--no-migrate` turned that
+  off with nothing to take its place, so a multi-instance deploy had no way to
+  apply them. `npm run migrate` (root `db:migrate` in the monorepo) now registers
+  the modules and applies every pending migration once, then exits. It is
+  forward-only and safe to re-run. A new `bootAssembly` export owns the shared
+  prelude, so the server entry point and the command register the same modules
+  and cannot drift. Scaffolded projects get the command and its entry point.
+
 ## [0.6.1] - 2026-08-23
 
 ### Fixed

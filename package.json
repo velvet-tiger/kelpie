@@ -24,6 +24,7 @@
     "db:up": "make up",
     "db:down": "make down",
     "db:generate": "npm run db:generate --workspace packages/server",
+    "db:migrate": "npm run migrate --workspace apps/kelpie",
     "reseal": "npm run reseal --workspace apps/kelpie"
   },
   "devDependencies": {

@@ -6,6 +6,9 @@ import './modules/eventCatalogs.ts'
 export { createApp } from './app.ts'
 export type { AppDependencies, AppBindings } from './app.ts'
 
+export { bootAssembly } from './boot.ts'
+export type { AssemblyBoot } from './boot.ts'
+
 export { WebBundleError, serveWebBundle } from './webBundle.ts'
 export type { WebBundleOptions } from './webBundle.ts'
 
