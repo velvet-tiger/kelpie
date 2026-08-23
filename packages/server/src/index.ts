@@ -1,3 +1,8 @@
+// Carries each module's `KelpieEventMap` augmentation into the emitted
+// `index.d.ts` so consumers installed from npm get a typed `event.data`. See
+// `modules/eventCatalogs.ts` for why the entry point has to reference them.
+import './modules/eventCatalogs.ts'
+
 export { createApp } from './app.ts'
 export type { AppDependencies, AppBindings } from './app.ts'
 

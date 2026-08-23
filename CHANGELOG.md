@@ -8,6 +8,19 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [0.6.1] - 2026-08-23
+
+### Fixed
+
+- **`@kelpie/server`** — event subscribers in a consumer assembly now get a
+  typed `event.data`. Each module augments `KelpieEventMap` through a relative
+  `declare module`, which merged inside the monorepo but not for a project that
+  installs the package and typechecks against `dist`: `index.d.ts` referenced
+  none of the per-module `events.d.ts` files, so the augmentations never loaded
+  and every `event.data` fell back to `unknown`. The entry point now references
+  each catalog, so `context.events.subscribe('workspace.member.removed', ...)`
+  and every other handler read their payload without a cast. No runtime change.
+
 ## [0.6.0] - 2026-08-23
 
 ### Added
