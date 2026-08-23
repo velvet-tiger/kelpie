@@ -58,8 +58,8 @@
   --surface-raised: #ffffff;
   --surface-sunken: #f4f4f5;
   --ink: #18181b;
-  --ink-muted: #71717a;
-  --ink-faint: #a1a1aa;
+  --ink-muted: #52525b;
+  --ink-faint: #71717a;
   --border: #e4e4e7;
   --border-strong: #d4d4d8;
   --accent: #0f766e;
@@ -75,7 +75,7 @@
   --warning-soft: #fffbeb;
   --sidebar: #fafafa;
   --sidebar-ink: #18181b;
-  --sidebar-muted: #71717a;
+  --sidebar-muted: #52525b;
   --sidebar-hover: #f4f4f5;
   --sidebar-active: #ececef;
   --sidebar-border: #e4e4e7;
