@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-23
+
 ### Added
 
 - **`@kelpie/server`, `create-kelpie`** — a standalone `migrate` command. Until
@@ -26,8 +28,22 @@ While the major version is `0`, a minor bump may break the API.
   links its company by name, and the export carries a job title for almost no
   rows, so a Position forms only where a title is present. Attio Deals and
   Positions still use `custom`.
-
-## [0.6.1] - 2026-08-23
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — a People CSV import
+  can now drive a Position. A row carrying `company_domain` or `company_name`
+  and a `title` upserts the person and a Position on them, matching the company
+  by domain first and by name second. An update-mode re-import renames the
+  Position in place rather than adding a second one. A new `on_missing_company`
+  job option chooses between `skip` (import the person, log a warning) and
+  `create` (invent the company). Warnings are a new job field, shown row by
+  row in the admin wizard alongside errors. HubSpot and Salesforce contact
+  export column names auto-map. Adds migration `0019` for the new columns.
+- **`@kelpie/server`, `@kelpie/ui`** — a non-production install now paints a
+  thin strip above the shell naming itself, so three installs open side by
+  side in one browser (dev, demo, cloud) no longer look identical. A new
+  `KelpieConfig.siteName` reads `KELPIE_SITE_NAME`, and `GET /v1/public/config`
+  reports the runtime mode and site name. The UI reads it once at boot. The
+  strip hides in `production`, and the mode name is the label when `siteName`
+  is unset.
 
 ### Fixed
 
