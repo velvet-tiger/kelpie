@@ -40,6 +40,7 @@ interface JobFields {
   readonly source?: string
   readonly object?: string
   readonly conflict_mode?: string
+  readonly on_missing_company?: string
   readonly match_key?: string
   readonly column_map?: string
   readonly dry_run?: string
@@ -841,6 +842,123 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
       expect(job).toMatchObject({ counts: { total: 1, error: 1, create: 0 } })
       expect(job.errors).toMatchObject([{ row: 2, field: 'person_email' }])
+    })
+
+    it('links a position from a People row carrying a company and a title', async () => {
+      const job = await importCsv(
+        'name,email,company_domain,title\nGrace Hopper,grace@acme.com,acme.com,Engineer',
+        { object: 'people' },
+      )
+
+      expect(job).toMatchObject({ counts: { total: 1, create: 1 }, warnings: [] })
+
+      const [person] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.email, 'grace@acme.com'))
+      const [position] = await database.db
+        .select()
+        .from(positions)
+        .where(eq(positions.personId, person?.id ?? ''))
+      const [company] = await database.db
+        .select()
+        .from(companies)
+        .where(eq(companies.domain, 'acme.com'))
+
+      expect(position).toMatchObject({ title: 'Engineer', companyId: company?.id })
+    })
+
+    it('matches the affiliation company by name when the row has no domain', async () => {
+      const job = await importCsv(
+        'name,email,company_name,title\nGrace Hopper,grace@acme.com,acme,Engineer',
+        { object: 'people' },
+      )
+
+      expect(job).toMatchObject({ counts: { create: 1 }, warnings: [] })
+
+      const [person] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.email, 'grace@acme.com'))
+      const [position] = await database.db
+        .select()
+        .from(positions)
+        .where(eq(positions.personId, person?.id ?? ''))
+
+      expect(position).toMatchObject({ title: 'Engineer' })
+    })
+
+    it('renames the position in place when a re-import changes the title', async () => {
+      await importCsv(
+        'name,email,company_domain,title\nGrace Hopper,grace@acme.com,acme.com,Engineer',
+        { object: 'people' },
+      )
+      await importCsv(
+        'name,email,company_domain,title\nGrace Hopper,grace@acme.com,acme.com,Staff Engineer',
+        { object: 'people', conflict_mode: 'update' },
+      )
+
+      const [person] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.email, 'grace@acme.com'))
+      const held = await database.db
+        .select()
+        .from(positions)
+        .where(eq(positions.personId, person?.id ?? ''))
+
+      expect(held).toHaveLength(1)
+      expect(held[0]).toMatchObject({ title: 'Staff Engineer' })
+    })
+
+    it('imports the person and warns when the company is absent under skip', async () => {
+      const job = await importCsv(
+        'name,email,company_domain,title\nGrace Hopper,grace@acme.com,nowhere.test,Engineer',
+        { object: 'people' },
+      )
+
+      expect(job).toMatchObject({ counts: { total: 1, create: 1, error: 0 } })
+      expect(job.warnings).toMatchObject([{ row: 2, field: 'company_domain' }])
+
+      const [person] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.email, 'grace@acme.com'))
+      const held = await database.db
+        .select()
+        .from(positions)
+        .where(eq(positions.personId, person?.id ?? ''))
+
+      expect(person).toBeDefined()
+      expect(held).toHaveLength(0)
+      expect(
+        await database.db.select().from(companies).where(eq(companies.domain, 'nowhere.test')),
+      ).toHaveLength(0)
+    })
+
+    it('creates the company and links the position under create mode', async () => {
+      const job = await importCsv(
+        'name,email,company_domain,company_name,title\nGrace Hopper,grace@acme.com,newfirm.test,New Firm,Engineer',
+        { object: 'people', on_missing_company: 'create' },
+      )
+
+      expect(job).toMatchObject({ counts: { create: 1 }, warnings: [], on_missing_company: 'create' })
+
+      const [company] = await database.db
+        .select()
+        .from(companies)
+        .where(eq(companies.domain, 'newfirm.test'))
+      const [person] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.email, 'grace@acme.com'))
+      const [position] = await database.db
+        .select()
+        .from(positions)
+        .where(eq(positions.personId, person?.id ?? ''))
+
+      expect(company).toMatchObject({ name: 'New Firm' })
+      expect(position).toMatchObject({ title: 'Engineer', companyId: company?.id })
     })
 
     it('imports a deal, resolving its company, stage, value and contacts', async () => {

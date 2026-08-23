@@ -175,6 +175,33 @@ export function personDraft(mapped: Readonly<Record<string, string>>): PersonDra
 }
 
 /**
+ * The company a People row's affiliation would create.
+ *
+ * Built from the row's `company_domain` and `company_name` cells, not the
+ * `name`/`domain` a Companies file uses. The name falls back to the raw domain
+ * so a create from a domain-only row is not a nameless company. The write lays
+ * `NEW_COMPANY_DEFAULTS` over this, the same as a Companies import.
+ */
+export function affiliationCompanyDraft(mapped: Readonly<Record<string, string>>): CompanyDraft {
+  const domainRaw = text(mapped, 'company_domain')
+
+  return present<CompanyDraft>({
+    name: text(mapped, 'company_name') ?? domainRaw,
+    domain: domainRaw === undefined ? undefined : (normaliseDomain(domainRaw) ?? undefined),
+    industry: undefined,
+    description: undefined,
+    stage: undefined,
+    sizeBand: undefined,
+    hq: undefined,
+    website: undefined,
+    accountType: undefined,
+    icpFit: undefined,
+    summary: undefined,
+    tags: undefined,
+  })
+}
+
+/**
  * `value` is required, so `moneyToCents` has already been checked by
  * `validateRow` and cannot be undefined here.
  */

@@ -11,7 +11,7 @@ import * as dealRepository from '../deals/repository.ts'
 import * as peopleRepository from '../people/repository.ts'
 import * as positionRepository from '../positions/repository.ts'
 import { IMPORT_DEAL_CURRENCY, NEW_COMPANY_DEFAULTS, NEW_PERSON_DEFAULTS } from './drafts.ts'
-import type { ImportWrite, RowPlan } from './plan.ts'
+import type { ImportWrite, PlannedAffiliation, RowPlan } from './plan.ts'
 
 /**
  * Applying one planned row: the insert or update, and the timeline entry that
@@ -34,6 +34,21 @@ export interface WriteDependencies {
   readonly sourceName: string
 }
 
+/**
+ * A record a row wrote besides its primary one.
+ *
+ * A People row with an affiliation makes a Position, and under
+ * `on_missing_company: create` a Company as well. Each needs its own module
+ * event, which the service emits from these.
+ */
+export interface SideRecord {
+  readonly objectType: RecordObjectType
+  readonly recordId: string
+  readonly created: boolean
+  /** The columns an update moved. Empty on a create. */
+  readonly changedFields: readonly string[]
+}
+
 export interface WriteOutcome {
   readonly recordId: string
   readonly objectType: RecordObjectType
@@ -43,6 +58,8 @@ export interface WriteOutcome {
    * nothing at all.
    */
   readonly changedFields: readonly string[]
+  /** Records the row wrote besides its primary one: a People affiliation's company and position. */
+  readonly sideRecords?: readonly SideRecord[]
 }
 
 /** A create or update plan. `skip` and `error` never reach here. */
@@ -102,6 +119,92 @@ async function writeCompany(
   return { recordId: id, objectType: 'company', changedFields }
 }
 
+/**
+ * Writes the position a People row named, and the company it belongs to when the
+ * job was told to create one.
+ *
+ * The company is created before the position so the link has something to point
+ * at. The position is renamed in place when the person already holds one at that
+ * company, and created otherwise, which is the two-column-key behaviour the
+ * People affiliation chose. Files the `created Company` and `linked to company`
+ * activities as it goes, the same sentences the Companies and Positions imports
+ * write.
+ */
+async function applyAffiliation(
+  dependencies: WriteDependencies,
+  personId: string,
+  affiliation: PlannedAffiliation,
+): Promise<readonly SideRecord[]> {
+  const { tx, workspaceId, actor, sourceName } = dependencies
+  const sideRecords: SideRecord[] = []
+
+  const companyId = await (async (): Promise<string> => {
+    if (affiliation.kind === 'link') {
+      return affiliation.companyId
+    }
+
+    const created = await companyRepository.insertCompany(tx, {
+      ...NEW_COMPANY_DEFAULTS,
+      ...affiliation.company,
+      tags: affiliation.company.tags === undefined ? undefined : [...affiliation.company.tags],
+      id: dependencies.createId('company'),
+      workspaceId,
+      name: affiliation.company.name ?? '',
+    })
+
+    sideRecords.push({ objectType: 'company', recordId: created.id, created: true, changedFields: [] })
+    await dependencies.recordActivity(tx, workspaceId, actor, {
+      targetType: 'company',
+      targetId: created.id,
+      kind: 'created',
+      ...describeCreationVia('Company', sourceName),
+    })
+
+    return created.id
+  })()
+
+  const held = await positionRepository.listPositionsAt(tx, workspaceId, personId, companyId)
+  const current = held[0]
+
+  if (current === undefined) {
+    const created = await positionRepository.insertPosition(tx, {
+      id: dependencies.createId('position'),
+      workspaceId,
+      personId,
+      companyId,
+      title: affiliation.title,
+    })
+
+    sideRecords.push({ objectType: 'position', recordId: created.id, created: true, changedFields: [] })
+
+    for (const end of [
+      { targetType: 'person', targetId: personId, related: 'company' },
+      { targetType: 'company', targetId: companyId, related: 'person' },
+    ] as const) {
+      await dependencies.recordActivity(tx, workspaceId, actor, {
+        targetType: end.targetType,
+        targetId: end.targetId,
+        kind: 'linked',
+        ...describeLink(end.related, sourceName),
+      })
+    }
+
+    return sideRecords
+  }
+
+  const changedFields = changedKeys(current, { title: affiliation.title })
+
+  if (changedFields.length > 0) {
+    await positionRepository.updatePosition(tx, workspaceId, current.id, {
+      title: affiliation.title,
+      updatedAt: dependencies.now,
+    })
+    sideRecords.push({ objectType: 'position', recordId: current.id, created: false, changedFields })
+  }
+
+  return sideRecords
+}
+
 async function writePerson(
   dependencies: WriteDependencies,
   plan: WritablePlan,
@@ -120,7 +223,12 @@ async function writePerson(
       name: write.draft.name ?? '',
     })
 
-    return { recordId: created.id, objectType: 'person', changedFields: [] }
+    const sideRecords =
+      write.affiliation === undefined
+        ? []
+        : await applyAffiliation(dependencies, created.id, write.affiliation)
+
+    return { recordId: created.id, objectType: 'person', changedFields: [], sideRecords }
   }
 
   const id = requireTarget(plan)
@@ -144,7 +252,12 @@ async function writePerson(
     })
   }
 
-  return { recordId: id, objectType: 'person', changedFields }
+  const sideRecords =
+    write.affiliation === undefined
+      ? []
+      : await applyAffiliation(dependencies, id, write.affiliation)
+
+  return { recordId: id, objectType: 'person', changedFields, sideRecords }
 }
 
 /**

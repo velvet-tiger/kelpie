@@ -175,6 +175,8 @@ export interface RowOutcome {
   readonly rowNumber: number
   readonly action: SettledRowAction
   readonly errors: readonly { readonly field: string; readonly message: string }[]
+  /** Non-fatal notes about a row that was applied anyway, e.g. an unlinked position. */
+  readonly warnings: readonly { readonly field: string; readonly message: string }[]
 }
 
 /**
@@ -202,12 +204,18 @@ export async function recordRowOutcome(
       values,
       action: outcome.action,
       errors: outcome.errors,
+      warnings: outcome.warnings,
       createdAt: now,
       updatedAt: now,
     })
     .onConflictDoUpdate({
       target: [importJobRows.jobId, importJobRows.rowNumber],
-      set: { action: outcome.action, errors: outcome.errors, updatedAt: now },
+      set: {
+        action: outcome.action,
+        errors: outcome.errors,
+        warnings: outcome.warnings,
+        updatedAt: now,
+      },
     })
 }
 
@@ -378,6 +386,32 @@ export function findCompanyIdsByDomain(
       .select({ id: companies.id, domain: companies.domain })
       .from(companies)
       .where(and(eq(companies.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
+  )
+}
+
+/**
+ * Company ids by folded name, for a People affiliation matched on a company
+ * name rather than a domain.
+ *
+ * `lower(name) in (…)` rather than `ilike`, so a `%` inside a caller-supplied
+ * name is a literal, not a wildcard. The same rule `findCompanyKeys` follows.
+ * The caller passes names already lowercased.
+ */
+export function findCompanyIdsByName(
+  db: Queryable,
+  workspaceId: string,
+  names: readonly string[],
+): Promise<{ name: string; id: string }[]> {
+  return overChunks(names, (chunk) =>
+    db
+      .select({ id: companies.id, name: companies.name })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.workspaceId, workspaceId),
+          inArray(sql<string>`lower(${companies.name})`, [...chunk]),
+        ),
+      ),
   )
 }
 

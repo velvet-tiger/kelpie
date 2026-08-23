@@ -18,6 +18,17 @@ export const IMPORT_OBJECTS = ['companies', 'people', 'positions', 'deals'] as c
 export const IMPORT_CONFLICT_MODES = ['skip', 'update'] as const
 
 /**
+ * What a People import does when a row names a company that is not in the
+ * workspace yet.
+ *
+ * `skip` imports the person and leaves the affiliation unlinked, reporting it as
+ * a row warning. `create` invents the company from the row's own domain and name
+ * so the position can be linked. Only the People import reads this; the other
+ * objects fail a missing company outright, per `import-export.md`.
+ */
+export const ON_MISSING_COMPANY = ['skip', 'create'] as const
+
+/**
  * `pending → validating → ready | failed → committing → completed | failed`.
  *
  * `pending` is the moment between the row insert and the dry run starting. A
@@ -45,6 +56,7 @@ export const IMPORT_ROW_ACTIONS = ['pending', 'create', 'update', 'skip', 'error
 export type ImportSource = (typeof IMPORT_SOURCES)[number]
 export type ImportObject = (typeof IMPORT_OBJECTS)[number]
 export type ImportConflictMode = (typeof IMPORT_CONFLICT_MODES)[number]
+export type OnMissingCompany = (typeof ON_MISSING_COMPANY)[number]
 export type ImportJobStatus = (typeof IMPORT_JOB_STATUSES)[number]
 export type ImportRowAction = (typeof IMPORT_ROW_ACTIONS)[number]
 
@@ -89,11 +101,25 @@ export const CONFLICT_MODE_LABELS: Readonly<Record<ImportConflictMode, string>> 
   update: 'Update existing',
 }
 
+export const ON_MISSING_COMPANY_LABELS: Readonly<Record<OnMissingCompany, string>> = {
+  skip: 'Skip and report',
+  create: 'Create the company',
+}
+
 export interface CsvColumn {
   /** The Kelpie CSV header, and the key a `column_map` is keyed by. */
   readonly key: string
   readonly label: string
   readonly required: boolean
+  /**
+   * A column an import may map but an export never writes.
+   *
+   * The People affiliation columns are the only ones: a person can hold many
+   * positions, so a single company and title on the person row would be lossy on
+   * the way out. They map on the way in to drive a Position, and the export and
+   * template leave them out. See `headersFor`.
+   */
+  readonly importOnly?: boolean
 }
 
 /**
@@ -102,8 +128,10 @@ export interface CsvColumn {
  * Order is the header order of an export and of a template, so a file Kelpie
  * wrote maps onto itself by exact header match with no preset involved.
  *
- * Job title is absent from Person on purpose: it lives on Position, which is
- * what the contact title in a HubSpot or Salesforce export maps to.
+ * Job title is never stored on Person: it lives on Position. A People import may
+ * still carry `company_domain`, `company_name` and `title`, which drive a
+ * Position for the person rather than a field on them. Those three are
+ * `importOnly`, so an export and a template leave them out.
  */
 export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>> = {
   companies: [
@@ -131,6 +159,9 @@ export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>
     { key: 'summary', label: 'Summary', required: false },
     { key: 'tags', label: 'Tags', required: false },
     { key: 'phones', label: 'Phones', required: false },
+    { key: 'company_domain', label: 'Company domain', required: false, importOnly: true },
+    { key: 'company_name', label: 'Company name', required: false, importOnly: true },
+    { key: 'title', label: 'Title', required: false, importOnly: true },
   ],
   positions: [
     { key: 'person_email', label: 'Person email', required: true },
@@ -262,6 +293,8 @@ export interface ImportJob extends RecordTimestamps {
   readonly object: ImportObject
   readonly status: ImportJobStatus
   readonly conflictMode: ImportConflictMode
+  /** What a People import does with a row naming an absent company. `skip` for every other object. */
+  readonly onMissingCompany: OnMissingCompany
   readonly matchKey: string
   readonly columnMap: ImportColumnMap
   /** The headers as they appeared in the uploaded file, in file order. */
@@ -270,6 +303,12 @@ export interface ImportJob extends RecordTimestamps {
   readonly counts: ImportCounts
   /** At most `IMPORT_REPORTED_ERRORS`. `counts.error` is the true number of failing rows. */
   readonly errors: readonly ImportRowError[]
+  /**
+   * Non-fatal notes about rows that were imported. A People row whose company is
+   * absent under `on_missing_company: skip` lands here: the person imported, the
+   * position did not. At most `IMPORT_REPORTED_ERRORS`.
+   */
+  readonly warnings: readonly ImportRowError[]
   readonly preview: readonly ImportPreviewRow[]
 }
 
@@ -305,12 +344,14 @@ export const importJobSchema: z.ZodType<ImportJob, unknown> = z
     object: z.enum(IMPORT_OBJECTS),
     status: z.enum(IMPORT_JOB_STATUSES),
     conflict_mode: z.enum(IMPORT_CONFLICT_MODES),
+    on_missing_company: z.enum(ON_MISSING_COMPANY),
     match_key: z.string(),
     column_map: z.record(z.string(), z.string().nullable()),
     source_headers: z.array(z.string()),
     file_name: z.string().nullable(),
     counts: countsSchema,
     errors: z.array(rowErrorSchema),
+    warnings: z.array(rowErrorSchema),
     preview: z.array(previewRowSchema),
     ...recordTimestamps,
   })
@@ -321,12 +362,14 @@ export const importJobSchema: z.ZodType<ImportJob, unknown> = z
       object: wire.object,
       status: wire.status,
       conflictMode: wire.conflict_mode,
+      onMissingCompany: wire.on_missing_company,
       matchKey: wire.match_key,
       columnMap: wire.column_map,
       sourceHeaders: wire.source_headers,
       fileName: wire.file_name,
       counts: wire.counts,
       errors: wire.errors,
+      warnings: wire.warnings,
       preview: wire.preview,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,

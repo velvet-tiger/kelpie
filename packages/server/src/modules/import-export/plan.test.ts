@@ -1,5 +1,10 @@
 import { findMatchKey } from '@kelpie/schemas'
-import type { ImportConflictMode, ImportObject, MatchKeyOption } from '@kelpie/schemas'
+import type {
+  ImportConflictMode,
+  ImportObject,
+  MatchKeyOption,
+  OnMissingCompany,
+} from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
 import { countPlans, planRow, planRows } from './plan.ts'
@@ -18,6 +23,7 @@ const NO_LOOKUPS: ImportLookups = {
   existing: new Map(),
   personIdByEmail: new Map(),
   companyIdByDomain: new Map(),
+  companyIdByName: new Map(),
   memberIdByEmail: new Map(),
   dealStageIdByName: new Map(),
 }
@@ -37,6 +43,7 @@ function contextFor(
   options: {
     matchKeyId?: string
     conflictMode?: ImportConflictMode
+    onMissingCompany?: OnMissingCompany
     lookups?: Partial<ImportLookups>
   } = {},
 ): PlanContext {
@@ -44,6 +51,7 @@ function contextFor(
     object,
     matchKey: keyFor(object, options.matchKeyId ?? defaultKey(object)),
     conflictMode: options.conflictMode ?? 'skip',
+    onMissingCompany: options.onMissingCompany ?? 'skip',
     lookups: { ...NO_LOOKUPS, ...options.lookups },
   }
 }
@@ -179,6 +187,102 @@ describe('planRow', () => {
         'person_email',
         'company_domain',
       ])
+    })
+  })
+
+  describe('people affiliation', () => {
+    const lookups = {
+      companyIdByDomain: new Map([['acme.com', 'com_1']]),
+      companyIdByName: new Map([['acme', 'com_1']]),
+    }
+
+    const person = { name: 'Grace', email: 'grace@acme.com' }
+
+    it('carries no affiliation when the row names no company or title', () => {
+      const plan = planRow(contextFor('people'), person)
+
+      expect(plan).toMatchObject({ action: 'create', write: { object: 'people' } })
+      expect(plan.action === 'create' && 'affiliation' in plan.write).toBe(false)
+    })
+
+    it('links a known company by domain', () => {
+      const plan = planRow(contextFor('people', { lookups }), {
+        ...person,
+        company_domain: 'acme.com',
+        title: 'Engineer',
+      })
+
+      expect(plan).toMatchObject({
+        action: 'create',
+        write: { object: 'people', affiliation: { kind: 'link', companyId: 'com_1', title: 'Engineer' } },
+      })
+    })
+
+    it('matches by name when the row carries no domain', () => {
+      const plan = planRow(contextFor('people', { lookups }), {
+        ...person,
+        company_name: 'Acme',
+        title: 'Engineer',
+      })
+
+      expect(plan).toMatchObject({
+        write: { affiliation: { kind: 'link', companyId: 'com_1' } },
+      })
+    })
+
+    it('carries no affiliation when the title is blank', () => {
+      const plan = planRow(contextFor('people', { lookups }), {
+        ...person,
+        company_domain: 'acme.com',
+        title: '',
+      })
+
+      expect(plan.action === 'create' && 'affiliation' in plan.write).toBe(false)
+    })
+
+    it('warns and skips the position when the company is absent under skip', () => {
+      const plan = planRow(contextFor('people', { onMissingCompany: 'skip' }), {
+        ...person,
+        company_domain: 'nowhere.test',
+        title: 'Engineer',
+      })
+
+      expect(plan.action).toBe('create')
+      expect(plan.action === 'create' && 'affiliation' in plan.write).toBe(false)
+      expect(plan.action === 'create' && plan.warnings?.[0]).toMatchObject({ field: 'company_domain' })
+    })
+
+    it('plans a company create when it is absent under create', () => {
+      const plan = planRow(contextFor('people', { onMissingCompany: 'create' }), {
+        ...person,
+        company_domain: 'newfirm.test',
+        company_name: 'New Firm',
+        title: 'Engineer',
+      })
+
+      expect(plan).toMatchObject({
+        write: {
+          affiliation: {
+            kind: 'create',
+            company: { name: 'New Firm', domain: 'newfirm.test' },
+            title: 'Engineer',
+          },
+        },
+      })
+    })
+
+    it('lets the domain decide when the row carries both', () => {
+      const plan = planRow(
+        contextFor('people', {
+          onMissingCompany: 'create',
+          lookups: { companyIdByName: new Map([['acme', 'com_name']]) },
+        }),
+        { ...person, company_domain: 'newfirm.test', company_name: 'Acme', title: 'Engineer' },
+      )
+
+      // Domain is present but unknown, so this is a create, not a link to the
+      // name match. The name only resolves a row with no domain.
+      expect(plan).toMatchObject({ write: { affiliation: { kind: 'create' } } })
     })
   })
 

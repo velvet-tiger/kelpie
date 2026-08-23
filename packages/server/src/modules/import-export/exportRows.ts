@@ -26,8 +26,17 @@ function joinList(values: readonly string[]): string {
   return values.join('|')
 }
 
+/**
+ * The header row of an export and of a template.
+ *
+ * `importOnly` columns are left out: a People import may map `company_domain`,
+ * `company_name` and `title` to drive a Position, but a person holds many
+ * positions and none of them is a field on the person. Writing one on the export
+ * would be lossy, so the export and the template carry the round-trippable
+ * columns only, and each cell function matches this order one for one.
+ */
 export function headersFor(object: ImportObject): readonly string[] {
-  return OBJECT_COLUMNS[object].map((column) => column.key)
+  return OBJECT_COLUMNS[object].filter((column) => column.importOnly !== true).map((column) => column.key)
 }
 
 export function companyCells(row: ExportCompanyRow): readonly string[] {

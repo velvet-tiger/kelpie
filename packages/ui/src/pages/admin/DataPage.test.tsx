@@ -20,22 +20,25 @@ afterEach(cleanup)
  */
 
 /** An ImportJob as the API sends one, which is what `importJobSchema` decodes. */
-function wireJob(id: string): Record<string, unknown> {
+function wireJob(id: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id,
     source: 'custom',
     object: 'companies',
     status: 'ready',
     conflict_mode: 'skip',
+    on_missing_company: 'skip',
     match_key: 'domain',
     column_map: { name: 'name', domain: 'domain' },
     source_headers: ['name', 'domain'],
     file_name: 'companies.csv',
     counts: { total: 2, create: 2, update: 0, skip: 0, error: 0 },
     errors: [],
+    warnings: [],
     preview: [],
     created_at: '2026-08-05T00:00:00.000Z',
     updated_at: '2026-08-05T00:00:00.000Z',
+    ...extra,
   }
 }
 
@@ -53,6 +56,8 @@ interface Stubs {
   readonly jobIds?: readonly string[]
   /** Fails the nth upload, counting from 1, the way an unusable column map does. */
   readonly failUpload?: number
+  /** Warnings the dry run answers with, e.g. a person whose company was absent. */
+  readonly warnings?: readonly { row: number; field: string; message: string }[]
 }
 
 function dataClient(stubs: Stubs, harness: Harness): ApiClient {
@@ -90,7 +95,9 @@ function dataClient(stubs: Stubs, harness: Harness): ApiClient {
         )
       }
 
-      return wireJob(harness.uploaded[harness.uploaded.length - 1] ?? '')
+      return wireJob(harness.uploaded[harness.uploaded.length - 1] ?? '', {
+        warnings: stubs.warnings ?? [],
+      })
     },
     delete: (path) => {
       harness.deleted.push(path)
@@ -193,5 +200,34 @@ describe('DataPage import wizard', () => {
     await waitFor(() => {
       expect(harness.deleted).toEqual(['/import/jobs/imp_a'])
     })
+  })
+
+  it('offers the missing-company choice for a People import, not for companies', async () => {
+    renderPage()
+
+    await uploadFile()
+    expect(screen.queryByText('Missing company')).toBeNull()
+
+    // Start over and pick People. The import Object select is the third
+    // combobox: export object, then the source step's source and object.
+    fireEvent.click(screen.getByRole('button', { name: 'Start over' }))
+    fireEvent.change(screen.getAllByRole('combobox')[2] as HTMLSelectElement, {
+      target: { value: 'people' },
+    })
+    await uploadFile()
+
+    expect(screen.getByText('Missing company')).toBeTruthy()
+  })
+
+  it('lists warnings on rows that were imported anyway', async () => {
+    renderPage({
+      warnings: [{ row: 2, field: 'company_domain', message: 'No company here matches "beta.io"' }],
+    })
+
+    await uploadFile()
+    fireEvent.click(screen.getByRole('button', { name: 'Run dry-run' }))
+
+    await screen.findByText('Warnings')
+    expect(screen.getByText(/No company here matches/u)).toBeTruthy()
   })
 })

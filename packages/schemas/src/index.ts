@@ -196,6 +196,8 @@ export {
   MAX_IMPORT_ROWS,
   OBJECT_COLUMNS,
   OBJECT_LABELS,
+  ON_MISSING_COMPANY,
+  ON_MISSING_COMPANY_LABELS,
   SOURCE_LABELS,
   SYNC_IMPORT_ROWS,
   defaultMatchKeyId,
@@ -217,6 +219,7 @@ export type {
   ImportRowError,
   ImportSource,
   MatchKeyOption,
+  OnMissingCompany,
   SettledRowAction,
 } from './importExport.ts'
 

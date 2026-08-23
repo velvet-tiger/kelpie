@@ -4,6 +4,7 @@ import {
   IMPORT_OBJECTS,
   IMPORT_ROW_ACTIONS,
   IMPORT_SOURCES,
+  ON_MISSING_COMPANY,
 } from '@kelpie/schemas'
 import type {
   ImportColumnMap,
@@ -68,12 +69,21 @@ export const importJobs = pgTable(
     object: text('object').notNull(),
     status: text('status').notNull(),
     conflictMode: text('conflict_mode').notNull(),
+    /**
+     * What a People import does with a row naming a company that is not here
+     * yet: `skip` leaves the affiliation unlinked and warns, `create` invents
+     * the company. Defaulted so a job predating this reads as `skip`, which is
+     * the behaviour every other object already has.
+     */
+    onMissingCompany: text('on_missing_company').notNull().default('skip'),
     matchKey: text('match_key').notNull(),
     columnMap: jsonb('column_map').$type<ImportColumnMap>().notNull().default({}),
     sourceHeaders: jsonb('source_headers').$type<readonly string[]>().notNull().default([]),
     counts: jsonb('counts').$type<ImportCounts>().notNull(),
     /** The first `IMPORT_REPORTED_ERRORS` failing rows. `counts.error` is the true number. */
     errors: jsonb('errors').$type<readonly ImportRowError[]>().notNull().default([]),
+    /** The first `IMPORT_REPORTED_ERRORS` non-fatal notes, e.g. a person imported with the position skipped. */
+    warnings: jsonb('warnings').$type<readonly ImportRowError[]>().notNull().default([]),
     /** The first `IMPORT_PREVIEW_ROWS` rows, mapped as Kelpie read them. */
     preview: jsonb('preview').$type<readonly ImportPreviewRow[]>().notNull().default([]),
     /**
@@ -97,6 +107,7 @@ export const importJobs = pgTable(
     checkOneOf('import_jobs_source_check', table.source, IMPORT_SOURCES),
     checkOneOf('import_jobs_object_check', table.object, IMPORT_OBJECTS),
     checkOneOf('import_jobs_conflict_mode_check', table.conflictMode, IMPORT_CONFLICT_MODES),
+    checkOneOf('import_jobs_on_missing_company_check', table.onMissingCompany, ON_MISSING_COMPANY),
     checkOneOf('import_jobs_status_check', table.status, IMPORT_JOB_STATUSES),
   ],
 )
@@ -128,6 +139,8 @@ export const importJobRows = pgTable(
     values: jsonb('values').$type<Readonly<Record<string, string>>>().notNull().default({}),
     action: text('action').notNull(),
     errors: jsonb('errors').$type<readonly StoredRowError[]>().notNull().default([]),
+    /** Non-fatal notes about a row that was applied anyway, e.g. an unlinked position. */
+    warnings: jsonb('warnings').$type<readonly StoredRowError[]>().notNull().default([]),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

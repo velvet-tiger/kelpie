@@ -3,6 +3,7 @@ import {
   IMPORT_OBJECTS,
   IMPORT_SOURCES,
   MAX_IMPORT_FILE_BYTES,
+  ON_MISSING_COMPANY,
   defaultMatchKeyId,
 } from '@kelpie/schemas'
 import { z } from 'zod'
@@ -59,6 +60,13 @@ const previewArgs = z.strictObject({
     .enum(IMPORT_CONFLICT_MODES)
     .default('skip')
     .describe('What to do with a row that matches an existing record.'),
+  on_missing_company: z
+    .enum(ON_MISSING_COMPANY)
+    .default('skip')
+    .describe(
+      'People import only: what to do when a row names a company that is not here yet. ' +
+        "'skip' imports the person and leaves the position unlinked; 'create' invents the company.",
+    ),
   match_key: z.string().min(1).optional().describe('Which field decides that match.'),
   column_map: columnMapArg.optional(),
   file_name: z.string().min(1).nullable().default(null).describe('Recorded on the job, for the log.'),
@@ -124,6 +132,7 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
           source: args.source,
           object: args.object,
           conflictMode: args.conflict_mode,
+          onMissingCompany: args.on_missing_company,
           matchKeyId: args.match_key ?? defaultMatchKeyId(args.object),
           columnMap: args.column_map,
           fileName: args.file_name,

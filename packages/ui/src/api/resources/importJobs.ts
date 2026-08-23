@@ -5,6 +5,7 @@ import type {
   ImportJob,
   ImportObject,
   ImportSource,
+  OnMissingCompany,
 } from '@kelpie/schemas'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -30,6 +31,8 @@ export interface CreateImportJobInput {
   readonly source: ImportSource
   readonly object: ImportObject
   readonly conflictMode: ImportConflictMode
+  /** People import only: what to do with a row naming a company that is not here yet. */
+  readonly onMissingCompany: OnMissingCompany
   readonly matchKeyId: string
   /**
    * Absent on the first upload, so the server derives one from the source preset
@@ -46,6 +49,7 @@ function jobForm(input: CreateImportJobInput): FormData {
   form.set('source', input.source)
   form.set('object', input.object)
   form.set('conflict_mode', input.conflictMode)
+  form.set('on_missing_company', input.onMissingCompany)
   form.set('match_key', input.matchKeyId)
   form.set('dry_run', 'true')
 

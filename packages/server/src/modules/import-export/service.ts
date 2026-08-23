@@ -17,6 +17,7 @@ import type {
   ImportRowError,
   ImportSource,
   MatchKeyOption,
+  OnMissingCompany,
 } from '@kelpie/schemas'
 
 import type { Database } from '../../lib/database.ts'
@@ -142,12 +143,14 @@ export interface ImportJobView {
   readonly object: ImportObject
   readonly status: string
   readonly conflictMode: ImportConflictMode
+  readonly onMissingCompany: OnMissingCompany
   readonly matchKey: string
   readonly columnMap: ImportColumnMap
   readonly sourceHeaders: readonly string[]
   readonly fileName: string | null
   readonly counts: ImportCounts
   readonly errors: readonly ImportRowError[]
+  readonly warnings: readonly ImportRowError[]
   readonly preview: readonly ImportPreviewRow[]
   readonly createdAt: Date
   readonly updatedAt: Date
@@ -157,6 +160,7 @@ export interface CreateImportJobInput {
   readonly source: ImportSource
   readonly object: ImportObject
   readonly conflictMode: ImportConflictMode
+  readonly onMissingCompany: OnMissingCompany
   readonly matchKeyId: string
   /** Absent means "derive one from the source preset and the file's own headers". */
   readonly columnMap: ImportColumnMap | undefined
@@ -213,6 +217,7 @@ function toView(job: ImportJobRecord): ImportJobView {
     source: rest.source as ImportSource,
     object: rest.object as ImportObject,
     conflictMode: rest.conflictMode as ImportConflictMode,
+    onMissingCompany: rest.onMissingCompany as OnMissingCompany,
   }
 }
 
@@ -358,11 +363,37 @@ export function createImportExportService(
   ): Promise<ImportLookups> {
     const existing = await findExistingKeys(db, workspaceId, object, matchKey, rows)
 
-    if (object === 'companies' || object === 'people') {
+    if (object === 'companies') {
       return {
         existing,
         personIdByEmail: new Map(),
         companyIdByDomain: new Map(),
+        companyIdByName: new Map(),
+        memberIdByEmail: new Map(),
+        dealStageIdByName: new Map(),
+      }
+    }
+
+    // People only need companies, and only when a row carries an affiliation.
+    // Both a domain map and a name map, because a row may identify its company
+    // either way.
+    if (object === 'people') {
+      const domains = distinct(rows.map((row) => normaliseDomain(row.mapped.company_domain ?? '')))
+      const names = distinct(
+        rows.map((row) => (row.mapped.company_name ?? '').trim().toLowerCase() || null),
+      )
+      const [byDomain, byName] = await Promise.all([
+        repository.findCompanyIdsByDomain(db, workspaceId, domains),
+        repository.findCompanyIdsByName(db, workspaceId, names),
+      ])
+
+      return {
+        existing,
+        personIdByEmail: new Map(),
+        companyIdByDomain: new Map(
+          byDomain.flatMap((row) => (row.domain === null ? [] : [[row.domain, row.id] as const])),
+        ),
+        companyIdByName: new Map(byName.map((row) => [row.name.toLowerCase(), row.id] as const)),
         memberIdByEmail: new Map(),
         dealStageIdByName: new Map(),
       }
@@ -389,6 +420,7 @@ export function createImportExportService(
         companyIdByDomain: new Map(
           companyRows.flatMap((row) => (row.domain === null ? [] : [[row.domain, row.id] as const])),
         ),
+        companyIdByName: new Map(),
         memberIdByEmail: new Map(),
         dealStageIdByName: new Map(),
       }
@@ -416,6 +448,7 @@ export function createImportExportService(
       companyIdByDomain: new Map(
         companyRows.flatMap((row) => (row.domain === null ? [] : [[row.domain, row.id] as const])),
       ),
+      companyIdByName: new Map(),
       memberIdByEmail: new Map(members.map((member) => [member.email.toLowerCase(), member.id])),
       dealStageIdByName: stagesByName,
     }
@@ -426,6 +459,7 @@ export function createImportExportService(
       object: job.object as ImportObject,
       matchKey: requireMatchKey(job.object as ImportObject, job.matchKey),
       conflictMode: job.conflictMode as ImportConflictMode,
+      onMissingCompany: job.onMissingCompany as OnMissingCompany,
       lookups,
     }
   }
@@ -469,10 +503,13 @@ export function createImportExportService(
   }
 
   function toOutcome(planned: PlannedRow): repository.RowOutcome {
+    const { plan } = planned
+
     return {
       rowNumber: planned.row,
-      action: planned.plan.action,
-      errors: planned.plan.action === 'error' ? planned.plan.errors : [],
+      action: plan.action,
+      errors: plan.action === 'error' ? plan.errors : [],
+      warnings: plan.action === 'create' || plan.action === 'update' ? (plan.warnings ?? []) : [],
     }
   }
 
@@ -486,7 +523,11 @@ export function createImportExportService(
   function reportOf(
     outcomes: readonly repository.RowOutcome[],
     mapped: readonly MappedRow[],
-  ): { errors: readonly ImportRowError[]; preview: readonly ImportPreviewRow[] } {
+  ): {
+    errors: readonly ImportRowError[]
+    warnings: readonly ImportRowError[]
+    preview: readonly ImportPreviewRow[]
+  } {
     const byRow = new Map(mapped.map((row) => [row.row, row.mapped]))
 
     return {
@@ -495,6 +536,16 @@ export function createImportExportService(
         .slice(0, IMPORT_REPORTED_ERRORS)
         .flatMap((outcome) =>
           outcome.errors.map((problem) => ({
+            row: outcome.rowNumber,
+            field: problem.field,
+            message: problem.message,
+          })),
+        ),
+      warnings: outcomes
+        .filter((outcome) => outcome.warnings.length > 0)
+        .slice(0, IMPORT_REPORTED_ERRORS)
+        .flatMap((outcome) =>
+          outcome.warnings.map((problem) => ({
             row: outcome.rowNumber,
             field: problem.field,
             message: problem.message,
@@ -601,6 +652,8 @@ export function createImportExportService(
         rowNumber: line.number,
         action: plan.action,
         errors: plan.action === 'error' ? plan.errors : [],
+        warnings:
+          plan.action === 'create' || plan.action === 'update' ? (plan.warnings ?? []) : [],
       }
 
       if (plan.action !== 'error' && plan.action !== 'skip') {
@@ -628,6 +681,16 @@ export function createImportExportService(
             written.recordId,
             written.changedFields,
           )
+        }
+
+        // A People affiliation makes a Position, and maybe a Company. Each is its
+        // own record with its own module event, whatever the person row did.
+        for (const side of written.sideRecords ?? []) {
+          if (side.created) {
+            emitImportedRecordCreated(events, side.objectType, side.recordId)
+          } else if (side.changedFields.length > 0) {
+            emitImportedRecordUpdated(events, side.objectType, side.recordId, side.changedFields)
+          }
         }
       }
 
@@ -682,6 +745,7 @@ export function createImportExportService(
             rowNumber: row.row,
             action: 'error' as const,
             errors: [{ field: '', message: describeThrown(error) }],
+            warnings: [],
           }
 
           // Its own statement: the transaction that would have carried this one
@@ -786,11 +850,13 @@ export function createImportExportService(
         object: input.object,
         status: 'pending',
         conflictMode: input.conflictMode,
+        onMissingCompany: input.onMissingCompany,
         matchKey: matchKey.id,
         columnMap,
         sourceHeaders: parsed.headers,
         counts: { ...EMPTY_COUNTS, total: parsed.rows.length },
         errors: [],
+        warnings: [],
         preview: [],
         fileSha256: fileDigest(input.csv),
         fileName: input.fileName,

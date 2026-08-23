@@ -134,6 +134,13 @@
       "when": 1786656430307,
       "tag": "0018_hard_mystique",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1787446086593,
+      "tag": "0019_sharp_red_skull",
+      "breakpoints": true
     }
   ]
 }

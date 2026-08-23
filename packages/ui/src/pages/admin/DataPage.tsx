@@ -5,6 +5,7 @@ import {
   MATCH_KEYS,
   OBJECT_COLUMNS,
   OBJECT_LABELS,
+  ON_MISSING_COMPANY_LABELS,
   SOURCE_LABELS,
   defaultMatchKeyId,
   findMatchKey,
@@ -18,7 +19,9 @@ import type {
   ImportObject,
   ImportPreviewRow,
   ImportRowAction,
+  ImportRowError,
   ImportSource,
+  OnMissingCompany,
 } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
@@ -64,6 +67,7 @@ export function DataPage(): ReactNode {
   const [file, setFile] = useState<File | null>(null)
   const [columnMap, setColumnMap] = useState<ImportColumnMap>({})
   const [conflictMode, setConflictMode] = useState<ImportConflictMode>('skip')
+  const [onMissingCompany, setOnMissingCompany] = useState<OnMissingCompany>('skip')
   const [matchKeyId, setMatchKeyId] = useState<string>(() => defaultMatchKeyId('companies'))
   const [jobId, setJobId] = useState<string | undefined>(undefined)
   const [problem, setProblem] = useState<string | null>(null)
@@ -115,6 +119,7 @@ export function DataPage(): ReactNode {
     setFile(null)
     setColumnMap({})
     setConflictMode('skip')
+    setOnMissingCompany('skip')
     setMatchKeyId(defaultMatchKeyId(object))
     setJobId(undefined)
     setProblem(null)
@@ -133,6 +138,7 @@ export function DataPage(): ReactNode {
       source,
       object,
       conflictMode,
+      onMissingCompany,
       matchKeyId,
       ...(map === undefined ? {} : { columnMap: map }),
     })
@@ -373,10 +379,12 @@ export function DataPage(): ReactNode {
             object={object}
             columnMap={columnMap}
             conflictMode={conflictMode}
+            onMissingCompany={onMissingCompany}
             matchKeyId={matchKeyId}
             isPending={createJob.isPending}
             onColumnMapChange={setColumnMap}
             onConflictModeChange={setConflictMode}
+            onMissingCompanyChange={setOnMissingCompany}
             onMatchKeyChange={setMatchKeyId}
             onSubmit={(event) => runStep(onRerun(event))}
             onBack={() => {
@@ -407,10 +415,12 @@ interface MappingFormProps {
   readonly object: ImportObject
   readonly columnMap: ImportColumnMap
   readonly conflictMode: ImportConflictMode
+  readonly onMissingCompany: OnMissingCompany
   readonly matchKeyId: string
   readonly isPending: boolean
   readonly onColumnMapChange: (map: ImportColumnMap) => void
   readonly onConflictModeChange: (mode: ImportConflictMode) => void
+  readonly onMissingCompanyChange: (mode: OnMissingCompany) => void
   readonly onMatchKeyChange: (id: string) => void
   readonly onSubmit: (event: FormEvent) => void
   readonly onBack: () => void
@@ -419,6 +429,9 @@ interface MappingFormProps {
 function MappingForm(props: MappingFormProps): ReactNode {
   const matchKey = findMatchKey(props.object, props.matchKeyId)
   const keyColumns = new Set(matchKey?.columns ?? [])
+  // People rows can carry a company and title that drive a Position, so only a
+  // People import has a company to be missing.
+  const showMissingCompany = props.object === 'people'
 
   return (
     <form className="space-y-4" onSubmit={props.onSubmit}>
@@ -453,6 +466,23 @@ function MappingForm(props: MappingFormProps): ReactNode {
             ))}
           </select>
         </Field>
+        {showMissingCompany ? (
+          <Field label="Missing company">
+            <select
+              value={props.onMissingCompany}
+              onChange={(event) =>
+                props.onMissingCompanyChange(event.target.value as OnMissingCompany)
+              }
+              className="w-full rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent"
+            >
+              {Object.entries(ON_MISSING_COMPANY_LABELS).map(([mode, label]) => (
+                <option key={mode} value={mode}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
       </div>
       <p className="text-[12px] text-ink-muted">
         {props.conflictMode === 'update'
@@ -460,6 +490,16 @@ function MappingForm(props: MappingFormProps): ReactNode {
           : 'Rows matching an existing record on the key column are skipped.'}{' '}
         Key columns must be mapped.
       </p>
+      {showMissingCompany ? (
+        <p className="text-[12px] text-ink-muted">
+          Map <span className="font-mono text-[11px]">company_domain</span> or{' '}
+          <span className="font-mono text-[11px]">company_name</span> and{' '}
+          <span className="font-mono text-[11px]">title</span> to link a position for each person.{' '}
+          {props.onMissingCompany === 'create'
+            ? 'A company that is not here yet is created from the row.'
+            : 'A company that is not here yet is left unlinked and reported as a warning.'}
+        </p>
+      ) : null}
       <div className="overflow-hidden rounded-md border border-border">
         <table className="w-full text-left text-[13px]">
           <thead>
@@ -576,29 +616,7 @@ function ResultPanel({ job, object, isCommitting, onCommit, onBack }: ResultPane
 
       {job.errors.length > 0 ? (
         <div className="space-y-2">
-          <div className="overflow-hidden rounded-md border border-border">
-            <table className="w-full text-left text-[13px]">
-              <thead>
-                <tr className="border-b border-border bg-surface text-[11px] font-semibold tracking-wide text-ink-muted uppercase">
-                  <th className="px-4 py-2.5">Row</th>
-                  <th className="px-4 py-2.5">Field</th>
-                  <th className="px-4 py-2.5">Message</th>
-                </tr>
-              </thead>
-              <tbody>
-                {job.errors.map((error, index) => (
-                  <tr
-                    key={`${String(error.row)}-${error.field}-${String(index)}`}
-                    className="border-b border-border last:border-0"
-                  >
-                    <td className="px-4 py-2.5 font-mono text-[12px]">{error.row}</td>
-                    <td className="px-4 py-2.5 font-mono text-[12px]">{error.field}</td>
-                    <td className="px-4 py-2.5 text-ink-muted">{error.message}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <IssueTable rows={job.errors} />
           {job.counts.error > job.errors.length ? (
             <p className="text-[12px] text-ink-muted">
               Showing {job.errors.length} of {job.counts.error} failing rows.
@@ -608,6 +626,19 @@ function ResultPanel({ job, object, isCommitting, onCommit, onBack }: ResultPane
       ) : (
         <p className="text-[13px] text-ink-muted">No row errors.</p>
       )}
+
+      {job.warnings.length > 0 ? (
+        <div className="space-y-2">
+          <div>
+            <h3 className="text-[13px] font-semibold text-ink">Warnings</h3>
+            <p className="mt-0.5 text-[12px] text-ink-muted">
+              These rows were imported. Each note says what was left out, such as a person whose
+              company was not here to link a position to.
+            </p>
+          </div>
+          <IssueTable rows={job.warnings} />
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-3">
         <button
@@ -626,6 +657,35 @@ function ResultPanel({ job, object, isCommitting, onCommit, onBack }: ResultPane
           Back to mapping
         </button>
       </div>
+    </div>
+  )
+}
+
+/** The row / field / message table shared by the error and warning lists. */
+function IssueTable({ rows }: { readonly rows: readonly ImportRowError[] }): ReactNode {
+  return (
+    <div className="overflow-hidden rounded-md border border-border">
+      <table className="w-full text-left text-[13px]">
+        <thead>
+          <tr className="border-b border-border bg-surface text-[11px] font-semibold tracking-wide text-ink-muted uppercase">
+            <th className="px-4 py-2.5">Row</th>
+            <th className="px-4 py-2.5">Field</th>
+            <th className="px-4 py-2.5">Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((issue, index) => (
+            <tr
+              key={`${String(issue.row)}-${issue.field}-${String(index)}`}
+              className="border-b border-border last:border-0"
+            >
+              <td className="px-4 py-2.5 font-mono text-[12px]">{issue.row}</td>
+              <td className="px-4 py-2.5 font-mono text-[12px]">{issue.field}</td>
+              <td className="px-4 py-2.5 text-ink-muted">{issue.message}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

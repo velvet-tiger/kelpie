@@ -31,6 +31,8 @@ export const SOURCE_PRESETS: Readonly<Record<ImportSource, SourcePreset>> = {
       email: 'Email',
       phones: 'Phone Number',
       location: 'City',
+      company_domain: 'Company Domain Name',
+      title: 'Job Title',
     },
     positions: {
       person_email: 'Email',
@@ -60,6 +62,8 @@ export const SOURCE_PRESETS: Readonly<Record<ImportSource, SourcePreset>> = {
       email: 'Email',
       phones: 'Phone',
       location: 'Mailing City',
+      company_name: 'Account Name',
+      title: 'Title',
     },
     positions: {
       person_email: 'Email',

@@ -3,10 +3,11 @@ import type {
   ImportCounts,
   ImportObject,
   MatchKeyOption,
+  OnMissingCompany,
 } from '@kelpie/schemas'
 
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
-import { companyDraft, dealFieldsDraft, personDraft } from './drafts.ts'
+import { affiliationCompanyDraft, companyDraft, dealFieldsDraft, personDraft } from './drafts.ts'
 import type { CompanyDraft, DealFieldsDraft, PersonDraft } from './drafts.ts'
 import { buildMatchKey, splitList } from './mapping.ts'
 import { aliasedStageSlug } from './presets.ts'
@@ -29,6 +30,8 @@ export interface ImportLookups {
   readonly existing: ReadonlyMap<string, string>
   readonly personIdByEmail: ReadonlyMap<string, string>
   readonly companyIdByDomain: ReadonlyMap<string, string>
+  /** Company id by its folded name, for a People affiliation matched by name. */
+  readonly companyIdByName: ReadonlyMap<string, string>
   /** Workspace member id by the address of the user behind it. */
   readonly memberIdByEmail: ReadonlyMap<string, string>
   /** Deal stage id, keyed by both its slug and its folded label. */
@@ -39,13 +42,28 @@ export interface PlanContext {
   readonly object: ImportObject
   readonly matchKey: MatchKeyOption
   readonly conflictMode: ImportConflictMode
+  /** What a People row does with an absent company. Ignored by the other objects. */
+  readonly onMissingCompany: OnMissingCompany
   readonly lookups: ImportLookups
 }
+
+/**
+ * A company affiliation a People row asks for: the position to write, and
+ * whether the company must be created before it can be linked.
+ */
+export type PlannedAffiliation =
+  | { readonly kind: 'link'; readonly companyId: string; readonly title: string }
+  | { readonly kind: 'create'; readonly company: CompanyDraft; readonly title: string }
 
 /** The values a write applies, once every reference in the row has been resolved. */
 export type ImportWrite =
   | { readonly object: 'companies'; readonly draft: CompanyDraft }
-  | { readonly object: 'people'; readonly draft: PersonDraft }
+  | {
+      readonly object: 'people'
+      readonly draft: PersonDraft
+      /** A position to upsert alongside the person, when the row named a company and a title. */
+      readonly affiliation?: PlannedAffiliation
+    }
   | {
       readonly object: 'positions'
       readonly personId: string
@@ -78,12 +96,19 @@ export type RowPlan =
    * reaches the row the earlier one has been written, so it resolves to an id.
    */
   | { readonly action: 'skip'; readonly key: string; readonly targetId: string | null }
-  | { readonly action: 'create'; readonly key: string; readonly write: ImportWrite }
+  | {
+      readonly action: 'create'
+      readonly key: string
+      readonly write: ImportWrite
+      /** Non-fatal notes about the applied row, e.g. a People affiliation left unlinked. */
+      readonly warnings?: readonly StoredRowError[]
+    }
   | {
       readonly action: 'update'
       readonly key: string
       readonly targetId: string | null
       readonly write: ImportWrite
+      readonly warnings?: readonly StoredRowError[]
     }
 
 export interface PlannedRow {
@@ -234,6 +259,80 @@ function resolveWrite(context: PlanContext, mapped: Readonly<Record<string, stri
 }
 
 /**
+ * The company affiliation a People row asks for, if any, and any note about it.
+ *
+ * A row states an affiliation only when it carries both a title and a company
+ * identity, so a blank optional cell still says nothing, the additive rule every
+ * column follows. The company is matched by domain when the row has one and by
+ * name otherwise. A named company that is not here follows `on_missing_company`:
+ * `create` invents it from the row, `skip` imports the person alone and returns
+ * a warning.
+ */
+function planAffiliation(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+): { readonly affiliation?: PlannedAffiliation; readonly warnings: readonly StoredRowError[] } {
+  const title = (mapped.title ?? '').trim()
+  const domainRaw = (mapped.company_domain ?? '').trim()
+  const nameRaw = (mapped.company_name ?? '').trim()
+
+  if (title.length === 0 || (domainRaw.length === 0 && nameRaw.length === 0)) {
+    return { warnings: [] }
+  }
+
+  const domain = normaliseDomain(domainRaw)
+  const companyId =
+    domainRaw.length > 0
+      ? domain === null
+        ? undefined
+        : context.lookups.companyIdByDomain.get(domain)
+      : context.lookups.companyIdByName.get(nameRaw.toLowerCase())
+
+  if (companyId !== undefined) {
+    return { affiliation: { kind: 'link', companyId, title }, warnings: [] }
+  }
+
+  if (context.onMissingCompany === 'create') {
+    return {
+      affiliation: { kind: 'create', company: affiliationCompanyDraft(mapped), title },
+      warnings: [],
+    }
+  }
+
+  const named = domainRaw.length > 0 ? domainRaw : nameRaw
+
+  return {
+    warnings: [
+      {
+        field: domainRaw.length > 0 ? 'company_domain' : 'company_name',
+        message: `No company here matches "${named}", so the person imported without a position`,
+      },
+    ],
+  }
+}
+
+/**
+ * Folds a People row's affiliation into its create or update plan.
+ *
+ * A no-op for every other object, and for a person the row said nothing about a
+ * company for. The affiliation rides on the write; any note rides on the plan.
+ */
+function withAffiliation(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+  plan: Extract<RowPlan, { action: 'create' } | { action: 'update' }>,
+): RowPlan {
+  if (context.object !== 'people' || plan.write.object !== 'people') {
+    return plan
+  }
+
+  const { affiliation, warnings } = planAffiliation(context, mapped)
+  const write = affiliation === undefined ? plan.write : { ...plan.write, affiliation }
+
+  return { ...plan, write, ...(warnings.length > 0 ? { warnings } : {}) }
+}
+
+/**
  * @param mapped The row's cells by Kelpie column, from `mapRow`.
  * @returns What this row would do. `create` when its key matches nothing;
  *   otherwise the job's conflict mode decides between `skip` and `update`.
@@ -265,15 +364,18 @@ export function planRow(context: PlanContext, mapped: Readonly<Record<string, st
   const targetId = context.lookups.existing.get(key)
 
   if (targetId === undefined) {
-    return { action: 'create', key, write }
+    return withAffiliation(context, mapped, { action: 'create', key, write })
   }
 
   // An empty string is the placeholder an in-file match carries: the record it
   // matched has not been written yet, so there is no id to report.
   const resolved = targetId.length === 0 ? null : targetId
 
+  // A skipped row is left entirely alone, affiliation included. A caller who
+  // wants an existing person's position updated runs the job in `update` mode,
+  // which is where the rename-in-place lives.
   return context.conflictMode === 'update'
-    ? { action: 'update', key, targetId: resolved, write }
+    ? withAffiliation(context, mapped, { action: 'update', key, targetId: resolved, write })
     : { action: 'skip', key, targetId: resolved }
 }
 
