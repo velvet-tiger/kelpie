@@ -80,6 +80,27 @@ export const SOURCE_PRESETS: Readonly<Record<ImportSource, SourcePreset>> = {
       external_id: 'Opportunity ID',
     },
   },
+  attio: {
+    // Attio's export writes one column per attribute, and a linked or nested
+    // attribute as `Parent > Child`. Only Companies and People are mapped: the
+    // sample export carries no Deals or Positions file, and an Attio People row
+    // names its company but not the company's domain, so a Position could not be
+    // keyed from it. Those objects fall back to `custom`.
+    companies: {
+      name: 'Record',
+      domain: 'Domains',
+      industry: 'Categories',
+      description: 'Description',
+      hq: 'Primary location > Country',
+    },
+    people: {
+      name: 'Record',
+      email: 'Email addresses',
+      location: 'Primary location > Country',
+      company_name: 'Company > Name',
+      title: 'Job title',
+    },
+  },
 }
 
 /**

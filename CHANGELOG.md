@@ -20,6 +20,12 @@ While the major version is `0`, a minor bump may break the API.
   forward-only and safe to re-run. A new `bootAssembly` export owns the shared
   prelude, so the server entry point and the command register the same modules
   and cannot drift. Scaffolded projects get the command and its entry point.
+- **`@kelpie/schemas`, `@kelpie/server`** — an `attio` import source. The import
+  wizard offers an "Attio CSV pack" that maps an Attio Companies or People CSV
+  export onto Kelpie's native columns with no hand mapping. An Attio People row
+  links its company by name, and the export carries a job title for almost no
+  rows, so a Position forms only where a title is present. Attio Deals and
+  Positions still use `custom`.
 
 ## [0.6.1] - 2026-08-23
 

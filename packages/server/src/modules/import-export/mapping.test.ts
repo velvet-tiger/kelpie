@@ -176,6 +176,36 @@ describe('defaultColumnMap', () => {
     expect(map.domain).toBe('Company Domain Name')
   })
 
+  it('maps an Attio companies export by its nested headers', () => {
+    // Attio writes a linked or nested attribute as `Parent > Child`, which no
+    // exact header match would catch, so the preset has to.
+    const map = defaultColumnMap('attio', 'companies', [
+      'Record',
+      'Domains',
+      'Primary location > Country',
+      'Description',
+    ])
+
+    expect(map.name).toBe('Record')
+    expect(map.domain).toBe('Domains')
+    expect(map.hq).toBe('Primary location > Country')
+  })
+
+  it('maps an Attio people export, linking the company by name', () => {
+    const map = defaultColumnMap('attio', 'people', [
+      'Record',
+      'Email addresses',
+      'Company > Name',
+      'Job title',
+    ])
+
+    expect(map.name).toBe('Record')
+    expect(map.email).toBe('Email addresses')
+    expect(map.company_name).toBe('Company > Name')
+    expect(map.title).toBe('Job title')
+    expect(map.company_domain).toBeNull()
+  })
+
   it('falls back to an exact header match, ignoring case', () => {
     expect(defaultColumnMap('custom', 'companies', ['Name', 'DOMAIN'])).toMatchObject({
       name: 'Name',

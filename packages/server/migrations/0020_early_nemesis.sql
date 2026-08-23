@@ -1,0 +1,2 @@
+ALTER TABLE "import_jobs" DROP CONSTRAINT "import_jobs_source_check";--> statement-breakpoint
+ALTER TABLE "import_jobs" ADD CONSTRAINT "import_jobs_source_check" CHECK ("import_jobs"."source" in ('custom', 'hubspot', 'salesforce', 'attio'));

@@ -13,7 +13,7 @@ import type { RecordTimestamps } from './wire.ts'
  * — a caller sends a `column_map` and never has to know how one was derived.
  */
 
-export const IMPORT_SOURCES = ['custom', 'hubspot', 'salesforce'] as const
+export const IMPORT_SOURCES = ['custom', 'hubspot', 'salesforce', 'attio'] as const
 export const IMPORT_OBJECTS = ['companies', 'people', 'positions', 'deals'] as const
 export const IMPORT_CONFLICT_MODES = ['skip', 'update'] as const
 
@@ -94,6 +94,7 @@ export const SOURCE_LABELS: Readonly<Record<ImportSource, string>> = {
   custom: 'Custom CSV',
   hubspot: 'HubSpot CSV pack',
   salesforce: 'Salesforce CSV pack',
+  attio: 'Attio CSV pack',
 }
 
 export const CONFLICT_MODE_LABELS: Readonly<Record<ImportConflictMode, string>> = {
