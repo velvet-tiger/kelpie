@@ -6,6 +6,10 @@ These files are yours. Kelpie itself arrives as `@kelpie/server` and
 `@kelpie/ui` in `node_modules`; what is checked in here is the assembly that
 composes them: which modules are on, and how the service starts.
 
+Full documentation, including production deployment and the complete
+configuration reference, lives at
+<https://github.com/velvet-tiger/kelpie/tree/main/docs>.
+
 ## Running it
 
 ```bash
@@ -60,7 +64,9 @@ on an unknown id or an unmet dependency rather than starting without it.
 
 Everything below is required unless marked optional or conditional on another
 variable's value. A missing or invalid value stops the service at boot and
-lists every problem at once.
+lists every problem at once. The full reference — including reverse-proxy,
+egress, module-locking, and per-account login-limit settings — is
+[docs/self-hosting/configuration.md](https://github.com/velvet-tiger/kelpie/blob/main/docs/self-hosting/configuration.md).
 
 | Variable | Values |
 | --- | --- |
@@ -85,6 +91,7 @@ lists every problem at once.
 | `RATE_LIMIT_FORMS_LIMIT` / `RATE_LIMIT_FORMS_WINDOW_SECONDS` | Optional. Requests per window per IP on a public form submit, default 20 / 60 |
 | `RATE_LIMIT_AUTH_LIMIT` / `RATE_LIMIT_AUTH_WINDOW_SECONDS` | Optional. Requests per window per IP on signup, login, and password reset, default 10 / 60 |
 | `RATE_LIMIT_API_LIMIT` / `RATE_LIMIT_API_WINDOW_SECONDS` | Optional. Requests per window per API key on the rest of `/v1`, default 600 / 60 |
+| `TRUSTED_PROXY_HOP_COUNT` | Optional, default 0. The number of reverse proxies in front of the service. Set the real hop count so rate limits meter the actual client from `X-Forwarded-For`, not your proxy |
 
 ### Rotating the encryption key
 
@@ -98,6 +105,9 @@ unreadable, so rotate rather than replace:
 3. Run `npm run reseal`. It rewrites every row still sealed under the old key.
    Safe to run more than once.
 4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
+
+More detail, including backups and what is sealed under the key:
+[docs/self-hosting/production.md](https://github.com/velvet-tiger/kelpie/blob/main/docs/self-hosting/production.md).
 
 ## Deploying
 
@@ -119,6 +129,9 @@ stops rather than answering every browser with a blank page.
 Migrations apply at boot. Running more than one instance makes that a race, so
 migrate once with `npm run migrate` in a release step, then start the instances
 with `--no-migrate`. That command is forward-only and safe to re-run.
+
+TLS, reverse proxies, systemd, health checks, and backups:
+[docs/self-hosting/production.md](https://github.com/velvet-tiger/kelpie/blob/main/docs/self-hosting/production.md).
 
 ## Upgrading
 

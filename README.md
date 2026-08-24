@@ -71,10 +71,16 @@ Every required variable stops the service at boot with a clear error if missing.
 
 Kelpie extends through a module system. Routes, MCP tools, database tables, and UI slots all register through it. Core uses the same system, so the extension points cannot rot.
 
-The paid cloud assembles the same published packages with proprietary modules on top (billing, SSO, integrations). See [docs/development.md](docs/development.md) to build your own.
+The paid cloud assembles the same published packages with proprietary modules on top (billing, SSO, integrations). See [docs/extending/writing-a-module.md](docs/extending/writing-a-module.md) to build your own.
 
 ## Learn more
 
+Full documentation: [docs/README.md](docs/README.md)
+
+- [Getting started](docs/guides/getting-started.md) — using Kelpie, for your team
+- [Installation](docs/self-hosting/installation.md) and [production](docs/self-hosting/production.md) — running your own
+- [Connect an agent](docs/agents/connect-an-agent.md) — Claude, Cursor, or any MCP client
+- [Writing a module](docs/extending/writing-a-module.md) — extending an install
 - [docs/api-reference.md](docs/api-reference.md) — every endpoint
 - [docs/development.md](docs/development.md) — packages, modules, packaging, releasing
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contributing and copyright assignment
