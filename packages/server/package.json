@@ -57,6 +57,7 @@
     "drizzle-orm": "^0.45.2",
     "emittery": "^2.0.0",
     "hono": "^4.12.32",
+    "mailgen": "^2.0.36",
     "nodemailer": "^9.0.5",
     "postgres": "^3.4.9",
     "ulid": "^3.0.2",

@@ -68,6 +68,24 @@ describe('createSmtpEmailSender', () => {
     ])
   })
 
+  it('passes the HTML part through when the message carries one', async () => {
+    const { transport, calls } = fakeTransport()
+    const { logger } = capture()
+    const sender = createSmtpEmailSender(smtpConfig, logger, transport)
+
+    await sender.send({ ...message, html: '<p>Follow this link.</p>' })
+
+    expect(calls).toEqual([
+      {
+        from: smtpConfig.EMAIL_FROM,
+        to: message.to,
+        subject: message.subject,
+        text: message.body,
+        html: '<p>Follow this link.</p>',
+      },
+    ])
+  })
+
   it('wraps a transport failure with context and logs it, rather than leaking it raw', async () => {
     const { logger, lines } = capture()
     const transport: SmtpTransport = {

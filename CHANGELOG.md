@@ -10,6 +10,17 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`** — transactional mail now carries an HTML part. A new
+  `renderEmail` in `lib/emailContent.ts` renders each message with
+  [mailgen](https://github.com/eladnava/mailgen): a table-based responsive
+  layout with the action as a button and the raw link kept as a fallback. The
+  plaintext part is unchanged, built from the same fields, and remains the
+  `body` every provider already receives. `EmailMessage` gains an optional
+  `html` field and the `smtp-email` module passes it through to nodemailer;
+  provider modules written against the older port keep working.
+
 ## [0.7.0] - 2026-08-23
 
 ### Added

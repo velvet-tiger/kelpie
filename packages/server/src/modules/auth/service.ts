@@ -1,5 +1,6 @@
 import { APP_LINK_PATHS, buildAppLink } from '../../lib/appUrl.ts'
 import type { EmailSender } from '../../lib/email.ts'
+import { renderEmail } from '../../lib/emailContent.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
@@ -192,11 +193,23 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
   function sendVerificationEmail(to: string, token: string): Promise<void> {
     const link = buildAppLink(dependencies.appBaseUrl, APP_LINK_PATHS.verifyEmail, token)
+    const { text, html } = renderEmail(
+      {
+        action: {
+          instructions: 'Confirm this address to finish setting up your account:',
+          buttonText: 'Verify email address',
+          link,
+        },
+        outro: 'The link expires in 24 hours.',
+      },
+      dependencies.appBaseUrl,
+    )
 
     return dependencies.email.send({
       to,
       subject: 'Verify your Kelpie email address',
-      body: `Confirm this address to finish setting up your account:\n\n${link}\n\nThe link expires in 24 hours.`,
+      body: text,
+      html,
     })
   }
 
@@ -320,10 +333,18 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         })
 
         if (changes.email !== undefined) {
+          const { text, html } = renderEmail(
+            {
+              intro: `Your Kelpie sign-in email changed from ${previousEmail} to ${updated.email}. If you did not make this change, reset your password right away.`,
+            },
+            dependencies.appBaseUrl,
+          )
+
           await dependencies.email.send({
             to: previousEmail,
             subject: 'Your Kelpie sign-in email changed',
-            body: `Your Kelpie sign-in email changed from ${previousEmail} to ${updated.email}. If you did not make this change, reset your password right away.`,
+            body: text,
+            html,
           })
         }
 
@@ -418,11 +439,23 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       })
 
       const link = buildAppLink(dependencies.appBaseUrl, APP_LINK_PATHS.passwordReset, token)
+      const { text, html } = renderEmail(
+        {
+          action: {
+            instructions: 'Use this link within the hour to choose a new password:',
+            buttonText: 'Reset password',
+            link,
+          },
+          outro: 'If you did not ask for this, ignore it.',
+        },
+        dependencies.appBaseUrl,
+      )
 
       await dependencies.email.send({
         to: user.email,
         subject: 'Reset your Kelpie password',
-        body: `Use this link within the hour to choose a new password:\n\n${link}\n\nIf you did not ask for this, ignore it.`,
+        body: text,
+        html,
       })
     },
 

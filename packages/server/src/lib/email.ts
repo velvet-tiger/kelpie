@@ -21,7 +21,14 @@ import type { Logger } from './logger.ts'
 export interface EmailMessage {
   readonly to: string
   readonly subject: string
+  /** The plaintext part. Always present: text-only clients and logs read it. */
   readonly body: string
+  /**
+   * The HTML alternative, rendered by `lib/emailContent.ts`. Optional so
+   * provider modules written against the older port keep compiling and a
+   * plain-text message stays expressible.
+   */
+  readonly html?: string
 }
 
 export interface EmailSender {

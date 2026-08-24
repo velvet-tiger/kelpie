@@ -2,6 +2,7 @@ import { APP_LINK_PATHS, buildAppLink } from '../../lib/appUrl.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import type { EmailSender } from '../../lib/email.ts'
+import { renderEmail } from '../../lib/emailContent.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
@@ -336,11 +337,22 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
   function sendInviteEmail(to: string, token: string): Promise<void> {
     const link = buildAppLink(dependencies.appBaseUrl, APP_LINK_PATHS.inviteAccept, token)
+    const { text, html } = renderEmail(
+      {
+        action: {
+          instructions: 'Accept the invitation within seven days:',
+          buttonText: 'Accept invitation',
+          link,
+        },
+      },
+      dependencies.appBaseUrl,
+    )
 
     return dependencies.email.send({
       to,
       subject: 'You have been invited to a Kelpie workspace',
-      body: `Accept the invitation within seven days:\n\n${link}`,
+      body: text,
+      html,
     })
   }
 

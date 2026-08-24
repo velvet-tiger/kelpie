@@ -44,7 +44,13 @@ export type SmtpEmailConfig = z.infer<typeof smtpEmailConfigSchema>
  * sender is verifiable without a container running a real SMTP conversation.
  */
 export interface SmtpTransport {
-  sendMail(message: { from: string; to: string; subject: string; text: string }): Promise<unknown>
+  sendMail(message: {
+    from: string
+    to: string
+    subject: string
+    text: string
+    html?: string
+  }): Promise<unknown>
 }
 
 function createNodemailerTransport(config: SmtpEmailConfig): SmtpTransport {
@@ -70,6 +76,7 @@ export function createSmtpEmailSender(
           to: message.to,
           subject: message.subject,
           text: message.body,
+          ...(message.html === undefined ? {} : { html: message.html }),
         })
       } catch (cause) {
         const reason = describeThrown(cause)
