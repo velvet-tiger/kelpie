@@ -1,12 +1,22 @@
-import { PIPELINE_KIND_LABELS, PIPELINE_KINDS, PLAN_ITEM_STATUS_LABELS } from '@kelpie/schemas'
-import type { PipelineKind, PlanItem } from '@kelpie/schemas'
+import {
+  PIPELINE_KIND_LABELS,
+  PIPELINE_KINDS,
+  PLAN_ITEM_STATUS_LABELS,
+  PLAN_ITEM_STATUSES,
+} from '@kelpie/schemas'
+import type { PipelineKind, PlanItem, PlanItemStatus } from '@kelpie/schemas'
 import { useState } from 'react'
+import type { FormEvent } from 'react'
 
 import { useDeals } from '../api/resources/deals.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
-import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
+import {
+  MAX_PAGE_SIZE,
+  useCreatePlanItem,
+  usePlanItems,
+} from '../api/resources/planItems.ts'
 import { useRaises } from '../api/resources/raises.ts'
 import { Chip } from '../components/Chip.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
@@ -23,6 +33,9 @@ import { monthBounds, planStatusTone, todayIso } from '../lib/plan.ts'
  * upcoming and pages through it; the calendar wants one month, which is what
  * `?from=` and `?to=` are for, so moving between months is a request rather than
  * a filter over rows the page happens to hold.
+ *
+ * Adding a plan item lives here as well as on each record's Plan panel: the page
+ * is the workspace-wide view of the same resource, so create belongs here too.
  */
 
 type ViewMode = 'list' | 'calendar'
@@ -35,14 +48,26 @@ const CELL_ITEM_LIMIT = 3
 
 const MONTH_AND_YEAR = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' })
 
+const inputClass =
+  'h-9 w-full rounded-md border border-border bg-surface-raised px-2.5 text-[13px] outline-none focus:border-accent'
+
+interface PipelineTarget {
+  readonly id: string
+  readonly name: string
+}
+
 export function PlanningPage(): React.JSX.Element {
   const [view, setView] = useState<ViewMode>('list')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+  const [adding, setAdding] = useState(false)
   const [month, setMonth] = useState(() => {
     const now = new Date()
 
     return { year: now.getFullYear(), month: now.getMonth() }
   })
+
+  const targets = usePipelineTargets()
+  const createItem = useCreatePlanItem()
 
   const typeQuery = typeFilter === 'all' ? {} : { targetType: typeFilter }
   // A month is a bounded question, so the calendar asks for it at the largest
@@ -65,6 +90,10 @@ export function PlanningPage(): React.JSX.Element {
     <div className="animate-fade-in">
       <PageHeader
         title="Planning"
+        onAdd={() => {
+          setAdding((current) => !current)
+        }}
+        addLabel="Add plan item"
         actions={
           <>
             <label className="sr-only" htmlFor="plan-type-filter">
@@ -97,6 +126,33 @@ export function PlanningPage(): React.JSX.Element {
           </>
         }
       />
+
+      {adding && (
+        <AddPlanItemForm
+          initialTargetType={typeFilter === 'all' ? 'deal' : typeFilter}
+          targetsByKind={targets.byKind}
+          isPending={createItem.isPending}
+          error={createItem.error}
+          onCancel={() => {
+            setAdding(false)
+          }}
+          onSubmit={(fields) => {
+            createItem
+              .runAsync({
+                targetType: fields.targetType,
+                targetId: fields.targetId,
+                date: fields.date,
+                title: fields.title,
+                ownerId: fields.ownerId.length === 0 ? null : fields.ownerId,
+                status: fields.status,
+              })
+              .then(() => {
+                setAdding(false)
+              })
+              .catch(() => undefined)
+          }}
+        />
+      )}
 
       {view === 'calendar' && (
         <div className="mb-4 flex items-center gap-2">
@@ -131,7 +187,7 @@ export function PlanningPage(): React.JSX.Element {
       ) : items.isLoading ? (
         <LoadingPanel label="Loading plan…" />
       ) : view === 'list' ? (
-        <PlanList items={items.records} />
+        <PlanList items={items.records} targetNames={targets.nameById} />
       ) : (
         <PlanCalendar year={month.year} month={month.month} items={items.records} />
       )}
@@ -151,27 +207,203 @@ export function PlanningPage(): React.JSX.Element {
 }
 
 /**
- * Names for the records the loaded items point at.
- *
- * The directory is one page per pipeline, matching the Deal contacts precedent:
- * past it a row still says what kind of record it belongs to.
+ * Pipeline records the add form can attach to, and the name map the list uses
+ * for PlanTargetLink. One page per kind, same ceiling as the rest of Planning.
  */
-function useTargetNames(): ReadonlyMap<string, string> {
-  const deals = useDeals({ limit: 200 })
-  const opportunities = useOpportunities({ limit: 200 })
-  const raises = useRaises({ limit: 200 })
-  const partnerships = usePartnerships({ limit: 200 })
+function usePipelineTargets(): {
+  readonly byKind: Readonly<Record<PipelineKind, readonly PipelineTarget[]>>
+  readonly nameById: ReadonlyMap<string, string>
+} {
+  const deals = useDeals({ limit: MAX_PAGE_SIZE })
+  const opportunities = useOpportunities({ limit: MAX_PAGE_SIZE })
+  const raises = useRaises({ limit: MAX_PAGE_SIZE })
+  const partnerships = usePartnerships({ limit: MAX_PAGE_SIZE })
 
-  return new Map(
-    [...deals.records, ...opportunities.records, ...raises.records, ...partnerships.records].map(
-      (record) => [record.id, record.name],
+  const byKind: Readonly<Record<PipelineKind, readonly PipelineTarget[]>> = {
+    deal: deals.records.map((record) => ({ id: record.id, name: record.name })),
+    opportunity: opportunities.records.map((record) => ({ id: record.id, name: record.name })),
+    raise: raises.records.map((record) => ({ id: record.id, name: record.name })),
+    partnership: partnerships.records.map((record) => ({ id: record.id, name: record.name })),
+  }
+
+  return {
+    byKind,
+    nameById: new Map(
+      Object.values(byKind)
+        .flat()
+        .map((record) => [record.id, record.name]),
     ),
+  }
+}
+
+interface AddPlanItemFields {
+  readonly targetType: PipelineKind
+  readonly targetId: string
+  readonly date: string
+  readonly title: string
+  readonly ownerId: string
+  readonly status: PlanItemStatus
+}
+
+function AddPlanItemForm({
+  initialTargetType,
+  targetsByKind,
+  isPending,
+  error,
+  onSubmit,
+  onCancel,
+}: {
+  readonly initialTargetType: PipelineKind
+  readonly targetsByKind: Readonly<Record<PipelineKind, readonly PipelineTarget[]>>
+  readonly isPending: boolean
+  readonly error: Error | null
+  readonly onSubmit: (fields: AddPlanItemFields) => void
+  readonly onCancel: () => void
+}): React.JSX.Element {
+  const members = useMembers()
+  const [draft, setDraft] = useState<AddPlanItemFields>({
+    targetType: initialTargetType,
+    targetId: '',
+    date: todayIso(),
+    title: '',
+    ownerId: '',
+    status: 'todo',
+  })
+
+  const targets = targetsByKind[draft.targetType]
+
+  function submit(event: FormEvent): void {
+    event.preventDefault()
+
+    const title = draft.title.trim()
+
+    if (title.length === 0 || draft.date.length === 0 || draft.targetId.length === 0) {
+      return
+    }
+
+    onSubmit({ ...draft, title })
+  }
+
+  return (
+    <form onSubmit={submit} className="mb-4 space-y-3 rounded-md border border-border p-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[11rem_minmax(0,1fr)]">
+        <select
+          value={draft.targetType}
+          onChange={(event) => {
+            const targetType = event.target.value as PipelineKind
+
+            setDraft((current) => ({ ...current, targetType, targetId: '' }))
+          }}
+          aria-label="Record type"
+          className={inputClass}
+        >
+          {PIPELINE_KINDS.map((kind) => (
+            <option key={kind} value={kind}>
+              {PIPELINE_KIND_LABELS[kind]}
+            </option>
+          ))}
+        </select>
+        <select
+          value={draft.targetId}
+          onChange={(event) => {
+            setDraft((current) => ({ ...current, targetId: event.target.value }))
+          }}
+          required
+          aria-label="Record"
+          className={inputClass}
+        >
+          <option value="">{targets.length === 0 ? 'No records' : 'Select…'}</option>
+          {targets.map((target) => (
+            <option key={target.id} value={target.id}>
+              {target.name}
+            </option>
+          ))}
+        </select>
+
+        <input
+          type="date"
+          value={draft.date}
+          onChange={(event) => {
+            setDraft((current) => ({ ...current, date: event.target.value }))
+          }}
+          required
+          aria-label="Date"
+          className={inputClass}
+        />
+        <input
+          value={draft.title}
+          onChange={(event) => {
+            setDraft((current) => ({ ...current, title: event.target.value }))
+          }}
+          placeholder="What happens…"
+          required
+          autoFocus
+          aria-label="What happens"
+          className={inputClass}
+        />
+
+        <select
+          value={draft.ownerId}
+          onChange={(event) => {
+            setDraft((current) => ({ ...current, ownerId: event.target.value }))
+          }}
+          aria-label="Owner"
+          className={inputClass}
+        >
+          <option value="">Unassigned</option>
+          {members.members.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={draft.status}
+          onChange={(event) => {
+            setDraft((current) => ({
+              ...current,
+              status: event.target.value as PlanItemStatus,
+            }))
+          }}
+          aria-label="Status"
+          className={inputClass}
+        >
+          {PLAN_ITEM_STATUSES.map((status) => (
+            <option key={status} value={status}>
+              {PLAN_ITEM_STATUS_LABELS[status]}
+            </option>
+          ))}
+        </select>
+      </div>
+      {error !== null && <ErrorPanel error={error} />}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-ink-muted hover:text-ink"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={isPending || targets.length === 0}
+          className="h-9 rounded-md bg-accent px-3 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+        >
+          {isPending ? 'Adding…' : 'Add'}
+        </button>
+      </div>
+    </form>
   )
 }
 
-function PlanList({ items }: { readonly items: readonly PlanItem[] }): React.JSX.Element {
+function PlanList({
+  items,
+  targetNames,
+}: {
+  readonly items: readonly PlanItem[]
+  readonly targetNames: ReadonlyMap<string, string>
+}): React.JSX.Element {
   const members = useMembers()
-  const targetNames = useTargetNames()
 
   if (items.length === 0) {
     return <p className="text-[13px] text-ink-faint">No plan items match this filter.</p>
