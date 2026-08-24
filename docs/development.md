@@ -5,7 +5,8 @@ layout, the UI data layer, the database, the module system, the full command
 reference, and how packaging and releasing work.
 
 If you want to run Kelpie rather than build it, see the [README](../README.md)
-instead. For product direction and the wire-level specs, see `brief.md`,
+instead. To build a module against the published packages without cloning this
+repository, see [extending/writing-a-module.md](extending/writing-a-module.md). For product direction and the wire-level specs, see `brief.md`,
 `roadmap.md`, `architecture.md`, `api.md`, `schema.md` and `modules.md`
 alongside this repository.
 
@@ -155,7 +156,7 @@ MCP tools share the input schema with their REST route, and the runtime parses a
 
 ### Turning modules on or off
 
-A module is `structural` or it is not. A structural module (`auth`, `workspace`, `api-keys`, `activities`, `people`, `companies`, `plans`, `decisions`, `dashboard`, `notes` and `pipelines` in `coreModules` today) registers every route and MCP tool unconditionally and can never be disabled. Every other module is toggleable: the registration pass declares a `module.<id>` entitlement capability for it and gates its routes and tools behind that capability, so a disabled module answers `entitlement_required` on both surfaces rather than just disappearing from the UI. A module says nothing to opt in; `structural` defaults to false, so a module added later is toggleable without its author doing anything.
+A module is `structural` or it is not. A structural module (`auth`, `workspace`, `api-keys`, `people`, `companies`, `activities`, `notes`, `pipelines`, `plans`, `decisions`, `lists`, `search`, `dashboard` and `smtp-email` in `coreModules` today) registers every route and MCP tool unconditionally and can never be disabled. Every other module is toggleable: the registration pass declares a `module.<id>` entitlement capability for it and gates its routes and tools behind that capability, so a disabled module answers `entitlement_required` on both surfaces rather than just disappearing from the UI. A module says nothing to opt in; `structural` defaults to false, so a module added later is toggleable without its author doing anything.
 
 A workspace admin turns a toggleable module on or off from **Admin → Modules**, backed by `GET`/`PATCH /v1/workspaces/:id/modules`. No row for a module means enabled, which is the state every workspace starts in.
 
@@ -189,6 +190,7 @@ the database is already running.
 | `npm run db:up` / `npm run db:down` | Local Postgres container. Both call the matching `make` target, so `db:up` also refreshes `.env.local` |
 | `npm run db:generate` | Writes a new migration from the schema barrel. See [Database](#database) |
 | `npm run db:migrate` | Applies pending migrations once, then exits. The release step for multi-instance deploys started with `--no-migrate` |
+| `npm run reseal` | Rewrites every sealed secret under the current `SECRET_ENCRYPTION_KEY`. The step after a key rotation; idempotent, and exits non-zero on a row it cannot open |
 
 ### Environment file precedence
 

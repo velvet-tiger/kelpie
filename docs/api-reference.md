@@ -2,12 +2,15 @@
 
 Endpoint-by-endpoint detail on what the service does today, and what it does
 not yet do. For a plain description of what Kelpie is and how to run it, see
-the [README](../README.md). For the wire conventions themselves (auth, ids,
-pagination, errors, writes), see `api.md` alongside this repository.
+the [README](../README.md); the rest of the documentation is indexed at
+[docs/README.md](README.md), and the integrator's summary of the wire
+conventions is [agents/api-and-webhooks.md](agents/api-and-webhooks.md).
+(Maintainers: the full wire spec, `api.md`, lives in the private
+specification folder beside this repository.)
 
 ## What works
 
-The Phase 0 backend, plus the CRM resources below. Every endpoint here has integration tests against a real Postgres.
+Every endpoint here has integration tests against a real Postgres.
 
 | Area | Surface |
 | --- | --- |
@@ -15,10 +18,12 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | Preferences | `GET` and `PATCH /v1/account/preferences` (timezone, theme, notification choices) |
 | Sessions | `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id` |
 | Passwords | `PATCH /v1/auth/password`, `POST /v1/auth/password-reset` and `/confirm` |
+| Email verification | `POST /v1/auth/verify-email` (issues and emails a token) and `/confirm` (spends it). Creating a workspace is `403` until the address is verified; accepting an invite verifies as a side effect |
 | Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `DELETE /v1/workspaces/:id?slug=` |
 | Membership | `GET`, `PATCH` and `DELETE /v1/workspaces/:id/members[/:member_id]` |
 | Invites | `POST` and `GET /v1/workspaces/:id/invites`, `POST .../invites/:invite_id/resend`, `DELETE .../invites/:invite_id`, `POST /v1/invites/accept` |
 | API keys | `POST /v1/api-keys`, `GET /v1/api-keys?kind=`, `DELETE /v1/api-keys/:id` |
+| Modules | `GET /v1/workspaces/:id/modules`, `PATCH .../modules/:module_id`. Toggleable modules only; a disabled one answers `entitlement_required` on REST and MCP alike |
 | People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
 | Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |
 | Positions | `GET`, `POST /v1/positions`, `GET`, `PATCH`, `DELETE /v1/positions/:id`. Filters `?person_id=` and `?company_id=` |
@@ -32,13 +37,17 @@ The Phase 0 backend, plus the CRM resources below. Every endpoint here has integ
 | Decisions | `GET`, `POST /v1/decisions`, `GET`, `PATCH`, `DELETE /v1/decisions/:id`. Filters `?q=`, `?target_type=` and `?target_id=` |
 | Plan items | `GET`, `POST /v1/plan_items`, `GET`, `PATCH`, `DELETE /v1/plan_items/:id`. Filters `?target_type=`, `?target_id=`, `?status=`, `?from=` and `?to=` |
 | Notes | `GET`, `POST /v1/notes`, `GET`, `PATCH`, `DELETE /v1/notes/:id`. `?target_type=` and `?target_id=` are required, and `?target_id=` repeats to name a set; filter `?pinned=true` or `false` |
+| Lists | `GET`, `POST /v1/lists`, `GET`, `PATCH`, `DELETE /v1/lists/:id`. Filters `?q=` and `?target_type=`. Members at `GET`, `POST /v1/lists/:id/members` and `DELETE .../members/:member_id`; a record's memberships at `GET /v1/list-memberships?target_type=&target_id=` |
 | Activities | `GET /v1/activities`. Read-only: the timeline is written by the writes it describes. `?target_type=` and `?target_id=` are required |
 | Dashboard | `GET /v1/dashboard`. Read-only, no id and no envelope. `?limit=` caps every embedded list |
+| Search | `GET /v1/search?q=` across nine collections at once; `?type=` repeats to narrow the set. Grouped shape with exact totals, per `api.md` |
 | Handbook | `GET`, `POST /v1/handbook_pages`, `GET`, `PATCH`, `DELETE /v1/handbook_pages/:id`. Filters `?q=` and `?slug=` |
 | Forms | `GET`, `POST /v1/forms`, `GET`, `PATCH`, `DELETE /v1/forms/:id`. Filters `?q=` and `?status=`. Plus `GET /v1/forms/:id/submissions` and `GET /v1/forms/:id/embed` |
 | Public forms | `POST /v1/public/forms/:public_key/submit` and `GET /v1/public/forms/:public_key/embed`. No credentials, any origin |
 | Export | `GET /v1/export/{people,companies,positions,deals}.csv` and `GET /v1/export/templates/{object}.csv` |
 | Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit`, `DELETE /v1/import/jobs/:id` |
+| Sample data | `POST /v1/workspaces/:id/sample-data`. Admin only, one transaction, `409` once the workspace holds companies or people |
+| Public config | `GET /v1/public/config` — `{ runtime_mode, site_name }`, no credentials. Feeds the named banner a non-production install shows (`KELPIE_SITE_NAME`) |
 | Agent tasks | `GET /v1/agent-tasks?target_type=`, `POST /v1/agent-tasks/:task_id/resolve` and `/run`. Runs at `GET /v1/agent-runs[/:id]`, filters `?agent_id=` and `?status=`. Registered agents: `GET`, `POST /v1/agents`, `GET`, `PATCH`, `DELETE /v1/agents/:id` — writes admin only, reads any member |
 | Webhooks | `GET`, `POST /v1/webhooks`, `GET`, `PATCH`, `DELETE /v1/webhooks/:id`. Filter `?status=`. Plus `POST /v1/webhooks/:id/rotate_secret` and `GET /v1/webhooks/:id/deliveries`, filter `?status=`. Admin only, reads included |
 | MCP | `POST /mcp`, Streamable HTTP, bearer key only. Speaks `2026-07-28` and the two `initialize`-based revisions before it. `GET /v1/mcp/tools` lists the same tools over ordinary credentials |
@@ -73,7 +82,7 @@ A non-2xx fails, and so does a redirect, which is never followed: an endpoint th
 
 Every verb needs the admin role, **including the reads**. A webhook URL routinely carries its own credential in the path, so listing registrations discloses a secret rather than describing a setting. That is why the Webhooks page tells a member the list is not theirs instead of showing them an empty one.
 
-**Agent tasks are prompt recipes, and resolve is the single source of truth.** The catalog is 69 task definitions shipped in code (`agent-tasks.md`), listed per target type. `POST /v1/agent-tasks/:task_id/resolve` loads the target, its pinned notes, open Plan items, open Decisions, the handbook pages the task names (by slug, resolved to this workspace's own copies), and the related ids the data model records, and renders one markdown prompt. Copy puts that prompt on the clipboard; Run POSTs the identical payload to a registered agent, so the two cannot drift. Workspace-scoped tasks point the agent at `GET /v1/dashboard` instead of a single record, and the two sweep tasks — empty fields, and open pipeline with nothing planned — run their queries at resolve time with exact totals and honestly capped id lists.
+**Agent tasks are prompt recipes, and resolve is the single source of truth.** The catalog is 69 task definitions shipped in code (`agent-tasks.md`), listed per target type. `POST /v1/agent-tasks/:task_id/resolve` loads the target, its pinned notes, open Plan items, open Decisions, the handbook pages the task names (by slug, resolved to this workspace's own copies), and the related ids the data model records, and renders one markdown body under two framings: `prompt`, framed for an agent operating over MCP or REST, and `base_prompt`, the same body unframed, for an agent that returns structured operations for a caller to apply. Copy puts the framed prompt on the clipboard; Run POSTs the identical payload to a registered agent, so the two cannot drift. Workspace-scoped tasks point the agent at `GET /v1/dashboard` instead of a single record, and the two sweep tasks — empty fields, and open pipeline with nothing planned — run their queries at resolve time with exact totals and honestly capped id lists.
 
 A run records the dispatch, not the agent's work: `queued` when created, `running` while the POST is in flight, then `succeeded` on a 2xx or `failed` with the reason on anything else. One attempt, deliberately, where webhooks retry three times — re-POSTing a task risks an agent doing the whole job twice, and the human is on the page to re-run. There is no callback for an agent to report completion; what it did shows up on the records themselves, through the same API. The wire is `snake_case` throughout: `agent-tasks.md`'s camelCase examples predate `api.md`, and `api.md` wins.
 
@@ -87,7 +96,7 @@ Rows that point at another record carry `target_name` resolved. It is the one pl
 
 **Today is the workspace's day, not the server's.** Overdue is a comparison between calendar dates, so the service reads `workspaces.timezone` and asks Postgres for the local day of each `last_contacted_at`. A Melbourne workspace opening the page at 9am does not see yesterday's date because the server is on UTC. The thresholds are fixed rather than settable — a "stale contact" the caller defined would mean something different in every request — and the response echoes the two it used.
 
-**MCP is the same API through a second door.** `POST /mcp` speaks Streamable HTTP, and every tool on it is built from the Zod body, the wire mapper and the service its REST endpoint uses, so the two cannot answer differently. A tool that fails answers with the `api.md` error body — the same `404`, the same `422` and its field-level `details` — carried as a tool result rather than a protocol error, because a call that ran and refused is an answer the model should see. 99 tools today: the five verbs for each CRM resource, the handbook, forms and their submissions, workspace settings, team and invitations, webhooks, `dashboard_get`, and the four import/export tools `import-export.md` names.
+**MCP is the same API through a second door.** `POST /mcp` speaks Streamable HTTP, and every tool on it is built from the Zod body, the wire mapper and the service its REST endpoint uses, so the two cannot answer differently. A tool that fails answers with the `api.md` error body — the same `404`, the same `422` and its field-level `details` — carried as a tool result rather than a protocol error, because a call that ran and refused is an answer the model should see. 110 tools today: the five verbs for each of sixteen resources (the CRM objects, pipeline stages, notes, decisions, plan items, handbook pages, forms, and lists), the four list-membership tools, `form_submissions_list`, the nine workspace tools (settings, team, invitations), the seven webhook tools and their delivery log, `search_query`, `dashboard_get`, `activities_list`, `sample_data_install`, and the five import/export tools `import-export.md` names.
 
 The endpoint takes **bearer keys only**, and deliberately not the session cookie the REST surface accepts. Three things keep a cross-origin browser out: a present `Origin` that is not this deployment's own answers `403`, no CORS headers are sent, and there is no ambient credential to spend even if one got through. There is no session id and no server-initiated stream, so `GET` and `DELETE` answer `405` and any instance can answer any request.
 
@@ -101,11 +110,15 @@ Three REST operations have no tool. Creating a workspace and accepting an invita
 
 `export_csv` inlines the file and refuses over 256 KB, naming `GET /v1/export/{object}.csv` instead. A truncated CSV looks exactly like a whole one, and an agent would draw conclusions from the rows that were not there.
 
-Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with after-commit publication, the entitlements registry, 37 tables with migrations, and an integration harness that creates and truncates its own database.
+**Lists are typed collections, and the type is load-bearing.** A list's `target_type` is fixed at creation; a member of another type is `422`, and a composite foreign key enforces the same rule underneath the service. Member rows carry `target_name` resolved, like dashboard rows, and `GET /v1/list-memberships` answers `404` for a record that does not exist rather than an empty set. Spec: `lists.md` beside this repository.
+
+**Sample data is a one-shot install, idempotent by refusal.** `POST /v1/workspaces/:id/sample-data` writes the whole fixture in one transaction and answers the counts; a workspace already holding companies or people gets `409`, because an "install once" button must not double the fixture. The onboarding workspace step offers it as a checkbox and Admin → Data carries the same button.
+
+Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with per-module catalogs and after-commit publication, the entitlements registry (including the `workspace.access` gate on `/v1` and `/mcp`), the `Idempotency-Key` middleware, four rate-limit budgets, 41 tables with migrations, and an integration harness that creates and truncates its own database.
 
 Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. A webhook signing secret is the one credential that is encrypted rather than hashed, because signing a delivery needs it back; `lib/secrets.ts` seals it with AES-256-GCM under `SECRET_ENCRYPTION_KEY`. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
 
-In the browser: People and Companies, list and detail, against those endpoints. Filtering, inline editing, creating, deleting, and linking a person to a company through a Position all work end to end. Detail pages render the `person` and `company` record-tab slots, and the sidebar renders module nav items, so a UI module has somewhere to land from the start.
+In the browser, the port is complete: Dashboard, search (a header box and `/search`), People, Companies, Hiring, the four pipelines with their stage settings, Lists, Planning, Decisions, Forms, Handbook, the admin pages (Workspace, Team, Data with import/export and the sample-data installer, API keys, Webhooks, MCP, Modules), the account pages (Profile, Security, Preferences, personal API keys), and the full auth flow from signup through email verification, onboarding, password reset and invitation acceptance. Detail pages render the record-tab slots on the six main record types, and the sidebar renders module nav items, so a UI module has somewhere to land from the start.
 
 Forms have a list and a four-tab detail page: submissions with links to what each one created, a drag-ordered field builder, settings, and the embed snippets. The builder is the one screen in the app that saves explicitly rather than per keystroke, because a write replaces the whole field list and committing on every character would reissue every field id. It refuses to send a list the API would reject, and shows why beside the field responsible.
 
@@ -119,19 +132,17 @@ The emailed invitation lands on `/join?token=…`, which accepts as the signed-i
 
 ## Known gaps
 
-- **Most of the UI.** The Dashboard, People, Companies, Positions, Deals, Opportunities, Fundraising, Partnerships, Hiring, Handbook, Planning, Decisions, Forms, the Workspace, Team, Webhooks and MCP admin pages, and the account's own Profile, Security and Preferences pages are ported. Everything else in `mockups/` is not: search, the remaining admin pages, and the account's integrations and personal API key tabs all wait for their endpoints.
+- **Two UI slots with no render site.** `record.sidebar.<objectType>` and `dashboard.cards` are registered, typed, and collision-checked, and no core page renders either yet. Record tabs render on the six main record types; `role` and `candidate` are in the type list without a render site. A candidate is also a target with no detail page, so a candidate row in Decisions or Planning shows a type label rather than a link, and a decision result in search links to the Decisions list.
 - **Role enforcement outside workspace administration.** Administration is gated at `admin`, and API keys already were. Every CRM resource is open to any member, which is what the specs describe; no document defines a read-only role. Narrowing that is a product decision, not a missing check.
-- **MCP tools for agent tasks.** `agent-tasks.md` defers `run_agent_task` ("not required for v0"), so the resolve, run, runs and agents endpoints have no tools yet and the tool count stays at 99. An agent that wants a context pack can still be handed one: Copy the prompt, or POST resolve over REST with its key.
+- **MCP tools for agent tasks.** `agent-tasks.md` defers `run_agent_task` ("not required for v0"), so the resolve, run, runs and agents endpoints have no tools and the count stays at 110. An agent that wants a context pack can still be handed one: Copy the prompt, or POST resolve over REST with its key.
 - **An agent reporting a run's outcome.** A run's lifecycle is the dispatch — `queued`, `running`, then `succeeded` or `failed` with the reason. No spec defines a callback for the agent to say it finished the work, so nothing pretends to know; the work itself lands on the records through the ordinary API.
-- **The rest of the auth pages.** Sign-in, first-workspace and join exist so the CRM pages can be reached and an invitation can be accepted. Signup, password reset and the onboarding wizard are a separate feature and replace the first two. Changing a password while signed in is on the account's Security page and does exist.
-- **Notification email.** The Preferences page stores a weekly digest, mention and product-update choice per account, and nothing sends any of them: email sending is a v0 non-goal (`brief.md`), and the email port serves invites and password resets only. The page says so on screen rather than leaving a reader to infer a capability from a toggle.
-- **A user timezone that anything reads.** It is stored and returned; every formatter in `packages/ui/src/lib/dates.ts` is still fixed `en-AU`.
+- **Notification email.** The Preferences page stores a weekly digest, mention and product-update choice per account, and nothing sends any of them: email sending is a v0 non-goal (`brief.md`), and the email port serves invites, password resets and verification only. The page says so on screen rather than leaving a reader to infer a capability from a toggle.
+- **Locale loose ends.** Dates now format in the stored timezone (account preference, then workspace, then UTC) with the browser's locale. Still fixed: money formats under a hardcoded `en-US` locale, the Team page renders dates in the browser's zone rather than the workspace's, and the workspace settings page offers a hardcoded six-entry timezone list while account preferences offers the full IANA set.
 - **A friendly device name on the Security page.** A session records the raw `User-Agent` and shows it, so a browser reads as a long string rather than "Chrome on macOS". `location` is never populated at all and renders "Unknown"; nothing derives one from a request.
 - **Leaving a workspace, and the last owner.** An admin can remove themselves; the owner cannot, and has to hand ownership over first. An owner who is the only member has no way out except deleting the workspace.
-- **`npm run seed`.** The demo dataset in `mockups/src/data/seed.ts` has not been ported.
-- **`Idempotency-Key`.** `api.md` says `POST` endpoints accept it and `idempotency_keys` exists, but nothing reads the header yet. It needs a migration of its own (`response` is `NOT NULL`, and reserve-then-fill needs null), so it is a feature rather than a rider on the first CRM route.
 - **Webhook polish**, which `brief.md` defers. Four events are deliverable and the rest of the catalogue is not offered, rather than accepted and never sent. Retries live in the process, so a crash mid-backoff loses that delivery. The delivery log keeps `WEBHOOK_DELIVERY_RETENTION_DAYS` of history (30 unless set), pruned in the transaction that records the webhook's next delivery because there is no scheduler in core — so a hook that stops delivering keeps its last window of rows until the hook or workspace is deleted. The log is on the Webhooks page, but `payload` is a `jsonb` column and Postgres reorders its keys, so it shows the content of a body and not the exact text `Kelpie-Signature` was computed over.
-- **A module making its own event deliverable.** The engine subscribes to a fixed four, each with a payload builder. A module cannot add a fifth: the bus is typed on `DomainEvents`, so an event a module defines has no payload type to publish under, and the engine has no builder to render it with. `ModuleContext` used to carry a `webhookEvents(names)` method for this and nothing read the names it collected; it was removed, because the contribution the mechanism needs is a builder rather than a name. See `modules.md`.
-- **Outbound egress filtering.** A delivery URL may name any host, including a private one, because a self-hosted install legitimately posts to `http://automation.internal`. A hosted deployment needs that filter at its egress rather than in this check.
-- **A CI workflow.** The scripts are ready; nothing runs them on push.
-- **A copyright holder.** `LICENSE` is the verbatim AGPL-3.0 text, but no file states who holds the copyright. `modules.md` depends on that: proprietary cloud modules are only possible while we own the core copyright, and external contributions need a CLA before the first outside PR.
+- **A fifth wire event kind.** Since the 0.6.0 event catalogs, a module makes its own event deliverable by naming it with a `created`/`updated`/`deleted` suffix and a record target type, and the bridge translates it to the matching `record.*` wire event — no builder needed. What a module still cannot do is add a wire kind beyond the four the catalogue advertises; wider wire coverage is a follow-up. See `modules.md`.
+- **Outbound egress filtering is a flag, not a policy.** `BLOCK_PRIVATE_EGRESS=true` refuses webhook and agent-dispatch URLs that resolve to private addresses, and defaults off because a self-hosted install legitimately posts to `http://automation.internal`. A hosted deployment still wants network-level egress policy behind it.
+- **A CI workflow.** The scripts are ready and `npm run release` runs all of them; nothing runs them on push.
+- **The MCP server's advertised version.** `MCP_SERVER_INFO` hardcodes `version: '0.0.0'` rather than the package version, so a client reading the identity sees a number that lags every release.
+- **A copyright line in `LICENSE`.** `CLA.md` names the copyright holder (Christopher Skene) and `CONTRIBUTING.md` makes opening a PR the assignment agreement, which is what proprietary cloud modules on an AGPL core require. `LICENSE` itself is still the verbatim AGPL-3.0 text with the FSF's unfilled template at the bottom; no copyright notice names the project.
