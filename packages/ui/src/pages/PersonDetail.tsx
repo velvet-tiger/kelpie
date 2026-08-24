@@ -27,6 +27,7 @@ import { InlineEdit } from '../components/InlineEdit.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
 import { RelatedPlanAttention } from '../components/PlanAttention.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
+import { ListsPanel } from '../components/ListsPanel.tsx'
 import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
@@ -94,6 +95,7 @@ export function PersonDetail(): React.JSX.Element {
       : [{ id: 'hiring', label: 'Hiring', count: candidacies.records.length }]),
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
+    { id: 'lists', label: 'Lists' },
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -136,6 +138,7 @@ export function PersonDetail(): React.JSX.Element {
             )}
             {active === 'notes' && <NotesPanel targetType="person" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="person" targetId={record.id} />}
+            {active === 'lists' && <ListsPanel targetType="person" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'person', recordId: record.id })}
           </RecordTabs>
         </div>

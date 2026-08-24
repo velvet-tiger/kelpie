@@ -19,6 +19,7 @@ import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
+import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
 import { PlanAttention } from '../components/PlanAttention.tsx'
 import { PlanPanel } from '../components/PlanPanel.tsx'
@@ -79,6 +80,7 @@ export function RaiseDetail(): React.JSX.Element {
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
+    { id: 'lists', label: 'Lists' },
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -119,6 +121,7 @@ export function RaiseDetail(): React.JSX.Element {
             {active === 'activity' && <ActivitiesPanel targetType="raise" targetId={record.id} />}
             {active === 'notes' && <NotesPanel targetType="raise" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="raise" targetId={record.id} />}
+            {active === 'lists' && <ListsPanel targetType="raise" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'raise', recordId: record.id })}
           </RecordTabs>
         </div>

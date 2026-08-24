@@ -6,6 +6,7 @@ import type { Queryable } from '../runtime/transaction.ts'
 import * as activityRepository from './activities/repository.ts'
 import * as decisionRepository from './decisions/repository.ts'
 import { candidates } from './hiring/schema.ts'
+import * as listRepository from './lists/repository.ts'
 import * as noteRepository from './notes/repository.ts'
 import * as planRepository from './plans/repository.ts'
 
@@ -37,7 +38,7 @@ export async function deleteRecordsAttachedTo(
   targetType: AttachableTargetType,
   targetId: string,
 ): Promise<number> {
-  // Sequential, not concurrent: a transaction is one connection, and four
+  // Sequential, not concurrent: a transaction is one connection, and five
   // statements racing down it is not something to rely on for a cheap delete.
   const notes = await noteRepository.deleteForTarget(db, workspaceId, targetType, targetId)
   const activities = await activityRepository.deleteForTarget(db, workspaceId, targetType, targetId)
@@ -45,8 +46,14 @@ export async function deleteRecordsAttachedTo(
   const plans = PLAN_TARGET_TYPES.has(targetType)
     ? await planRepository.deleteForTarget(db, workspaceId, targetType, targetId)
     : 0
+  const memberships = await listRepository.deleteMembershipsForTarget(
+    db,
+    workspaceId,
+    targetType,
+    targetId,
+  )
 
-  return notes + activities + decisions + plans
+  return notes + activities + decisions + plans + memberships
 }
 
 /**

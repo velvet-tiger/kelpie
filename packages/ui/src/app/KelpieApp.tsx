@@ -14,6 +14,8 @@ import { FormDetail } from '../pages/FormDetail.tsx'
 import { FormsPage } from '../pages/FormsPage.tsx'
 import { FundraisingPage } from '../pages/FundraisingPage.tsx'
 import { HiringPage } from '../pages/HiringPage.tsx'
+import { ListDetail } from '../pages/ListDetail.tsx'
+import { ListsPage } from '../pages/ListsPage.tsx'
 import { NotFoundPage } from '../pages/NotFoundPage.tsx'
 import { OpportunitiesPage } from '../pages/OpportunitiesPage.tsx'
 import { OpportunityDetail } from '../pages/OpportunityDetail.tsx'
@@ -159,6 +161,8 @@ function AppRoutes(): React.JSX.Element {
           <Route path="partnerships" element={<PartnershipsPage />} />
           <Route path="partnerships/settings" element={<PartnershipStageSettingsPage />} />
           <Route path="partnerships/:id" element={<PartnershipDetail />} />
+          <Route path="lists" element={<ListsPage />} />
+          <Route path="lists/:id" element={<ListDetail />} />
           <Route path="planning" element={<PlanningPage />} />
           <Route path="decisions" element={<DecisionsPage />} />
           <Route path="forms" element={<FormsPage />} />

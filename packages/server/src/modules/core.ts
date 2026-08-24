@@ -13,6 +13,7 @@ import { createFormsModule } from './forms/index.ts'
 import { createHandbookModule } from './handbook/index.ts'
 import { createHiringModule } from './hiring/index.ts'
 import { createImportExportModule } from './import-export/index.ts'
+import { createListsModule } from './lists/index.ts'
 import { createNotesModule } from './notes/index.ts'
 import { createOpportunitiesModule } from './opportunities/index.ts'
 import { createPartnershipsModule } from './partnerships/index.ts'
@@ -58,6 +59,7 @@ export const coreModules: readonly KelpieModule[] = [
   createHiringModule(coreMigrationsDirectory),
   createPlansModule(coreMigrationsDirectory),
   createDecisionsModule(coreMigrationsDirectory),
+  createListsModule(coreMigrationsDirectory),
   createHandbookModule(coreMigrationsDirectory),
   // Neither of these takes a migrations directory: they own no tables and read
   // other modules'.

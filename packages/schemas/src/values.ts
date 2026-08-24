@@ -115,6 +115,17 @@ export const RECORD_TARGET_TYPES = [
 
 export type RecordTargetType = (typeof RECORD_TARGET_TYPES)[number]
 
+/** Human labels for `RECORD_TARGET_TYPES`. Used by any picker that names a type. */
+export const RECORD_TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {
+  person: 'Person',
+  company: 'Company',
+  deal: 'Deal',
+  opportunity: 'Opportunity',
+  partnership: 'Partnership',
+  raise: 'Raise',
+  candidate: 'Candidate',
+}
+
 /**
  * What `GET /v1/search` looks through, and the order its groups come back in.
  *

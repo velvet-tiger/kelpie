@@ -28,6 +28,8 @@ export const idPrefixes = {
   decision: 'dec',
   note: 'note',
   activity: 'act',
+  list: 'list',
+  listMember: 'lmem',
   handbookPage: 'hb',
   form: 'form',
   formField: 'ff',
