@@ -137,7 +137,7 @@ export interface CsvColumn {
 export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>> = {
   companies: [
     { key: 'name', label: 'Name', required: true },
-    { key: 'domain', label: 'Domain', required: true },
+    { key: 'domain', label: 'Domain', required: false },
     { key: 'industry', label: 'Industry', required: false },
     { key: 'stage', label: 'Stage', required: false },
     { key: 'size_band', label: 'Size band', required: false },

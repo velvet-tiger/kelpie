@@ -21,6 +21,27 @@ While the major version is `0`, a minor bump may break the API.
   `html` field and the `smtp-email` module passes it through to nodemailer;
   provider modules written against the older port keep working.
 
+- **`@kelpie/ui`** — the CSV import wizard has a new `Done` step. After a
+  commit reaches `completed` (or `failed`), the wizard moves off the dry-run
+  view and shows an outcome summary: the number of rows written, the final
+  counts, and the row errors and warnings the commit reported. An `Import
+  another` button resets the wizard.
+
+### Changed
+
+- **`@kelpie/schemas`** — `domain` is no longer a required column for a
+  Companies import. The database column is nullable, and rows without a
+  domain now import when the match key is `name`. When `domain` is the match
+  key, blank-domain rows still fail as `Missing required field`, because a
+  match key must be non-empty.
+
+### Fixed
+
+- **`@kelpie/ui`** — the CSV drop zone on `/admin/data` now accepts a file
+  dropped onto it. The label was styled as a drop zone but only its hidden
+  file input handled the file, so a drop fell through to the browser default.
+  Drop and click-to-browse now share one processing path.
+
 ## [0.7.0] - 2026-08-23
 
 ### Added

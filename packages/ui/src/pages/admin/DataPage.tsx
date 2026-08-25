@@ -24,8 +24,8 @@ import type {
   OnMissingCompany,
   SampleDataCounts,
 } from '@kelpie/schemas'
-import { useState } from 'react'
-import type { ChangeEvent, FormEvent, ReactNode } from 'react'
+import { useEffect, useState } from 'react'
+import type { ChangeEvent, DragEvent, FormEvent, ReactNode } from 'react'
 
 import {
   saveCsv,
@@ -52,13 +52,14 @@ import { PageHeader } from '../../components/PageHeader.tsx'
  * `public/fixtures`, and none of those are part of the application.
  */
 
-type WizardStep = 'source' | 'upload' | 'map' | 'result'
+type WizardStep = 'source' | 'upload' | 'map' | 'result' | 'done'
 
 const STEPS: readonly { readonly id: WizardStep; readonly label: string }[] = [
   { id: 'source', label: 'Source' },
   { id: 'upload', label: 'Upload' },
   { id: 'map', label: 'Map' },
   { id: 'result', label: 'Dry-run' },
+  { id: 'done', label: 'Done' },
 ]
 
 export function DataPage(): ReactNode {
@@ -156,6 +157,19 @@ export function DataPage(): ReactNode {
     return created
   }
 
+  async function processChosenFile(chosen: File): Promise<void> {
+    setProblem(null)
+    setFile(chosen)
+
+    const created = await runDryRun(chosen, undefined)
+
+    // The first upload takes the server's own reading of the file, which is what
+    // the mapping table is then built from.
+    setColumnMap(created.columnMap)
+    setMatchKeyId(created.matchKey)
+    setStep('map')
+  }
+
   async function onFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const chosen = event.target.files?.[0]
 
@@ -167,16 +181,22 @@ export function DataPage(): ReactNode {
       return
     }
 
-    setProblem(null)
-    setFile(chosen)
+    await processChosenFile(chosen)
+  }
 
-    const created = await runDryRun(chosen, undefined)
+  async function onFileDrop(event: DragEvent<HTMLLabelElement>): Promise<void> {
+    event.preventDefault()
 
-    // The first upload takes the server's own reading of the file, which is what
-    // the mapping table is then built from.
-    setColumnMap(created.columnMap)
-    setMatchKeyId(created.matchKey)
-    setStep('map')
+    if (createJob.isPending) {
+      return
+    }
+
+    const chosen = event.dataTransfer.files[0]
+    if (chosen === undefined) {
+      return
+    }
+
+    await processChosenFile(chosen)
   }
 
   async function onRerun(event: FormEvent): Promise<void> {
@@ -201,6 +221,19 @@ export function DataPage(): ReactNode {
     await runDryRun(file, columnMap)
     setStep('result')
   }
+
+  // Commit finishes on the server, not the click, so the wizard waits for the
+  // job to reach `completed` before showing the outcome step. `failed` lands
+  // here too — the outcome is that the commit did not go through.
+  useEffect(() => {
+    if (step !== 'result' || job === undefined) {
+      return
+    }
+
+    if (job.status === 'completed' || job.status === 'failed') {
+      setStep('done')
+    }
+  }, [step, job])
 
   function onCommit(): void {
     // The file goes back with the commit: the server kept its digest, not its
@@ -353,7 +386,14 @@ export function DataPage(): ReactNode {
             <p className="text-[13px] text-ink-muted">
               {SOURCE_LABELS[source]} → {OBJECT_LABELS[object]}
             </p>
-            <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface-raised px-6 py-10 transition hover:border-accent">
+            <label
+              className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface-raised px-6 py-10 transition hover:border-accent"
+              onDragOver={(event) => {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'copy'
+              }}
+              onDrop={(event) => runStep(onFileDrop(event))}
+            >
               <span className="text-[13px] font-medium text-ink">
                 {createJob.isPending ? 'Reading the file…' : 'Drop a CSV here or click to browse'}
               </span>
@@ -409,6 +449,10 @@ export function DataPage(): ReactNode {
             onCommit={onCommit}
             onBack={() => setStep('map')}
           />
+        ) : null}
+
+        {step === 'done' && job !== undefined ? (
+          <DonePanel job={job} object={object} onAgain={resetWizard} />
         ) : null}
       </section>
     </div>
@@ -660,6 +704,81 @@ function ResultPanel({ job, object, isCommitting, onCommit, onBack }: ResultPane
           className="rounded-md px-3 py-2 text-[12px] font-medium text-ink-muted hover:text-ink"
         >
           Back to mapping
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface DonePanelProps {
+  readonly job: ImportJob
+  readonly object: ImportObject
+  readonly onAgain: () => void
+}
+
+function DonePanel({ job, object, onAgain }: DonePanelProps): ReactNode {
+  const failed = job.status === 'failed'
+  const wrote = job.counts.create + job.counts.update
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-[15px] font-semibold text-ink">
+          {failed ? 'Import failed' : 'Import complete'}
+        </h3>
+        <p className="mt-1 text-[13px] text-ink-muted">
+          {failed
+            ? 'The server refused the commit. Nothing was written.'
+            : `${wrote} ${OBJECT_LABELS[object].toLowerCase()} row${wrote === 1 ? '' : 's'} written to this workspace.`}
+        </p>
+      </div>
+      <p className="text-[12px] text-ink-muted">
+        Job <span className="font-mono text-[12px] text-ink">{job.id}</span> · status {job.status}
+      </p>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <Stat label="Total" value={job.counts.total} />
+        <Stat label="Created" value={job.counts.create} />
+        <Stat label="Updated" value={job.counts.update} />
+        <Stat label="Skipped" value={job.counts.skip} />
+        <Stat label="Errors" value={job.counts.error} danger />
+      </div>
+
+      {job.errors.length > 0 ? (
+        <div className="space-y-2">
+          <div>
+            <h3 className="text-[13px] font-semibold text-ink">Row errors</h3>
+            <p className="mt-0.5 text-[12px] text-ink-muted">
+              These rows were not written. Fix them in the CSV and import again.
+            </p>
+          </div>
+          <IssueTable rows={job.errors} />
+          {job.counts.error > job.errors.length ? (
+            <p className="text-[12px] text-ink-muted">
+              Showing {job.errors.length} of {job.counts.error} failing rows.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {job.warnings.length > 0 ? (
+        <div className="space-y-2">
+          <div>
+            <h3 className="text-[13px] font-semibold text-ink">Warnings</h3>
+            <p className="mt-0.5 text-[12px] text-ink-muted">
+              These rows were written. Each note says what was left out.
+            </p>
+          </div>
+          <IssueTable rows={job.warnings} />
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={onAgain}
+          className="rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover"
+        >
+          Import another
         </button>
       </div>
     </div>
