@@ -11,16 +11,20 @@ import {
 } from '../api/resources/partnerships.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
+import { useTimezone } from '../api/resources/account.ts'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column, DataTableGroup } from '../components/DataTable.tsx'
 import { KanbanBoard } from '../components/KanbanBoard.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { SegmentedControl } from '../components/SegmentedControl.tsx'
-import { formatDay } from '../lib/dates.ts'
+import { formatDate, formatDay } from '../lib/dates.ts'
+import { useListView } from '../lib/listView.ts'
 import { DUE_BUCKETS, byDateThenTitle, dueBucketFor, nextOpenByTarget } from '../lib/plan.ts'
+import { serverSortOnly } from '../lib/sort.ts'
 
 /**
  * The Partnerships board: ongoing two-way relationships, grouped by status. The
@@ -43,6 +47,17 @@ function stageTone(stage: PipelineStage): ChipTone {
   return STAGE_TONES[stage.slug] ?? 'neutral'
 }
 
+const DEFAULT_VISIBLE_KEYS: readonly string[] = [
+  'name',
+  'company',
+  'kind',
+  'nextPlan',
+  'owner',
+  'next',
+]
+
+const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
+
 export function PartnershipsPage(): React.JSX.Element {
   const navigate = useNavigate()
   const [view, setView] = useState<BoardView>('list')
@@ -51,11 +66,12 @@ export function PartnershipsPage(): React.JSX.Element {
   const [sort, setSort] = useState<string | undefined>(undefined)
 
   const stages = usePipelineStages('partnership')
-  const partnerships = usePartnerships({ sort })
+  const partnerships = usePartnerships({ sort: serverSortOnly(sort, SERVER_SORT_KEYS) })
   const companies = useCompanies({ limit: 200 })
   const members = useMembers()
   const createPartnership = useCreatePartnership()
   const updatePartnership = useUpdatePartnership()
+  const timezone = useTimezone()
 
   const allStages = [...stages.records].sort((a, b) => a.sortOrder - b.sortOrder)
   const visibleStages = scope === 'open' ? allStages.filter((stage) => stage.open) : allStages
@@ -97,6 +113,8 @@ export function PartnershipsPage(): React.JSX.Element {
     await navigate(`/partnerships/${partnership.id}`)
   }
 
+  const stageLabelById = new Map(allStages.map((stage) => [stage.id, stage.label]))
+
   const columns: readonly Column<Partnership>[] = [
     {
       key: 'name',
@@ -107,16 +125,25 @@ export function PartnershipsPage(): React.JSX.Element {
     {
       key: 'company',
       header: 'Company',
+      getSortValue: (partnership) => companyNameById.get(partnership.companyId) ?? null,
       render: (partnership) => companyNameById.get(partnership.companyId) ?? '—',
+    },
+    {
+      key: 'stage',
+      header: 'Stage',
+      getSortValue: (partnership) => stageLabelById.get(partnership.stageId) ?? null,
+      render: (partnership) => stageLabelById.get(partnership.stageId) ?? '—',
     },
     {
       key: 'kind',
       header: 'Kind',
+      getSortValue: (partnership) => partnership.kind || null,
       render: (partnership) => (partnership.kind.length > 0 ? partnership.kind : '—'),
     },
     {
       key: 'nextPlan',
       header: 'Next plan',
+      getSortValue: (partnership) => nextPlanByPartnership.get(partnership.id)?.date ?? null,
       render: (partnership) => {
         const next = nextPlanByPartnership.get(partnership.id)
 
@@ -137,6 +164,10 @@ export function PartnershipsPage(): React.JSX.Element {
     {
       key: 'owner',
       header: 'Owner',
+      getSortValue: (partnership) =>
+        partnership.ownerId === null
+          ? null
+          : (members.nameById.get(partnership.ownerId) ?? 'Unknown'),
       render: (partnership) =>
         partnership.ownerId === null
           ? '—'
@@ -146,13 +177,72 @@ export function PartnershipsPage(): React.JSX.Element {
       key: 'next',
       header: 'Next touch',
       className: 'w-28',
+      getSortValue: (partnership) => partnership.nextTouchpoint,
       render: (partnership) => (
         <span className="font-mono text-[12px] text-ink-muted">
           {partnership.nextTouchpoint === null ? '—' : formatDay(partnership.nextTouchpoint)}
         </span>
       ),
     },
+    {
+      key: 'goals',
+      header: 'Goals',
+      getSortValue: (partnership) => partnership.goals || null,
+      render: (partnership) =>
+        partnership.goals.length === 0 ? '—' : (
+          <span className="text-ink-muted">{partnership.goals}</span>
+        ),
+    },
+    {
+      key: 'successLooksLike',
+      header: 'Success looks like',
+      getSortValue: (partnership) => partnership.successLooksLike || null,
+      render: (partnership) =>
+        partnership.successLooksLike.length === 0 ? '—' : (
+          <span className="text-ink-muted">{partnership.successLooksLike}</span>
+        ),
+    },
+    {
+      key: 'tags',
+      header: 'Tags',
+      getSortValue: (partnership) => partnership.tags.join(', ') || null,
+      render: (partnership) =>
+        partnership.tags.length === 0 ? '—' : (
+          <span className="flex flex-wrap gap-1">
+            {partnership.tags.map((tag) => (
+              <Chip key={tag}>
+                <span className="text-[10px]">{tag}</span>
+              </Chip>
+            ))}
+          </span>
+        ),
+    },
+    {
+      key: 'summary',
+      header: 'Summary',
+      getSortValue: (partnership) => partnership.summary || null,
+      render: (partnership) =>
+        partnership.summary.length === 0 ? '—' : (
+          <span className="text-ink-muted">{partnership.summary}</span>
+        ),
+    },
+    {
+      key: 'createdAt',
+      header: 'Created',
+      sortKey: 'created_at',
+      render: (partnership) => formatDate(partnership.createdAt, timezone),
+    },
+    {
+      key: 'updatedAt',
+      header: 'Updated',
+      sortKey: 'updated_at',
+      render: (partnership) => formatDate(partnership.updatedAt, timezone),
+    },
   ]
+
+  const supportedKeys = columns.map((column) => column.key)
+  const listView = useListView('partnerships', supportedKeys, DEFAULT_VISIBLE_KEYS)
+  const pickerOptions = columns.map((column) => ({ key: column.key, label: column.header }))
 
   const stageGroups: readonly DataTableGroup<Partnership>[] = visibleStages.map((stage) => ({
     id: stage.id,
@@ -243,6 +333,13 @@ export function PartnershipsPage(): React.JSX.Element {
                 { id: 'columns', label: 'Board' },
               ]}
             />
+            {view === 'list' && (
+              <ColumnPicker
+                options={pickerOptions}
+                visibleKeys={listView.visibleKeys}
+                onChange={listView.setVisibleKeys}
+              />
+            )}
           </>
         }
       />
@@ -318,6 +415,7 @@ export function PartnershipsPage(): React.JSX.Element {
               }
               sort={sort}
               onSortChange={setSort}
+              visibleColumnKeys={listView.visibleKeys}
             />
           )}
           {updatePartnership.error !== null && (

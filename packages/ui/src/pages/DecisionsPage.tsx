@@ -11,11 +11,14 @@ import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { useRaises } from '../api/resources/raises.ts'
+import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { formatDate } from '../lib/dates.ts'
+import { serverSortOnly } from '../lib/sort.ts'
+import { useListView } from '../lib/listView.ts'
 
 /**
  * Every decision in the workspace.
@@ -123,9 +126,17 @@ function LinkedTo({
   )
 }
 
+const DEFAULT_VISIBLE_KEYS: readonly string[] = ['decision', 'target', 'decided', 'due', 'owner']
+
+const SERVER_SORT_KEYS: readonly string[] = ['decided_at', 'created_at', 'updated_at']
+
 export function DecisionsPage(): React.JSX.Element {
   const [term, setTerm] = useState('')
-  const decisions = useDecisions({ term: term.trim().length > 0 ? term.trim() : undefined })
+  const [sort, setSort] = useState<string | undefined>(undefined)
+  const decisions = useDecisions({
+    term: term.trim().length > 0 ? term.trim() : undefined,
+    sort: serverSortOnly(sort, SERVER_SORT_KEYS),
+  })
   const directory = useTargetDirectory()
   const members = useMembers()
   const timezone = useTimezone()
@@ -134,6 +145,7 @@ export function DecisionsPage(): React.JSX.Element {
     {
       key: 'decision',
       header: 'Decision',
+      getSortValue: (decision) => decision.body,
       render: (decision) => (
         <>
           <div className="font-medium text-ink">{decision.body}</div>
@@ -144,13 +156,32 @@ export function DecisionsPage(): React.JSX.Element {
       ),
     },
     {
+      key: 'rationale',
+      header: 'Rationale',
+      getSortValue: (decision) => decision.rationale,
+      render: (decision) =>
+        decision.rationale === null ? (
+          '—'
+        ) : (
+          <span className="text-ink-muted">{decision.rationale}</span>
+        ),
+    },
+    {
       key: 'target',
       header: 'Linked to',
+      getSortValue: (decision) => directory.nameFor(decision) ?? TARGET_LABELS[decision.targetType],
       render: (decision) => <LinkedTo decision={decision} name={directory.nameFor(decision)} />,
+    },
+    {
+      key: 'targetType',
+      header: 'Type',
+      getSortValue: (decision) => TARGET_LABELS[decision.targetType],
+      render: (decision) => TARGET_LABELS[decision.targetType],
     },
     {
       key: 'decided',
       header: 'Decided',
+      sortKey: 'decided_at',
       render: (decision) => (
         <span className="text-ink-muted">{formatDate(decision.decidedAt, timezone)}</span>
       ),
@@ -158,6 +189,7 @@ export function DecisionsPage(): React.JSX.Element {
     {
       key: 'due',
       header: 'By',
+      getSortValue: (decision) => decision.dueAt,
       render: (decision) => (
         <span className="text-ink-muted">
           {decision.dueAt === null ? '—' : formatDate(decision.dueAt, timezone)}
@@ -167,17 +199,44 @@ export function DecisionsPage(): React.JSX.Element {
     {
       key: 'owner',
       header: 'Owner',
+      getSortValue: (decision) =>
+        decision.ownerId === null ? null : (members.nameById.get(decision.ownerId) ?? null),
       render: (decision) => (
         <span className="text-ink-muted">
           {decision.ownerId === null ? '—' : (members.nameById.get(decision.ownerId) ?? '—')}
         </span>
       ),
     },
+    {
+      key: 'createdAt',
+      header: 'Created',
+      sortKey: 'created_at',
+      render: (decision) => formatDate(decision.createdAt, timezone),
+    },
+    {
+      key: 'updatedAt',
+      header: 'Updated',
+      sortKey: 'updated_at',
+      render: (decision) => formatDate(decision.updatedAt, timezone),
+    },
   ]
+
+  const supportedKeys = columns.map((column) => column.key)
+  const listView = useListView('decisions', supportedKeys, DEFAULT_VISIBLE_KEYS)
+  const pickerOptions = columns.map((column) => ({ key: column.key, label: column.header }))
 
   return (
     <div className="animate-fade-in">
-      <PageHeader title="Decisions" />
+      <PageHeader
+        title="Decisions"
+        actions={
+          <ColumnPicker
+            options={pickerOptions}
+            visibleKeys={listView.visibleKeys}
+            onChange={listView.setVisibleKeys}
+          />
+        }
+      />
       <FilterBar value={term} onChange={setTerm} placeholder="Filter decisions…" />
 
       {decisions.error !== null ? (
@@ -191,6 +250,9 @@ export function DecisionsPage(): React.JSX.Element {
             rows={decisions.records}
             getRowId={(decision) => decision.id}
             emptyMessage="No decisions match"
+            sort={sort}
+            onSortChange={setSort}
+            visibleColumnKeys={listView.visibleKeys}
           />
           {!directory.isComplete && (
             <p className="mt-2 text-[11px] text-ink-faint">

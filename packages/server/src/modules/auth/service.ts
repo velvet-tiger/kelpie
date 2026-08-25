@@ -96,6 +96,7 @@ function toPreferenceValues(record: repository.UserPreferencesRecord): Preferenc
     emailDigest: record.emailDigest,
     mentionEmails: record.mentionEmails,
     productUpdates: record.productUpdates,
+    listViews: record.listViews,
   }
 }
 

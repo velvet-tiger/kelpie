@@ -1,0 +1,1 @@
+ALTER TABLE "user_preferences" ADD COLUMN "list_views" jsonb DEFAULT '{}'::jsonb NOT NULL;

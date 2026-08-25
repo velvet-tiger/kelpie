@@ -1,6 +1,6 @@
 import { THEME_PREFERENCES } from '@kelpie/schemas'
-import type { ThemePreference } from '@kelpie/schemas'
-import { boolean, pgTable, text } from 'drizzle-orm/pg-core'
+import type { ListViewPreference, ThemePreference } from '@kelpie/schemas'
+import { boolean, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, citext, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 
@@ -57,6 +57,16 @@ export const userPreferences = pgTable(
     emailDigest: boolean('email_digest').notNull(),
     mentionEmails: boolean('mention_emails').notNull(),
     productUpdates: boolean('product_updates').notNull(),
+    /**
+     * Per-list column choices, keyed on a stable view id (`people`, `deals`, …).
+     * A view id the client no longer recognises stays untouched here rather than
+     * being cleaned up: the map is small, and the write path is the client
+     * merging its current choice into what it read.
+     */
+    listViews: jsonb('list_views')
+      .$type<Readonly<Record<string, ListViewPreference>>>()
+      .notNull()
+      .default({}),
     updatedAt: updatedAt(),
   },
   (table) => [checkOneOf('user_preferences_theme_check', table.theme, THEME_PREFERENCES)],

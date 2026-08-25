@@ -33,6 +33,8 @@ export interface DecisionFilters {
   readonly targetId?: string | undefined
   /** Matches the body, the rationale, the target type, and the target's name. */
   readonly term?: string | undefined
+  /** `field` ascending, `-field` descending. Only `decided_at`, `created_at`, `updated_at` are sortable. */
+  readonly sort?: string | undefined
 }
 
 function decisionQuery(filters: DecisionFilters): QueryParameters {
@@ -40,6 +42,7 @@ function decisionQuery(filters: DecisionFilters): QueryParameters {
     target_type: filters.targetType,
     target_id: filters.targetId,
     q: filters.term,
+    sort: filters.sort,
   }
 }
 

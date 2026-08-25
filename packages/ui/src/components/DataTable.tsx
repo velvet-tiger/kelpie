@@ -1,5 +1,8 @@
 import type { ReactNode } from 'react'
 
+import { sortRowsBy } from '../lib/sort.ts'
+import type { SortValue } from '../lib/sort.ts'
+
 export interface Column<TRow> {
   readonly key: string
   readonly header: string
@@ -7,6 +10,14 @@ export interface Column<TRow> {
   readonly render: (row: TRow) => ReactNode
   /** The `?sort=` field this column drives. Omit for a column with no server-side sort. */
   readonly sortKey?: string | undefined
+  /**
+   * Returns the value this column sorts by on the client. Set on any column
+   * whose resource cannot sort on it server-side (join columns, computed
+   * values, fields not in the resource's `_SORTS` map). When the active sort
+   * names a `Column.key` with this set, `DataTable` orders the loaded rows in
+   * place and does not forward the change to the server.
+   */
+  readonly getSortValue?: ((row: TRow) => SortValue) | undefined
 }
 
 export interface DataTableGroup<TRow> {
@@ -35,6 +46,12 @@ export interface DataTableProps<TRow> {
   readonly sort?: string | undefined
   /** Fires with the next `?sort=` value when a sortable header is clicked. Required for any column to be clickable. */
   readonly onSortChange?: ((sort: string | undefined) => void) | undefined
+  /**
+   * Restricts rendering to these column keys, in the order the header uses.
+   * Undefined shows every column. An unknown key is ignored rather than raising:
+   * a stored preference outliving a rename should hide only what it recognises.
+   */
+  readonly visibleColumnKeys?: readonly string[] | undefined
 }
 
 type SortDirection = 'asc' | 'desc'
@@ -62,6 +79,35 @@ function nextSort(sort: string | undefined, field: string): string | undefined {
   return current === 'asc' ? `-${field}` : undefined
 }
 
+/**
+ * The identifier a column contributes to the sort string. Server sorts use the
+ * `sortKey` — the field the server knows — so a stored sort keeps working when
+ * a column is renamed in the UI. Client-only sorts fall back to the display
+ * `key`, since there is no server field to reference.
+ */
+function sortFieldOf<TRow>(column: Column<TRow>): string | undefined {
+  if (column.sortKey !== undefined) {
+    return column.sortKey
+  }
+
+  return column.getSortValue !== undefined ? column.key : undefined
+}
+
+function findActiveClientColumn<TRow>(
+  columns: readonly Column<TRow>[],
+  sort: string | undefined,
+): Column<TRow> | undefined {
+  if (sort === undefined) {
+    return undefined
+  }
+
+  const bare = sort.startsWith('-') ? sort.slice(1) : sort
+
+  return columns.find(
+    (column) => column.getSortValue !== undefined && column.sortKey === undefined && column.key === bare,
+  )
+}
+
 export function DataTable<TRow>({
   columns,
   rows,
@@ -73,8 +119,34 @@ export function DataTable<TRow>({
   getRowId,
   sort,
   onSortChange,
+  visibleColumnKeys,
 }: DataTableProps<TRow>): React.JSX.Element {
   const flatRows = groups === undefined ? (rows ?? []) : groups.flatMap((group) => group.rows)
+  const displayedColumns =
+    visibleColumnKeys === undefined
+      ? columns
+      : columns.filter((column) => visibleColumnKeys.includes(column.key))
+
+  // Client sort is a page-local reorder: the server-returned page order stays
+  // the same, and only what is on screen shifts. Groups sort within each group,
+  // because the group is the primary key of the view — mixing rows across
+  // groups would break what the group header claims to count.
+  const clientSortColumn = findActiveClientColumn(displayedColumns, sort)
+  const clientDirection: SortDirection | undefined =
+    clientSortColumn === undefined
+      ? undefined
+      : directionOf(sort, clientSortColumn.key) ?? undefined
+  const displayedRows =
+    clientSortColumn === undefined || clientDirection === undefined || rows === undefined
+      ? rows
+      : sortRowsBy(rows, clientSortColumn.getSortValue!, clientDirection)
+  const displayedGroups =
+    clientSortColumn === undefined || clientDirection === undefined || groups === undefined
+      ? groups
+      : groups.map((group) => ({
+          ...group,
+          rows: sortRowsBy(group.rows, clientSortColumn.getSortValue!, clientDirection),
+        }))
 
   if (flatRows.length === 0) {
     return (
@@ -99,20 +171,21 @@ export function DataTable<TRow>({
       <table className="w-full border-collapse text-left text-[13px]">
         <thead>
           <tr className="border-b border-border">
-            {columns.map((column) => {
-              const direction = directionOf(sort, column.sortKey)
-              const sortable = column.sortKey !== undefined && onSortChange !== undefined
+            {displayedColumns.map((column) => {
+              const field = sortFieldOf(column)
+              const direction = directionOf(sort, field)
+              const sortable = field !== undefined && onSortChange !== undefined
 
               return (
                 <th
                   key={column.key}
                   className={`px-3 py-2 text-[11px] font-medium text-ink-faint ${column.className ?? ''}`}
                 >
-                  {sortable ? (
+                  {sortable && field !== undefined ? (
                     <button
                       type="button"
                       onClick={() => {
-                        onSortChange?.(nextSort(sort, column.sortKey ?? ''))
+                        onSortChange?.(nextSort(sort, field))
                       }}
                       className="inline-flex items-center gap-1 transition hover:text-ink"
                     >
@@ -130,26 +203,31 @@ export function DataTable<TRow>({
           </tr>
         </thead>
         <tbody>
-          {groups === undefined
-            ? (rows ?? []).map((row) => (
+          {displayedGroups === undefined
+            ? (displayedRows ?? []).map((row) => (
                 <DataRow
                   key={getRowId(row)}
                   row={row}
-                  columns={columns}
+                  columns={displayedColumns}
                   onRowClick={onRowClick}
                 />
               ))
-            : groups.map((group) => (
+            : displayedGroups.map((group) => (
                 <GroupRows
                   key={group.id}
                   group={group}
-                  columns={columns}
+                  columns={displayedColumns}
                   onRowClick={onRowClick}
                   getRowId={getRowId}
                 />
               ))}
         </tbody>
       </table>
+      {clientSortColumn !== undefined && (
+        <p className="border-t border-border bg-surface-sunken/40 px-3 py-1.5 text-[11px] text-ink-faint">
+          Sorted by {clientSortColumn.header.toLowerCase()} on this page. Load more to sort the rest.
+        </p>
+      )}
     </div>
   )
 }

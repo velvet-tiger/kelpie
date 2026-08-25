@@ -7,12 +7,21 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 
+import { useTimezone } from '../api/resources/account.ts'
 import { useCreateList, useLists } from '../api/resources/lists.ts'
 import { Chip } from '../components/Chip.tsx'
+import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
+import { formatDate } from '../lib/dates.ts'
+import { useListView } from '../lib/listView.ts'
+import { serverSortOnly } from '../lib/sort.ts'
+
+const DEFAULT_VISIBLE_KEYS: readonly string[] = ['name', 'type', 'members', 'description']
+
+const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
 
 /**
  * The Lists index.
@@ -24,33 +33,58 @@ import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 export function ListsPage(): React.JSX.Element {
   const [term, setTerm] = useState('')
   const [creating, setCreating] = useState(false)
+  const [sort, setSort] = useState<string | undefined>(undefined)
   const navigate = useNavigate()
   const hasFilter = term.trim().length > 0
-  const lists = useLists({ term: hasFilter ? term.trim() : undefined })
+  const lists = useLists({
+    term: hasFilter ? term.trim() : undefined,
+    sort: serverSortOnly(sort, SERVER_SORT_KEYS),
+  })
   const createList = useCreateList()
+  const timezone = useTimezone()
 
   const columns: readonly Column<List>[] = [
     {
       key: 'name',
       header: 'Name',
+      sortKey: 'name',
       render: (list) => <span className="font-medium text-ink">{list.name}</span>,
     },
     {
       key: 'type',
       header: 'Type',
+      getSortValue: (list) => RECORD_TARGET_TYPE_LABELS[list.targetType],
       render: (list) => <Chip>{RECORD_TARGET_TYPE_LABELS[list.targetType]}</Chip>,
     },
     {
       key: 'members',
       header: 'Members',
+      getSortValue: (list) => list.memberCount,
       render: (list) => String(list.memberCount),
     },
     {
       key: 'description',
       header: 'Description',
+      getSortValue: (list) => list.description,
       render: (list) => list.description ?? '—',
     },
+    {
+      key: 'createdAt',
+      header: 'Created',
+      sortKey: 'created_at',
+      render: (list) => formatDate(list.createdAt, timezone),
+    },
+    {
+      key: 'updatedAt',
+      header: 'Updated',
+      sortKey: 'updated_at',
+      render: (list) => formatDate(list.updatedAt, timezone),
+    },
   ]
+
+  const supportedKeys = columns.map((column) => column.key)
+  const listView = useListView('lists', supportedKeys, DEFAULT_VISIBLE_KEYS)
+  const pickerOptions = columns.map((column) => ({ key: column.key, label: column.header }))
 
   return (
     <div className="animate-fade-in">
@@ -60,6 +94,13 @@ export function ListsPage(): React.JSX.Element {
           setCreating((current) => !current)
         }}
         addLabel="Add list"
+        actions={
+          <ColumnPicker
+            options={pickerOptions}
+            visibleKeys={listView.visibleKeys}
+            onChange={listView.setVisibleKeys}
+          />
+        }
       />
 
       {creating && (
@@ -110,6 +151,9 @@ export function ListsPage(): React.JSX.Element {
                     },
                   }
             }
+            sort={sort}
+            onSortChange={setSort}
+            visibleColumnKeys={listView.visibleKeys}
           />
           {lists.hasMore && (
             <button

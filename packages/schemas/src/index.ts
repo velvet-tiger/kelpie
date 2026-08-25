@@ -341,6 +341,7 @@ export {
   accountSchema,
   accountSessionSchema,
   changePasswordBody,
+  listViewPreferenceSchema,
   updateAccountBody,
   updateAccountPreferencesBody,
 } from './account.ts'
@@ -349,6 +350,7 @@ export type {
   AccountPreferences,
   AccountSession,
   ChangePasswordInput,
+  ListViewPreference,
   UpdateAccountInput,
   UpdateAccountPreferencesInput,
 } from './account.ts'

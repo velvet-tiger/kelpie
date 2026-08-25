@@ -88,6 +88,8 @@ export { AgentTasks } from './components/AgentTasks.tsx'
 export type { AgentTasksProps } from './components/AgentTasks.tsx'
 export { Chip } from './components/Chip.tsx'
 export type { ChipProps, ChipTone } from './components/Chip.tsx'
+export { ColumnPicker } from './components/ColumnPicker.tsx'
+export type { ColumnPickerOption, ColumnPickerProps } from './components/ColumnPicker.tsx'
 export { DataTable } from './components/DataTable.tsx'
 export type { Column, DataTableGroup, DataTableProps } from './components/DataTable.tsx'
 export { DecisionsPanel } from './components/DecisionsPanel.tsx'
@@ -150,6 +152,9 @@ export {
   todayIso,
 } from './lib/plan.ts'
 export type { DueBucketId, PlanAttention as PlanAttentionSummary } from './lib/plan.ts'
+
+export { useListView } from './lib/listView.ts'
+export type { ListViewController } from './lib/listView.ts'
 
 export { applyTheme, getStoredTheme, resolveTheme, setStoredTheme, watchSystemTheme } from './lib/theme.ts'
 export type { ThemePreference } from './lib/theme.ts'

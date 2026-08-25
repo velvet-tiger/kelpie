@@ -6,12 +6,19 @@ import { useNavigate } from 'react-router'
 import { useTimezone } from '../api/resources/account.ts'
 import { useCreateRole, useRoles } from '../api/resources/roles.ts'
 import { Chip } from '../components/Chip.tsx'
+import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { formatDate } from '../lib/dates.ts'
+import { useListView } from '../lib/listView.ts'
+import { serverSortOnly } from '../lib/sort.ts'
 import { useRoleCandidateCounts } from './hiringDirectory.ts'
+
+const DEFAULT_VISIBLE_KEYS: readonly string[] = ['title', 'status', 'candidates', 'created']
+
+const SERVER_SORT_KEYS: readonly string[] = ['title', 'created_at', 'updated_at']
 
 /**
  * The Hiring list: every opening, open or closed.
@@ -24,8 +31,12 @@ export function HiringPage(): React.JSX.Element {
   const [term, setTerm] = useState('')
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
+  const [sort, setSort] = useState<string | undefined>(undefined)
   const navigate = useNavigate()
-  const roles = useRoles({ term: term.trim().length > 0 ? term.trim() : undefined })
+  const roles = useRoles({
+    term: term.trim().length > 0 ? term.trim() : undefined,
+    sort: serverSortOnly(sort, SERVER_SORT_KEYS),
+  })
   const counts = useRoleCandidateCounts(roles.records.map((role) => role.id))
   const createRole = useCreateRole()
   const timezone = useTimezone()
@@ -54,11 +65,13 @@ export function HiringPage(): React.JSX.Element {
     {
       key: 'title',
       header: 'Role',
+      sortKey: 'title',
       render: (role) => <span className="font-medium text-ink">{role.title}</span>,
     },
     {
       key: 'status',
       header: 'Status',
+      getSortValue: (role) => role.status,
       render: (role) => (
         <Chip tone={role.status === 'open' ? 'accent' : 'neutral'}>
           {role.status === 'open' ? 'Open' : 'Closed'}
@@ -69,6 +82,7 @@ export function HiringPage(): React.JSX.Element {
       key: 'candidates',
       header: 'Candidates',
       className: 'w-28',
+      getSortValue: (role) => (counts.isLoading ? null : counts.countFor(role.id)),
       render: (role) => (
         <span className="font-mono text-[12px]">
           {counts.isLoading ? '—' : counts.countFor(role.id)}
@@ -78,9 +92,20 @@ export function HiringPage(): React.JSX.Element {
     {
       key: 'created',
       header: 'Created',
+      sortKey: 'created_at',
       render: (role) => formatDate(role.createdAt, timezone),
     },
+    {
+      key: 'updated',
+      header: 'Updated',
+      sortKey: 'updated_at',
+      render: (role) => formatDate(role.updatedAt, timezone),
+    },
   ]
+
+  const supportedKeys = columns.map((column) => column.key)
+  const listView = useListView('roles', supportedKeys, DEFAULT_VISIBLE_KEYS)
+  const pickerOptions = columns.map((column) => ({ key: column.key, label: column.header }))
 
   return (
     <div className="animate-fade-in">
@@ -90,6 +115,13 @@ export function HiringPage(): React.JSX.Element {
           setAdding((current) => !current)
         }}
         addLabel="Add role"
+        actions={
+          <ColumnPicker
+            options={pickerOptions}
+            visibleKeys={listView.visibleKeys}
+            onChange={listView.setVisibleKeys}
+          />
+        }
       />
 
       {adding && (
@@ -148,6 +180,9 @@ export function HiringPage(): React.JSX.Element {
               void navigate(`/hiring/${role.id}`)
             }}
             emptyMessage="No roles yet"
+            sort={sort}
+            onSortChange={setSort}
+            visibleColumnKeys={listView.visibleKeys}
           />
           {!counts.isComplete && !counts.isLoading && (
             <p className="mt-2 text-[11px] text-ink-faint">

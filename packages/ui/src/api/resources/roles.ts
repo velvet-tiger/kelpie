@@ -35,10 +35,12 @@ export interface RoleFilters {
   /** Roles in any of these statuses. Repeats on the wire. */
   readonly statuses?: readonly RoleStatus[] | undefined
   readonly limit?: number | undefined
+  /** `field` ascending, `-field` descending. Only `title`, `created_at`, `updated_at` are sortable. */
+  readonly sort?: string | undefined
 }
 
 function roleQuery(filters: RoleFilters): QueryParameters {
-  return { q: filters.term, status: filters.statuses, limit: filters.limit }
+  return { q: filters.term, status: filters.statuses, limit: filters.limit, sort: filters.sort }
 }
 
 export function useRoles(

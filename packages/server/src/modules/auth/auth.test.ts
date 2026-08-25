@@ -489,6 +489,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       email_digest: true,
       mention_emails: true,
       product_updates: false,
+      list_views: {},
     }
 
     it('answers defaults for an account that has never saved any, and stores no row', async () => {
@@ -575,6 +576,53 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const cookie = await signUp()
 
       const response = await patch('/v1/account/preferences', { theme: 'sepia' }, cookie)
+
+      expect(response.status).toBe(422)
+    })
+
+    it('saves a list_views map and reads the same one back', async () => {
+      const cookie = await signUp()
+
+      const first = await patch(
+        '/v1/account/preferences',
+        { list_views: { people: { columns: ['name', 'tags'] } } },
+        cookie,
+      )
+
+      expect(first.status).toBe(200)
+      expect(await first.json()).toMatchObject({
+        list_views: { people: { columns: ['name', 'tags'] } },
+      })
+
+      // A later change to another view id replaces the whole map, per
+      // applyPreferenceChanges. The client merges before it PATCHes.
+      const second = await patch(
+        '/v1/account/preferences',
+        {
+          list_views: {
+            people: { columns: ['name', 'tags'] },
+            companies: { columns: ['name', 'stage'] },
+          },
+        },
+        cookie,
+      )
+
+      expect(await second.json()).toMatchObject({
+        list_views: {
+          people: { columns: ['name', 'tags'] },
+          companies: { columns: ['name', 'stage'] },
+        },
+      })
+    })
+
+    it('refuses a list_views entry with an unknown field', async () => {
+      const cookie = await signUp()
+
+      const response = await patch(
+        '/v1/account/preferences',
+        { list_views: { people: { columns: ['name'], sneaky: true } } },
+        cookie,
+      )
 
       expect(response.status).toBe(422)
     })

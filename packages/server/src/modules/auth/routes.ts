@@ -59,6 +59,10 @@ const updateAccountBody = z
     path: ['current_password'],
   })
 
+const listViewBody = z.strictObject({
+  columns: z.array(z.string()),
+})
+
 const updatePreferencesBody = z
   .strictObject({
     timezone: timezoneSchema,
@@ -66,6 +70,7 @@ const updatePreferencesBody = z
     email_digest: z.boolean(),
     mention_emails: z.boolean(),
     product_updates: z.boolean(),
+    list_views: z.record(z.string(), listViewBody),
   })
   .partial()
 
@@ -118,6 +123,7 @@ function preferencesResponse(preferences: PreferenceValues): Record<string, unkn
     email_digest: preferences.emailDigest,
     mention_emails: preferences.mentionEmails,
     product_updates: preferences.productUpdates,
+    list_views: preferences.listViews,
   }
 }
 
@@ -213,6 +219,7 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
       ...(body.email_digest === undefined ? {} : { emailDigest: body.email_digest }),
       ...(body.mention_emails === undefined ? {} : { mentionEmails: body.mention_emails }),
       ...(body.product_updates === undefined ? {} : { productUpdates: body.product_updates }),
+      ...(body.list_views === undefined ? {} : { listViews: body.list_views }),
     })
 
     return context.json(preferencesResponse(preferences))

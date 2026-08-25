@@ -7,17 +7,21 @@ import { useMembers } from '../api/resources/members.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
 import { useCreateRaise, useRaises, useUpdateRaise } from '../api/resources/raises.ts'
+import { useTimezone } from '../api/resources/account.ts'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column, DataTableGroup } from '../components/DataTable.tsx'
 import { KanbanBoard } from '../components/KanbanBoard.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { SegmentedControl } from '../components/SegmentedControl.tsx'
-import { formatDay } from '../lib/dates.ts'
+import { formatDate, formatDay } from '../lib/dates.ts'
+import { useListView } from '../lib/listView.ts'
 import { formatMoney } from '../lib/money.ts'
 import { DUE_BUCKETS, byDateThenTitle, dueBucketFor, nextOpenByTarget } from '../lib/plan.ts'
+import { serverSortOnly } from '../lib/sort.ts'
 
 /**
  * The Fundraising board: one raise per firm per round, grouped by stage. The
@@ -43,6 +47,17 @@ function stageTone(stage: PipelineStage): ChipTone {
   return STAGE_TONES[stage.slug] ?? 'neutral'
 }
 
+const DEFAULT_VISIBLE_KEYS: readonly string[] = [
+  'name',
+  'company',
+  'check',
+  'nextPlan',
+  'owner',
+  'close',
+]
+
+const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
+
 export function FundraisingPage(): React.JSX.Element {
   const navigate = useNavigate()
   const [view, setView] = useState<BoardView>('list')
@@ -51,11 +66,12 @@ export function FundraisingPage(): React.JSX.Element {
   const [sort, setSort] = useState<string | undefined>(undefined)
 
   const stages = usePipelineStages('raise')
-  const raises = useRaises({ sort })
+  const raises = useRaises({ sort: serverSortOnly(sort, SERVER_SORT_KEYS) })
   const companies = useCompanies({ limit: 200 })
   const members = useMembers()
   const createRaise = useCreateRaise()
   const updateRaise = useUpdateRaise()
+  const timezone = useTimezone()
 
   const allStages = [...stages.records].sort((a, b) => a.sortOrder - b.sortOrder)
   const visibleStages = scope === 'open' ? allStages.filter((stage) => stage.open) : allStages
@@ -95,6 +111,8 @@ export function FundraisingPage(): React.JSX.Element {
     await navigate(`/fundraising/${raise.id}`)
   }
 
+  const stageLabelById = new Map(allStages.map((stage) => [stage.id, stage.label]))
+
   const columns: readonly Column<Raise>[] = [
     {
       key: 'name',
@@ -105,12 +123,20 @@ export function FundraisingPage(): React.JSX.Element {
     {
       key: 'company',
       header: 'Firm',
+      getSortValue: (raise) => companyNameById.get(raise.companyId) ?? null,
       render: (raise) => companyNameById.get(raise.companyId) ?? '—',
+    },
+    {
+      key: 'stage',
+      header: 'Stage',
+      getSortValue: (raise) => stageLabelById.get(raise.stageId) ?? null,
+      render: (raise) => stageLabelById.get(raise.stageId) ?? '—',
     },
     {
       key: 'check',
       header: 'Check',
       className: 'w-28',
+      getSortValue: (raise) => raise.checkSizeCents,
       render: (raise) =>
         raise.checkSizeCents === null ? (
           '—'
@@ -121,8 +147,33 @@ export function FundraisingPage(): React.JSX.Element {
         ),
     },
     {
+      key: 'currency',
+      header: 'Currency',
+      getSortValue: (raise) => raise.currency,
+      render: (raise) => raise.currency ?? '—',
+    },
+    {
+      key: 'thesisFit',
+      header: 'Thesis fit',
+      getSortValue: (raise) => raise.thesisFit || null,
+      render: (raise) =>
+        raise.thesisFit.length === 0 ? '—' : (
+          <span className="text-ink-muted">{raise.thesisFit}</span>
+        ),
+    },
+    {
+      key: 'passReason',
+      header: 'Pass reason',
+      getSortValue: (raise) => raise.passReason,
+      render: (raise) =>
+        raise.passReason === null ? '—' : (
+          <span className="text-ink-muted">{raise.passReason}</span>
+        ),
+    },
+    {
       key: 'nextPlan',
       header: 'Next plan',
+      getSortValue: (raise) => nextPlanByRaise.get(raise.id)?.date ?? null,
       render: (raise) => {
         const next = nextPlanByRaise.get(raise.id)
 
@@ -143,6 +194,8 @@ export function FundraisingPage(): React.JSX.Element {
     {
       key: 'owner',
       header: 'Owner',
+      getSortValue: (raise) =>
+        raise.ownerId === null ? null : (members.nameById.get(raise.ownerId) ?? 'Unknown'),
       render: (raise) =>
         raise.ownerId === null ? '—' : (members.nameById.get(raise.ownerId) ?? 'Unknown'),
     },
@@ -150,13 +203,52 @@ export function FundraisingPage(): React.JSX.Element {
       key: 'close',
       header: 'Close',
       className: 'w-28',
+      getSortValue: (raise) => raise.expectedClose,
       render: (raise) => (
         <span className="font-mono text-[12px] text-ink-muted">
           {raise.expectedClose === null ? '—' : formatDay(raise.expectedClose)}
         </span>
       ),
     },
+    {
+      key: 'tags',
+      header: 'Tags',
+      getSortValue: (raise) => raise.tags.join(', ') || null,
+      render: (raise) =>
+        raise.tags.length === 0 ? '—' : (
+          <span className="flex flex-wrap gap-1">
+            {raise.tags.map((tag) => (
+              <Chip key={tag}>
+                <span className="text-[10px]">{tag}</span>
+              </Chip>
+            ))}
+          </span>
+        ),
+    },
+    {
+      key: 'summary',
+      header: 'Summary',
+      getSortValue: (raise) => raise.summary || null,
+      render: (raise) =>
+        raise.summary.length === 0 ? '—' : <span className="text-ink-muted">{raise.summary}</span>,
+    },
+    {
+      key: 'createdAt',
+      header: 'Created',
+      sortKey: 'created_at',
+      render: (raise) => formatDate(raise.createdAt, timezone),
+    },
+    {
+      key: 'updatedAt',
+      header: 'Updated',
+      sortKey: 'updated_at',
+      render: (raise) => formatDate(raise.updatedAt, timezone),
+    },
   ]
+
+  const supportedKeys = columns.map((column) => column.key)
+  const listView = useListView('raises', supportedKeys, DEFAULT_VISIBLE_KEYS)
+  const pickerOptions = columns.map((column) => ({ key: column.key, label: column.header }))
 
   const stageGroups: readonly DataTableGroup<Raise>[] = visibleStages.map((stage) => ({
     id: stage.id,
@@ -247,6 +339,13 @@ export function FundraisingPage(): React.JSX.Element {
                 { id: 'columns', label: 'Board' },
               ]}
             />
+            {view === 'list' && (
+              <ColumnPicker
+                options={pickerOptions}
+                visibleKeys={listView.visibleKeys}
+                onChange={listView.setVisibleKeys}
+              />
+            )}
           </>
         }
       />
@@ -320,6 +419,7 @@ export function FundraisingPage(): React.JSX.Element {
               }
               sort={sort}
               onSortChange={setSort}
+              visibleColumnKeys={listView.visibleKeys}
             />
           )}
           {updateRaise.error !== null && (

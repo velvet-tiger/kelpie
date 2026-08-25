@@ -14,6 +14,7 @@ describe('applyPreferenceChanges', () => {
     emailDigest: false,
     mentionEmails: false,
     productUpdates: true,
+    listViews: { people: { columns: ['name', 'position'] } },
   } as const
 
   it('answers the defaults when nothing is stored and nothing changed', () => {
@@ -45,5 +46,19 @@ describe('applyPreferenceChanges', () => {
     const once = applyPreferenceChanges(stored, { timezone: 'UTC', productUpdates: false })
 
     expect(applyPreferenceChanges(once, { timezone: 'UTC', productUpdates: false })).toEqual(once)
+  })
+
+  it('replaces the whole listViews map rather than merging by key', () => {
+    // Merging is the client's job: it PATCHes the map it wants to store, so a
+    // key it dropped should stay dropped.
+    const changed = applyPreferenceChanges(stored, {
+      listViews: { companies: { columns: ['name', 'stage'] } },
+    })
+
+    expect(changed.listViews).toEqual({ companies: { columns: ['name', 'stage'] } })
+  })
+
+  it('leaves listViews alone when the change does not name it', () => {
+    expect(applyPreferenceChanges(stored, { theme: 'light' }).listViews).toEqual(stored.listViews)
   })
 })

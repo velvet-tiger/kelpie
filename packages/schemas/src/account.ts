@@ -106,12 +106,35 @@ export function changePasswordBody(input: ChangePasswordInput): Record<string, u
 }
 
 /**
+ * A saved column choice for one list view, keyed on a stable view id (`people`,
+ * `companies`, …). The order in `columns` is the order the row renders in, so
+ * the same field carries both visibility and position.
+ */
+export interface ListViewPreference {
+  readonly columns: readonly string[]
+}
+
+export const listViewPreferenceSchema: z.ZodType<ListViewPreference, unknown> = z
+  .object({
+    columns: z.array(z.string()),
+  })
+  .transform(
+    (wire): ListViewPreference => ({
+      columns: wire.columns,
+    }),
+  )
+
+/**
  * Per-account settings that follow the person between browsers.
  *
  * The three notification fields are stored choices, not switches over a running
  * mailer: Kelpie sends no digest, mention, or product email yet. They record
  * what to do when it does, and the Preferences page says so on screen rather
  * than leaving a reader to infer a capability from a toggle.
+ *
+ * `listViews` is a map of view id to a column choice. The map is open: any
+ * client-defined view id is allowed, and a view id the client no longer
+ * recognises is ignored on read rather than raising a schema error.
  */
 export interface AccountPreferences {
   readonly timezone: string
@@ -119,6 +142,7 @@ export interface AccountPreferences {
   readonly emailDigest: boolean
   readonly mentionEmails: boolean
   readonly productUpdates: boolean
+  readonly listViews: Readonly<Record<string, ListViewPreference>>
 }
 
 export const accountPreferencesSchema: z.ZodType<AccountPreferences, unknown> = z
@@ -128,6 +152,7 @@ export const accountPreferencesSchema: z.ZodType<AccountPreferences, unknown> = 
     email_digest: z.boolean(),
     mention_emails: z.boolean(),
     product_updates: z.boolean(),
+    list_views: z.record(z.string(), listViewPreferenceSchema).default({}),
   })
   .transform(
     (wire): AccountPreferences => ({
@@ -136,6 +161,7 @@ export const accountPreferencesSchema: z.ZodType<AccountPreferences, unknown> = 
       emailDigest: wire.email_digest,
       mentionEmails: wire.mention_emails,
       productUpdates: wire.product_updates,
+      listViews: wire.list_views,
     }),
   )
 
@@ -145,6 +171,13 @@ export interface UpdateAccountPreferencesInput {
   readonly emailDigest?: boolean
   readonly mentionEmails?: boolean
   readonly productUpdates?: boolean
+  /**
+   * Replaces the whole `listViews` map. Every top-level preference field
+   * follows the same rule: absent leaves the stored value alone, present
+   * overwrites it. Callers that only want to touch one view id read the
+   * current map first and PATCH the merged result.
+   */
+  readonly listViews?: Readonly<Record<string, ListViewPreference>>
 }
 
 export function updateAccountPreferencesBody(
@@ -156,5 +189,6 @@ export function updateAccountPreferencesBody(
     email_digest: input.emailDigest,
     mention_emails: input.mentionEmails,
     product_updates: input.productUpdates,
+    list_views: input.listViews,
   })
 }

@@ -1,4 +1,4 @@
-import type { ThemePreference } from '@kelpie/schemas'
+import type { ListViewPreference, ThemePreference } from '@kelpie/schemas'
 
 /**
  * What an account's preferences are before anyone has saved any, and how a
@@ -17,12 +17,17 @@ export interface PreferenceValues {
   readonly emailDigest: boolean
   readonly mentionEmails: boolean
   readonly productUpdates: boolean
+  readonly listViews: Readonly<Record<string, ListViewPreference>>
 }
 
 /**
  * UTC, not the workspace's zone. An account is global and may belong to several
  * workspaces in different zones, so deriving from one of them would be picking
  * arbitrarily and calling it the person's answer.
+ *
+ * `listViews` starts empty. Each list page falls back to its own default when
+ * the map holds no entry for it, so the person sees the page's built-in shape
+ * until they change it.
  */
 export const DEFAULT_PREFERENCES: PreferenceValues = {
   timezone: 'UTC',
@@ -30,6 +35,7 @@ export const DEFAULT_PREFERENCES: PreferenceValues = {
   emailDigest: true,
   mentionEmails: true,
   productUpdates: false,
+  listViews: {},
 }
 
 export type PreferenceChanges = Partial<PreferenceValues>
@@ -40,6 +46,11 @@ export type PreferenceChanges = Partial<PreferenceValues>
  * The result is always a complete row, which is what makes the write an upsert
  * with no read-modify-write hazard in the caller: the same request applied twice
  * produces the same row.
+ *
+ * `listViews` is treated as one field, so the caller replaces the whole map
+ * rather than merging by key. The UI already holds the current map in the
+ * account-preferences query, so a per-view change becomes a PATCH of the merged
+ * map — the merge lives where the choice was made.
  */
 export function applyPreferenceChanges(
   stored: PreferenceValues | undefined,
@@ -53,5 +64,6 @@ export function applyPreferenceChanges(
     emailDigest: changes.emailDigest ?? current.emailDigest,
     mentionEmails: changes.mentionEmails ?? current.mentionEmails,
     productUpdates: changes.productUpdates ?? current.productUpdates,
+    listViews: changes.listViews ?? current.listViews,
   }
 }

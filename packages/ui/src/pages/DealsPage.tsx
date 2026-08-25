@@ -7,17 +7,21 @@ import { useDeals, useCreateDeal, useUpdateDeal } from '../api/resources/deals.t
 import { useMembers } from '../api/resources/members.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
+import { useTimezone } from '../api/resources/account.ts'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column, DataTableGroup } from '../components/DataTable.tsx'
 import { KanbanBoard } from '../components/KanbanBoard.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { SegmentedControl } from '../components/SegmentedControl.tsx'
-import { formatDay } from '../lib/dates.ts'
+import { formatDate, formatDay } from '../lib/dates.ts'
+import { useListView } from '../lib/listView.ts'
 import { formatMoney } from '../lib/money.ts'
 import { DUE_BUCKETS, byDateThenTitle, dueBucketFor, nextOpenByTarget } from '../lib/plan.ts'
+import { serverSortOnly } from '../lib/sort.ts'
 
 /**
  * The Deals pipeline: a board and a list over the same records, grouped by stage
@@ -43,6 +47,17 @@ function stageTone(stage: PipelineStage): ChipTone {
   return STAGE_TONES[stage.slug] ?? 'neutral'
 }
 
+const DEFAULT_VISIBLE_KEYS: readonly string[] = [
+  'name',
+  'company',
+  'value',
+  'nextPlan',
+  'owner',
+  'close',
+]
+
+const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
+
 export function DealsPage(): React.JSX.Element {
   const navigate = useNavigate()
   const [view, setView] = useState<BoardView>('list')
@@ -51,11 +66,12 @@ export function DealsPage(): React.JSX.Element {
   const [sort, setSort] = useState<string | undefined>(undefined)
 
   const stages = usePipelineStages('deal')
-  const deals = useDeals({ sort })
+  const deals = useDeals({ sort: serverSortOnly(sort, SERVER_SORT_KEYS) })
   const companies = useCompanies({ limit: 200 })
   const members = useMembers()
   const createDeal = useCreateDeal()
   const updateDeal = useUpdateDeal()
+  const timezone = useTimezone()
 
   const allStages = [...stages.records].sort((a, b) => a.sortOrder - b.sortOrder)
   const visibleStages = scope === 'open' ? allStages.filter((stage) => stage.open) : allStages
@@ -87,6 +103,8 @@ export function DealsPage(): React.JSX.Element {
     await navigate(`/deals/${deal.id}`)
   }
 
+  const stageLabelById = new Map(allStages.map((stage) => [stage.id, stage.label]))
+
   const columns: readonly Column<Deal>[] = [
     {
       key: 'name',
@@ -97,12 +115,20 @@ export function DealsPage(): React.JSX.Element {
     {
       key: 'company',
       header: 'Company',
+      getSortValue: (deal) => companyNameById.get(deal.companyId) ?? null,
       render: (deal) => companyNameById.get(deal.companyId) ?? '—',
+    },
+    {
+      key: 'stage',
+      header: 'Stage',
+      getSortValue: (deal) => stageLabelById.get(deal.stageId) ?? null,
+      render: (deal) => stageLabelById.get(deal.stageId) ?? '—',
     },
     {
       key: 'value',
       header: 'Value',
       className: 'w-28',
+      getSortValue: (deal) => deal.valueCents,
       render: (deal) => (
         <span className="font-mono text-[12px]">
           {deal.valueCents === null ? '—' : formatMoney(deal.valueCents, deal.currency)}
@@ -110,8 +136,15 @@ export function DealsPage(): React.JSX.Element {
       ),
     },
     {
+      key: 'currency',
+      header: 'Currency',
+      getSortValue: (deal) => deal.currency,
+      render: (deal) => deal.currency ?? '—',
+    },
+    {
       key: 'nextPlan',
       header: 'Next plan',
+      getSortValue: (deal) => nextPlanByDeal.get(deal.id)?.date ?? null,
       render: (deal) => {
         const next = nextPlanByDeal.get(deal.id)
 
@@ -132,6 +165,8 @@ export function DealsPage(): React.JSX.Element {
     {
       key: 'owner',
       header: 'Owner',
+      getSortValue: (deal) =>
+        deal.ownerId === null ? null : (members.nameById.get(deal.ownerId) ?? 'Unknown'),
       render: (deal) =>
         deal.ownerId === null ? '—' : (members.nameById.get(deal.ownerId) ?? 'Unknown'),
     },
@@ -139,13 +174,92 @@ export function DealsPage(): React.JSX.Element {
       key: 'close',
       header: 'Close',
       className: 'w-28',
+      getSortValue: (deal) => deal.expectedClose,
       render: (deal) => (
         <span className="font-mono text-[12px] text-ink-muted">
           {deal.expectedClose === null ? '—' : formatDay(deal.expectedClose)}
         </span>
       ),
     },
+    {
+      key: 'competitors',
+      header: 'Competitors',
+      getSortValue: (deal) => deal.competitors.join(', ') || null,
+      render: (deal) =>
+        deal.competitors.length === 0 ? '—' : (
+          <span className="flex flex-wrap gap-1">
+            {deal.competitors.map((entry) => (
+              <Chip key={entry}>
+                <span className="text-[10px]">{entry}</span>
+              </Chip>
+            ))}
+          </span>
+        ),
+    },
+    {
+      key: 'tags',
+      header: 'Tags',
+      getSortValue: (deal) => deal.tags.join(', ') || null,
+      render: (deal) =>
+        deal.tags.length === 0 ? '—' : (
+          <span className="flex flex-wrap gap-1">
+            {deal.tags.map((tag) => (
+              <Chip key={tag}>
+                <span className="text-[10px]">{tag}</span>
+              </Chip>
+            ))}
+          </span>
+        ),
+    },
+    {
+      key: 'summary',
+      header: 'Summary',
+      getSortValue: (deal) => deal.summary || null,
+      render: (deal) =>
+        deal.summary.length === 0 ? '—' : <span className="text-ink-muted">{deal.summary}</span>,
+    },
+    {
+      key: 'risks',
+      header: 'Risks',
+      getSortValue: (deal) => deal.risks || null,
+      render: (deal) =>
+        deal.risks.length === 0 ? '—' : <span className="text-ink-muted">{deal.risks}</span>,
+    },
+    {
+      key: 'whyWin',
+      header: 'Why win',
+      getSortValue: (deal) => deal.whyWin || null,
+      render: (deal) =>
+        deal.whyWin.length === 0 ? '—' : <span className="text-ink-muted">{deal.whyWin}</span>,
+    },
+    {
+      key: 'externalId',
+      header: 'External ID',
+      getSortValue: (deal) => deal.externalId,
+      render: (deal) =>
+        deal.externalId === null ? (
+          '—'
+        ) : (
+          <span className="font-mono text-[12px] text-ink-muted">{deal.externalId}</span>
+        ),
+    },
+    {
+      key: 'createdAt',
+      header: 'Created',
+      sortKey: 'created_at',
+      render: (deal) => formatDate(deal.createdAt, timezone),
+    },
+    {
+      key: 'updatedAt',
+      header: 'Updated',
+      sortKey: 'updated_at',
+      render: (deal) => formatDate(deal.updatedAt, timezone),
+    },
   ]
+
+  const supportedKeys = columns.map((column) => column.key)
+  const listView = useListView('deals', supportedKeys, DEFAULT_VISIBLE_KEYS)
+  const pickerOptions = columns.map((column) => ({ key: column.key, label: column.header }))
 
   const stageGroups: readonly DataTableGroup<Deal>[] = visibleStages.map((stage) => ({
     id: stage.id,
@@ -234,6 +348,13 @@ export function DealsPage(): React.JSX.Element {
                 { id: 'columns', label: 'Board' },
               ]}
             />
+            {view === 'list' && (
+              <ColumnPicker
+                options={pickerOptions}
+                visibleKeys={listView.visibleKeys}
+                onChange={listView.setVisibleKeys}
+              />
+            )}
           </>
         }
       />
@@ -308,6 +429,7 @@ export function DealsPage(): React.JSX.Element {
               }
               sort={sort}
               onSortChange={setSort}
+              visibleColumnKeys={listView.visibleKeys}
             />
           )}
           {updateDeal.error !== null && (

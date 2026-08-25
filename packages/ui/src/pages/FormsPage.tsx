@@ -2,13 +2,18 @@ import type { Form } from '@kelpie/schemas'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 
+import { useTimezone } from '../api/resources/account.ts'
 import { useCreateForm, useForms } from '../api/resources/forms.ts'
 import { Chip } from '../components/Chip.tsx'
+import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { SegmentedControl } from '../components/SegmentedControl.tsx'
+import { formatDate } from '../lib/dates.ts'
+import { useListView } from '../lib/listView.ts'
+import { serverSortOnly } from '../lib/sort.ts'
 import { CONTACT_FORM_FIELDS } from './forms/template.ts'
 
 /**
@@ -31,6 +36,10 @@ const STATUS_OPTIONS = [
   { id: 'paused' as const, label: 'Paused' },
 ]
 
+const DEFAULT_VISIBLE_KEYS: readonly string[] = ['name', 'status', 'fields', 'deal']
+
+const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
+
 export function FormsPage(): React.JSX.Element {
   const [term, setTerm] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
@@ -38,10 +47,11 @@ export function FormsPage(): React.JSX.Element {
   const navigate = useNavigate()
   const hasFilter = term.trim().length > 0 || status !== 'all'
   const createForm = useCreateForm()
+  const timezone = useTimezone()
   const forms = useForms({
     term: term.trim().length > 0 ? term.trim() : undefined,
     ...(status === 'all' ? {} : { status }),
-    sort,
+    sort: serverSortOnly(sort, SERVER_SORT_KEYS),
   })
 
   /**
@@ -71,9 +81,16 @@ export function FormsPage(): React.JSX.Element {
       ),
     },
     {
+      key: 'description',
+      header: 'Description',
+      getSortValue: (form) => form.description,
+      render: (form) => form.description ?? '—',
+    },
+    {
       key: 'status',
       header: 'Status',
       className: 'w-28',
+      getSortValue: (form) => form.status,
       render: (form) => (
         <Chip tone={form.status === 'active' ? 'success' : 'neutral'}>{form.status}</Chip>
       ),
@@ -82,12 +99,14 @@ export function FormsPage(): React.JSX.Element {
       key: 'fields',
       header: 'Fields',
       className: 'w-20',
+      getSortValue: (form) => form.fields.length,
       render: (form) => <span className="font-mono text-[12px]">{form.fields.length}</span>,
     },
     {
       key: 'deal',
       header: 'Deal',
       className: 'w-32',
+      getSortValue: (form) => form.createDeal,
       render: (form) =>
         form.createDeal ? (
           <Chip tone="accent">Creates deal</Chip>
@@ -95,7 +114,51 @@ export function FormsPage(): React.JSX.Element {
           <span className="text-ink-faint">—</span>
         ),
     },
+    {
+      key: 'dealNameTemplate',
+      header: 'Deal name template',
+      getSortValue: (form) => form.dealNameTemplate,
+      render: (form) =>
+        form.dealNameTemplate === null ? (
+          '—'
+        ) : (
+          <span className="font-mono text-[12px] text-ink-muted">{form.dealNameTemplate}</span>
+        ),
+    },
+    {
+      key: 'thankYouMessage',
+      header: 'Thank-you',
+      getSortValue: (form) => form.thankYouMessage || null,
+      render: (form) =>
+        form.thankYouMessage.length === 0 ? '—' : (
+          <span className="text-ink-muted">{form.thankYouMessage}</span>
+        ),
+    },
+    {
+      key: 'publicKey',
+      header: 'Public key',
+      getSortValue: (form) => form.publicKey,
+      render: (form) => (
+        <span className="font-mono text-[12px] text-ink-muted">{form.publicKey}</span>
+      ),
+    },
+    {
+      key: 'createdAt',
+      header: 'Created',
+      sortKey: 'created_at',
+      render: (form) => formatDate(form.createdAt, timezone),
+    },
+    {
+      key: 'updatedAt',
+      header: 'Updated',
+      sortKey: 'updated_at',
+      render: (form) => formatDate(form.updatedAt, timezone),
+    },
   ]
+
+  const supportedKeys = columns.map((column) => column.key)
+  const listView = useListView('forms', supportedKeys, DEFAULT_VISIBLE_KEYS)
+  const pickerOptions = columns.map((column) => ({ key: column.key, label: column.header }))
 
   return (
     <div className="animate-fade-in">
@@ -105,12 +168,19 @@ export function FormsPage(): React.JSX.Element {
         onAdd={addForm}
         addLabel="New form"
         actions={
-          <SegmentedControl
-            value={status}
-            onChange={setStatus}
-            options={STATUS_OPTIONS}
-            ariaLabel="Filter by status"
-          />
+          <>
+            <SegmentedControl
+              value={status}
+              onChange={setStatus}
+              options={STATUS_OPTIONS}
+              ariaLabel="Filter by status"
+            />
+            <ColumnPicker
+              options={pickerOptions}
+              visibleKeys={listView.visibleKeys}
+              onChange={listView.setVisibleKeys}
+            />
+          </>
         }
       />
       <FilterBar value={term} onChange={setTerm} placeholder="Filter forms…" />
@@ -133,6 +203,7 @@ export function FormsPage(): React.JSX.Element {
             emptyAction={hasFilter ? undefined : { label: 'New form', onClick: addForm }}
             sort={sort}
             onSortChange={setSort}
+            visibleColumnKeys={listView.visibleKeys}
           />
           {forms.hasMore && (
             <button

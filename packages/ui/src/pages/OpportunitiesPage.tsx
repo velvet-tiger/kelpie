@@ -11,16 +11,20 @@ import {
 } from '../api/resources/opportunities.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
+import { useTimezone } from '../api/resources/account.ts'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column, DataTableGroup } from '../components/DataTable.tsx'
 import { KanbanBoard } from '../components/KanbanBoard.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { SegmentedControl } from '../components/SegmentedControl.tsx'
-import { formatDay } from '../lib/dates.ts'
+import { formatDate, formatDay } from '../lib/dates.ts'
+import { useListView } from '../lib/listView.ts'
 import { DUE_BUCKETS, byDateThenTitle, dueBucketFor, nextOpenByTarget } from '../lib/plan.ts'
+import { serverSortOnly } from '../lib/sort.ts'
 
 /**
  * The Opportunities pipeline: grants, accelerators, tenders, press, speaking.
@@ -44,6 +48,17 @@ function stageTone(stage: PipelineStage): ChipTone {
   return STAGE_TONES[stage.slug] ?? 'neutral'
 }
 
+const DEFAULT_VISIBLE_KEYS: readonly string[] = [
+  'name',
+  'kind',
+  'company',
+  'nextPlan',
+  'owner',
+  'close',
+]
+
+const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
+
 export function OpportunitiesPage(): React.JSX.Element {
   const navigate = useNavigate()
   const [view, setView] = useState<BoardView>('list')
@@ -52,11 +67,12 @@ export function OpportunitiesPage(): React.JSX.Element {
   const [sort, setSort] = useState<string | undefined>(undefined)
 
   const stages = usePipelineStages('opportunity')
-  const opportunities = useOpportunities({ sort })
+  const opportunities = useOpportunities({ sort: serverSortOnly(sort, SERVER_SORT_KEYS) })
   const companies = useCompanies({ limit: 200 })
   const members = useMembers()
   const createOpportunity = useCreateOpportunity()
   const updateOpportunity = useUpdateOpportunity()
+  const timezone = useTimezone()
 
   const allStages = [...stages.records].sort((a, b) => a.sortOrder - b.sortOrder)
   const visibleStages = scope === 'open' ? allStages.filter((stage) => stage.open) : allStages
@@ -89,6 +105,8 @@ export function OpportunitiesPage(): React.JSX.Element {
     await navigate(`/opportunities/${opportunity.id}`)
   }
 
+  const stageLabelById = new Map(allStages.map((stage) => [stage.id, stage.label]))
+
   const columns: readonly Column<Opportunity>[] = [
     {
       key: 'name',
@@ -99,19 +117,29 @@ export function OpportunitiesPage(): React.JSX.Element {
     {
       key: 'kind',
       header: 'Kind',
+      getSortValue: (opportunity) => opportunity.kind || null,
       render: (opportunity) => (opportunity.kind.length > 0 ? opportunity.kind : '—'),
     },
     {
       key: 'company',
       header: 'Company',
+      getSortValue: (opportunity) =>
+        opportunity.companyId === null ? null : (companyNameById.get(opportunity.companyId) ?? null),
       render: (opportunity) =>
         opportunity.companyId === null
           ? '—'
           : (companyNameById.get(opportunity.companyId) ?? '—'),
     },
     {
+      key: 'stage',
+      header: 'Stage',
+      getSortValue: (opportunity) => stageLabelById.get(opportunity.stageId) ?? null,
+      render: (opportunity) => stageLabelById.get(opportunity.stageId) ?? '—',
+    },
+    {
       key: 'nextPlan',
       header: 'Next plan',
+      getSortValue: (opportunity) => nextPlanByOpportunity.get(opportunity.id)?.date ?? null,
       render: (opportunity) => {
         const next = nextPlanByOpportunity.get(opportunity.id)
 
@@ -132,6 +160,10 @@ export function OpportunitiesPage(): React.JSX.Element {
     {
       key: 'owner',
       header: 'Owner',
+      getSortValue: (opportunity) =>
+        opportunity.ownerId === null
+          ? null
+          : (members.nameById.get(opportunity.ownerId) ?? 'Unknown'),
       render: (opportunity) =>
         opportunity.ownerId === null
           ? '—'
@@ -141,13 +173,54 @@ export function OpportunitiesPage(): React.JSX.Element {
       key: 'close',
       header: 'Close',
       className: 'w-28',
+      getSortValue: (opportunity) => opportunity.expectedClose,
       render: (opportunity) => (
         <span className="font-mono text-[12px] text-ink-muted">
           {opportunity.expectedClose === null ? '—' : formatDay(opportunity.expectedClose)}
         </span>
       ),
     },
+    {
+      key: 'tags',
+      header: 'Tags',
+      getSortValue: (opportunity) => opportunity.tags.join(', ') || null,
+      render: (opportunity) =>
+        opportunity.tags.length === 0 ? '—' : (
+          <span className="flex flex-wrap gap-1">
+            {opportunity.tags.map((tag) => (
+              <Chip key={tag}>
+                <span className="text-[10px]">{tag}</span>
+              </Chip>
+            ))}
+          </span>
+        ),
+    },
+    {
+      key: 'summary',
+      header: 'Summary',
+      getSortValue: (opportunity) => opportunity.summary || null,
+      render: (opportunity) =>
+        opportunity.summary.length === 0 ? '—' : (
+          <span className="text-ink-muted">{opportunity.summary}</span>
+        ),
+    },
+    {
+      key: 'createdAt',
+      header: 'Created',
+      sortKey: 'created_at',
+      render: (opportunity) => formatDate(opportunity.createdAt, timezone),
+    },
+    {
+      key: 'updatedAt',
+      header: 'Updated',
+      sortKey: 'updated_at',
+      render: (opportunity) => formatDate(opportunity.updatedAt, timezone),
+    },
   ]
+
+  const supportedKeys = columns.map((column) => column.key)
+  const listView = useListView('opportunities', supportedKeys, DEFAULT_VISIBLE_KEYS)
+  const pickerOptions = columns.map((column) => ({ key: column.key, label: column.header }))
 
   const stageGroups: readonly DataTableGroup<Opportunity>[] = visibleStages.map((stage) => ({
     id: stage.id,
@@ -245,6 +318,13 @@ export function OpportunitiesPage(): React.JSX.Element {
                 { id: 'columns', label: 'Board' },
               ]}
             />
+            {view === 'list' && (
+              <ColumnPicker
+                options={pickerOptions}
+                visibleKeys={listView.visibleKeys}
+                onChange={listView.setVisibleKeys}
+              />
+            )}
           </>
         }
       />
@@ -314,6 +394,7 @@ export function OpportunitiesPage(): React.JSX.Element {
               }
               sort={sort}
               onSortChange={setSort}
+              visibleColumnKeys={listView.visibleKeys}
             />
           )}
           {updateOpportunity.error !== null && (
