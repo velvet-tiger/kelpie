@@ -27,6 +27,7 @@ import type {
 import { useEffect, useState } from 'react'
 import type { ChangeEvent, DragEvent, FormEvent, ReactNode } from 'react'
 
+import { useRelinkEmailDomains } from '../../api/resources/emailDomainLinker.ts'
 import {
   saveCsv,
   useCommitImportJob,
@@ -260,6 +261,8 @@ export function DataPage(): ReactNode {
       )}
 
       <SampleDataSection />
+
+      <RelinkEmailDomainsSection />
 
       <section className="space-y-4 border-t border-border pt-8">
         <div>
@@ -1011,6 +1014,75 @@ function SampleDataSection(): ReactNode {
           {counts.raises} raises, {counts.partnerships} partnerships, {counts.roles} roles,{' '}
           {counts.candidates} candidates, {counts.planItems} plan items, and{' '}
           {counts.notes} notes.
+        </p>
+      ) : null}
+      {failure === null ? null : (
+        <p role="alert" className="text-[12px] font-medium text-danger">
+          {failure}
+        </p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Sweep every workspace Company that carries a domain and attach each Person
+ * whose email is at that domain.
+ *
+ * Backfills links for records that predate the auto-linker or arrived through
+ * a bulk import. Idempotent: a follow-up run adds nothing. Never removes.
+ */
+function RelinkEmailDomainsSection(): ReactNode {
+  const { session } = useSession()
+  const workspaceId = session?.workspaceId ?? null
+  const relink = useRelinkEmailDomains()
+  const [outcome, setOutcome] = useState<{
+    readonly companiesScanned: number
+    readonly positionsCreated: number
+  } | null>(null)
+
+  function onRun(): void {
+    if (workspaceId === null) {
+      return
+    }
+
+    relink
+      .runAsync({ workspaceId })
+      .then((result) => {
+        setOutcome({
+          companiesScanned: result.companiesScanned,
+          positionsCreated: result.positionsCreated,
+        })
+      })
+      .catch(() => undefined)
+  }
+
+  const failure = messageOf(relink.error)
+
+  return (
+    <section className="space-y-4 border-t border-border pt-8">
+      <div>
+        <h2 className="text-[15px] font-semibold text-ink">Rebuild email-domain links</h2>
+        <p className="mt-1 text-[13px] text-ink-muted">
+          Attach every workspace Person to a Company whose domain matches their email. Safe to run
+          more than once — a Person already at a Company is left alone, and consumer email hosts
+          (gmail, hotmail, …) are skipped.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onRun}
+        disabled={relink.isPending || workspaceId === null}
+        className="rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
+      >
+        {relink.isPending ? 'Rebuilding…' : 'Rebuild links'}
+      </button>
+      {outcome !== null ? (
+        <p className="text-[12px] text-ink-muted">
+          Scanned {outcome.companiesScanned}{' '}
+          {outcome.companiesScanned === 1 ? 'company' : 'companies'}, added{' '}
+          {outcome.positionsCreated}{' '}
+          {outcome.positionsCreated === 1 ? 'position' : 'positions'}.
         </p>
       ) : null}
       {failure === null ? null : (

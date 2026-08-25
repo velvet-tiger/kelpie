@@ -303,6 +303,8 @@ export { moduleSettingSchema, updateModuleSettingBody } from './moduleSetting.ts
 export type { ModuleSetting, UpdateModuleSettingInput } from './moduleSetting.ts'
 export { sampleDataCountsSchema } from './sampleData.ts'
 export type { SampleDataCounts } from './sampleData.ts'
+export { relinkEmailDomainsCountsSchema } from './emailDomainLinker.ts'
+export type { RelinkEmailDomainsCounts } from './emailDomainLinker.ts'
 
 export { mcpToolSchema } from './mcpTool.ts'
 export type { McpTool } from './mcpTool.ts'

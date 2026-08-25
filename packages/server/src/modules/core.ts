@@ -9,6 +9,7 @@ import { createCompaniesModule } from './companies/index.ts'
 import { createDashboardModule } from './dashboard/index.ts'
 import { createDealsModule } from './deals/index.ts'
 import { createDecisionsModule } from './decisions/index.ts'
+import { createEmailDomainLinkerModule } from './email-domain-linker/index.ts'
 import { createFormsModule } from './forms/index.ts'
 import { createHandbookModule } from './handbook/index.ts'
 import { createHiringModule } from './hiring/index.ts'
@@ -72,6 +73,10 @@ export const coreModules: readonly KelpieModule[] = [
   // Owns no tables. One-shot fixture install for a new workspace, called from
   // the setup wizard's checkbox and the admin data page.
   createSampleDataModule(),
+  // Owns no tables. Admin action that reruns the email-domain sweep across
+  // every workspace Company — backfills links for data that predates the
+  // auto-linker, or after a bulk import.
+  createEmailDomainLinkerModule(),
   // Owns no tables. Registers a `'smtp'` provider with core's email runtime;
   // the factory only runs if the assembly's `email.provider` picks it.
   createSmtpEmailModule(),
