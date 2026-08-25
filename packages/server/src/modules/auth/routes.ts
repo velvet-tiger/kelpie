@@ -1,4 +1,5 @@
 import { THEME_PREFERENCES } from '@kelpie/schemas'
+import type { ListViewPreference } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -59,9 +60,23 @@ const updateAccountBody = z
     path: ['current_password'],
   })
 
-const listViewBody = z.strictObject({
-  columns: z.array(z.string()),
-})
+const listViewBody: z.ZodType<ListViewPreference, unknown> = z
+  .strictObject({
+    columns: z.array(z.string()).optional(),
+    mode: z.enum(['list', 'columns']).optional(),
+    grouping: z.string().optional(),
+    scope: z.string().optional(),
+    sort: z.string().optional(),
+  })
+  .transform(
+    (wire): ListViewPreference => ({
+      ...(wire.columns === undefined ? {} : { columns: wire.columns }),
+      ...(wire.mode === undefined ? {} : { mode: wire.mode }),
+      ...(wire.grouping === undefined ? {} : { grouping: wire.grouping }),
+      ...(wire.scope === undefined ? {} : { scope: wire.scope }),
+      ...(wire.sort === undefined ? {} : { sort: wire.sort }),
+    }),
+  )
 
 const updatePreferencesBody = z
   .strictObject({

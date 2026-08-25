@@ -1,5 +1,4 @@
 import type { Opportunity, PipelineStage } from '@kelpie/schemas'
-import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { useCompanies } from '../api/resources/companies.ts'
@@ -36,6 +35,31 @@ type BoardView = 'list' | 'columns'
 type PipelineScope = 'open' | 'all'
 type ListGrouping = 'stage' | 'due'
 
+const SCOPES: readonly PipelineScope[] = ['open', 'all']
+const GROUPINGS: readonly ListGrouping[] = ['stage', 'due']
+
+function readScope(stored: string | undefined): PipelineScope {
+  return SCOPES.includes(stored as PipelineScope) ? (stored as PipelineScope) : 'open'
+}
+
+function readGrouping(stored: string | undefined): ListGrouping {
+  return GROUPINGS.includes(stored as ListGrouping) ? (stored as ListGrouping) : 'stage'
+}
+
+const COLUMN_KEYS: readonly string[] = [
+  'name',
+  'kind',
+  'company',
+  'stage',
+  'nextPlan',
+  'owner',
+  'close',
+  'tags',
+  'summary',
+  'createdAt',
+  'updatedAt',
+]
+
 /** Tones keyed by the seeded slugs. A renamed stage keeps its slug and its tone. */
 const STAGE_TONES: Readonly<Record<string, ChipTone>> = {
   won: 'success',
@@ -61,10 +85,12 @@ const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
 
 export function OpportunitiesPage(): React.JSX.Element {
   const navigate = useNavigate()
-  const [view, setView] = useState<BoardView>('list')
-  const [scope, setScope] = useState<PipelineScope>('open')
-  const [grouping, setGrouping] = useState<ListGrouping>('stage')
-  const [sort, setSort] = useState<string | undefined>(undefined)
+
+  const listView = useListView('opportunities', COLUMN_KEYS, DEFAULT_VISIBLE_KEYS)
+  const view: BoardView = listView.mode ?? 'columns'
+  const scope = readScope(listView.scope)
+  const grouping = readGrouping(listView.grouping)
+  const sort = listView.sort
 
   const stages = usePipelineStages('opportunity')
   const opportunities = useOpportunities({ sort: serverSortOnly(sort, SERVER_SORT_KEYS) })
@@ -218,8 +244,6 @@ export function OpportunitiesPage(): React.JSX.Element {
     },
   ]
 
-  const supportedKeys = columns.map((column) => column.key)
-  const listView = useListView('opportunities', supportedKeys, DEFAULT_VISIBLE_KEYS)
   const pickerOptions = columns.map((column) => ({ key: column.key, label: column.header }))
 
   const stageGroups: readonly DataTableGroup<Opportunity>[] = visibleStages.map((stage) => ({
@@ -292,7 +316,9 @@ export function OpportunitiesPage(): React.JSX.Element {
             <SegmentedControl
               ariaLabel="Stage scope"
               value={scope}
-              onChange={setScope}
+              onChange={(next) => {
+                listView.setScope(next)
+              }}
               options={[
                 { id: 'open', label: 'Open' },
                 { id: 'all', label: 'All' },
@@ -302,7 +328,9 @@ export function OpportunitiesPage(): React.JSX.Element {
               <SegmentedControl
                 ariaLabel="Group the list"
                 value={grouping}
-                onChange={setGrouping}
+                onChange={(next) => {
+                  listView.setGrouping(next)
+                }}
                 options={[
                   { id: 'stage', label: 'By stage' },
                   { id: 'due', label: 'By due' },
@@ -312,7 +340,9 @@ export function OpportunitiesPage(): React.JSX.Element {
             <SegmentedControl
               ariaLabel="Board or list"
               value={view}
-              onChange={setView}
+              onChange={(next) => {
+                listView.setMode(next)
+              }}
               options={[
                 { id: 'list', label: 'List' },
                 { id: 'columns', label: 'Board' },
@@ -387,13 +417,15 @@ export function OpportunitiesPage(): React.JSX.Element {
                     ? {
                         label: 'Show all opportunities',
                         onClick: () => {
-                          setScope('all')
+                          listView.setScope('all')
                         },
                       }
                     : undefined
               }
               sort={sort}
-              onSortChange={setSort}
+              onSortChange={(next) => {
+                listView.setSort(next)
+              }}
               visibleColumnKeys={listView.visibleKeys}
             />
           )}

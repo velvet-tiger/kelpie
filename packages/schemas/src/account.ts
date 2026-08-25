@@ -106,21 +106,43 @@ export function changePasswordBody(input: ChangePasswordInput): Record<string, u
 }
 
 /**
- * A saved column choice for one list view, keyed on a stable view id (`people`,
- * `companies`, …). The order in `columns` is the order the row renders in, so
- * the same field carries both visibility and position.
+ * A saved view state for one list page, keyed on a stable view id (`people`,
+ * `companies`, `deals`, …).
+ *
+ * `columns` order is the render order, so the same field carries visibility
+ * and position. Every field is optional so an old stored entry that only
+ * remembers columns still parses, and a page that adds a new knob later can
+ * store it without a migration. A field left unset means "use the page's
+ * default", which is why the hook falls back to `defaultVisible` when
+ * `columns` is absent rather than showing an empty table.
+ *
+ * `mode` covers pages that offer both a table and a board. `grouping`,
+ * `scope`, and `sort` carry page-defined slugs; the page decides which
+ * values it accepts and falls back to a default for anything it does not.
  */
 export interface ListViewPreference {
-  readonly columns: readonly string[]
+  readonly columns?: readonly string[]
+  readonly mode?: 'list' | 'columns'
+  readonly grouping?: string
+  readonly scope?: string
+  readonly sort?: string
 }
 
 export const listViewPreferenceSchema: z.ZodType<ListViewPreference, unknown> = z
   .object({
-    columns: z.array(z.string()),
+    columns: z.array(z.string()).optional(),
+    mode: z.enum(['list', 'columns']).optional(),
+    grouping: z.string().optional(),
+    scope: z.string().optional(),
+    sort: z.string().optional(),
   })
   .transform(
     (wire): ListViewPreference => ({
-      columns: wire.columns,
+      ...(wire.columns === undefined ? {} : { columns: wire.columns }),
+      ...(wire.mode === undefined ? {} : { mode: wire.mode }),
+      ...(wire.grouping === undefined ? {} : { grouping: wire.grouping }),
+      ...(wire.scope === undefined ? {} : { scope: wire.scope }),
+      ...(wire.sort === undefined ? {} : { sort: wire.sort }),
     }),
   )
 
