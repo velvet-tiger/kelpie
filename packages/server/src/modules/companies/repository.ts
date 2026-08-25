@@ -27,6 +27,8 @@ export interface CompanyFilters {
   readonly term?: string | undefined
   /** `?person_id=`, repeatable: companies where any of these people holds a position. */
   readonly personIds?: readonly string[] | undefined
+  /** `?is_own=true` returns only the workspace's own companies; `false` returns everything else. */
+  readonly isOwn?: boolean | undefined
 }
 
 /**
@@ -64,6 +66,7 @@ function conditionsFor(workspaceId: string, filters: CompanyFilters): (SQL | und
     eq(companies.workspaceId, workspaceId),
     filters.term === undefined ? undefined : matchesTerm(filters.term),
     filters.personIds === undefined ? undefined : employsAnyOf(filters.personIds),
+    filters.isOwn === undefined ? undefined : eq(companies.isOwn, filters.isOwn),
   ]
 }
 

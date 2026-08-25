@@ -415,6 +415,72 @@ describe.skipIf(connectionString === undefined)('companies', () => {
   })
 
   /** The client decodes with `companySchema`. See the note in `people.test.ts`. */
+  describe('is_own', () => {
+    it('defaults to false on a plain create', async () => {
+      const company = await createCompany({ name: 'Analytical Engines' })
+
+      expect(company.is_own).toBe(false)
+    })
+
+    it('accepts is_own: true on create', async () => {
+      const company = await createCompany({ name: 'Us Inc', is_own: true })
+
+      expect(company.is_own).toBe(true)
+    })
+
+    it('toggles via PATCH', async () => {
+      const company = await createCompany({ name: 'Us Inc' })
+
+      const on = await client.send('PATCH', `/v1/companies/${String(company.id)}`, {
+        body: { is_own: true },
+        cookie: acme.cookie,
+      })
+      expect(readRecord(await on.json()).is_own).toBe(true)
+
+      const off = await client.send('PATCH', `/v1/companies/${String(company.id)}`, {
+        body: { is_own: false },
+        cookie: acme.cookie,
+      })
+      expect(readRecord(await off.json()).is_own).toBe(false)
+    })
+
+    it('filters the list by ?is_own=true and ?is_own=false', async () => {
+      await createCompany({ name: 'Us Inc', is_own: true })
+      await createCompany({ name: 'A Prospect' })
+      await createCompany({ name: 'Another Prospect' })
+
+      const own = await client.send('GET', '/v1/companies?is_own=true', { cookie: acme.cookie })
+      const others = await client.send('GET', '/v1/companies?is_own=false', { cookie: acme.cookie })
+
+      expect(readList(await own.json()).map((row) => row.name)).toEqual(['Us Inc'])
+      expect(readList(await others.json()).map((row) => row.name).sort()).toEqual([
+        'A Prospect',
+        'Another Prospect',
+      ])
+    })
+
+    it('ignores an unknown ?is_own value rather than returning nothing', async () => {
+      await createCompany({ name: 'Us Inc', is_own: true })
+      await createCompany({ name: 'A Prospect' })
+
+      const response = await client.send('GET', '/v1/companies?is_own=yes', { cookie: acme.cookie })
+
+      expect(readList(await response.json())).toHaveLength(2)
+    })
+
+    it('allows more than one company in the same workspace to be marked own', async () => {
+      await createCompany({ name: 'Parent Co', is_own: true, domain: 'parent.example' })
+      await createCompany({ name: 'Subsidiary Co', is_own: true, domain: 'sub.example' })
+
+      const response = await client.send('GET', '/v1/companies?is_own=true', { cookie: acme.cookie })
+
+      expect(readList(await response.json()).map((row) => row.name).sort()).toEqual([
+        'Parent Co',
+        'Subsidiary Co',
+      ])
+    })
+  })
+
   describe('the wire contract', () => {
     it('answers every read path with the shape @kelpie/schemas decodes', async () => {
       const created = await createCompany({

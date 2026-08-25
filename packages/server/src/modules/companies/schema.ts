@@ -1,5 +1,5 @@
 import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from '@kelpie/schemas'
-import { index, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import { boolean, index, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
 import {
   checkOneOf,
@@ -42,6 +42,10 @@ export const companies = pgTable(
     techStack: text('tech_stack').array().notNull().default([]),
     summary: text('summary').notNull().default(''),
     tags: text('tags').array().notNull().default([]),
+    // "This is us": a workspace marks its own company (or several, e.g. parent
+    // and subsidiary) so downstream views can distinguish self from prospects.
+    // Loose semantics on purpose — zero or many rows may carry it.
+    isOwn: boolean('is_own').notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     searchVector: searchVector((): readonly SearchVectorPart[] => [

@@ -1,14 +1,21 @@
-import type { Workspace } from '@kelpie/schemas'
-import { useState } from 'react'
+import type { Company, Workspace } from '@kelpie/schemas'
+import { useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 
+import {
+  useCompanies,
+  useCreateCompany,
+  useUpdateCompany,
+} from '../../api/resources/companies.ts'
 import { useSession } from '../../api/resources/session.ts'
 import {
   useDeleteWorkspace,
   useUpdateWorkspace,
   useWorkspace,
 } from '../../api/resources/workspace.ts'
+import { EntitySearch } from '../../components/EntitySearch.tsx'
+import type { SearchOption } from '../../components/EntitySearch.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 
@@ -190,8 +197,133 @@ function WorkspaceSettingsForm({
         )}
       </form>
 
+      <OwnCompanySection canEdit={canEdit} />
+
       {session?.role === 'owner' && <DangerZone slug={workspace.slug} />}
     </div>
+  )
+}
+
+/**
+ * Mark one or more Companies as "us" — the workspace's own organisation.
+ *
+ * Backed by `companies.is_own`. Zero or many rows may carry it (a parent and a
+ * subsidiary is the intended case), so the surface is a list plus an add
+ * picker rather than a single-select. Picking a name that does not exist
+ * creates the Company with `is_own: true` in one call.
+ */
+function OwnCompanySection({ canEdit }: { readonly canEdit: boolean }): React.JSX.Element {
+  const own = useCompanies({ isOwn: true })
+  const [search, setSearch] = useState('')
+  // The picker's options: workspace companies that are NOT already marked.
+  // Server-side search on the term the user types.
+  const searchable = useCompanies({
+    isOwn: false,
+    term: search.trim().length > 0 ? search.trim() : undefined,
+  })
+  const update = useUpdateCompany()
+  const create = useCreateCompany()
+
+  const options: SearchOption[] = useMemo(
+    () =>
+      searchable.records.map((company) => ({
+        id: company.id,
+        label: company.name,
+        meta: company.domain ?? undefined,
+      })),
+    [searchable.records],
+  )
+
+  function mark(companyId: string): void {
+    update.run({ id: companyId, changes: { isOwn: true } })
+  }
+
+  function unmark(companyId: string): void {
+    update.run({ id: companyId, changes: { isOwn: false } })
+  }
+
+  function createAndMark(name: string): void {
+    // The API defaults every other field; `is_own: true` lands the row in the
+    // list this section shows and nowhere else.
+    create.run({ name, isOwn: true })
+    setSearch('')
+  }
+
+  const busy = update.isPending || create.isPending
+
+  return (
+    <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
+      <div>
+        <h2 className="text-[13px] font-semibold text-ink">This company</h2>
+        <p className="mt-1 max-w-xl text-[12px] text-ink-muted">
+          Mark the company (or companies) in the CRM that represent this workspace itself. Used
+          later to separate own records from prospects.
+        </p>
+      </div>
+
+      {own.isLoading ? (
+        <p className="text-[12px] text-ink-faint">Loading…</p>
+      ) : own.records.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">Nothing marked yet.</p>
+      ) : (
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {own.records.map((company: Company) => (
+            <li
+              key={company.id}
+              className="flex items-center justify-between gap-3 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-[13px] font-medium text-ink">{company.name}</div>
+                {company.domain !== null && company.domain.length > 0 && (
+                  <div className="truncate text-[11px] text-ink-faint">{company.domain}</div>
+                )}
+              </div>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    unmark(company.id)
+                  }}
+                  disabled={busy}
+                  className="shrink-0 rounded-md border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-ink hover:border-danger hover:text-danger disabled:opacity-50"
+                >
+                  Unmark
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canEdit && (
+        <div className="max-w-md">
+          <label className="mb-1.5 block text-[12px] font-medium text-ink">
+            {own.records.length === 0 ? 'Pick or create' : 'Add another'}
+          </label>
+          <EntitySearch
+            options={options}
+            value=""
+            onChange={mark}
+            onQueryChange={setSearch}
+            onCreate={createAndMark}
+            createLabel={(query) => `Create “${query}” and mark it`}
+            placeholder="Search companies…"
+            emptyMessage="No matches — type a new name to create one"
+          />
+        </div>
+      )}
+
+      {update.error !== null && (
+        <div className="max-w-xl">
+          <ErrorPanel error={update.error} />
+        </div>
+      )}
+      {create.error !== null && (
+        <div className="max-w-xl">
+          <ErrorPanel error={create.error} />
+        </div>
+      )}
+    </section>
   )
 }
 

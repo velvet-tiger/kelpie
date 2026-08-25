@@ -30,6 +30,7 @@ const companyShape = {
   tech_stack: z.array(z.string().min(1)),
   summary: z.string(),
   tags: z.array(z.string().min(1)),
+  is_own: z.boolean(),
 }
 
 /**
@@ -51,6 +52,7 @@ export const createBody = z.strictObject({
   tech_stack: companyShape.tech_stack.default([]),
   summary: companyShape.summary.default(''),
   tags: companyShape.tags.default([]),
+  is_own: companyShape.is_own.default(false),
 })
 
 export const updateBody = z.strictObject(companyShape).partial()
@@ -74,6 +76,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateCompanyIn
     techStack: body.tech_stack,
     summary: body.summary,
     tags: body.tags,
+    isOwn: body.is_own,
   }
 }
 
@@ -92,6 +95,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateCompanyIn
     ...(body.tech_stack === undefined ? {} : { techStack: body.tech_stack }),
     ...(body.summary === undefined ? {} : { summary: body.summary }),
     ...(body.tags === undefined ? {} : { tags: body.tags }),
+    ...(body.is_own === undefined ? {} : { isOwn: body.is_own }),
   }
 }
 
@@ -111,6 +115,7 @@ export function companyResponse(company: CompanyView): Record<string, unknown> {
     tech_stack: company.techStack,
     summary: company.summary,
     tags: company.tags,
+    is_own: company.isOwn,
     created_at: company.createdAt.toISOString(),
     updated_at: company.updatedAt.toISOString(),
   }
@@ -120,11 +125,19 @@ export function mountCompaniesRoutes(router: Hono, dependencies: CompaniesRoutes
   const requireActor = (context: Context): Promise<Actor> => resolveActorFrom(dependencies, context)
 
   router.get('/companies', async (context) => {
+    // `?is_own=true|false` narrows to the workspace's own companies (or the
+    // rest). Anything else is treated as absent, so an unknown value never
+    // returns an accidental "everything".
+    const isOwnParam = context.req.query('is_own')
+    const isOwn =
+      isOwnParam === 'true' ? true : isOwnParam === 'false' ? false : undefined
+
     const page = await dependencies.service.list(
       await requireActor(context),
       {
         term: context.req.query('q'),
         personIds: readIdFilter(context, 'person_id'),
+        isOwn,
       },
       readListParameters(context),
     )

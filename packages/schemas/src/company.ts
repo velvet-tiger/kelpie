@@ -22,6 +22,8 @@ export interface Company extends RecordTimestamps {
   readonly techStack: readonly string[]
   readonly summary: string
   readonly tags: readonly string[]
+  /** True when this Company represents the workspace itself ("us"). */
+  readonly isOwn: boolean
 }
 
 export const companySchema: z.ZodType<Company, unknown> = z
@@ -40,6 +42,7 @@ export const companySchema: z.ZodType<Company, unknown> = z
     tech_stack: z.array(z.string()),
     summary: z.string(),
     tags: z.array(z.string()),
+    is_own: z.boolean(),
     ...recordTimestamps,
   })
   .transform(
@@ -58,6 +61,7 @@ export const companySchema: z.ZodType<Company, unknown> = z
       techStack: wire.tech_stack,
       summary: wire.summary,
       tags: wire.tags,
+      isOwn: wire.is_own,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),
@@ -77,6 +81,7 @@ export interface CompanyInput {
   readonly techStack?: readonly string[]
   readonly summary?: string
   readonly tags?: readonly string[]
+  readonly isOwn?: boolean
 }
 
 export function companyBody(input: CompanyInput): Record<string, unknown> {
@@ -94,5 +99,6 @@ export function companyBody(input: CompanyInput): Record<string, unknown> {
     tech_stack: input.techStack,
     summary: input.summary,
     tags: input.tags,
+    is_own: input.isOwn,
   })
 }

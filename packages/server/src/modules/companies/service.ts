@@ -52,6 +52,7 @@ const COMPANY_FIELD_LABELS: FieldLabels = {
   techStack: 'Tech stack',
   summary: 'Summary',
   tags: 'Tags',
+  isOwn: 'Own company',
 }
 
 /** A company as the API returns one: the stored row minus the tenancy column. */
@@ -71,6 +72,7 @@ export interface CreateCompanyInput {
   readonly techStack: readonly string[]
   readonly summary: string
   readonly tags: readonly string[]
+  readonly isOwn: boolean
 }
 
 /** PATCH semantics: an absent field is left alone, and null clears a nullable one. */
@@ -113,6 +115,7 @@ function toStoredColumns(input: UpdateCompanyInput): Partial<repository.CompanyC
     ...(input.techStack === undefined ? {} : { techStack: [...input.techStack] }),
     ...(input.summary === undefined ? {} : { summary: input.summary }),
     ...(input.tags === undefined ? {} : { tags: [...input.tags] }),
+    ...(input.isOwn === undefined ? {} : { isOwn: input.isOwn }),
   }
 }
 
@@ -172,6 +175,7 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
             techStack: [...input.techStack],
             summary: input.summary,
             tags: [...input.tags],
+            isOwn: input.isOwn,
           })
         } catch (error: unknown) {
           if (postgresErrorCode(error) === UNIQUE_VIOLATION) {

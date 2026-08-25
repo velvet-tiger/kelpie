@@ -37,6 +37,8 @@ export interface CompanyFilters {
   readonly term?: string | undefined
   /** Companies where any of these people holds a position. Repeats on the wire. */
   readonly personIds?: readonly string[] | undefined
+  /** true = only the workspace's own companies; false = only the rest. */
+  readonly isOwn?: boolean | undefined
   readonly limit?: number | undefined
   /** `field` ascending, `-field` descending. Only `name`, `created_at`, `updated_at` are sortable. */
   readonly sort?: string | undefined
@@ -46,6 +48,7 @@ function companyQuery(filters: CompanyFilters): QueryParameters {
   return {
     q: filters.term,
     person_id: filters.personIds,
+    is_own: filters.isOwn === undefined ? undefined : String(filters.isOwn),
     limit: filters.limit,
     sort: filters.sort,
   }
