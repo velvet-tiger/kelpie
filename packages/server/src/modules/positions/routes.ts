@@ -17,11 +17,13 @@ import type {
 export const createBody = z.strictObject({
   person_id: z.string().min(1),
   company_id: z.string().min(1),
-  title: z.string().min(1),
+  // An empty title records the link without a job title — a person known to be
+  // at the company, with the role not yet captured.
+  title: z.string(),
 })
 
 /** Only the title. Moving a link to a different person or company is a delete and a create. */
-export const updateBody = z.strictObject({ title: z.string().min(1) }).partial()
+export const updateBody = z.strictObject({ title: z.string() }).partial()
 
 export interface PositionsRoutesDependencies extends CredentialDependencies {
   readonly service: PositionsService

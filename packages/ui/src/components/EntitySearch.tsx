@@ -50,10 +50,16 @@ export function EntitySearch({
 }: EntitySearchProps): React.JSX.Element {
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
-  const selected = options.find((option) => option.id === value)
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
+  // A picked option must keep rendering even when the current `options` list
+  // no longer contains it — for a server-backed search, clearing the query on
+  // pick swaps the answer to a different page that may not include the pick.
+  const [remembered, setRemembered] = useState<SearchOption | null>(null)
+  const selected =
+    options.find((option) => option.id === value) ??
+    (remembered !== null && remembered.id === value ? remembered : undefined)
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -105,8 +111,9 @@ export function EntitySearch({
     onQueryChange?.(next)
   }
 
-  function pick(id: string): void {
-    onChange(id)
+  function pick(option: SearchOption): void {
+    setRemembered(option)
+    onChange(option.id)
     setOpen(false)
     search('')
   }
@@ -183,7 +190,7 @@ export function EntitySearch({
               const hit = filtered[highlight]
 
               if (hit !== undefined) {
-                pick(hit.id)
+                pick(hit)
               } else if (showCreate) {
                 create()
               }
@@ -219,7 +226,7 @@ export function EntitySearch({
                       setHighlight(index)
                     }}
                     onClick={() => {
-                      pick(option.id)
+                      pick(option)
                     }}
                     className={[
                       'flex w-full flex-col px-3 py-1.5 text-left',

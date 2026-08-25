@@ -31,7 +31,7 @@ const ICP_TONES: Readonly<Record<IcpFit, ChipTone>> = {
   unknown: 'neutral',
 }
 
-const DEFAULT_VISIBLE_KEYS: readonly string[] = ['name', 'domain', 'type', 'icp', 'people']
+const DEFAULT_VISIBLE_KEYS: readonly string[] = ['name', 'domain', 'hq', 'type', 'updatedAt']
 
 const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
 

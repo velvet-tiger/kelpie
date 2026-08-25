@@ -411,7 +411,7 @@ function PersonPositions({ person }: { readonly person: Person }): React.JSX.Ele
   function submit(event: FormEvent): void {
     event.preventDefault()
 
-    if (companyId.length === 0 || title.trim().length === 0) {
+    if (companyId.length === 0) {
       return
     }
 
@@ -503,9 +503,8 @@ function PersonPositions({ person }: { readonly person: Person }): React.JSX.Ele
             onChange={(event) => {
               setTitle(event.target.value)
             }}
-            placeholder="Position title"
+            placeholder="Position title (optional)"
             className="w-full rounded-md border border-border bg-surface-raised px-2 py-1.5 text-[12px] outline-none focus:border-accent"
-            required
           />
           <div className="flex justify-end gap-2">
             <button
