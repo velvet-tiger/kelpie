@@ -25,7 +25,10 @@ const people = createResourceHooks<Person, CreatePersonInput, PersonInput>({
   updateBody: personBody,
   // Every write here emits an activity server-side, in the same transaction, so
   // a timeline rendered on this record is stale the moment the write lands.
-  alsoInvalidates: ['activities'],
+  // Setting or changing the email may also auto-link a Position, which changes
+  // both the person's position list and the `?person_id=` companies list that
+  // names the far side — without the latter, the new row renders as "Unknown".
+  alsoInvalidates: ['activities', 'positions', 'companies'],
 })
 
 /** The documented filters on `GET /v1/people`. There is no generic filter DSL. */

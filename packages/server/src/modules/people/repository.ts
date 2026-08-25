@@ -132,6 +132,32 @@ export async function findPersonByEmail(
   return found
 }
 
+/**
+ * Every person in this workspace whose email is exactly at `domain`, case-
+ * insensitive. Used by the email-domain auto-linker when a Company is created
+ * or its domain is set.
+ *
+ * Not `ilike '%@domain'`: that also matches `alex@sub.domain`, which the
+ * person-side matcher (exact `email.slice(at + 1) = companies.domain`) would
+ * never link. `split_part` peels off the address at the last `@`, keeping the
+ * two directions consistent.
+ */
+export async function findPeopleByEmailDomain(
+  db: Queryable,
+  workspaceId: string,
+  domain: string,
+): Promise<PersonRecord[]> {
+  return db
+    .select()
+    .from(people)
+    .where(
+      and(
+        eq(people.workspaceId, workspaceId),
+        sql`split_part(${people.email}::text, '@', 2) = lower(${domain})`,
+      ),
+    )
+}
+
 export async function insertPerson(db: Queryable, values: PersonColumns): Promise<PersonRecord> {
   const [created] = await db.insert(people).values(values).returning()
 

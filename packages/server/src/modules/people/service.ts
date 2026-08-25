@@ -1,6 +1,7 @@
 import { changedKeys } from '../../lib/changes.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
+import { autoLinkPersonByEmailDomain } from '../../lib/emailDomainAutoLink.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { normaliseEmail } from '../../lib/normalisation.ts'
@@ -200,6 +201,15 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
 
           events.emit('people.person.created', { type: 'person', id: created.id }, {})
 
+          // Sync auto-link. Inside the same transaction so the response returns
+          // with the Position already visible to a follow-up read; without this
+          // the UI would not see the new Position until a manual refresh.
+          await autoLinkPersonByEmailDomain(tx, events, workspaceId, created, {
+            createId: dependencies.createId,
+            now: dependencies.now,
+            recordActivity: dependencies.recordActivity,
+          })
+
           return toView(created)
         },
         { workspaceId, actor: toEventActor(actor) },
@@ -252,6 +262,16 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
             { type: 'person', id },
             { changed },
           )
+
+          // Sync auto-link when the email moved. Same-transaction rationale as
+          // the create path above.
+          if (changed.includes('email')) {
+            await autoLinkPersonByEmailDomain(tx, events, workspaceId, updated, {
+              createId: dependencies.createId,
+              now: dependencies.now,
+              recordActivity: dependencies.recordActivity,
+            })
+          }
 
           return toView(updated)
         },

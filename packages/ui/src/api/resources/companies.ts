@@ -25,7 +25,10 @@ const companies = createResourceHooks<Company, CreateCompanyInput, CompanyInput>
   updateBody: companyBody,
   // Every write here emits an activity server-side, in the same transaction, so
   // a timeline rendered on this record is stale the moment the write lands.
-  alsoInvalidates: ['activities'],
+  // Creating or renaming a domain may also auto-link Positions to workspace
+  // people whose email is at it, which changes position lists and the
+  // `?company_id=` people list that names the far side of each new row.
+  alsoInvalidates: ['activities', 'positions', 'people'],
 })
 
 /** The documented filters on `GET /v1/companies`. */

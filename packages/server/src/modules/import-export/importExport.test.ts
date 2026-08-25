@@ -1,5 +1,5 @@
 import { importJobSchema } from '@kelpie/schemas'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -65,6 +65,11 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
   })
 
   beforeEach(async () => {
+    // Wait for any async subscribers still running against the last test's
+    // harness — they hold row-share locks that would deadlock the truncate.
+    if (harness !== undefined) {
+      await harness.services.events.drain()
+    }
     await database.truncateAll()
     harness = await createTestApp({
       modules: coreModules,
@@ -826,10 +831,13 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
       expect(job).toMatchObject({ counts: { total: 1, create: 1 } })
 
+      // The beforeEach person's email domain matches an existing Company, so the
+      // email-domain listener has already added a titleless stub. Filter down to
+      // the row this test is about.
       const [row] = await database.db
         .select()
         .from(positions)
-        .where(eq(positions.workspaceId, acme.workspaceId))
+        .where(and(eq(positions.workspaceId, acme.workspaceId), eq(positions.title, 'CTO')))
 
       expect(row).toMatchObject({ title: 'CTO' })
     })
@@ -952,10 +960,13 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
         .select()
         .from(people)
         .where(eq(people.email, 'grace@acme.com'))
+      // Grace's email domain (`acme.com`) also matches the beforeEach's Acme
+      // company, so the email-domain listener has stubbed a second Position at
+      // Acme. Filter to the row the test is about.
       const [position] = await database.db
         .select()
         .from(positions)
-        .where(eq(positions.personId, person?.id ?? ''))
+        .where(and(eq(positions.personId, person?.id ?? ''), eq(positions.companyId, company?.id ?? '')))
 
       expect(company).toMatchObject({ name: 'New Firm' })
       expect(position).toMatchObject({ title: 'Engineer', companyId: company?.id })

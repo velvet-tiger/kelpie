@@ -1,6 +1,7 @@
 import { changedKeys } from '../../lib/changes.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
+import { autoLinkCompanyByDomain } from '../../lib/emailDomainAutoLink.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { normaliseDomain } from '../../lib/normalisation.ts'
@@ -189,6 +190,15 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
 
         events.emit('companies.company.created', { type: 'company', id: created.id }, {})
 
+        // Sync sweep of the workspace's people: everyone whose email domain
+        // matches this Company gets a titleless Position where none exists yet.
+        // Inside the same transaction so a follow-up read sees the new links.
+        await autoLinkCompanyByDomain(tx, events, workspaceId, created, {
+          createId: dependencies.createId,
+          now: dependencies.now,
+          recordActivity: dependencies.recordActivity,
+        })
+
         return toView(created)
       }, { workspaceId, actor: toEventActor(actor) })
     },
@@ -231,6 +241,17 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
         })
 
         events.emit('companies.company.updated', { type: 'company', id }, { changed })
+
+        // Sync sweep when the domain moved. A newly-set domain gains matches;
+        // a changed domain gains new matches without touching the old links
+        // (never-remove — a person may still work at the previous domain).
+        if (changed.includes('domain')) {
+          await autoLinkCompanyByDomain(tx, events, workspaceId, updated, {
+            createId: dependencies.createId,
+            now: dependencies.now,
+            recordActivity: dependencies.recordActivity,
+          })
+        }
 
         return toView(updated)
       }, { workspaceId, actor: toEventActor(actor) })
