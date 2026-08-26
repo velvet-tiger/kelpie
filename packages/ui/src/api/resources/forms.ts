@@ -7,8 +7,6 @@ import type {
   FormSubmission,
 } from '@kelpie/schemas'
 import {
-  keepPreviousData,
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -18,7 +16,7 @@ import { isRecord } from '../json.ts'
 import type { QueryParameters } from '../client.ts'
 import { useApiClient } from '../context.ts'
 import { toError } from '../errors.ts'
-import { createResourceHooks } from '../resource.ts'
+import { createResourceHooks, usePagedList } from '../resource.ts'
 import type {
   MutationResult,
   RecordListResult,
@@ -139,29 +137,13 @@ export function useDeleteForm(): MutationResult<string, void> {
  * The result shape is the same, so a page cannot tell the difference.
  */
 export function useFormSubmissions(formId: string | undefined): RecordListResult<FormSubmission> {
-  const client = useApiClient()
-  const result = useInfiniteQuery({
+  return usePagedList<FormSubmission>({
     queryKey: ['forms', 'submissions', formId ?? ''],
-    queryFn: ({ pageParam }) =>
-      client.list(`/forms/${formId ?? ''}/submissions`, formSubmissionSchema.parse, {
-        ...(pageParam === null ? {} : { cursor: pageParam }),
-      }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    placeholderData: keepPreviousData,
+    path: `/forms/${formId ?? ''}/submissions`,
+    decode: formSubmissionSchema.parse,
+    query: {},
     enabled: formId !== undefined,
   })
-
-  return {
-    records: result.data?.pages.flatMap((page) => page.items) ?? [],
-    isLoading: result.isPending && formId !== undefined,
-    error: toError(result.error),
-    hasMore: result.hasNextPage,
-    isLoadingMore: result.isFetchingNextPage,
-    loadMore: () => {
-      void result.fetchNextPage()
-    },
-  }
 }
 
 /** What a customer pastes into their site, built server-side from the request origin. */

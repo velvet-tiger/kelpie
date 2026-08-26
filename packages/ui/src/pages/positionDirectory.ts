@@ -64,7 +64,7 @@ export function usePeopleDirectory(personIds: readonly string[]): PeopleDirector
         .map((held) => companyNameById.get(held.companyId))
         .filter((name): name is string => name !== undefined),
     isLoading: positions.isLoading || companies.isLoading,
-    isComplete: !positions.hasMore && !companies.hasMore,
+    isComplete: !positions.hasNext && !companies.hasNext,
   }
 }
 
@@ -93,6 +93,6 @@ export function useCompanyHeadcounts(companyIds: readonly string[]): CompanyHead
   return {
     countFor: (companyId) => countByCompany.get(companyId) ?? 0,
     isLoading: positions.isLoading,
-    isComplete: !positions.hasMore,
+    isComplete: !positions.hasNext,
   }
 }

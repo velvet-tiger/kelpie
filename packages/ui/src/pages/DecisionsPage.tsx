@@ -15,6 +15,7 @@ import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
+import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { formatDate } from '../lib/dates.ts'
 import { serverSortOnly } from '../lib/sort.ts'
@@ -93,12 +94,12 @@ function useTargetDirectory(): TargetDirectory {
   return {
     nameFor: (decision) => nameById.get(decision.targetId),
     isComplete:
-      !people.hasMore &&
-      !companies.hasMore &&
-      !deals.hasMore &&
-      !opportunities.hasMore &&
-      !raises.hasMore &&
-      !partnerships.hasMore,
+      !people.hasNext &&
+      !companies.hasNext &&
+      !deals.hasNext &&
+      !opportunities.hasNext &&
+      !raises.hasNext &&
+      !partnerships.hasNext,
   }
 }
 
@@ -260,16 +261,7 @@ export function DecisionsPage(): React.JSX.Element {
               record type.
             </p>
           )}
-          {decisions.hasMore && (
-            <button
-              type="button"
-              onClick={decisions.loadMore}
-              disabled={decisions.isLoadingMore}
-              className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken disabled:opacity-50"
-            >
-              {decisions.isLoadingMore ? 'Loading…' : 'Load more'}
-            </button>
-          )}
+          <Paginator list={decisions} />
         </>
       )}
     </div>

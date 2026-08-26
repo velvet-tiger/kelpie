@@ -7,6 +7,7 @@ import { Chip } from '../../components/Chip.tsx'
 import type { ChipTone } from '../../components/Chip.tsx'
 import { DataTable } from '../../components/DataTable.tsx'
 import type { Column } from '../../components/DataTable.tsx'
+import { Paginator } from '../../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { SegmentedControl } from '../../components/SegmentedControl.tsx'
 import { formatDateTime } from '../../lib/dates.ts'
@@ -147,16 +148,7 @@ export function WebhookDeliveries({ webhookId }: { readonly webhookId: string })
 
       {open !== undefined && <PayloadPanel delivery={open} />}
 
-      {deliveries.hasMore && (
-        <button
-          type="button"
-          onClick={deliveries.loadMore}
-          disabled={deliveries.isLoadingMore}
-          className="rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken disabled:opacity-50"
-        >
-          {deliveries.isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      <Paginator list={deliveries} />
     </div>
   )
 }

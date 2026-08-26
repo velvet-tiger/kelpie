@@ -45,7 +45,7 @@ export function useRoleCandidateCounts(roleIds: readonly string[]): RoleCandidat
   return {
     countFor: (roleId) => countByRole.get(roleId) ?? 0,
     isLoading: candidates.isLoading,
-    isComplete: !candidates.hasMore,
+    isComplete: !candidates.hasNext,
   }
 }
 
@@ -95,7 +95,7 @@ export function useCandidateNotes(candidateIds: readonly string[]): CandidateNot
   return {
     noteFor: (candidateId) => newestByCandidate.get(candidateId),
     isLoading: notes.isLoading,
-    isComplete: !notes.hasMore,
+    isComplete: !notes.hasNext,
   }
 }
 

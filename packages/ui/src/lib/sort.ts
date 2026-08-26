@@ -2,9 +2,9 @@
  * Comparators for the DataTable's client-side sort path.
  *
  * The server-side path is a keyset over an indexed column, so a page-local sort
- * is different in kind: it only orders the records already loaded. Anything the
- * server has not paged to yet stays where the "Load more" cursor put it — which
- * is why a "sorted on this page" hint sits under any table sorted this way.
+ * is different in kind: it only orders the records the current page holds.
+ * Anything on another page keeps the resource's own default order — which is
+ * why a "sorted on this page" hint sits under any table sorted this way.
  */
 
 export type SortDirection = 'asc' | 'desc'

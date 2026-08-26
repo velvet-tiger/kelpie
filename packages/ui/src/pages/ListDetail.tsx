@@ -22,6 +22,7 @@ import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import type { SearchOption } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
+import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
 import type { List, ListInput } from '@kelpie/schemas'
@@ -209,16 +210,7 @@ function ListMembers({
         </ul>
       )}
 
-      {members.hasMore && (
-        <button
-          type="button"
-          onClick={members.loadMore}
-          disabled={members.isLoadingMore}
-          className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken disabled:opacity-50"
-        >
-          {members.isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      <Paginator list={members} />
     </section>
   )
 }

@@ -42,7 +42,7 @@ function handbookQuery(filters: HandbookPageFilters): QueryParameters {
  * The same call the kanban board makes for its stages, for the same reason: a
  * tree cannot be drawn from part of itself, and a page whose parent is on the
  * next page of results would render at the top level as though somebody had
- * moved it there. The caller reads `hasMore` and says so rather than drawing a
+ * moved it there. The caller reads `hasNext` and says so rather than drawing a
  * tree with holes in it.
  */
 export function useHandbookPages(filters: HandbookPageFilters = {}): RecordListResult<HandbookPage> {

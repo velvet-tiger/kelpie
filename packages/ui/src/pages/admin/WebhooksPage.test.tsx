@@ -502,10 +502,18 @@ describe('WebhooksPage delivery log', () => {
     renderPage(stubs)
     await expand()
 
-    const loadMore = await screen.findByRole('button', { name: 'Load more' })
+    // Two paginators live on this page — the webhooks list, and this one under
+    // the deliveries. The deliveries paginator is the one whose Next is
+    // enabled, since the webhooks stub returned a single page.
+    await waitFor(() => {
+      expect(requests).toHaveLength(1)
+    })
+    const nextButtons = screen.getAllByRole('button', { name: 'Next' })
+    const enabled = nextButtons.find((button): button is HTMLButtonElement => !(button as HTMLButtonElement).disabled)
+    expect(enabled).toBeDefined()
 
     await act(async () => {
-      loadMore.click()
+      enabled?.click()
     })
 
     await waitFor(() => {

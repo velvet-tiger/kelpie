@@ -15,6 +15,7 @@ import { Chip } from '../components/Chip.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
+import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
 import {
@@ -258,16 +259,7 @@ function RoleCandidates({ role }: { readonly role: Role }): React.JSX.Element {
         </ul>
       )}
 
-      {candidates.hasMore && (
-        <button
-          type="button"
-          onClick={candidates.loadMore}
-          disabled={candidates.isLoadingMore}
-          className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken disabled:opacity-50"
-        >
-          {candidates.isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      <Paginator list={candidates} />
     </section>
   )
 }

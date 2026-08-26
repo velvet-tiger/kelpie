@@ -6,6 +6,7 @@ import { useTimezone } from '../api/resources/account.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useCreateNote, useNotes } from '../api/resources/notes.ts'
 import { formatDateTime } from '../lib/dates.ts'
+import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
 
@@ -33,10 +34,10 @@ export function NotesPanel({ targetType, targetId }: NotesPanelProps): React.JSX
   const [body, setBody] = useState('')
 
   // Pinned first, then newest. The list arrives in `-created_at` order and the
-  // API has no two-column sort, so this reorders what is loaded. Across a
-  // "Load more" boundary a pinned note on a later page sorts after unpinned
-  // ones already shown; pinned notes are few enough that this is the cheaper
-  // wrong than a second request per panel.
+  // API has no two-column sort, so this reorders what is on this page. Across
+  // page boundaries a pinned note on a later page sorts after unpinned ones on
+  // an earlier one; pinned notes are few enough that this is the cheaper wrong
+  // than a second request per panel.
   const ordered = [...notes.records].sort((left, right) => Number(right.pinned) - Number(left.pinned))
 
   function reset(): void {
@@ -116,16 +117,7 @@ export function NotesPanel({ targetType, targetId }: NotesPanelProps): React.JSX
         </ul>
       )}
 
-      {notes.hasMore && (
-        <button
-          type="button"
-          onClick={notes.loadMore}
-          disabled={notes.isLoadingMore}
-          className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink-muted transition hover:border-border-strong hover:text-ink"
-        >
-          {notes.isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      <Paginator list={notes} />
     </section>
   )
 }

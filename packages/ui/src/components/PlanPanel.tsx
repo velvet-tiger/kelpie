@@ -13,6 +13,7 @@ import {
 import { formatDay } from '../lib/dates.ts'
 import { planStatusTone } from '../lib/plan.ts'
 import { Chip } from './Chip.tsx'
+import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
 
@@ -102,16 +103,7 @@ export function PlanPanel({ targetType, targetId }: PlanPanelProps): React.JSX.E
         </ul>
       )}
 
-      {items.hasMore && (
-        <button
-          type="button"
-          onClick={items.loadMore}
-          disabled={items.isLoadingMore}
-          className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink-muted transition hover:border-border-strong hover:text-ink"
-        >
-          {items.isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      <Paginator list={items} />
     </section>
   )
 }

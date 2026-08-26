@@ -13,10 +13,12 @@ export type { ApiProviderProps } from './api/ApiProvider.tsx'
 export { useApiClient } from './api/context.ts'
 export { toError } from './api/errors.ts'
 export { createQueryClient } from './api/queryClient.ts'
-export { createResourceHooks } from './api/resource.ts'
+export { createResourceHooks, DEFAULT_PAGE_SIZE, usePagedList } from './api/resource.ts'
 export type {
   ListOptions,
   MutationResult,
+  Paged,
+  PagedListInput,
   RecordListResult,
   RecordResult,
   ResourceDefinition,
@@ -102,6 +104,8 @@ export { InlineEdit } from './components/InlineEdit.tsx'
 export type { InlineEditProps } from './components/InlineEdit.tsx'
 export { FilterBar, PageHeader } from './components/PageHeader.tsx'
 export type { FilterBarProps, PageHeaderProps } from './components/PageHeader.tsx'
+export { Paginator } from './components/Paginator.tsx'
+export type { PaginatorProps } from './components/Paginator.tsx'
 export { PhonesField } from './components/PhonesField.tsx'
 export type { PhonesFieldProps } from './components/PhonesField.tsx'
 export { PlanAttention, RelatedPlanAttention } from './components/PlanAttention.tsx'

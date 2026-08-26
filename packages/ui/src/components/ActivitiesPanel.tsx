@@ -4,6 +4,7 @@ import { useTimezone } from '../api/resources/account.ts'
 import { useActivities } from '../api/resources/activities.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { formatRelativeTime, monthLabel } from '../lib/dates.ts'
+import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
 
@@ -118,16 +119,7 @@ export function ActivitiesPanel({
         ))}
       </div>
 
-      {activities.hasMore && (
-        <button
-          type="button"
-          onClick={activities.loadMore}
-          disabled={activities.isLoadingMore}
-          className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink-muted transition hover:border-border-strong hover:text-ink"
-        >
-          {activities.isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      <Paginator list={activities} />
     </section>
   )
 }

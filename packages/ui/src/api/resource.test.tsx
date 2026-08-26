@@ -90,7 +90,7 @@ function WidgetDetail({ id }: { readonly id: string }): React.JSX.Element {
 }
 
 function WidgetList(): React.JSX.Element {
-  const { records, isLoading, hasMore, loadMore } = widgets.useList()
+  const { records, isLoading, hasNext, hasPrev, nextPage, prevPage } = widgets.useList()
   const remove = widgets.useRemove()
 
   if (isLoading) {
@@ -109,11 +109,12 @@ function WidgetList(): React.JSX.Element {
           </li>
         ))}
       </ul>
-      {hasMore && (
-        <button type="button" onClick={loadMore}>
-          load more
-        </button>
-      )}
+      <button type="button" onClick={prevPage} disabled={!hasPrev}>
+        prev
+      </button>
+      <button type="button" onClick={nextPage} disabled={!hasNext}>
+        next
+      </button>
     </div>
   )
 }
@@ -269,7 +270,7 @@ describe('createResourceHooks', () => {
     })
   })
 
-  it('pages through a list rather than showing the first page as the whole of it', async () => {
+  it('shows one page at a time and pages forward and back', async () => {
     const list = vi
       .fn<NonNullable<ClientStubs['list']>>()
       .mockResolvedValueOnce(page([{ id: 'w_1', name: 'First' }], 'cursor_2'))
@@ -277,16 +278,31 @@ describe('createResourceHooks', () => {
 
     renderWithClient(stubClient({ list }), <WidgetList />)
     await screen.findByText('First')
+    expect(screen.queryByText('Second')).toBeNull()
 
     await act(async () => {
-      screen.getByRole('button', { name: 'load more' }).click()
+      screen.getByRole('button', { name: 'next' }).click()
     })
 
     await waitFor(() => {
       expect(screen.getByText('Second')).toBeTruthy()
     })
+    // The first page rolled off screen. Pagination replaces, it does not append.
+    expect(screen.queryByText('First')).toBeNull()
 
-    expect(screen.queryByRole('button', { name: 'load more' })).toBeNull()
-    expect(list).toHaveBeenNthCalledWith(2, '/widgets', { cursor: 'cursor_2' })
+    // Server said this was the last page.
+    expect((screen.getByRole('button', { name: 'next' }) as HTMLButtonElement).disabled).toBe(true)
+
+    // Going back reads the cached first page rather than firing a fresh request.
+    await act(async () => {
+      screen.getByRole('button', { name: 'prev' }).click()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('First')).toBeTruthy()
+    })
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(list).toHaveBeenNthCalledWith(1, '/widgets', { limit: 50 })
+    expect(list).toHaveBeenNthCalledWith(2, '/widgets', { limit: 50, cursor: 'cursor_2' })
   })
 })

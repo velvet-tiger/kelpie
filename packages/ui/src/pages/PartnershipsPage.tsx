@@ -18,6 +18,7 @@ import { DataTable } from '../components/DataTable.tsx'
 import type { Column, DataTableGroup } from '../components/DataTable.tsx'
 import { KanbanBoard } from '../components/KanbanBoard.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
+import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { SegmentedControl } from '../components/SegmentedControl.tsx'
 import { formatDate, formatDay } from '../lib/dates.ts'
@@ -122,7 +123,7 @@ export function PartnershipsPage(): React.JSX.Element {
     { enabled: askedIds.length > 0 },
   )
   const nextPlanByPartnership = nextOpenByTarget(planItems.records)
-  const plansTruncated = visiblePartnerships.length > MAX_PAGE_SIZE || planItems.hasMore
+  const plansTruncated = visiblePartnerships.length > MAX_PAGE_SIZE || planItems.hasNext
 
   const companyNameById = new Map(companies.records.map((company) => [company.id, company.name]))
 
@@ -457,17 +458,8 @@ export function PartnershipsPage(): React.JSX.Element {
               <ErrorPanel error={updatePartnership.error} />
             </div>
           )}
-          {partnerships.hasMore && (
-            <button
-              type="button"
-              onClick={partnerships.loadMore}
-              disabled={partnerships.isLoadingMore}
-              className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken disabled:opacity-50"
-            >
-              {partnerships.isLoadingMore ? 'Loading…' : 'Load more'}
-            </button>
-          )}
-          {companies.hasMore && (
+          <Paginator list={partnerships} />
+          {companies.hasNext && (
             <p className="mt-2 text-[11px] text-ink-faint">
               More companies exist than one page returns, so some company names may show as “—”.
             </p>

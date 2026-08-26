@@ -21,6 +21,7 @@ import { useRaises } from '../api/resources/raises.ts'
 import { Chip } from '../components/Chip.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
 import { PlanTargetLink } from '../components/PlanAttention.tsx'
+import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { SegmentedControl } from '../components/SegmentedControl.tsx'
 import { formatDay } from '../lib/dates.ts'
@@ -192,16 +193,7 @@ export function PlanningPage(): React.JSX.Element {
         <PlanCalendar year={month.year} month={month.month} items={items.records} />
       )}
 
-      {items.hasMore && (
-        <button
-          type="button"
-          onClick={items.loadMore}
-          disabled={items.isLoadingMore}
-          className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken disabled:opacity-50"
-        >
-          {items.isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      {view === 'list' && <Paginator list={items} />}
     </div>
   )
 }

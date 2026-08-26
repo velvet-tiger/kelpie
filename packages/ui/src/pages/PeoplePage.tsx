@@ -9,6 +9,7 @@ import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
+import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { formatDate } from '../lib/dates.ts'
 import { useListView } from '../lib/listView.ts'
@@ -261,16 +262,7 @@ export function PeoplePage(): React.JSX.Element {
               These people hold more positions than one page returns, so some rows may read “—”.
             </p>
           )}
-          {people.hasMore && (
-            <button
-              type="button"
-              onClick={people.loadMore}
-              disabled={people.isLoadingMore}
-              className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken disabled:opacity-50"
-            >
-              {people.isLoadingMore ? 'Loading…' : 'Load more'}
-            </button>
-          )}
+          <Paginator list={people} />
         </>
       )}
     </div>

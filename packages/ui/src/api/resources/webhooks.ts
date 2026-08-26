@@ -14,12 +14,11 @@ import type {
   WebhookDelivery,
   WebhookInput,
 } from '@kelpie/schemas'
-import { keepPreviousData, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import type { QueryParameters } from '../client.ts'
 import { useApiClient } from '../context.ts'
-import { toError } from '../errors.ts'
-import { createResourceHooks } from '../resource.ts'
+import { createResourceHooks, usePagedList } from '../resource.ts'
 import type { MutationResult, RecordListResult, UpdateArguments } from '../resource.ts'
 import { asMutationResult } from './mutation.ts'
 
@@ -79,29 +78,14 @@ export function useWebhookDeliveries(
   webhookId: string,
   filters: WebhookDeliveryFilters = {},
 ): RecordListResult<WebhookDelivery> {
-  const client = useApiClient()
-  const result = useInfiniteQuery({
-    queryKey: ['webhooks', 'deliveries', webhookId, filters.status ?? 'all'],
-    queryFn: ({ pageParam }) =>
-      client.list(`/webhooks/${webhookId}/deliveries`, webhookDeliverySchema.parse, {
-        status: filters.status,
-        ...(pageParam === null ? {} : { cursor: pageParam }),
-      }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    placeholderData: keepPreviousData,
-  })
+  const query: QueryParameters = { status: filters.status }
 
-  return {
-    records: result.data?.pages.flatMap((page) => page.items) ?? [],
-    isLoading: result.isPending,
-    error: toError(result.error),
-    hasMore: result.hasNextPage,
-    isLoadingMore: result.isFetchingNextPage,
-    loadMore: () => {
-      void result.fetchNextPage()
-    },
-  }
+  return usePagedList<WebhookDelivery>({
+    queryKey: ['webhooks', 'deliveries', webhookId, filters.status ?? 'all'],
+    path: `/webhooks/${webhookId}/deliveries`,
+    decode: webhookDeliverySchema.parse,
+    query,
+  })
 }
 
 /**

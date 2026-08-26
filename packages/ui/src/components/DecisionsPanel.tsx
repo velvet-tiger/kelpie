@@ -7,6 +7,7 @@ import { useTimezone } from '../api/resources/account.ts'
 import { useCreateDecision, useDecisions, useDeleteDecision } from '../api/resources/decisions.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { formatDate } from '../lib/dates.ts'
+import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
 
@@ -35,8 +36,8 @@ export function DecisionsPanel({ targetType, targetId }: DecisionsPanelProps): R
 
   // Due date first, decided date otherwise, newest down — the mockup's order.
   // The list arrives in `-decided_at` order and the API cannot sort on the
-  // nullable `due_at`, so this reorders what is loaded; across a "Load more"
-  // boundary the interleave can be wrong, which is the cheaper wrong than a
+  // nullable `due_at`, so this reorders what is on this page; across page
+  // boundaries the interleave can be wrong, which is the cheaper wrong than a
   // second request per panel.
   const ordered = [...decisions.records].sort(
     (left, right) =>
@@ -167,16 +168,7 @@ export function DecisionsPanel({ targetType, targetId }: DecisionsPanelProps): R
         )
       )}
 
-      {decisions.hasMore && (
-        <button
-          type="button"
-          onClick={decisions.loadMore}
-          disabled={decisions.isLoadingMore}
-          className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink-muted transition hover:border-border-strong hover:text-ink"
-        >
-          {decisions.isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      <Paginator list={decisions} />
 
       <p className="mt-2 text-[11px] text-ink-faint">
         <Link to="/decisions" className="text-accent hover:underline">

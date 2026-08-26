@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import type { InfiniteData, QueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 
 import { ApiError } from './client.ts'
 import type { Decoder, Page, QueryParameters } from './client.ts'
@@ -25,14 +26,44 @@ import { toError } from './errors.ts'
  * and leaves the cache library replaceable without touching a page.
  */
 
-/** A list, one page at a time. Nothing is truncated in silence: `hasMore` says so. */
-export interface RecordListResult<TRecord> {
+/**
+ * The default page size when a caller does not name one via `query.limit`.
+ * Matches the `/v1` default from `api.md`.
+ */
+export const DEFAULT_PAGE_SIZE = 50
+
+/**
+ * The pagination controls a list surface renders. Split out from
+ * `RecordListResult` so the `Paginator` component can accept just this subset
+ * and stay generic in the record type.
+ */
+export interface Paged {
+  /** Zero-based index of the page currently on screen. */
+  readonly pageIndex: number
+  /** Number of records the API returns per page, from `?limit=`. */
+  readonly pageSize: number
+  readonly hasPrev: boolean
+  readonly hasNext: boolean
+  /** True while fetching a not-yet-cached page. Prev on a cached page is instant. */
+  readonly isChangingPage: boolean
+  readonly prevPage: () => void
+  readonly nextPage: () => void
+  /**
+   * Changes the API `?limit=` and returns the reader to page 1. The API caps
+   * `?limit=` at 200 (`api.md`); a larger value is coerced by the server, not
+   * refused by this hook.
+   */
+  readonly setPageSize: (size: number) => void
+}
+
+/**
+ * A list, one page at a time. Records are the current page only, not the
+ * accumulation across pages a `Load more` reader would give.
+ */
+export interface RecordListResult<TRecord> extends Paged {
   readonly records: readonly TRecord[]
   readonly isLoading: boolean
   readonly error: Error | null
-  readonly hasMore: boolean
-  readonly isLoadingMore: boolean
-  readonly loadMore: () => void
 }
 
 export interface RecordResult<TRecord> {
@@ -184,6 +215,114 @@ function removeRecordEverywhere<TRecord extends { readonly id: string }>(
   )
 }
 
+export interface PagedListInput<TRecord> {
+  /**
+   * The React Query cache key for this list, without `?limit=`. `usePagedList`
+   * appends the current page size so the cache splits by size — swapping page
+   * sizes has to fetch, or the cursors from one size would page a list saved
+   * under another.
+   */
+  readonly queryKey: readonly unknown[]
+  readonly path: string
+  readonly decode: Decoder<TRecord>
+  /** Query parameters other than `limit` and `cursor`. `usePagedList` sends both itself. */
+  readonly query: QueryParameters
+  readonly enabled?: boolean
+}
+
+/**
+ * The paged reader every list hook uses: `createResourceHooks`'s `useList`,
+ * and the three custom collections whose paths carry a parent id
+ * (`useFormSubmissions`, `useListMembers`, `useWebhookDeliveries`).
+ *
+ * The API is cursor-only (`api.md`), so pages are fetched forward. Already
+ * fetched pages stay cached in `useInfiniteQuery`, and `pageIndex` selects
+ * which one is on screen — so going back to a visited page is instant and
+ * going forward past the fetched set kicks off exactly one new request.
+ */
+export function usePagedList<TRecord>(input: PagedListInput<TRecord>): RecordListResult<TRecord> {
+  const client = useApiClient()
+  const enabled = input.enabled ?? true
+  const requestedLimit = input.query.limit
+  const initialPageSize =
+    typeof requestedLimit === 'number' && Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? requestedLimit
+      : DEFAULT_PAGE_SIZE
+  const [pageSize, setPageSize] = useState<number>(initialPageSize)
+  const [pageIndex, setPageIndex] = useState<number>(0)
+
+  const queryKey = [...input.queryKey, { limit: pageSize }] as const
+  const queryKeySignature = JSON.stringify(queryKey)
+
+  // A filter or sort change lands as a fresh `useInfiniteQuery`, so the page
+  // number the user was on no longer makes sense. Effect over signature keeps
+  // this cheap: same key, no re-render.
+  useEffect(() => {
+    setPageIndex(0)
+  }, [queryKeySignature])
+
+  const result = useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) =>
+      client.list(input.path, input.decode, {
+        ...input.query,
+        limit: pageSize,
+        ...(pageParam === null ? {} : { cursor: pageParam }),
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    // Without this a keystroke in the filter box blanks the table while the
+    // next query runs, which reads as "no results" for as long as it takes.
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+
+  const pages = result.data?.pages ?? []
+  // A shrinking cache — a delete followed by a refetch — can leave the index
+  // past the last page. Clamp so a stale index never renders a blank table.
+  const safeIndex = pages.length === 0 ? 0 : Math.min(pageIndex, pages.length - 1)
+  const currentPage = pages[safeIndex]
+  const hasCachedNext = safeIndex + 1 < pages.length
+  const hasNext = hasCachedNext || result.hasNextPage
+  const hasPrev = safeIndex > 0
+
+  return {
+    records: currentPage?.items ?? [],
+    // A disabled query stays pending forever, which is not the same as loading.
+    isLoading: result.isPending && enabled,
+    error: toError(result.error),
+    pageIndex: safeIndex,
+    pageSize,
+    hasPrev,
+    hasNext,
+    isChangingPage: result.isFetchingNextPage,
+    prevPage: () => {
+      setPageIndex((current) => Math.max(0, current - 1))
+    },
+    nextPage: () => {
+      if (hasCachedNext) {
+        setPageIndex((current) => current + 1)
+        return
+      }
+
+      if (!result.hasNextPage) {
+        return
+      }
+
+      void result.fetchNextPage().then((r) => {
+        if (r.error === null) {
+          setPageIndex((current) => current + 1)
+        }
+      })
+    },
+    // Query key includes `limit`, so the effect above resets `pageIndex` to 0
+    // once React sees the new key.
+    setPageSize: (size) => {
+      setPageSize(size)
+    },
+  }
+}
+
 /**
  * The read half: `useList` and `useRecord`, and nothing that writes.
  *
@@ -197,34 +336,13 @@ export function createReadOnlyResourceHooks<TRecord>(
   const keys = keysFor(definition.name)
 
   function useList(query: QueryParameters = {}, options: ListOptions = {}): RecordListResult<TRecord> {
-    const client = useApiClient()
-    const enabled = options.enabled ?? true
-    const result = useInfiniteQuery({
+    return usePagedList<TRecord>({
       queryKey: keys.list(query),
-      queryFn: ({ pageParam }) =>
-        client.list(definition.path, definition.decode, {
-          ...query,
-          ...(pageParam === null ? {} : { cursor: pageParam }),
-        }),
-      initialPageParam: null as string | null,
-      getNextPageParam: (lastPage) => lastPage.nextCursor,
-      // Without this a keystroke in the filter box blanks the table while the
-      // next query runs, which reads as "no results" for as long as it takes.
-      placeholderData: keepPreviousData,
-      enabled,
+      path: definition.path,
+      decode: definition.decode,
+      query,
+      enabled: options.enabled ?? true,
     })
-
-    return {
-      records: result.data?.pages.flatMap((page) => page.items) ?? [],
-      // A disabled query stays pending forever, which is not the same as loading.
-      isLoading: result.isPending && enabled,
-      error: toError(result.error),
-      hasMore: result.hasNextPage,
-      isLoadingMore: result.isFetchingNextPage,
-      loadMore: () => {
-        void result.fetchNextPage()
-      },
-    }
   }
 
   function useRecord(id: string | undefined): RecordResult<TRecord> {

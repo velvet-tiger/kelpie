@@ -9,6 +9,7 @@ import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
+import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { SegmentedControl } from '../components/SegmentedControl.tsx'
 import { formatDate } from '../lib/dates.ts'
@@ -205,16 +206,7 @@ export function FormsPage(): React.JSX.Element {
             onSortChange={setSort}
             visibleColumnKeys={listView.visibleKeys}
           />
-          {forms.hasMore && (
-            <button
-              type="button"
-              onClick={forms.loadMore}
-              disabled={forms.isLoadingMore}
-              className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken disabled:opacity-50"
-            >
-              {forms.isLoadingMore ? 'Loading…' : 'Load more'}
-            </button>
-          )}
+          <Paginator list={forms} />
         </>
       )}
     </div>

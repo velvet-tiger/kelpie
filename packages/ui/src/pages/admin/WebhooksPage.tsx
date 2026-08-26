@@ -19,6 +19,7 @@ import {
 import { Chip } from '../../components/Chip.tsx'
 import type { ChipTone } from '../../components/Chip.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
+import { Paginator } from '../../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { formatDateTime } from '../../lib/dates.ts'
 import { WebhookDeliveries } from './WebhookDeliveries.tsx'
@@ -68,7 +69,7 @@ function MemberNotice(): React.JSX.Element {
 }
 
 function WebhookAdmin(): React.JSX.Element {
-  const { records, isLoading, error, hasMore, isLoadingMore, loadMore } = useWebhooks()
+  const webhooks = useWebhooks()
   const [minted, setMinted] = useState<CreatedWebhook | null>(null)
 
   return (
@@ -88,30 +89,21 @@ function WebhookAdmin(): React.JSX.Element {
         />
       )}
 
-      {error !== null && <ErrorPanel error={error} />}
+      {webhooks.error !== null && <ErrorPanel error={webhooks.error} />}
 
-      {isLoading ? (
+      {webhooks.isLoading ? (
         <LoadingPanel label="Loading webhooks…" />
-      ) : records.length === 0 ? (
+      ) : webhooks.records.length === 0 ? (
         <p className="text-[13px] text-ink-muted">No webhooks yet.</p>
       ) : (
         <ul className="space-y-3">
-          {records.map((webhook) => (
+          {webhooks.records.map((webhook) => (
             <WebhookRow key={webhook.id} webhook={webhook} onRotated={setMinted} />
           ))}
         </ul>
       )}
 
-      {hasMore && (
-        <button
-          type="button"
-          disabled={isLoadingMore}
-          onClick={loadMore}
-          className="rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink-muted transition hover:text-ink disabled:opacity-50"
-        >
-          {isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      <Paginator list={webhooks} />
     </>
   )
 }

@@ -10,8 +10,6 @@ import type {
   RecordTargetType,
 } from '@kelpie/schemas'
 import {
-  keepPreviousData,
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -21,6 +19,7 @@ import type { InfiniteData } from '@tanstack/react-query'
 import type { Page } from '../client.ts'
 import { useApiClient } from '../context.ts'
 import { toError } from '../errors.ts'
+import { usePagedList } from '../resource.ts'
 import type { MutationResult, RecordListResult } from '../resource.ts'
 
 /**
@@ -85,32 +84,13 @@ export function useListMembershipsFor(
 }
 
 export function useListMembers(listId: string | undefined): RecordListResult<ListMember> {
-  const client = useApiClient()
-  const enabled = listId !== undefined
-  const result = useInfiniteQuery({
+  return usePagedList<ListMember>({
     queryKey: membersKey(listId ?? ''),
-    queryFn: ({ pageParam }) =>
-      client.list(
-        `/lists/${listId ?? ''}/members`,
-        listMemberSchema.parse,
-        pageParam === null ? {} : { cursor: pageParam },
-      ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    placeholderData: keepPreviousData,
-    enabled,
+    path: `/lists/${listId ?? ''}/members`,
+    decode: listMemberSchema.parse,
+    query: {},
+    enabled: listId !== undefined,
   })
-
-  return {
-    records: result.data?.pages.flatMap((page) => page.items) ?? [],
-    isLoading: result.isPending && enabled,
-    error: toError(result.error),
-    hasMore: result.hasNextPage,
-    isLoadingMore: result.isFetchingNextPage,
-    loadMore: () => {
-      void result.fetchNextPage()
-    },
-  }
 }
 
 export interface AddMemberArguments {

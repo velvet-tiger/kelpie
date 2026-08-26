@@ -8,6 +8,7 @@ import { useCompanies } from '../../api/resources/companies.ts'
 import { usePeople } from '../../api/resources/people.ts'
 import { DataTable } from '../../components/DataTable.tsx'
 import type { Column } from '../../components/DataTable.tsx'
+import { Paginator } from '../../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
 import { formatDateTime } from '../../lib/dates.ts'
@@ -106,16 +107,7 @@ export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): 
         getRowId={(submission) => submission.id}
         emptyMessage="No submissions yet"
       />
-      {submissions.hasMore && (
-        <button
-          type="button"
-          onClick={submissions.loadMore}
-          disabled={submissions.isLoadingMore}
-          className="mt-3 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-border-strong hover:bg-surface-sunken disabled:opacity-50"
-        >
-          {submissions.isLoadingMore ? 'Loading…' : 'Load more'}
-        </button>
-      )}
+      <Paginator list={submissions} />
     </div>
   )
 }

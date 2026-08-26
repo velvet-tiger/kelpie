@@ -42,7 +42,7 @@ function names(): string[] {
 describe('DataTable sort dispatch', () => {
   it('routes a server-sortable column through onSortChange without reordering the rows itself', () => {
     // The server owns the order for `sortKey` columns — the table must not
-    // pre-sort what came back, or the "Load more" cursor's keyset order and
+    // pre-sort what came back, or the keyset order the cursor is paging by and
     // what the eye sees would drift apart.
     const onSortChange = vi.fn()
 

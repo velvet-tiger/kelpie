@@ -225,7 +225,8 @@ export function DataTable<TRow>({
       </table>
       {clientSortColumn !== undefined && (
         <p className="border-t border-border bg-surface-sunken/40 px-3 py-1.5 text-[11px] text-ink-faint">
-          Sorted by {clientSortColumn.header.toLowerCase()} on this page. Load more to sort the rest.
+          Sorted by {clientSortColumn.header.toLowerCase()} on this page. Other pages sort by their
+          own defaults.
         </p>
       )}
     </div>

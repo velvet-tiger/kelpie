@@ -234,7 +234,7 @@ export function HandbookLayout(): React.JSX.Element {
           {flat.length === 0 && (
             <p className="px-2 py-6 text-center text-[12px] text-ink-faint">No pages yet.</p>
           )}
-          {pages.hasMore && (
+          {pages.hasNext && (
             <p className="px-2 py-3 text-center text-[11px] text-ink-faint">
               This handbook has more pages than one request returns, so the tree below is
               incomplete.
