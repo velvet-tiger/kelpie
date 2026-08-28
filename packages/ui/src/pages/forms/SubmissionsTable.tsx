@@ -101,6 +101,7 @@ export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): 
         title="Submissions"
         description="Inbound answers, and the records each one created or matched."
       />
+      <Paginator list={submissions} placement="top" />
       <DataTable
         columns={columns}
         rows={submissions.records}

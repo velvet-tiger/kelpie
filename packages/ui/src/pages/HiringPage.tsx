@@ -173,6 +173,7 @@ export function HiringPage(): React.JSX.Element {
         <LoadingPanel label="Loading roles…" />
       ) : (
         <>
+          <Paginator list={roles} placement="top" />
           <DataTable
             columns={columns}
             rows={roles.records}

@@ -219,6 +219,7 @@ export function CompaniesPage(): React.JSX.Element {
         <LoadingPanel label="Loading companies…" />
       ) : (
         <>
+          <Paginator list={companies} placement="top" />
           <DataTable
             columns={columns}
             rows={companies.records}

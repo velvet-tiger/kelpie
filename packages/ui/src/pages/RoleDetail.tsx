@@ -241,22 +241,25 @@ function RoleCandidates({ role }: { readonly role: Role }): React.JSX.Element {
       ) : candidates.records.length === 0 && !adding ? (
         <p className="text-[13px] text-ink-faint">No candidates yet.</p>
       ) : (
-        <ul className="overflow-hidden rounded-md border border-border">
-          {candidates.records.map((candidate) => (
-            <CandidateRow
-              key={candidate.id}
-              candidate={candidate}
-              personName={names.nameFor(candidate.personId)}
-              referrerName={
-                candidate.referrerPersonId === null
-                  ? undefined
-                  : names.nameFor(candidate.referrerPersonId)
-              }
-              note={notes.noteFor(candidate.id)}
-              noteResolved={notes.isComplete || notes.noteFor(candidate.id) !== undefined}
-            />
-          ))}
-        </ul>
+        <>
+          <Paginator list={candidates} placement="top" />
+          <ul className="overflow-hidden rounded-md border border-border">
+            {candidates.records.map((candidate) => (
+              <CandidateRow
+                key={candidate.id}
+                candidate={candidate}
+                personName={names.nameFor(candidate.personId)}
+                referrerName={
+                  candidate.referrerPersonId === null
+                    ? undefined
+                    : names.nameFor(candidate.referrerPersonId)
+                }
+                note={notes.noteFor(candidate.id)}
+                noteResolved={notes.isComplete || notes.noteFor(candidate.id) !== undefined}
+              />
+            ))}
+          </ul>
+        </>
       )}
 
       <Paginator list={candidates} />

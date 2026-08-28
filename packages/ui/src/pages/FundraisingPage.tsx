@@ -402,6 +402,7 @@ export function FundraisingPage(): React.JSX.Element {
         <LoadingPanel label="Loading raises…" />
       ) : (
         <>
+          {view === 'list' && <Paginator list={raises} placement="top" />}
           {view === 'columns' ? (
             <KanbanBoard
               stages={visibleStages.map((stage) => ({ id: stage.id, label: stage.label }))}
@@ -463,7 +464,7 @@ export function FundraisingPage(): React.JSX.Element {
               <ErrorPanel error={updateRaise.error} />
             </div>
           )}
-          <Paginator list={raises} />
+          {view === 'list' && <Paginator list={raises} />}
           {companies.hasNext && (
             <p className="mt-2 text-[11px] text-ink-faint">
               More companies exist than one page returns, so some firm names may show as “—”.

@@ -234,6 +234,7 @@ export function PeoplePage(): React.JSX.Element {
         <LoadingPanel label="Loading people…" />
       ) : (
         <>
+          <Paginator list={people} placement="top" />
           <DataTable
             columns={columns}
             rows={people.records}

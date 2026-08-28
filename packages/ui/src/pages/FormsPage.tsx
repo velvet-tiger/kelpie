@@ -194,6 +194,7 @@ export function FormsPage(): React.JSX.Element {
         <LoadingPanel label="Loading forms…" />
       ) : (
         <>
+          <Paginator list={forms} placement="top" />
           <DataTable
             columns={columns}
             rows={forms.records}

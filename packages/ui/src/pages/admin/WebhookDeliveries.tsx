@@ -139,11 +139,14 @@ export function WebhookDeliveries({ webhookId }: { readonly webhookId: string })
           {status === 'all' ? 'Nothing delivered yet.' : `No ${status} deliveries.`}
         </p>
       ) : (
-        <DataTable
-          columns={columns}
-          rows={deliveries.records}
-          getRowId={(delivery) => delivery.id}
-        />
+        <>
+          <Paginator list={deliveries} placement="top" />
+          <DataTable
+            columns={columns}
+            rows={deliveries.records}
+            getRowId={(delivery) => delivery.id}
+          />
+        </>
       )}
 
       {open !== undefined && <PayloadPanel delivery={open} />}

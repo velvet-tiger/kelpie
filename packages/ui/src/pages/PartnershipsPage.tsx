@@ -395,6 +395,7 @@ export function PartnershipsPage(): React.JSX.Element {
         <LoadingPanel label="Loading partnerships…" />
       ) : (
         <>
+          {view === 'list' && <Paginator list={partnerships} placement="top" />}
           {view === 'columns' ? (
             <KanbanBoard
               stages={visibleStages.map((stage) => ({ id: stage.id, label: stage.label }))}
@@ -458,7 +459,7 @@ export function PartnershipsPage(): React.JSX.Element {
               <ErrorPanel error={updatePartnership.error} />
             </div>
           )}
-          <Paginator list={partnerships} />
+          {view === 'list' && <Paginator list={partnerships} />}
           {companies.hasNext && (
             <p className="mt-2 text-[11px] text-ink-faint">
               More companies exist than one page returns, so some company names may show as “—”.

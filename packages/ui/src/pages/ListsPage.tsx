@@ -131,6 +131,7 @@ export function ListsPage(): React.JSX.Element {
         <LoadingPanel label="Loading lists…" />
       ) : (
         <>
+          <Paginator list={lists} placement="top" />
           <DataTable
             columns={columns}
             rows={lists.records}

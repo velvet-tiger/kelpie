@@ -96,11 +96,14 @@ function WebhookAdmin(): React.JSX.Element {
       ) : webhooks.records.length === 0 ? (
         <p className="text-[13px] text-ink-muted">No webhooks yet.</p>
       ) : (
-        <ul className="space-y-3">
-          {webhooks.records.map((webhook) => (
-            <WebhookRow key={webhook.id} webhook={webhook} onRotated={setMinted} />
-          ))}
-        </ul>
+        <>
+          <Paginator list={webhooks} placement="top" />
+          <ul className="space-y-3">
+            {webhooks.records.map((webhook) => (
+              <WebhookRow key={webhook.id} webhook={webhook} onRotated={setMinted} />
+            ))}
+          </ul>
+        </>
       )}
 
       <Paginator list={webhooks} />

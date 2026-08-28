@@ -246,6 +246,7 @@ export function DecisionsPage(): React.JSX.Element {
         <LoadingPanel label="Loading decisions…" />
       ) : (
         <>
+          <Paginator list={decisions} placement="top" />
           <DataTable
             columns={columns}
             rows={decisions.records}

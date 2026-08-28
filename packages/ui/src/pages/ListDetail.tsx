@@ -203,11 +203,14 @@ function ListMembers({
       ) : members.records.length === 0 && !adding ? (
         <p className="text-[13px] text-ink-faint">No members yet.</p>
       ) : (
-        <ul className="overflow-hidden rounded-md border border-border">
-          {members.records.map((member) => (
-            <MemberRow key={member.id} listId={listId} member={member} />
-          ))}
-        </ul>
+        <>
+          <Paginator list={members} placement="top" />
+          <ul className="overflow-hidden rounded-md border border-border">
+            {members.records.map((member) => (
+              <MemberRow key={member.id} listId={listId} member={member} />
+            ))}
+          </ul>
+        </>
       )}
 
       <Paginator list={members} />

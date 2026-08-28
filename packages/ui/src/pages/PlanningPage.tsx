@@ -188,7 +188,10 @@ export function PlanningPage(): React.JSX.Element {
       ) : items.isLoading ? (
         <LoadingPanel label="Loading plan…" />
       ) : view === 'list' ? (
-        <PlanList items={items.records} targetNames={targets.nameById} />
+        <>
+          <Paginator list={items} placement="top" />
+          <PlanList items={items.records} targetNames={targets.nameById} />
+        </>
       ) : (
         <PlanCalendar year={month.year} month={month.month} items={items.records} />
       )}
