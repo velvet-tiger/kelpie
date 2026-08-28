@@ -10,25 +10,104 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-28
+
 ### Added
 
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — typed record lists.
+  A list holds records of one type, chosen at creation and fixed for its
+  lifetime; the type is enforced in the database through a composite foreign
+  key from `list_members(list_id, target_type)` to `lists(id, target_type)`,
+  so a person cannot end up on a company list even through direct SQL. A
+  Lists tab appears on Person, Company, Deal, Opportunity, Partnership, and
+  Raise detail pages, backed by `GET /v1/list-memberships`. The picker
+  filters lists to the record's own `target_type`. MCP mirrors the REST
+  surface. Adds migration `0021`.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — a `sample-data`
+  core module. A one-shot installer seeds a fresh workspace with a small
+  CRM fixture: companies, people, positions, deals, opportunities,
+  fundraising, partnerships, hiring roles, candidates, plan items and notes.
+  A checkbox on the setup wizard's workspace step and a button on the admin
+  Data page both call it, and the new `sample_data_install` MCP tool exposes
+  the same operation. Idempotent by refusal: a workspace that already
+  carries any companies or people answers 409.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — a Columns picker on
+  every list page. Every field in the resource catalog is available; every
+  visible column is click-to-sort. Server-side sort fires when the
+  resource's `_SORTS` map accepts the field; anything else reorders the
+  loaded rows in place with a "sorted on this page" hint. Column choices
+  persist on `user_preferences.list_views`, so they follow the person
+  between browsers. Adds migration `0022`.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — pipeline pages
+  persist mode, scope, grouping, and sort per user. `ListViewPreference`
+  gains four optional fields alongside `columns`; the server accepts them
+  through the same `list_views` endpoint. Deals, Opportunities, Fundraising,
+  and Partnerships default to the board on a first visit.
+- **`@kelpie/server`, `@kelpie/ui`** — email-domain auto-linking. When a
+  Person or Company arrives with a matching non-consumer email domain, a
+  titleless Position joins the pair inline in the same transaction. The
+  response already reflects the link. Add-only.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — an `is_own` flag on
+  companies for marking the workspace's own organisation, with a matching
+  `?is_own=true|false` filter and a section on Admin → Workspace for picking
+  existing companies to mark or creating one inline. Zero or many rows may
+  carry the flag — parent + subsidiary is a supported case. Adds migration
+  `0023`.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — `POST
+  /v1/workspaces/:id/relink-email-domains` sweeps every Company that
+  carries a domain and stubs Positions where none exists yet, so records
+  that predate the auto-linker (or arrive through a bulk import) get their
+  links backfilled. Add-only, consumer-host-skipping, idempotent, one
+  transaction per Company. Wired to a "Rebuild links" button on Admin →
+  Import & export.
+- **`@kelpie/ui`** — an "Add plan item" form on the Planning page. The
+  workspace-wide plan is the same resource each record's Plan panel edits,
+  so create belongs here too. Picks target type, target record, date,
+  title, owner, and status; owner defaults to unassigned. Refactors the
+  target-name lookup out of `useTargetNames` into `usePipelineTargets` so
+  one set of fetches drives both the form's target dropdown and the list's
+  name resolution.
+- **`@kelpie/ui`** — every list surface now shows one server page at a time
+  with Prev / Next / a `Page N` label / a per-page selector (25 / 50 /
+  100 / 200), mirrored above the rows. `RecordListResult` swaps
+  `hasMore` / `loadMore` for `pageIndex` / `pageSize` / `hasPrev` /
+  `hasNext` / `prevPage` / `nextPage` / `setPageSize`; a shared
+  `usePagedList` drives the state and keeps every visited page in the
+  `useInfiniteQuery` cache, so Prev is instant and Next fires one fetch
+  only for pages not yet seen. A new `Paginator` component takes a
+  `placement` prop for the top or bottom copy. Non-paginated directory
+  helpers switched from `hasMore` to `hasNext` with the same meaning.
+- **`@kelpie/ui`** — `EntitySearch` remembers the last-picked option so the
+  badge stays visible even when clearing the query drops the pick from the
+  current results. `CompanyDetail` moves People from the sidebar into a tab,
+  styled to match Notes and Decisions.
 - **`@kelpie/server`** — transactional mail now carries an HTML part. A new
   `renderEmail` in `lib/emailContent.ts` renders each message with
   [mailgen](https://github.com/eladnava/mailgen): a table-based responsive
-  layout with the action as a button and the raw link kept as a fallback. The
-  plaintext part is unchanged, built from the same fields, and remains the
-  `body` every provider already receives. `EmailMessage` gains an optional
-  `html` field and the `smtp-email` module passes it through to nodemailer;
-  provider modules written against the older port keep working.
-
+  layout with the action as a button and the raw link kept as a fallback.
+  The plaintext part is unchanged, built from the same fields, and remains
+  the `body` every provider already receives. `EmailMessage` gains an
+  optional `html` field and the `smtp-email` module passes it through to
+  nodemailer; provider modules written against the older port keep working.
 - **`@kelpie/ui`** — the CSV import wizard has a new `Done` step. After a
   commit reaches `completed` (or `failed`), the wizard moves off the dry-run
   view and shows an outcome summary: the number of rows written, the final
   counts, and the row errors and warnings the commit reported. An `Import
   another` button resets the wizard.
+- **`create-kelpie`** — user documentation. Sixteen pages under `docs/`: an
+  index, eight product guides, four self-hosting pages (installation,
+  configuration, production, security), three agent and API pages, and a
+  module-authoring guide. Linked from the root README and the scaffolder's
+  template README. The template's configuration table gains the missing
+  `TRUSTED_PROXY_HOP_COUNT` row.
 
 ### Changed
 
+- **`@kelpie/server`** — `POST` and `PATCH /v1/positions` accept an empty
+  title, for a link where the role is not yet known. Both add forms drop
+  `required`.
+- **`@kelpie/ui`** — `CompaniesPage` defaults visible columns to Name,
+  Domain, HQ, Type, Updated.
 - **`@kelpie/schemas`** — `domain` is no longer a required column for a
   Companies import. The database column is nullable, and rows without a
   domain now import when the match key is `name`. When `domain` is the match
@@ -37,10 +116,12 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/ui`** — inactive nav and secondary copy were hard to read on
+  light surfaces. Darken the light-theme muted tokens for contrast.
 - **`@kelpie/ui`** — the CSV drop zone on `/admin/data` now accepts a file
   dropped onto it. The label was styled as a drop zone but only its hidden
-  file input handled the file, so a drop fell through to the browser default.
-  Drop and click-to-browse now share one processing path.
+  file input handled the file, so a drop fell through to the browser
+  default. Drop and click-to-browse now share one processing path.
 
 ## [0.7.0] - 2026-08-23
 
