@@ -14,6 +14,7 @@ import {
 
 import { isRecord } from '../json.ts'
 import type { QueryParameters } from '../client.ts'
+import { ApiError } from '../client.ts'
 import { useApiClient } from '../context.ts'
 import { toError } from '../errors.ts'
 import { createResourceHooks, usePagedList } from '../resource.ts'
@@ -146,9 +147,42 @@ export function useFormSubmissions(formId: string | undefined): RecordListResult
   })
 }
 
+/**
+ * One submission on a form.
+ *
+ * Nested under the form rather than a top-level collection: a submission id is
+ * only meaningful with its form (the field labels live there), and the path
+ * mirrors the list endpoint above it.
+ */
+export function useFormSubmission(
+  formId: string | undefined,
+  submissionId: string | undefined,
+): RecordResult<FormSubmission> {
+  const client = useApiClient()
+  const result = useQuery({
+    queryKey: ['forms', 'submissions', formId ?? '', submissionId ?? ''],
+    queryFn: () =>
+      client.get(
+        `/forms/${formId ?? ''}/submissions/${submissionId ?? ''}`,
+        formSubmissionSchema.parse,
+      ),
+    enabled: formId !== undefined && submissionId !== undefined,
+  })
+
+  return {
+    record: result.data,
+    isLoading: result.isPending && formId !== undefined && submissionId !== undefined,
+    isNotFound: result.error instanceof ApiError && result.error.status === 404,
+    error: toError(result.error),
+  }
+}
+
 /** What a customer pastes into their site, built server-side from the request origin. */
 export interface EmbedSnippets {
+  /** Standalone hosted page (brand chrome). */
   readonly url: string
+  /** Bare document the iframe snippets load (fields only). */
+  readonly embedUrl: string
   readonly iframeSnippet: string
   readonly scriptSnippet: string
 }
@@ -157,6 +191,7 @@ function decodeSnippets(value: unknown): EmbedSnippets {
   if (
     !isRecord(value) ||
     typeof value.url !== 'string' ||
+    typeof value.embed_url !== 'string' ||
     typeof value.iframe_snippet !== 'string' ||
     typeof value.script_snippet !== 'string'
   ) {
@@ -165,6 +200,7 @@ function decodeSnippets(value: unknown): EmbedSnippets {
 
   return {
     url: value.url,
+    embedUrl: value.embed_url,
     iframeSnippet: value.iframe_snippet,
     scriptSnippet: value.script_snippet,
   }

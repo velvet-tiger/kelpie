@@ -1,6 +1,6 @@
 import type { Form, FormSubmission, FormSubmissionActionEntry } from '@kelpie/schemas'
 import { useMemo } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 
 import type { RecordListResult } from '../../api/resource.ts'
 import { useTimezone } from '../../api/resources/account.ts'
@@ -20,6 +20,10 @@ import { formatDateTime } from '../../lib/dates.ts'
  * same way the Decisions page does it: `api.md` has no include-expansion, and
  * neither list takes a set of bare ids. A record past those pages is still
  * linked, by its type rather than its name, which beats a raw id.
+ *
+ * A row opens `/forms/:id/submissions/:submissionId`. Inline person/company
+ * links still navigate, and stop the row click so opening a person does not
+ * also open the submission.
  */
 
 /** `api.md`: `?limit=` maxes out at 200. */
@@ -31,6 +35,7 @@ export interface SubmissionsTableProps {
 }
 
 export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): React.JSX.Element {
+  const navigate = useNavigate()
   const people = usePeople({ limit: MAX_PAGE })
   const companies = useCompanies({ limit: MAX_PAGE })
   const timezone = useTimezone()
@@ -115,7 +120,7 @@ export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): 
     <div>
       <SectionHeader
         title="Submissions"
-        description="Inbound answers, and the records each one created or matched."
+        description="Inbound answers, and the records each one created or matched. Click a row to open it."
       />
       <Paginator list={submissions} placement="top" />
       <DataTable
@@ -123,6 +128,9 @@ export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): 
         rows={submissions.records}
         getRowId={(submission) => submission.id}
         emptyMessage="No submissions yet"
+        onRowClick={(submission) => {
+          void navigate(`/forms/${form.id}/submissions/${submission.id}`)
+        }}
       />
       <Paginator list={submissions} />
     </div>
@@ -143,7 +151,13 @@ function CreatedLink({
   }
 
   return (
-    <Link to={to} className="text-accent hover:underline">
+    <Link
+      to={to}
+      className="text-accent hover:underline"
+      onClick={(event) => {
+        event.stopPropagation()
+      }}
+    >
       {label}
     </Link>
   )
@@ -166,10 +180,7 @@ function ActionLogChip({
     .join('\n')
 
   return (
-    <span
-      title={detail}
-      className="inline-flex gap-1 text-[11px] font-mono text-ink-muted"
-    >
+    <span title={detail} className="inline-flex gap-1 font-mono text-[11px] text-ink-muted">
       {ok > 0 && <span className="text-success">✓{ok}</span>}
       {skipped > 0 && <span className="text-ink-faint">−{skipped}</span>}
       {errors > 0 && <span className="text-danger">!{errors}</span>}
@@ -193,7 +204,13 @@ function RecordLink({
   }
 
   return (
-    <Link to={`${to}/${id}`} className="text-accent hover:underline">
+    <Link
+      to={`${to}/${id}`}
+      className="text-accent hover:underline"
+      onClick={(event) => {
+        event.stopPropagation()
+      }}
+    >
       {name.get(id) ?? fallback}
     </Link>
   )

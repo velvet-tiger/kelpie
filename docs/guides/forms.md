@@ -8,7 +8,7 @@ Forms are Kelpie's one public surface. Submissions arrive from strangers' browse
 
 ## Building a form
 
-A form's detail page has five tabs: **Submissions**, **Fields**, **Actions**, **Settings**, and **Embed**. The field builder supports text, email, textarea, and select fields, dragged into order. What a field *maps to* decides what a submission writes.
+A form's detail page has five tabs: **Submissions**, **Fields**, **Actions**, **Settings**, and **Embed**. The field builder supports text, email, textarea, and select fields, dragged into order. What a field *maps to* decides what a submission writes. **Settings** holds the public form title (defaults to the form name; shown as the heading on the hosted/embedded page), thank-you copy, status, and the public key. The workspace name appears above that title on the public page.
 
 The builder is the one screen in Kelpie that saves explicitly rather than as you type — press Save when the field list is right. It refuses to save an invalid list and shows the reason beside the field responsible.
 
@@ -52,7 +52,7 @@ Each configured action lands one entry on the submission's `action_log` — `ok`
 
 ## Embedding on your site
 
-The Embed tab gives you the hosted page's URL and two snippets: a plain iframe (one tag, no JavaScript, fixed height) and an iframe with a small script that resizes the frame as the form grows and when the thank-you message replaces it. The embedded page is served by Kelpie itself and loads nothing else — it does not pull the CRM's code into your marketing site.
+The Embed tab gives you the hosted page's URL (standalone page with workspace name and form title) and two iframe snippets that load a **bare** form document — fields only, no page chrome. Each snippet has a **Preview** that opens that bare embed in a modal; **Open** on the hosted URL loads the full page in a new tab. Both documents are served by Kelpie itself and load nothing else from your marketing site.
 
 <!-- screenshot: embed tab -->
 

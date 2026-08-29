@@ -212,6 +212,27 @@ export function listSubmissions(
     .limit(window.fetchLimit)
 }
 
+export async function findSubmission(
+  db: Queryable,
+  workspaceId: string,
+  formId: string,
+  id: string,
+): Promise<FormSubmissionRecord | undefined> {
+  const [row] = await db
+    .select()
+    .from(formSubmissions)
+    .where(
+      and(
+        eq(formSubmissions.workspaceId, workspaceId),
+        eq(formSubmissions.formId, formId),
+        eq(formSubmissions.id, id),
+      ),
+    )
+    .limit(1)
+
+  return row
+}
+
 export async function insertSubmission(
   db: Queryable,
   values: FormSubmissionColumns,

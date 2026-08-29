@@ -21,6 +21,7 @@ function wireForm(overrides: Record<string, unknown> = {}): Record<string, unkno
   return {
     id: 'form_01hx',
     name: 'Contact us',
+    title: 'Contact us',
     description: 'Public site contact form.',
     status: 'active',
     fields: [wireField()],
@@ -56,6 +57,7 @@ describe('formSchema', () => {
     expect(form).toEqual({
       id: 'form_01hx',
       name: 'Contact us',
+      title: 'Contact us',
       description: 'Public site contact form.',
       status: 'active',
       fields: [

@@ -63,6 +63,7 @@ const attachTargetBody = z.strictObject({
 
 const formShape = {
   name: z.string().min(1),
+  title: z.string().min(1),
   description: z.string().nullable(),
   status: z.enum(FORM_STATUSES),
   fields: z.array(fieldBody),
@@ -97,6 +98,9 @@ const formShape = {
  */
 export const createBody = z.strictObject({
   ...formShape,
+  // Absent → copy of `name` in `toCreateInput`, so a create that only names the
+  // form still gets a public heading without a second field on every caller.
+  title: formShape.title.optional(),
   description: formShape.description.default(null),
   status: formShape.status.default('active'),
   thank_you_message: formShape.thank_you_message.default('Thanks. We will be in touch.'),
@@ -168,6 +172,7 @@ function toAttachTarget(body: z.infer<typeof attachTargetBody>): FormAttachTarge
 export function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput {
   return {
     name: body.name,
+    title: body.title ?? body.name,
     description: body.description,
     status: body.status,
     fields: body.fields.map(toFieldDraft),
@@ -195,6 +200,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput
 export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateFormInput {
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
+    ...(body.title === undefined ? {} : { title: body.title }),
     ...(body.description === undefined ? {} : { description: body.description }),
     ...(body.status === undefined ? {} : { status: body.status }),
     ...(body.fields === undefined ? {} : { fields: body.fields.map(toFieldDraft) }),
@@ -243,6 +249,7 @@ export function formResponse(form: FormView): Record<string, unknown> {
   return {
     id: form.id,
     name: form.name,
+    title: form.title,
     description: form.description,
     status: form.status,
     fields: form.fields.map((field) => ({
@@ -307,9 +314,14 @@ export function formSubmissionResponse(submission: FormSubmissionView): Record<s
   }
 }
 
-/** The absolute URL of a form's hosted embed page, on the origin this request arrived at. */
+/** The absolute URL of a form's bare iframe document (fields only). */
 export function embedUrlFor(context: Context, publicKey: string): string {
   return `${requestOrigin(context)}${PUBLIC_ROUTE_PREFIX}/forms/${publicKey}/embed`
+}
+
+/** The absolute URL of a form's standalone hosted page (brand chrome). */
+export function hostedUrlFor(context: Context, publicKey: string): string {
+  return `${embedUrlFor(context, publicKey)}?view=page`
 }
 
 export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependencies): void {
@@ -365,6 +377,16 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
     return context.json(pageBody(page, formSubmissionResponse))
   })
 
+  router.get('/forms/:id/submissions/:submissionId', async (context) => {
+    const submission = await dependencies.service.getSubmission(
+      await requireActor(context),
+      context.req.param('id'),
+      context.req.param('submissionId'),
+    )
+
+    return context.json(formSubmissionResponse(submission))
+  })
+
   /**
    * What to paste into a website.
    *
@@ -374,10 +396,15 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
    */
   router.get('/forms/:id/embed', async (context) => {
     const form = await dependencies.service.get(await requireActor(context), context.req.param('id'))
-    const snippets = embedSnippets(embedUrlFor(context, form.publicKey), form.id)
+    const snippets = embedSnippets(
+      hostedUrlFor(context, form.publicKey),
+      embedUrlFor(context, form.publicKey),
+      form.id,
+    )
 
     return context.json({
       url: snippets.url,
+      embed_url: snippets.embedUrl,
       iframe_snippet: snippets.iframe,
       script_snippet: snippets.script,
     })

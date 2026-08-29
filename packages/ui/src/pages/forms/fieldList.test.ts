@@ -1,3 +1,4 @@
+import { FORM_FIELD_MAP_TARGETS } from '@kelpie/schemas'
 import type { Form } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
@@ -12,8 +13,10 @@ import {
   toEditableFields,
   toFieldInputs,
   typeForTarget,
+  unusedCrmPresets,
 } from './fieldList.ts'
 import type { EditableField } from './fieldList.ts'
+import { CRM_FIELD_PRESETS, SUBMISSION_FIELD_PRESETS } from './template.ts'
 
 /**
  * The field builder's rules, without React.
@@ -47,6 +50,7 @@ function form(fields: readonly EditableField[]): Form {
   return {
     id: 'form_1',
     name: 'Website contact',
+    title: 'Website contact',
     description: null,
     status: 'active',
     fields: fields.map((entry, index) => ({
@@ -237,6 +241,34 @@ describe('findProblems', () => {
     })
 
     expect(findProblems([email, clashing], false).byField.get('ff_size')).toContain('share a key')
+  })
+})
+
+describe('unusedCrmPresets', () => {
+  /** The menu must never lack a target the schema knows, or it becomes unreachable. */
+  it('covers every CRM target when the list is empty', () => {
+    const offered = unusedCrmPresets([]).map((preset) => preset.mapTo)
+    const crmTargets = FORM_FIELD_MAP_TARGETS.filter((target) => target !== 'submission')
+
+    expect([...offered].sort()).toEqual([...crmTargets].sort())
+  })
+
+  it('hides a target a field already carries', () => {
+    const offered = unusedCrmPresets([email]).map((preset) => preset.mapTo)
+
+    expect(offered).not.toContain('person.email')
+    expect(offered).toContain('person.name')
+  })
+
+  /** A preset must be addable as-is: no per-field problem the moment it lands. */
+  it('offers only presets the server would accept', () => {
+    const presets = [...CRM_FIELD_PRESETS, ...SUBMISSION_FIELD_PRESETS.map((entry) => entry.field)]
+
+    for (const [index, preset] of presets.entries()) {
+      const added = insertField([], field({ ...preset, id: `new-${String(index)}` }), null)
+
+      expect(findProblems(added, false).byField.size).toBe(0)
+    }
   })
 })
 

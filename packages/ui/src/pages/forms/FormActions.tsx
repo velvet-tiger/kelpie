@@ -348,9 +348,9 @@ function ListsBlock({
           )
         })}
       </ul>
-      <div className="flex items-end gap-2">
+      <div className="flex items-center gap-2">
         <select
-          className={inputClass}
+          className={`${inputClass} min-w-0 flex-1`}
           value={pick}
           onChange={(event) => setPick(event.target.value)}
         >
@@ -364,7 +364,7 @@ function ListsBlock({
         <button
           type="button"
           onClick={add}
-          className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+          className="shrink-0 rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
           disabled={pick.length === 0}
         >
           Add
@@ -469,7 +469,7 @@ function AttachTargetsBlock({
           </li>
         ))}
       </ul>
-      <div className="grid grid-cols-[auto_1fr_auto] items-end gap-2">
+      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
         <select
           className={inputClass}
           value={kind}
@@ -499,7 +499,7 @@ function AttachTargetsBlock({
         <button
           type="button"
           onClick={add}
-          className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+          className="rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
           disabled={pick.length === 0}
         >
           Add

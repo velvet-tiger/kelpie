@@ -5,7 +5,7 @@ import {
 } from '@kelpie/schemas'
 import type { Form, FormFieldInput, FormFieldMapTarget, FormFieldType } from '@kelpie/schemas'
 
-import { NEW_SELECT_OPTIONS } from './template.ts'
+import { CRM_FIELD_PRESETS, NEW_SELECT_OPTIONS } from './template.ts'
 
 /**
  * Editing a form's field list, as pure functions over an array.
@@ -206,4 +206,15 @@ export function isUsable(problems: FieldListProblems): boolean {
 /** The types a mapping can sensibly render as. Choosing `person.email` implies an email input. */
 export function typeForTarget(target: FormFieldMapTarget, current: FormFieldType): FormFieldType {
   return target === PERSON_EMAIL_TARGET ? 'email' : current
+}
+
+/**
+ * The CRM presets whose mapping no current field carries: what "Add field" may
+ * still offer. A CRM target may appear once, so a preset leaves the menu the
+ * moment a field takes its target and returns when that field releases it.
+ */
+export function unusedCrmPresets(fields: readonly EditableField[]): readonly FormFieldInput[] {
+  const used = new Set(fields.map((field) => field.mapTo))
+
+  return CRM_FIELD_PRESETS.filter((preset) => !used.has(preset.mapTo))
 }

@@ -6,7 +6,7 @@ import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
 
 /**
- * The form's identity: status, thank-you copy, and the public key.
+ * The form's identity: status, public heading, thank-you copy, and the public key.
  *
  * Every control commits on change, because each one is a single field and the
  * optimistic update in `createResourceHooks` puts the old value back if the
@@ -30,7 +30,10 @@ export function FormSettings({ form }: FormSettingsProps): React.JSX.Element {
 
   return (
     <div className="max-w-xl space-y-4">
-      <SectionHeader title="Settings" description="Status, thank-you copy, and the public key." />
+      <SectionHeader
+        title="Settings"
+        description="Status, the public form title, thank-you copy, and the public key."
+      />
 
       {updateForm.error !== null && <ErrorPanel error={updateForm.error} />}
 
@@ -49,6 +52,24 @@ export function FormSettings({ form }: FormSettingsProps): React.JSX.Element {
           ))}
         </select>
         <Hint>A paused form still renders where it is embedded, and says it is closed.</Hint>
+      </Labelled>
+
+      <Labelled label="Form title">
+        <input
+          className={inputClass}
+          defaultValue={form.title}
+          onBlur={(event) => {
+            const next = event.target.value.trim()
+            if (next.length > 0 && next !== form.title) {
+              patch({ title: next })
+            } else if (next.length === 0) {
+              event.target.value = form.title
+            }
+          }}
+        />
+        <Hint>
+          Shown as the heading on the hosted and embedded form. Defaults to the form name.
+        </Hint>
       </Labelled>
 
       <Labelled label="Thank-you message">

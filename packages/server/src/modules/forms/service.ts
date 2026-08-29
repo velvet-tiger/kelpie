@@ -70,6 +70,7 @@ export type FormSubmissionView = Omit<FormSubmissionRecord, 'workspaceId'>
 
 export interface CreateFormInput {
   readonly name: string
+  readonly title: string
   readonly description: string | null
   readonly status: FormStatus
   readonly fields: readonly FieldDraft[]
@@ -96,6 +97,7 @@ export interface CreateFormInput {
 /** PATCH semantics: an absent field is left alone, and null clears a nullable one. */
 export interface UpdateFormInput {
   readonly name?: string | undefined
+  readonly title?: string | undefined
   readonly description?: string | null | undefined
   readonly status?: FormStatus | undefined
   /** Absent leaves the field list alone. Present replaces all of it. */
@@ -133,6 +135,7 @@ export interface FormsService {
     formId: string,
     query: ListQueryParameters,
   ): Promise<Page<FormSubmissionView>>
+  getSubmission(actor: Actor, formId: string, submissionId: string): Promise<FormSubmissionView>
 }
 
 function toFieldView(record: FormFieldRecord): FormFieldView {
@@ -161,6 +164,7 @@ function toSubmissionView(record: FormSubmissionRecord): FormSubmissionView {
 function toStoredColumns(input: UpdateFormInput): Partial<repository.FormColumns> {
   return {
     ...(input.name === undefined ? {} : { name: input.name }),
+    ...(input.title === undefined ? {} : { title: input.title }),
     ...(input.description === undefined ? {} : { description: input.description }),
     ...(input.status === undefined ? {} : { status: input.status }),
     ...(input.thankYouMessage === undefined ? {} : { thankYouMessage: input.thankYouMessage }),
@@ -569,6 +573,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           id,
           workspaceId,
           name: input.name,
+          title: input.title,
           description: input.description,
           status: input.status,
           thankYouMessage: input.thankYouMessage,
@@ -762,6 +767,25 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         toPage(rows, window, (submission) => submission.id),
         toSubmissionView,
       )
+    },
+
+    async getSubmission(actor, formId, submissionId) {
+      const workspaceId = requireWorkspaceId(actor)
+
+      await require(workspaceId, formId)
+
+      const row = await repository.findSubmission(
+        dependencies.db,
+        workspaceId,
+        formId,
+        submissionId,
+      )
+
+      if (row === undefined) {
+        throw AppError.notFound('Submission not found')
+      }
+
+      return toSubmissionView(row)
     },
   }
 }

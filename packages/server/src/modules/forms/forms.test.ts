@@ -134,6 +134,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const parsed = formSchema.parse(form)
 
       expect(parsed.name).toBe('Website contact')
+      expect(parsed.title).toBe('Website contact')
       expect(parsed.status).toBe('active')
       expect(parsed.publicKey.length).toBeGreaterThan(20)
       expect(parsed.fields.map((field) => field.label)).toEqual([
@@ -337,7 +338,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
   })
 
   describe('the embed endpoint', () => {
-    it('hands back a URL and both snippets, built from the form public key', async () => {
+    it('hands back a hosted URL and iframe snippets pointed at the bare embed', async () => {
       const form = await createForm()
       const response = await client.send('GET', `/v1/forms/${readString(form, 'id')}/embed`, {
         cookie: acme.cookie,
@@ -348,8 +349,11 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const body = readRecord(await response.json())
       const publicKey = readString(form, 'public_key')
 
-      expect(readString(body, 'url')).toContain(`/v1/public/forms/${publicKey}/embed`)
+      expect(readString(body, 'url')).toContain(`/v1/public/forms/${publicKey}/embed?view=page`)
+      expect(readString(body, 'embed_url')).toMatch(new RegExp(`/v1/public/forms/${publicKey}/embed$`))
       expect(readString(body, 'iframe_snippet')).toContain('<iframe')
+      expect(readString(body, 'iframe_snippet')).toContain(readString(body, 'embed_url'))
+      expect(readString(body, 'iframe_snippet')).not.toContain('view=page')
       expect(readString(body, 'script_snippet')).toContain('<script')
     })
   })
@@ -592,6 +596,28 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       // The record ids live on the stored submission, read over the
       // authenticated API, not on the public submit response.
       expect(rows[0]?.dealId).toBeNull()
+
+      const detail = await client.send(
+        'GET',
+        `/v1/forms/${readString(form, 'id')}/submissions/${rows[0]?.id ?? ''}`,
+        { cookie: acme.cookie },
+      )
+      const one = formSubmissionSchema.parse(readRecord(await detail.json()))
+
+      expect(detail.status).toBe(200)
+      expect(one.id).toBe(rows[0]?.id)
+      expect(one.answers[ids.Message ?? '']).toBe('Interested in a demo')
+    })
+
+    it('answers 404 for a submission that is not on the form', async () => {
+      const form = await createForm()
+      const response = await client.send(
+        'GET',
+        `/v1/forms/${readString(form, 'id')}/submissions/sub_missing`,
+        { cookie: acme.cookie },
+      )
+
+      expect(response.status).toBe(404)
     })
 
     it('files the submission on the person timeline, attributed to the form', async () => {
@@ -857,7 +883,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
 
   describe('the hosted embed page', () => {
     it('serves the form as HTML, with no credentials', async () => {
-      const form = await createForm()
+      const form = await createForm({ title: 'Talk to Acme' })
       const response = await client.send(
         'GET',
         `/v1/public/forms/${readString(form, 'public_key')}/embed`,
@@ -868,9 +894,36 @@ describe.skipIf(connectionString === undefined)('forms', () => {
 
       const page = await response.text()
 
+      expect(page).toContain('class="layout-embed"')
       expect(page).toContain('<label')
       expect(page).toContain('Job title')
+      expect(page).not.toContain('class="eyebrow"')
+      expect(page).not.toContain('<h1>Talk to Acme</h1>')
       expect(page).toContain(`/v1/public/forms/${readString(form, 'public_key')}/submit`)
+    })
+
+    it('serves the hosted page layout with workspace chrome when view=page', async () => {
+      const form = await createForm({ title: 'Talk to Acme' })
+      const response = await client.send(
+        'GET',
+        `/v1/public/forms/${readString(form, 'public_key')}/embed?view=page`,
+      )
+
+      const page = await response.text()
+
+      expect(page).toContain('class="layout-page"')
+      expect(page).toContain('<div class="eyebrow">Acme</div>')
+      expect(page).toContain('<h1>Talk to Acme</h1>')
+    })
+
+    it('defaults the public heading to the form name when title is omitted', async () => {
+      const form = await createForm()
+      const response = await client.send(
+        'GET',
+        `/v1/public/forms/${readString(form, 'public_key')}/embed?view=page`,
+      )
+
+      expect(await response.text()).toContain('<h1>Website contact</h1>')
     })
 
     it('sends a policy that allows framing and forbids outside sources', async () => {

@@ -47,6 +47,7 @@ function form(overrides: Partial<FormRecord> = {}): FormRecord {
     id: 'form_1',
     workspaceId: 'ws_1',
     name: 'Website contact',
+    title: 'Website contact',
     description: null,
     status: 'active',
     thankYouMessage: 'Thanks. We will be in touch.',
@@ -74,8 +75,19 @@ function form(overrides: Partial<FormRecord> = {}): FormRecord {
 
 const submitUrl = 'https://kelpie.test/v1/public/forms/pk_test/submit'
 
-function render(overrides: Partial<FormRecord> = {}, fields = [field()]): string {
-  return renderEmbedPage({ form: form(overrides), fields, submitUrl, nonce: 'n0nce' })
+function render(
+  overrides: Partial<FormRecord> = {},
+  fields = [field()],
+  layout: 'page' | 'embed' = 'page',
+): string {
+  return renderEmbedPage({
+    form: form(overrides),
+    fields,
+    submitUrl,
+    nonce: 'n0nce',
+    workspaceName: 'Acme Ventures',
+    layout,
+  })
 }
 
 describe('escapeHtml', () => {
@@ -183,12 +195,83 @@ describe('renderEmbedPage', () => {
     expect(page).toContain('<script nonce="n0nce">')
   })
 
+  it('renders the form title and workspace name on the hosted page', () => {
+    const page = render({
+      name: 'Internal label',
+      title: 'Talk to us',
+      description: 'Say hello.',
+    })
+
+    expect(page).toContain('class="layout-page"')
+    expect(page).toContain('<div class="eyebrow">Acme Ventures</div>')
+    expect(page).toContain('<h1>Talk to us</h1>')
+    expect(page).toContain('<title>Talk to us</title>')
+    expect(page).not.toContain('<h1>Internal label</h1>')
+    expect(page).toContain('<p class="lead">Say hello.</p>')
+    expect(page).toContain('class="card"')
+  })
+
+  it('renders the iframe embed as fields only, without page chrome', () => {
+    const page = render(
+      { name: 'Internal label', title: 'Talk to us', description: 'Say hello.' },
+      [field()],
+      'embed',
+    )
+
+    expect(page).toContain('class="layout-embed"')
+    expect(page).toContain('id="kelpie-form"')
+    expect(page).toContain('background: Field')
+    expect(page).not.toContain('--accent: #0f766e')
+    expect(page).not.toContain('class="eyebrow"')
+    expect(page).not.toContain('<h1>')
+    expect(page).not.toContain('class="card"')
+    expect(page).not.toContain('Say hello.')
+  })
+
+  it('keeps Kelpie tokens on the hosted page only', () => {
+    const page = render({}, [field()], 'page')
+
+    expect(page).toContain('--accent: #0f766e')
+    expect(page).not.toContain('background: Field')
+  })
+
+  it('falls back to the form name when the title is blank', () => {
+    const page = render({ name: 'Website contact', title: '   ' })
+
+    expect(page).toContain('<h1>Website contact</h1>')
+  })
+
+  it('escapes the workspace name and form title in the visible heading', () => {
+    const page = renderEmbedPage({
+      form: form({ title: '<img src=x onerror=alert(1)>' }),
+      fields: [field()],
+      submitUrl,
+      nonce: 'n0nce',
+      workspaceName: '<b>Acme</b>',
+      layout: 'page',
+    })
+
+    expect(page).toContain('<h1>&lt;img src=x onerror=alert(1)&gt;</h1>')
+    expect(page).toContain('<div class="eyebrow">&lt;b&gt;Acme&lt;/b&gt;</div>')
+    expect(page).not.toContain('<img src=x')
+    expect(page).not.toContain('<b>Acme</b>')
+  })
+
   /** Somebody visiting a page a site already embeds should be told, not shown a dead form. */
   it('renders a paused form as closed, with no form to submit', () => {
     const page = render({ status: 'paused' })
 
     expect(page).toContain('not accepting submissions')
     expect(page).not.toContain('<form')
+    expect(page).toContain('<h1>Website contact</h1>')
+  })
+
+  it('renders a paused iframe embed without page chrome', () => {
+    const page = render({ status: 'paused' }, [field()], 'embed')
+
+    expect(page).toContain('not accepting submissions')
+    expect(page).not.toContain('<form')
+    expect(page).not.toContain('<h1>')
   })
 
   it('keeps itself out of search results', () => {
@@ -212,17 +295,29 @@ describe('embedContentSecurityPolicy', () => {
 })
 
 describe('embedSnippets', () => {
-  it('offers an iframe that needs no JavaScript', () => {
-    const snippets = embedSnippets('https://kelpie.test/v1/public/forms/pk_test/embed', 'form_1')
+  it('offers an iframe that needs no JavaScript, pointed at the bare embed URL', () => {
+    const snippets = embedSnippets(
+      'https://kelpie.test/v1/public/forms/pk_test/embed?view=page',
+      'https://kelpie.test/v1/public/forms/pk_test/embed',
+      'form_1',
+    )
 
+    expect(snippets.url).toContain('view=page')
+    expect(snippets.embedUrl).toBe('https://kelpie.test/v1/public/forms/pk_test/embed')
     expect(snippets.iframe).toContain('<iframe src="https://kelpie.test/v1/public/forms/pk_test/embed"')
+    expect(snippets.iframe).not.toContain('view=page')
     expect(snippets.iframe).not.toContain('<script')
   })
 
   it('offers a script that resizes the frame as the page grows', () => {
-    const snippets = embedSnippets('https://kelpie.test/v1/public/forms/pk_test/embed', 'form_1')
+    const snippets = embedSnippets(
+      'https://kelpie.test/v1/public/forms/pk_test/embed?view=page',
+      'https://kelpie.test/v1/public/forms/pk_test/embed',
+      'form_1',
+    )
 
     expect(snippets.script).toContain("event.data.kelpie === 'height'")
     expect(snippets.script).toContain("event.data.formId === 'form_1'")
+    expect(snippets.script).toContain('src="https://kelpie.test/v1/public/forms/pk_test/embed"')
   })
 })

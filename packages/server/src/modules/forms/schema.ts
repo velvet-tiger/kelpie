@@ -77,6 +77,11 @@ export const forms = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    /**
+     * Heading shown on the hosted/embed page. Independent of `name` (the CRM
+     * label); defaults to `name` at create time.
+     */
+    title: text('title').notNull(),
     description: text('description'),
     status: text('status').notNull().default('active'),
     thankYouMessage: text('thank_you_message').notNull().default(''),

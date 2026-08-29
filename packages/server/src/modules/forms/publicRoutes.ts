@@ -7,6 +7,7 @@ import { PUBLIC_ROUTE_PREFIX, readJsonBody, requestOrigin } from '../../lib/http
 import { requireCapability } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
+import { findWorkspace } from '../workspace/repository.ts'
 import { embedContentSecurityPolicy, renderEmbedPage } from './embed.ts'
 import * as repository from './repository.ts'
 import type { FormSubmitService, SubmitOutcome } from './submission.ts'
@@ -83,12 +84,24 @@ export function mountPublicFormRoutes(
     // module off does not serve its embed either.
     await requireCapability(dependencies.entitlements, form.workspaceId, moduleCapabilityName('forms'))
 
+    const workspace = await findWorkspace(dependencies.db, form.workspaceId)
+
+    if (workspace === undefined) {
+      throw AppError.notFound('Form not found')
+    }
+
+    // `view=page` is the standalone hosted URL (brand chrome). The default —
+    // and what iframe snippets load — is the bare embed: fields only.
+    const layout = context.req.query('view') === 'page' ? 'page' : 'embed'
+
     const nonce = generateNonce()
     const page = renderEmbedPage({
       form,
       fields: await repository.listFields(dependencies.db, form.id),
       submitUrl: `${requestOrigin(context)}${PUBLIC_ROUTE_PREFIX}/forms/${publicKey}/submit`,
       nonce,
+      workspaceName: workspace.name,
+      layout,
     })
 
     context.header('Content-Security-Policy', embedContentSecurityPolicy(nonce))

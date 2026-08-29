@@ -35,3 +35,61 @@ export const NEW_SELECT_OPTIONS = [
   { key: 'option_a', value: 'Option A', valueType: 'string' as const },
   { key: 'option_b', value: 'Option B', valueType: 'string' as const },
 ]
+
+/**
+ * One ready-made field per CRM mapping target, in the target enum's order.
+ *
+ * "Add field" offers these so adding the company field is one click, not
+ * add-then-configure. Only one field may carry a CRM target, so the menu shows
+ * each preset only while its target is free — `unusedCrmPresets` in
+ * `fieldList.ts` does that filtering.
+ */
+export const CRM_FIELD_PRESETS: readonly FormFieldInput[] = [
+  { label: 'Name', type: 'text', required: false, mapTo: 'person.name', placeholder: 'Your name' },
+  {
+    label: 'Email',
+    type: 'email',
+    required: true,
+    mapTo: 'person.email',
+    placeholder: 'you@company.com',
+  },
+  { label: 'Company', type: 'text', required: false, mapTo: 'company.name', placeholder: 'Company name' },
+  {
+    label: 'Company website',
+    type: 'text',
+    required: false,
+    mapTo: 'company.domain',
+    placeholder: 'company.com',
+  },
+  { label: 'Job title', type: 'text', required: false, mapTo: 'position.title', placeholder: 'Your role' },
+  { label: 'Deal name', type: 'text', required: false, mapTo: 'deal.name', placeholder: null },
+  { label: 'Opportunity name', type: 'text', required: false, mapTo: 'opportunity.name', placeholder: null },
+  { label: 'Partnership name', type: 'text', required: false, mapTo: 'partnership.name', placeholder: null },
+]
+
+/** A submission-only entry in the "Add field" menu: shown by control, not by mapping. */
+export interface SubmissionFieldPreset {
+  /** What the menu shows. The field itself starts with its own label. */
+  readonly menuLabel: string
+  readonly field: FormFieldInput
+}
+
+/** The submission-only fields "Add field" always offers; they may repeat freely. */
+export const SUBMISSION_FIELD_PRESETS: readonly SubmissionFieldPreset[] = [
+  { menuLabel: 'Text', field: NEW_FIELD },
+  {
+    menuLabel: 'Text area',
+    field: { label: 'Message', type: 'textarea', required: false, mapTo: 'submission', placeholder: null },
+  },
+  {
+    menuLabel: 'Select',
+    field: {
+      label: 'New select',
+      type: 'select',
+      required: false,
+      mapTo: 'submission',
+      placeholder: null,
+      options: NEW_SELECT_OPTIONS,
+    },
+  },
+]

@@ -64,6 +64,11 @@ export interface FormAttachTarget {
 export interface Form extends RecordTimestamps {
   readonly id: string
   readonly name: string
+  /**
+   * Heading on the hosted/embed page. Defaults to `name` when the form is
+   * created; edit it from Settings without renaming the form in the CRM.
+   */
+  readonly title: string
   readonly description: string | null
   readonly status: FormStatus
   readonly fields: readonly FormField[]
@@ -156,6 +161,7 @@ export const formSchema: z.ZodType<Form, unknown> = z
   .object({
     id: idSchema,
     name: z.string(),
+    title: z.string(),
     description: z.string().nullable(),
     status: z.enum(FORM_STATUSES),
     fields: z.array(formFieldSchema),
@@ -184,6 +190,7 @@ export const formSchema: z.ZodType<Form, unknown> = z
     (wire): Form => ({
       id: wire.id,
       name: wire.name,
+      title: wire.title,
       description: wire.description,
       status: wire.status,
       fields: wire.fields,
@@ -235,6 +242,8 @@ export interface FormFieldInput {
 
 export interface CreateFormInput {
   readonly name: string
+  /** Defaults to `name` when omitted. */
+  readonly title?: string
   readonly description?: string | null
   readonly status?: FormStatus
   readonly fields: readonly FormFieldInput[]
@@ -264,6 +273,7 @@ export interface CreateFormInput {
  */
 export interface FormInput {
   readonly name?: string
+  readonly title?: string
   readonly description?: string | null
   readonly status?: FormStatus
   readonly fields?: readonly FormFieldInput[]
@@ -307,6 +317,7 @@ function attachTargetBody(target: FormAttachTarget): Record<string, unknown> {
 export function createFormBody(input: CreateFormInput): Record<string, unknown> {
   return definedFields({
     name: input.name,
+    title: input.title,
     description: input.description,
     status: input.status,
     fields: input.fields.map(fieldBody),
@@ -334,6 +345,7 @@ export function createFormBody(input: CreateFormInput): Record<string, unknown> 
 export function formBody(input: FormInput): Record<string, unknown> {
   return definedFields({
     name: input.name,
+    title: input.title,
     description: input.description,
     status: input.status,
     fields: input.fields?.map(fieldBody),
