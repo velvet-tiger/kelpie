@@ -1,3 +1,6 @@
+import type { FormAttachTarget, PipelineKind } from '@kelpie/schemas'
+import { PIPELINE_KINDS } from '@kelpie/schemas'
+
 import { changedKeys } from '../../lib/changes.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
@@ -10,7 +13,9 @@ import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
+import * as listsRepository from '../lists/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
+import { missingTargets } from '../recordTargets.ts'
 import { fieldsDiffer, findFieldProblems, storedOptions } from './fields.ts'
 import type { FieldDraft, FieldShape } from './fields.ts'
 import * as repository from './repository.ts'
@@ -46,9 +51,17 @@ export interface FormsDependencies {
   readonly generatePublicKey?: () => string
 }
 
-/** A form as the API returns one: the stored row minus tenancy, with its fields. */
+/**
+ * A form as the API returns one: the stored row minus tenancy, with its
+ * fields, its list memberships, and its attach targets. `list_ids` and
+ * `attach_targets` are not columns of `forms` — they live in the joined
+ * `form_lists` / `form_attach_targets` tables — but they cross the wire
+ * nested under the form to keep write and read shapes symmetric.
+ */
 export type FormView = Omit<FormRecord, 'workspaceId'> & {
   readonly fields: readonly FormFieldView[]
+  readonly listIds: readonly string[]
+  readonly attachTargets: readonly FormAttachTarget[]
 }
 
 export type FormFieldView = Omit<FormFieldRecord, 'workspaceId' | 'formId'>
@@ -64,6 +77,20 @@ export interface CreateFormInput {
   readonly createDeal: boolean
   readonly dealStageId: string | null
   readonly dealNameTemplate: string | null
+  readonly createOpportunity: boolean
+  readonly opportunityKind: string | null
+  readonly opportunityStageId: string | null
+  readonly opportunityNameTemplate: string | null
+  readonly opportunityOwnerId: string | null
+  readonly createPartnership: boolean
+  readonly partnershipKind: string | null
+  readonly partnershipStageId: string | null
+  readonly partnershipNameTemplate: string | null
+  readonly partnershipOwnerId: string | null
+  readonly personTags: readonly string[]
+  readonly companyTags: readonly string[]
+  readonly listIds: readonly string[]
+  readonly attachTargets: readonly FormAttachTarget[]
 }
 
 /** PATCH semantics: an absent field is left alone, and null clears a nullable one. */
@@ -77,6 +104,22 @@ export interface UpdateFormInput {
   readonly createDeal?: boolean | undefined
   readonly dealStageId?: string | null | undefined
   readonly dealNameTemplate?: string | null | undefined
+  readonly createOpportunity?: boolean | undefined
+  readonly opportunityKind?: string | null | undefined
+  readonly opportunityStageId?: string | null | undefined
+  readonly opportunityNameTemplate?: string | null | undefined
+  readonly opportunityOwnerId?: string | null | undefined
+  readonly createPartnership?: boolean | undefined
+  readonly partnershipKind?: string | null | undefined
+  readonly partnershipStageId?: string | null | undefined
+  readonly partnershipNameTemplate?: string | null | undefined
+  readonly partnershipOwnerId?: string | null | undefined
+  readonly personTags?: readonly string[] | undefined
+  readonly companyTags?: readonly string[] | undefined
+  /** Absent leaves list memberships alone. Present replaces the whole set. */
+  readonly listIds?: readonly string[] | undefined
+  /** Absent leaves attach targets alone. Present replaces the whole set. */
+  readonly attachTargets?: readonly FormAttachTarget[] | undefined
 }
 
 export interface FormsService {
@@ -98,10 +141,15 @@ function toFieldView(record: FormFieldRecord): FormFieldView {
   return view
 }
 
-function toView(record: FormRecord, fields: readonly FormFieldRecord[]): FormView {
+function toView(
+  record: FormRecord,
+  fields: readonly FormFieldRecord[],
+  listIds: readonly string[],
+  attachTargets: readonly FormAttachTarget[],
+): FormView {
   const { workspaceId: _workspaceId, ...view } = record
 
-  return { ...view, fields: fields.map(toFieldView) }
+  return { ...view, fields: fields.map(toFieldView), listIds, attachTargets }
 }
 
 function toSubmissionView(record: FormSubmissionRecord): FormSubmissionView {
@@ -119,7 +167,84 @@ function toStoredColumns(input: UpdateFormInput): Partial<repository.FormColumns
     ...(input.createDeal === undefined ? {} : { createDeal: input.createDeal }),
     ...(input.dealStageId === undefined ? {} : { dealStageId: input.dealStageId }),
     ...(input.dealNameTemplate === undefined ? {} : { dealNameTemplate: input.dealNameTemplate }),
+    ...(input.createOpportunity === undefined
+      ? {}
+      : { createOpportunity: input.createOpportunity }),
+    ...(input.opportunityKind === undefined ? {} : { opportunityKind: input.opportunityKind }),
+    ...(input.opportunityStageId === undefined
+      ? {}
+      : { opportunityStageId: input.opportunityStageId }),
+    ...(input.opportunityNameTemplate === undefined
+      ? {}
+      : { opportunityNameTemplate: input.opportunityNameTemplate }),
+    ...(input.opportunityOwnerId === undefined
+      ? {}
+      : { opportunityOwnerId: input.opportunityOwnerId }),
+    ...(input.createPartnership === undefined
+      ? {}
+      : { createPartnership: input.createPartnership }),
+    ...(input.partnershipKind === undefined ? {} : { partnershipKind: input.partnershipKind }),
+    ...(input.partnershipStageId === undefined
+      ? {}
+      : { partnershipStageId: input.partnershipStageId }),
+    ...(input.partnershipNameTemplate === undefined
+      ? {}
+      : { partnershipNameTemplate: input.partnershipNameTemplate }),
+    ...(input.partnershipOwnerId === undefined
+      ? {}
+      : { partnershipOwnerId: input.partnershipOwnerId }),
+    ...(input.personTags === undefined ? {} : { personTags: [...input.personTags] }),
+    ...(input.companyTags === undefined ? {} : { companyTags: [...input.companyTags] }),
   }
+}
+
+/** Where the resulting-state validation puts its answers. */
+interface ResultingState {
+  readonly fields: readonly FieldShape[]
+  readonly createDeal: boolean
+  readonly createOpportunity: boolean
+  readonly opportunityKind: string | null
+  readonly createPartnership: boolean
+  readonly partnershipKind: string | null
+  readonly listIds: readonly string[]
+  readonly attachTargets: readonly FormAttachTarget[]
+}
+
+/** Sorts an attach-target list so a resent identical set is not a write. */
+function sortAttachTargets(
+  targets: readonly FormAttachTarget[],
+): readonly FormAttachTarget[] {
+  return [...targets].sort((left, right) => {
+    if (left.targetType !== right.targetType) {
+      return left.targetType < right.targetType ? -1 : 1
+    }
+
+    return left.targetId < right.targetId ? -1 : left.targetId > right.targetId ? 1 : 0
+  })
+}
+
+function sameStringSet(current: readonly string[], next: readonly string[]): boolean {
+  if (current.length !== next.length) {
+    return false
+  }
+
+  const currentSet = new Set(current)
+
+  return next.every((value) => currentSet.has(value))
+}
+
+function sameAttachTargets(
+  current: readonly FormAttachTarget[],
+  next: readonly FormAttachTarget[],
+): boolean {
+  if (current.length !== next.length) {
+    return false
+  }
+
+  const key = (target: FormAttachTarget): string => `${target.targetType}:${target.targetId}`
+  const currentSet = new Set(current.map(key))
+
+  return next.every((target) => currentSet.has(key(target)))
 }
 
 export function createFormsService(dependencies: FormsDependencies): FormsService {
@@ -138,39 +263,185 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
   }
 
   /**
-   * A stage a form's deals may open in: in this workspace, and in the deal
-   * pipeline.
+   * A stage a form's created records of `kind` may open in: in this workspace,
+   * and in the matching pipeline.
    *
    * The wrong-workspace case reads as missing, per `api.md`. The wrong-pipeline
-   * case is a request naming a real stage that can never hold a deal, which is a
-   * validation error rather than a missing record. Same rule the deals service
-   * applies to `stage_id`.
+   * case is a request naming a real stage that can never hold a record of
+   * `kind`, which is a validation error rather than a missing record. Same rule
+   * the deals service applies to `stage_id`.
+   *
+   * @param field The body-field name (`deal_stage_id`, `opportunity_stage_id`,
+   *   `partnership_stage_id`) that the 422 detail should point at.
    */
-  async function requireDealStage(workspaceId: string, stageId: string): Promise<void> {
+  async function requireStageOfKind(
+    workspaceId: string,
+    kind: PipelineKind,
+    stageId: string,
+    field: string,
+  ): Promise<void> {
     const stage = await pipelineRepository.findStage(dependencies.db, workspaceId, stageId)
 
     if (stage === undefined) {
       throw AppError.notFound('Pipeline stage not found')
     }
 
-    if (stage.kind !== 'deal') {
-      throw AppError.validationFailed('That stage is not part of the deal pipeline', [
-        { field: 'deal_stage_id', message: `It belongs to the ${stage.kind} pipeline` },
+    if (stage.kind !== kind) {
+      throw AppError.validationFailed(`That stage is not part of the ${kind} pipeline`, [
+        { field, message: `It belongs to the ${stage.kind} pipeline` },
       ])
     }
   }
 
   /**
-   * @param createsDeal Part of the check, not context: whether a form needs a
-   *   company mapping depends on it, so the two are validated together.
    * @throws AppError 422 listing every problem with the field list at once.
    */
-  function requireUsableFields(fields: readonly FieldShape[], createsDeal: boolean): void {
-    const problems = findFieldProblems(fields, createsDeal)
+  function requireUsableFields(
+    fields: readonly FieldShape[],
+    createsDeal: boolean,
+    createsPartnership: boolean,
+  ): void {
+    const problems = findFieldProblems(fields, createsDeal, createsPartnership)
 
     if (problems.length > 0) {
       throw AppError.validationFailed('That field list cannot process a submission', problems)
     }
+  }
+
+  /**
+   * Refuses a trigger whose `kind` is empty while the toggle is on. Kinds are
+   * free text (no pipeline enum), so the only way to catch a misconfiguration
+   * before submit time is at form write: the runner would otherwise store an
+   * opportunity or partnership with an empty `kind`, which is a valid string
+   * but not a valid opportunity/partnership.
+   */
+  function requireKindWhenCreating(
+    createFlag: boolean,
+    kind: string | null,
+    field: string,
+    trigger: string,
+  ): void {
+    if (createFlag && (kind === null || kind.trim().length === 0)) {
+      throw AppError.validationFailed(`A form that creates ${trigger}s needs a kind`, [
+        { field, message: `Set a kind when create_${trigger} is on` },
+      ])
+    }
+  }
+
+  /**
+   * The lists an action-configured form names must exist in this workspace and
+   * target `person` or `company`. A list of another target type would never
+   * receive a submitter or a company — a form only knows how to feed those two
+   * — so accepting it would misdirect the visitor's inbound landing.
+   */
+  async function requireActionLists(
+    workspaceId: string,
+    listIds: readonly string[],
+  ): Promise<void> {
+    if (listIds.length === 0) {
+      return
+    }
+
+    const rows = await listsRepository.listListsById(dependencies.db, workspaceId, listIds)
+    const found = new Map(rows.map((row) => [row.id, row.targetType]))
+    const problems = listIds
+      .map((listId, index) => {
+        const targetType = found.get(listId)
+
+        if (targetType === undefined) {
+          return { field: `list_ids.${String(index)}`, message: `No list ${listId} here` }
+        }
+
+        if (targetType !== 'person' && targetType !== 'company') {
+          return {
+            field: `list_ids.${String(index)}`,
+            message: `A list feeding a form must target person or company (got ${targetType})`,
+          }
+        }
+
+        return undefined
+      })
+      .filter((problem): problem is NonNullable<typeof problem> => problem !== undefined)
+
+    if (problems.length > 0) {
+      throw AppError.validationFailed(`Some list_ids cannot receive a submission`, problems)
+    }
+  }
+
+  /**
+   * Every attach target must exist in this workspace. Same `missingTargets`
+   * check notes and list members use, grouped per type so one query per
+   * pipeline kind resolves the whole set instead of one per row.
+   */
+  async function requireAttachTargets(
+    workspaceId: string,
+    targets: readonly FormAttachTarget[],
+  ): Promise<void> {
+    if (targets.length === 0) {
+      return
+    }
+
+    const problems: { field: string; message: string }[] = []
+
+    for (const kind of PIPELINE_KINDS) {
+      const ofKind = targets.filter((target) => target.targetType === kind)
+
+      if (ofKind.length === 0) {
+        continue
+      }
+
+      const missing = await missingTargets(
+        dependencies.db,
+        workspaceId,
+        kind,
+        ofKind.map((target) => target.targetId),
+      )
+
+      if (missing.length === 0) {
+        continue
+      }
+
+      const missingSet = new Set(missing)
+
+      targets.forEach((target, index) => {
+        if (target.targetType === kind && missingSet.has(target.targetId)) {
+          problems.push({
+            field: `attach_targets.${String(index)}`,
+            message: `No ${kind} ${target.targetId} here`,
+          })
+        }
+      })
+    }
+
+    if (problems.length > 0) {
+      throw new AppError('not_found', 'Attach target not found', problems)
+    }
+  }
+
+  /**
+   * Resulting-state validation for everything except the three stage-id
+   * checks: those depend on whether the id actually changed, which is only
+   * known at the call site, so they stay inline in create() and update().
+   */
+  async function validateResultingState(
+    workspaceId: string,
+    state: ResultingState,
+  ): Promise<void> {
+    requireUsableFields(state.fields, state.createDeal, state.createPartnership)
+    requireKindWhenCreating(
+      state.createOpportunity,
+      state.opportunityKind,
+      'opportunity_kind',
+      'opportunity',
+    )
+    requireKindWhenCreating(
+      state.createPartnership,
+      state.partnershipKind,
+      'partnership_kind',
+      'partnership',
+    )
+    await requireActionLists(workspaceId, state.listIds)
+    await requireAttachTargets(workspaceId, state.attachTargets)
   }
 
   /** Writes a field list as positions 0..n-1, which is the order it arrived in. */
@@ -204,11 +475,38 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       records.map((record) => record.id),
     )
 
-    return records.map((record) =>
-      toView(
-        record,
-        fields.filter((field) => field.formId === record.id),
-      ),
+    // list_ids and attach_targets are per-form, so a list-page fetch takes them
+    // in one round trip per form. In practice a list page is small (25 rows by
+    // default, per api.md), and the sets themselves are short.
+    return Promise.all(
+      records.map(async (record) => {
+        const [listRows, attachTargets] = await Promise.all([
+          repository.listFormLists(dependencies.db, record.id),
+          repository.listAttachTargets(dependencies.db, record.id),
+        ])
+
+        return toView(
+          record,
+          fields.filter((field) => field.formId === record.id),
+          listRows.map((row) => row.listId),
+          attachTargets,
+        )
+      }),
+    )
+  }
+
+  async function hydrateOne(record: FormRecord): Promise<FormView> {
+    const [fields, listRows, attachTargets] = await Promise.all([
+      repository.listFields(dependencies.db, record.id),
+      repository.listFormLists(dependencies.db, record.id),
+      repository.listAttachTargets(dependencies.db, record.id),
+    ])
+
+    return toView(
+      record,
+      fields,
+      listRows.map((row) => row.listId),
+      attachTargets,
     )
   }
 
@@ -226,19 +524,45 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       const workspaceId = requireWorkspaceId(actor)
       const form = await require(workspaceId, id)
 
-      return toView(form, await repository.listFields(dependencies.db, id))
+      return hydrateOne(form)
     },
 
     async create(actor, input) {
       const workspaceId = requireWorkspaceId(actor)
 
-      requireUsableFields(input.fields, input.createDeal)
+      await validateResultingState(workspaceId, {
+        fields: input.fields,
+        createDeal: input.createDeal,
+        createOpportunity: input.createOpportunity,
+        opportunityKind: input.opportunityKind,
+        createPartnership: input.createPartnership,
+        partnershipKind: input.partnershipKind,
+        listIds: input.listIds,
+        attachTargets: input.attachTargets,
+      })
 
       if (input.dealStageId !== null) {
-        await requireDealStage(workspaceId, input.dealStageId)
+        await requireStageOfKind(workspaceId, 'deal', input.dealStageId, 'deal_stage_id')
+      }
+      if (input.opportunityStageId !== null) {
+        await requireStageOfKind(
+          workspaceId,
+          'opportunity',
+          input.opportunityStageId,
+          'opportunity_stage_id',
+        )
+      }
+      if (input.partnershipStageId !== null) {
+        await requireStageOfKind(
+          workspaceId,
+          'partnership',
+          input.partnershipStageId,
+          'partnership_stage_id',
+        )
       }
 
       const id = dependencies.createId('form')
+      const sortedAttachTargets = sortAttachTargets(input.attachTargets)
 
       return dependencies.transaction(async ({ tx, events }) => {
         const created = await repository.insertForm(tx, {
@@ -251,13 +575,27 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           createDeal: input.createDeal,
           dealStageId: input.dealStageId,
           dealNameTemplate: input.dealNameTemplate,
+          createOpportunity: input.createOpportunity,
+          opportunityKind: input.opportunityKind,
+          opportunityStageId: input.opportunityStageId,
+          opportunityNameTemplate: input.opportunityNameTemplate,
+          opportunityOwnerId: input.opportunityOwnerId,
+          createPartnership: input.createPartnership,
+          partnershipKind: input.partnershipKind,
+          partnershipStageId: input.partnershipStageId,
+          partnershipNameTemplate: input.partnershipNameTemplate,
+          partnershipOwnerId: input.partnershipOwnerId,
+          personTags: [...input.personTags],
+          companyTags: [...input.companyTags],
           publicKey: generatePublicKey(),
         })
         const fields = await writeFields(tx, workspaceId, id, input.fields)
+        await repository.replaceFormLists(tx, workspaceId, id, input.listIds)
+        await repository.replaceAttachTargets(tx, workspaceId, id, sortedAttachTargets)
 
         events.emit('forms.form.created', { type: 'form', id }, {})
 
-        return toView(created, fields)
+        return toView(created, fields, [...input.listIds], sortedAttachTargets)
       }, { workspaceId, actor: toEventActor(actor) })
     },
 
@@ -265,17 +603,57 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       const workspaceId = requireWorkspaceId(actor)
       const existing = await require(workspaceId, id)
       const stored = await repository.listFields(dependencies.db, id)
+      const storedListRows = await repository.listFormLists(dependencies.db, id)
+      const storedListIds = storedListRows.map((row) => row.listId)
+      const storedAttachTargets = await repository.listAttachTargets(dependencies.db, id)
+
+      const nextListIds = changes.listIds ?? storedListIds
+      const nextAttachTargets = sortAttachTargets(changes.attachTargets ?? storedAttachTargets)
 
       // Validated against the state the request would leave behind, not against
       // what it carried. Turning `create_deal` on is what makes a form with no
       // company mapping unusable, and that request names no fields at all.
-      requireUsableFields(
-        changes.fields ?? stored,
-        changes.createDeal ?? existing.createDeal,
-      )
+      await validateResultingState(workspaceId, {
+        fields: changes.fields ?? stored,
+        createDeal: changes.createDeal ?? existing.createDeal,
+        createOpportunity: changes.createOpportunity ?? existing.createOpportunity,
+        opportunityKind:
+          changes.opportunityKind === undefined
+            ? existing.opportunityKind
+            : changes.opportunityKind,
+        createPartnership: changes.createPartnership ?? existing.createPartnership,
+        partnershipKind:
+          changes.partnershipKind === undefined
+            ? existing.partnershipKind
+            : changes.partnershipKind,
+        listIds: nextListIds,
+        attachTargets: nextAttachTargets,
+      })
 
       if (typeof changes.dealStageId === 'string' && changes.dealStageId !== existing.dealStageId) {
-        await requireDealStage(workspaceId, changes.dealStageId)
+        await requireStageOfKind(workspaceId, 'deal', changes.dealStageId, 'deal_stage_id')
+      }
+      if (
+        typeof changes.opportunityStageId === 'string' &&
+        changes.opportunityStageId !== existing.opportunityStageId
+      ) {
+        await requireStageOfKind(
+          workspaceId,
+          'opportunity',
+          changes.opportunityStageId,
+          'opportunity_stage_id',
+        )
+      }
+      if (
+        typeof changes.partnershipStageId === 'string' &&
+        changes.partnershipStageId !== existing.partnershipStageId
+      ) {
+        await requireStageOfKind(
+          workspaceId,
+          'partnership',
+          changes.partnershipStageId,
+          'partnership_stage_id',
+        )
       }
 
       const columns = toStoredColumns(changes)
@@ -285,14 +663,25 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       // it would move every field id and publish a `record.updated` no consumer
       // can act on, which is the same reason `changedKeys` guards the columns.
       const rewritesFields = changes.fields !== undefined && fieldsDiffer(stored, changes.fields)
+      const rewritesLists =
+        changes.listIds !== undefined && !sameStringSet(storedListIds, changes.listIds)
+      const rewritesAttachTargets =
+        changes.attachTargets !== undefined &&
+        !sameAttachTargets(storedAttachTargets, changes.attachTargets)
 
-      if (written.length === 0 && !rewritesFields) {
-        return toView(existing, stored)
+      if (
+        written.length === 0 &&
+        !rewritesFields &&
+        !rewritesLists &&
+        !rewritesAttachTargets
+      ) {
+        return toView(existing, stored, storedListIds, storedAttachTargets)
       }
 
       return dependencies.transaction(async ({ tx, events }) => {
-        // A changed field list is a change to the form, so it stamps
-        // `updated_at` even when no column of the form itself moved.
+        // A changed field list, list set, or attach-target set is a change to
+        // the form, so it stamps `updated_at` even when no column of the form
+        // itself moved.
         const updated = await repository.updateForm(tx, workspaceId, id, {
           ...columns,
           updatedAt: dependencies.now(),
@@ -312,13 +701,28 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           return writeFields(tx, workspaceId, id, changes.fields)
         })()
 
-        events.emit(
-          'forms.form.updated',
-          { type: 'form', id },
-          { changed: rewritesFields ? [...written, 'fields'] : written },
-        )
+        if (rewritesLists) {
+          await repository.replaceFormLists(tx, workspaceId, id, nextListIds)
+        }
+        if (rewritesAttachTargets) {
+          await repository.replaceAttachTargets(tx, workspaceId, id, nextAttachTargets)
+        }
 
-        return toView(updated, fields)
+        const changedFields: string[] = [...written]
+
+        if (rewritesFields) {
+          changedFields.push('fields')
+        }
+        if (rewritesLists) {
+          changedFields.push('listIds')
+        }
+        if (rewritesAttachTargets) {
+          changedFields.push('attachTargets')
+        }
+
+        events.emit('forms.form.updated', { type: 'form', id }, { changed: changedFields })
+
+        return toView(updated, fields, nextListIds, nextAttachTargets)
       }, { workspaceId, actor: toEventActor(actor) })
     },
 

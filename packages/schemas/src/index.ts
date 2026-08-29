@@ -26,6 +26,7 @@ export {
   COMPANY_STAGES,
   EXTENSIBLE_RECORD_TYPES,
   FIRST_INTERVIEW_STAGE,
+  FORM_ACTION_STATUSES,
   FORM_FIELD_MAP_TARGET_LABELS,
   FORM_FIELD_MAP_TARGETS,
   FORM_FIELD_TYPES,
@@ -72,6 +73,7 @@ export type {
   CandidateStatus,
   CompanyStage,
   ExtensibleRecordType,
+  FormActionStatus,
   FormFieldMapTarget,
   FormFieldType,
   FormOptionValueType,
@@ -181,6 +183,7 @@ export { createFormBody, formBody, formSchema } from './form.ts'
 export type {
   CreateFormInput,
   Form,
+  FormAttachTarget,
   FormField,
   FormFieldInput,
   FormFieldOption,
@@ -189,7 +192,11 @@ export type {
 } from './form.ts'
 
 export { formSubmissionSchema, formSubmitResultSchema } from './formSubmission.ts'
-export type { FormSubmission, FormSubmitResult } from './formSubmission.ts'
+export type {
+  FormSubmission,
+  FormSubmissionActionEntry,
+  FormSubmitResult,
+} from './formSubmission.ts'
 
 export {
   CONFLICT_MODE_LABELS,

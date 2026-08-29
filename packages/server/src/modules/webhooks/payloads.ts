@@ -41,6 +41,9 @@ interface RecordUpdatedData {
 interface FormSubmittedData {
   readonly formId?: string
   readonly submissionId?: string
+  readonly opportunityId?: string | null
+  readonly partnershipId?: string | null
+  readonly actions?: readonly { readonly action: string; readonly status: string }[]
 }
 
 /**
@@ -90,7 +93,11 @@ export function translateEnvelopeEvent(
 
   if (suffix === 'submitted') {
     // Form submission is the only `.submitted` wire event today. The forms
-    // module emits its envelope with `formId` and `submissionId` in `data`.
+    // module emits its envelope with `formId` and `submissionId` in `data`,
+    // plus (per forms.md §Webhooks) the opportunity/partnership ids the
+    // post-submit runner created and one status per configured action. The
+    // per-action `detail` string is deliberately omitted — the authenticated
+    // Submissions read carries it in full, the webhook only says what ran.
     const data = event.data as FormSubmittedData
     if (data.formId === undefined || data.submissionId === undefined) {
       return undefined
@@ -99,7 +106,16 @@ export function translateEnvelopeEvent(
     return {
       workspaceId: event.workspaceId,
       event: 'form.submitted',
-      data: { form_id: data.formId, submission_id: data.submissionId },
+      data: {
+        form_id: data.formId,
+        submission_id: data.submissionId,
+        opportunity_id: data.opportunityId ?? null,
+        partnership_id: data.partnershipId ?? null,
+        actions:
+          data.actions === undefined
+            ? []
+            : data.actions.map((entry) => ({ action: entry.action, status: entry.status })),
+      },
     }
   }
 

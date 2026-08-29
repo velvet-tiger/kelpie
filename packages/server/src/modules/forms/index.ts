@@ -23,7 +23,18 @@ import { registerFormsTools } from './tools.ts'
 export function createFormsModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'forms',
-    requires: ['people', 'companies', 'positions', 'pipelines', 'deals', 'activities'],
+    requires: [
+      'people',
+      'companies',
+      'positions',
+      'pipelines',
+      'deals',
+      'opportunities',
+      'partnerships',
+      'raises',
+      'lists',
+      'activities',
+    ],
     events: formsEvents,
 
     register(context) {

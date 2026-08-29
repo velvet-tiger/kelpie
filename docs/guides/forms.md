@@ -8,7 +8,7 @@ Forms are Kelpie's one public surface. Submissions arrive from strangers' browse
 
 ## Building a form
 
-A form's detail page has four tabs: **Submissions**, **Fields**, **Settings**, and **Embed**. The field builder supports text, email, textarea, and select fields, dragged into order. What a field *maps to* decides what a submission writes.
+A form's detail page has five tabs: **Submissions**, **Fields**, **Actions**, **Settings**, and **Embed**. The field builder supports text, email, textarea, and select fields, dragged into order. What a field *maps to* decides what a submission writes.
 
 The builder is the one screen in Kelpie that saves explicitly rather than as you type — press Save when the field list is right. It refuses to save an invalid list and shows the reason beside the field responsible.
 
@@ -16,7 +16,7 @@ The builder is the one screen in Kelpie that saves explicitly rather than as you
 
 ## Mapping fields to records
 
-Seven targets:
+Nine targets:
 
 | Target | Writes |
 | --- | --- |
@@ -25,7 +25,9 @@ Seven targets:
 | Company · name | The company's name. |
 | Company · domain | The company's domain, and how an existing company is matched. |
 | Position · title | The submitter's job title, stored on the person↔company link. |
-| Deal · name | The deal's name, when deal creation is on. |
+| Deal · name | The deal's name, when the Deal trigger is on. |
+| Opportunity · name | The opportunity's name, when the Opportunity trigger is on. |
+| Partnership · name | The partnership's name, when the Partnership trigger is on. |
 | Submission only | Stored with the submission and written to no record — right for "How can we help?". |
 
 ## What a submission creates
@@ -34,11 +36,19 @@ A submit matches the person by email and the company by domain, then by name. Th
 
 **A company is never inferred from an email address.** Only an answer mapped to Company · domain sets one. Email domains are not company identifiers — one company sends from several, consumer addresses belong to none, and two unrelated people can share one — so inferring would quietly merge records that were never the same company. A form that wants companies matched by domain asks for the domain.
 
-## Creating deals
+## Post-submit actions
 
-Turn on deal creation in Settings and pick a stage (or let it default to your pipeline's first open stage). The deal's name comes from a Deal · name field if you have one, or from a template that can use `{{company.name}}` and `{{person.name}}`.
+The **Actions** tab is where you say what the form does with a submission beyond capturing it. All actions are optional and every control commits as you change it. If any action fails, the runner logs the failure to the submission's action log and keeps going — a broken action never loses the lead.
 
-A deal belongs to a company, so a form that creates deals must carry a Company · name or Company · domain field — Kelpie refuses to save the settings otherwise, rather than let the form quietly never create the deals it promises. A visitor who skips an optional company field simply creates no deal that time.
+**Deal / Opportunity / Partnership triggers** sit side by side. (Before this release, the Deal trigger lived on Settings; it now sits with the other two, so the whole "what happens next?" story is on one screen.) For each: pick a stage (or let it default to the first open one), a name template that expands `{{company.name}}` and `{{person.name}}`, and — for Opportunity and Partnership — a kind and an owner. Deal and Partnership need a Company · name or Company · domain field on the form, because a deal and a partnership each belong to a company; Opportunity does not, because it may have none.
+
+**Tag the person / tag the company** merge a list of tags into the captured records. The merge is a union: it never removes a tag anyone set by hand. Company tags are skipped when no company is resolved.
+
+**Add to a list** feeds the submitter (for a person list) or the resolved company (for a company list) into an existing list. Deleting the list quietly drops the action from every form naming it — a list delete is never blocked by a form.
+
+**Attach the submitter to a record** links every submitter into a pre-existing deal, opportunity, raise, or partnership through `person_links` — "everyone who fills this form joins the Q4 accelerator opportunity". Deleting the record drops the mapping.
+
+Each configured action lands one entry on the submission's `action_log` — `ok`, `skipped` (the precondition was absent — a company tag on a submit that resolved no company), or `error` (something went wrong; the rest of the submit still ran). The Submissions tab shows the counts and the detail on hover.
 
 ## Embedding on your site
 

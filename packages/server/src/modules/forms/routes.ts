@@ -1,5 +1,7 @@
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
+import { PIPELINE_KINDS } from '@kelpie/schemas'
+import type { FormAttachTarget } from '@kelpie/schemas'
 
 import { AppError } from '../../lib/errors.ts'
 import {
@@ -54,6 +56,11 @@ const fieldBody = z.strictObject({
   placeholder: z.string().nullable().default(null),
 })
 
+const attachTargetBody = z.strictObject({
+  target_type: z.enum(PIPELINE_KINDS),
+  target_id: z.string().min(1),
+})
+
 const formShape = {
   name: z.string().min(1),
   description: z.string().nullable(),
@@ -63,6 +70,20 @@ const formShape = {
   create_deal: z.boolean(),
   deal_stage_id: z.string().min(1).nullable(),
   deal_name_template: z.string().nullable(),
+  create_opportunity: z.boolean(),
+  opportunity_kind: z.string().nullable(),
+  opportunity_stage_id: z.string().min(1).nullable(),
+  opportunity_name_template: z.string().nullable(),
+  opportunity_owner_id: z.string().min(1).nullable(),
+  create_partnership: z.boolean(),
+  partnership_kind: z.string().nullable(),
+  partnership_stage_id: z.string().min(1).nullable(),
+  partnership_name_template: z.string().nullable(),
+  partnership_owner_id: z.string().min(1).nullable(),
+  person_tags: z.array(z.string().min(1)),
+  company_tags: z.array(z.string().min(1)),
+  list_ids: z.array(z.string().min(1)),
+  attach_targets: z.array(attachTargetBody),
 }
 
 /**
@@ -82,6 +103,20 @@ export const createBody = z.strictObject({
   create_deal: formShape.create_deal.default(false),
   deal_stage_id: formShape.deal_stage_id.default(null),
   deal_name_template: formShape.deal_name_template.default(null),
+  create_opportunity: formShape.create_opportunity.default(false),
+  opportunity_kind: formShape.opportunity_kind.default(null),
+  opportunity_stage_id: formShape.opportunity_stage_id.default(null),
+  opportunity_name_template: formShape.opportunity_name_template.default(null),
+  opportunity_owner_id: formShape.opportunity_owner_id.default(null),
+  create_partnership: formShape.create_partnership.default(false),
+  partnership_kind: formShape.partnership_kind.default(null),
+  partnership_stage_id: formShape.partnership_stage_id.default(null),
+  partnership_name_template: formShape.partnership_name_template.default(null),
+  partnership_owner_id: formShape.partnership_owner_id.default(null),
+  person_tags: formShape.person_tags.default([]),
+  company_tags: formShape.company_tags.default([]),
+  list_ids: formShape.list_ids.default([]),
+  attach_targets: formShape.attach_targets.default([]),
 })
 
 export const updateBody = z.strictObject(formShape).partial()
@@ -126,6 +161,10 @@ function toFieldDraft(field: z.infer<typeof fieldBody>): FieldDraft {
   }
 }
 
+function toAttachTarget(body: z.infer<typeof attachTargetBody>): FormAttachTarget {
+  return { targetType: body.target_type, targetId: body.target_id }
+}
+
 export function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput {
   return {
     name: body.name,
@@ -136,6 +175,20 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput
     createDeal: body.create_deal,
     dealStageId: body.deal_stage_id,
     dealNameTemplate: body.deal_name_template,
+    createOpportunity: body.create_opportunity,
+    opportunityKind: body.opportunity_kind,
+    opportunityStageId: body.opportunity_stage_id,
+    opportunityNameTemplate: body.opportunity_name_template,
+    opportunityOwnerId: body.opportunity_owner_id,
+    createPartnership: body.create_partnership,
+    partnershipKind: body.partnership_kind,
+    partnershipStageId: body.partnership_stage_id,
+    partnershipNameTemplate: body.partnership_name_template,
+    partnershipOwnerId: body.partnership_owner_id,
+    personTags: body.person_tags,
+    companyTags: body.company_tags,
+    listIds: body.list_ids,
+    attachTargets: body.attach_targets.map(toAttachTarget),
   }
 }
 
@@ -151,6 +204,38 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateFormInput
     ...(body.deal_name_template === undefined
       ? {}
       : { dealNameTemplate: body.deal_name_template }),
+    ...(body.create_opportunity === undefined
+      ? {}
+      : { createOpportunity: body.create_opportunity }),
+    ...(body.opportunity_kind === undefined ? {} : { opportunityKind: body.opportunity_kind }),
+    ...(body.opportunity_stage_id === undefined
+      ? {}
+      : { opportunityStageId: body.opportunity_stage_id }),
+    ...(body.opportunity_name_template === undefined
+      ? {}
+      : { opportunityNameTemplate: body.opportunity_name_template }),
+    ...(body.opportunity_owner_id === undefined
+      ? {}
+      : { opportunityOwnerId: body.opportunity_owner_id }),
+    ...(body.create_partnership === undefined
+      ? {}
+      : { createPartnership: body.create_partnership }),
+    ...(body.partnership_kind === undefined ? {} : { partnershipKind: body.partnership_kind }),
+    ...(body.partnership_stage_id === undefined
+      ? {}
+      : { partnershipStageId: body.partnership_stage_id }),
+    ...(body.partnership_name_template === undefined
+      ? {}
+      : { partnershipNameTemplate: body.partnership_name_template }),
+    ...(body.partnership_owner_id === undefined
+      ? {}
+      : { partnershipOwnerId: body.partnership_owner_id }),
+    ...(body.person_tags === undefined ? {} : { personTags: body.person_tags }),
+    ...(body.company_tags === undefined ? {} : { companyTags: body.company_tags }),
+    ...(body.list_ids === undefined ? {} : { listIds: body.list_ids }),
+    ...(body.attach_targets === undefined
+      ? {}
+      : { attachTargets: body.attach_targets.map(toAttachTarget) }),
   }
 }
 
@@ -178,6 +263,23 @@ export function formResponse(form: FormView): Record<string, unknown> {
     create_deal: form.createDeal,
     deal_stage_id: form.dealStageId,
     deal_name_template: form.dealNameTemplate,
+    create_opportunity: form.createOpportunity,
+    opportunity_kind: form.opportunityKind,
+    opportunity_stage_id: form.opportunityStageId,
+    opportunity_name_template: form.opportunityNameTemplate,
+    opportunity_owner_id: form.opportunityOwnerId,
+    create_partnership: form.createPartnership,
+    partnership_kind: form.partnershipKind,
+    partnership_stage_id: form.partnershipStageId,
+    partnership_name_template: form.partnershipNameTemplate,
+    partnership_owner_id: form.partnershipOwnerId,
+    person_tags: form.personTags,
+    company_tags: form.companyTags,
+    list_ids: form.listIds,
+    attach_targets: form.attachTargets.map((target) => ({
+      target_type: target.targetType,
+      target_id: target.targetId,
+    })),
     public_key: form.publicKey,
     created_at: form.createdAt.toISOString(),
     updated_at: form.updatedAt.toISOString(),
@@ -194,6 +296,13 @@ export function formSubmissionResponse(submission: FormSubmissionView): Record<s
     company_id: submission.companyId,
     position_id: submission.positionId,
     deal_id: submission.dealId,
+    opportunity_id: submission.opportunityId,
+    partnership_id: submission.partnershipId,
+    action_log: submission.actionLog.map((entry) => ({
+      action: entry.action,
+      status: entry.status,
+      detail: entry.detail,
+    })),
     created_at: submission.createdAt.toISOString(),
   }
 }

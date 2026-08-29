@@ -102,14 +102,60 @@ describe('translateEnvelopeEvent', () => {
       envelope(
         'forms.submission.submitted',
         { type: 'submission', id: 'sub_1' },
-        { formId: 'form_1', submissionId: 'sub_1' },
+        {
+          formId: 'form_1',
+          submissionId: 'sub_1',
+          opportunityId: null,
+          partnershipId: null,
+          actions: [],
+        },
       ),
     )
 
     expect(result).toEqual({
       workspaceId: 'ws_1',
       event: 'form.submitted',
-      data: { form_id: 'form_1', submission_id: 'sub_1' },
+      data: {
+        form_id: 'form_1',
+        submission_id: 'sub_1',
+        opportunity_id: null,
+        partnership_id: null,
+        actions: [],
+      },
+    })
+  })
+
+  it('carries the post-submit ids and per-action statuses through', () => {
+    const result = translateEnvelopeEvent(
+      envelope(
+        'forms.submission.submitted',
+        { type: 'submission', id: 'sub_2' },
+        {
+          formId: 'form_2',
+          submissionId: 'sub_2',
+          opportunityId: 'opp_1',
+          partnershipId: 'prt_1',
+          actions: [
+            { action: 'create_deal', status: 'ok' },
+            { action: 'tag_company', status: 'skipped' },
+          ],
+        },
+      ),
+    )
+
+    expect(result).toEqual({
+      workspaceId: 'ws_1',
+      event: 'form.submitted',
+      data: {
+        form_id: 'form_2',
+        submission_id: 'sub_2',
+        opportunity_id: 'opp_1',
+        partnership_id: 'prt_1',
+        actions: [
+          { action: 'create_deal', status: 'ok' },
+          { action: 'tag_company', status: 'skipped' },
+        ],
+      },
     })
   })
 

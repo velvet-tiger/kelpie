@@ -52,10 +52,15 @@ const COMPANY_TARGETS: readonly string[] = ['company.name', 'company.domain']
  *   or `company.domain` answer, so a deal-creating form without either would
  *   quietly never create a deal. Refused here rather than discovered later by
  *   somebody wondering where their inbound pipeline went.
+ * @param createsPartnership Same rule for partnerships: a Partnership belongs
+ *   to a Company. Opportunities are exempt because `opportunities.company_id`
+ *   is nullable — a form that creates an opportunity without resolving a
+ *   company creates an opportunity without one, which is a valid state.
  */
 export function findFieldProblems(
   fields: readonly FieldShape[],
   createsDeal: boolean,
+  createsPartnership = false,
 ): readonly ErrorDetail[] {
   const problems: ErrorDetail[] = []
   const seenTargets = new Set<string>()
@@ -67,10 +72,19 @@ export function findFieldProblems(
     })
   }
 
-  if (createsDeal && !fields.some((field) => COMPANY_TARGETS.includes(field.mapTo))) {
+  const hasCompanyField = fields.some((field) => COMPANY_TARGETS.includes(field.mapTo))
+
+  if (createsDeal && !hasCompanyField) {
     problems.push({
       field: 'fields',
       message: `A form that creates deals needs a field mapped to ${COMPANY_TARGETS.join(' or ')}`,
+    })
+  }
+
+  if (createsPartnership && !hasCompanyField) {
+    problems.push({
+      field: 'fields',
+      message: `A form that creates partnerships needs a field mapped to ${COMPANY_TARGETS.join(' or ')}`,
     })
   }
 

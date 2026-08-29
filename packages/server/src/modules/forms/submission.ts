@@ -1,3 +1,6 @@
+import type { FormSubmissionActionEntry, PipelineKind } from '@kelpie/schemas'
+
+import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -12,6 +15,12 @@ import * as companyRepository from '../companies/repository.ts'
 import type { CompanyRecord } from '../companies/repository.ts'
 import * as dealRepository from '../deals/repository.ts'
 import '../deals/events.ts'
+import '../lists/events.ts'
+import * as listsRepository from '../lists/repository.ts'
+import * as opportunityRepository from '../opportunities/repository.ts'
+import '../opportunities/events.ts'
+import * as partnershipRepository from '../partnerships/repository.ts'
+import '../partnerships/events.ts'
 import '../people/events.ts'
 import * as peopleRepository from '../people/repository.ts'
 import type { PersonRecord } from '../people/repository.ts'
@@ -19,17 +28,19 @@ import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import '../positions/events.ts'
 import * as positionRepository from '../positions/repository.ts'
+import { targetExists } from '../recordTargets.ts'
 import * as workspaceRepository from '../workspace/repository.ts'
 import './events.ts'
 import {
   DEAL_CLOSE_HORIZON_DAYS,
   companyNameFrom,
   describeAnswers,
-  expandDealNameTemplate,
+  expandNameTemplate,
   expectedCloseFrom,
   fillBlank,
   findAnswerProblems,
   mapAnswers,
+  mergeTags,
   readIntent,
 } from './mapping.ts'
 import type { Answers, SubmitIntent } from './mapping.ts'
@@ -106,14 +117,43 @@ export interface SubmitOutcome {
   readonly companyId: string | null
   readonly positionId: string | null
   readonly dealId: string | null
+  readonly opportunityId: string | null
+  readonly partnershipId: string | null
   readonly submittedAt: Date
   /** Echoed so an embed can render it without a second request. */
   readonly thankYouMessage: string
+  /**
+   * Per-action outcome from the post-submit runner, in the order attempted.
+   * Empty for a form with no post-actions configured. Never crosses the public
+   * wire (see `publicRoutes.ts`); the authenticated Submissions read carries
+   * it in full.
+   */
+  readonly actionLog: readonly FormSubmissionActionEntry[]
 }
 
 export interface FormSubmitService {
   /** @throws AppError 404 unknown key, 409 paused, 422 unusable answers. */
   submit(publicKey: string, answers: Answers): Promise<SubmitOutcome>
+}
+
+/**
+ * One post-submit action's outcome, as its `work` returns it. `skipped`
+ * means the action was configured but its precondition was absent (a
+ * company-tag merge on a submit that resolved no company); the runner logs
+ * it and moves on. `ok` means the action ran; the runner forwards every
+ * event the action emitted.
+ */
+interface ActionResult<T> {
+  readonly status: 'ok' | 'skipped'
+  readonly detail: string
+  readonly value?: T
+}
+
+/** One event pending forwarding after a savepoint's `ok` return. */
+interface PendingEvent {
+  readonly name: Parameters<BufferedEvents['emit']>[0]
+  readonly target: Parameters<BufferedEvents['emit']>[1]
+  readonly data: unknown
 }
 
 /** A record, and whether this submit is what put it there. */
@@ -134,29 +174,26 @@ interface TouchedRecords {
   readonly person: Upserted<PersonRecord>
   readonly company: Upserted<CompanyRecord> | undefined
   readonly position: Upserted<PositionLink> | undefined
-  readonly dealId: string | null
 }
 
 /**
- * One `record.created` per record this submit invented, and one
- * `record.updated` per record it filled a blank on.
+ * One `record.created` per record this submit invented (person, company,
+ * position), and one `record.updated` per record it filled a blank on. The
+ * pipeline creates (deal, opportunity, partnership) publish their own
+ * `*.created` events from inside their action's shim so a rolled-back
+ * savepoint drops the event alongside the row.
  *
- * A submit that matched an existing person and changed nothing about them emits
- * neither: a consumer mirroring the CRM has nothing to mirror, and
+ * A submit that matched an existing person and changed nothing about them
+ * emits neither: a consumer mirroring the CRM has nothing to mirror, and
  * `form.submitted` already says the submission happened.
- *
- * The Deal has no `Upserted` because it is only ever created, and its people
- * link rides along with it rather than as a separate `record.updated`, the same
- * way the deals service treats a create.
  */
 function emitRecordEvents(
   events: BufferedEvents,
   workspaceId: string,
   touched: TouchedRecords,
 ): void {
-  if (touched.person !== undefined) {
-    emitUpsertEvent(events, 'person', touched.person)
-  }
+  emitUpsertEvent(events, 'person', touched.person)
+
   if (touched.company !== undefined) {
     emitUpsertEvent(events, 'company', touched.company)
   }
@@ -164,9 +201,6 @@ function emitRecordEvents(
     emitUpsertEvent(events, 'position', touched.position)
   }
 
-  if (touched.dealId !== null) {
-    events.emit('deals.deal.created', { type: 'deal', id: touched.dealId }, {})
-  }
   // workspaceId is used by the transaction scope's envelope stamping; the
   // parameter stays on the signature so future call sites keep the same shape.
   void workspaceId
@@ -375,26 +409,75 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     return { record: created, created: true, filled: [] }
   }
 
-  /** The stage a form's deals open in: the one it names, or the pipeline's first open one. */
+  /**
+   * The stage a form's created record opens in: the one the form names, or
+   * the pipeline's first open stage. Shared by the three create-triggers.
+   */
   async function openingStageId(
     tx: Transaction,
     workspaceId: string,
-    form: FormRecord,
+    kind: PipelineKind,
+    configured: string | null,
   ): Promise<string> {
-    if (form.dealStageId !== null) {
-      return form.dealStageId
+    if (configured !== null) {
+      return configured
     }
 
-    const stages = await pipelineRepository.listStagesOfKind(tx, workspaceId, 'deal')
+    const stages = await pipelineRepository.listStagesOfKind(tx, workspaceId, kind)
     const first = stages.find((stage) => stage.open) ?? stages[0]
 
     if (first === undefined) {
       // Unreachable through the API: a workspace seeds its stages at creation
       // and the last stage of a pipeline cannot be removed.
-      throw AppError.conflict('This workspace has no deal stages')
+      throw AppError.conflict(`This workspace has no ${kind} stages`)
     }
 
     return first.id
+  }
+
+  /**
+   * Runs `work` under a nested `tx.transaction()` — a SAVEPOINT in
+   * postgres-js — and captures every event the action emits into a local
+   * buffer. On success (`ok` or `skipped`) the events are forwarded to the
+   * real `BufferedEvents`; on throw the savepoint has already rolled back so
+   * the events are discarded and a `{status: 'error'}` entry lands on the log.
+   * Either way the outer transaction stays alive: the next action runs, and
+   * the visitor's 201 survives.
+   */
+  async function runAction<T>(
+    tx: Transaction,
+    events: BufferedEvents,
+    log: FormSubmissionActionEntry[],
+    action: string,
+    work: (inner: Transaction, emit: BufferedEvents['emit']) => Promise<ActionResult<T>>,
+  ): Promise<T | undefined> {
+    const pending: PendingEvent[] = []
+    const emit: BufferedEvents['emit'] = (name, target, data) => {
+      pending.push({ name, target, data })
+    }
+
+    try {
+      const result = await tx.transaction(async (inner) => work(inner, emit))
+      log.push({ action, status: result.status, detail: result.detail })
+
+      for (const event of pending) {
+        // The typed emit rejects an unrelated (name, data) pair; the shim
+        // captured them as one call so the pair is already validated.
+        events.emit(event.name, event.target, event.data as never)
+      }
+
+      return result.value
+    } catch (error: unknown) {
+      const detail =
+        error instanceof AppError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : 'unknown error'
+      log.push({ action, status: 'error', detail })
+
+      return undefined
+    }
   }
 
   /**
@@ -406,6 +489,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
    */
   async function createDeal(
     tx: Transaction,
+    emit: BufferedEvents['emit'],
     workspaceId: string,
     form: FormRecord,
     intent: SubmitIntent,
@@ -420,12 +504,12 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       workspaceId,
       name:
         intent.dealName ??
-        expandDealNameTemplate(form.dealNameTemplate ?? DEFAULT_DEAL_NAME_TEMPLATE, {
+        expandNameTemplate(form.dealNameTemplate ?? DEFAULT_DEAL_NAME_TEMPLATE, {
           companyName: company.name,
           personName: intent.personName,
         }),
       companyId: company.id,
-      stageId: await openingStageId(tx, workspaceId, form),
+      stageId: await openingStageId(tx, workspaceId, 'deal', form.dealStageId),
       valueCents: 0,
       currency: null,
       ownerId: owner?.id ?? null,
@@ -439,6 +523,134 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       { targetType: 'deal', targetId: id },
       [personId],
     )
+
+    await dependencies.recordActivity(tx, workspaceId, FORM_ACTOR, {
+      targetType: 'deal',
+      targetId: id,
+      kind: 'created',
+      ...describeCreationVia('Deal', form.name),
+    })
+
+    emit('deals.deal.created', { type: 'deal', id }, {})
+
+    return id
+  }
+
+  /**
+   * Creates the Opportunity, when the form makes them.
+   *
+   * `opportunities.company_id` is nullable, so a submit that resolved no
+   * company still creates the opportunity, with the company link null. The
+   * kind is required at form-write time (see `service.ts`), so it is always
+   * present here.
+   */
+  async function createOpportunity(
+    tx: Transaction,
+    emit: BufferedEvents['emit'],
+    workspaceId: string,
+    form: FormRecord,
+    intent: SubmitIntent,
+    company: CompanyRecord | undefined,
+    personId: string,
+  ): Promise<string> {
+    const id = dependencies.createId('opportunity')
+    const owner =
+      form.opportunityOwnerId === null
+        ? await workspaceRepository.findDefaultMember(tx, workspaceId)
+        : { id: form.opportunityOwnerId }
+
+    await opportunityRepository.insertOpportunity(tx, {
+      id,
+      workspaceId,
+      name:
+        intent.opportunityName ??
+        expandNameTemplate(form.opportunityNameTemplate ?? DEFAULT_DEAL_NAME_TEMPLATE, {
+          companyName: company?.name ?? '',
+          personName: intent.personName,
+        }),
+      // requireKindWhenCreating refuses an empty kind at write; the ?? is a
+      // narrowing convenience, not a runtime fallback.
+      kind: form.opportunityKind ?? '',
+      stageId: await openingStageId(tx, workspaceId, 'opportunity', form.opportunityStageId),
+      companyId: company?.id ?? null,
+      ownerId: owner?.id ?? null,
+      expectedClose: expectedCloseFrom(dependencies.now(), DEAL_CLOSE_HORIZON_DAYS),
+    })
+
+    await personLinks.linkPeople(
+      tx,
+      dependencies.createId,
+      workspaceId,
+      { targetType: 'opportunity', targetId: id },
+      [personId],
+    )
+
+    await dependencies.recordActivity(tx, workspaceId, FORM_ACTOR, {
+      targetType: 'opportunity',
+      targetId: id,
+      kind: 'created',
+      ...describeCreationVia('Opportunity', form.name),
+    })
+
+    emit('opportunities.opportunity.created', { type: 'opportunity', id }, {})
+
+    return id
+  }
+
+  /**
+   * Creates the Partnership, when the form makes them and a company was
+   * resolved. `partnerships.company_id` is `NOT NULL`, matching Deal.
+   */
+  async function createPartnership(
+    tx: Transaction,
+    emit: BufferedEvents['emit'],
+    workspaceId: string,
+    form: FormRecord,
+    intent: SubmitIntent,
+    company: CompanyRecord,
+    personId: string,
+  ): Promise<string> {
+    const id = dependencies.createId('partnership')
+    const owner =
+      form.partnershipOwnerId === null
+        ? await workspaceRepository.findDefaultMember(tx, workspaceId)
+        : { id: form.partnershipOwnerId }
+    const nextTouchpoint = expectedCloseFrom(dependencies.now(), DEAL_CLOSE_HORIZON_DAYS)
+
+    await partnershipRepository.insertPartnership(tx, {
+      id,
+      workspaceId,
+      name:
+        intent.partnershipName ??
+        expandNameTemplate(form.partnershipNameTemplate ?? DEFAULT_DEAL_NAME_TEMPLATE, {
+          companyName: company.name,
+          personName: intent.personName,
+        }),
+      companyId: company.id,
+      stageId: await openingStageId(tx, workspaceId, 'partnership', form.partnershipStageId),
+      kind: form.partnershipKind ?? '',
+      nextTouchpoint,
+      ownerId: owner?.id ?? null,
+      goals: '',
+      successLooksLike: '',
+    })
+
+    await personLinks.linkPeople(
+      tx,
+      dependencies.createId,
+      workspaceId,
+      { targetType: 'partnership', targetId: id },
+      [personId],
+    )
+
+    await dependencies.recordActivity(tx, workspaceId, FORM_ACTOR, {
+      targetType: 'partnership',
+      targetId: id,
+      kind: 'created',
+      ...describeCreationVia('Partnership', form.name),
+    })
+
+    emit('partnerships.partnership.created', { type: 'partnership', id }, {})
 
     return id
   }
@@ -494,8 +706,14 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       const { workspaceId } = form
       const fields = await repository.listFields(dependencies.db, form.id)
       const intent = readAnswers(fields, answers)
+      const [formListRows, attachTargets] = await Promise.all([
+        repository.listFormLists(dependencies.db, form.id),
+        repository.listAttachTargets(dependencies.db, form.id),
+      ])
 
       return dependencies.transaction(async ({ tx, events }) => {
+        // Core capture: atomic. A failure here fails the submit; every
+        // post-action below runs under its own savepoint and logs.
         const person = await upsertPerson(tx, workspaceId, intent)
         const company = await upsertCompany(tx, workspaceId, intent)
         const position =
@@ -508,10 +726,209 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
                 company.record.id,
                 intent.positionTitle,
               )
-        const dealId =
-          form.createDeal && company !== undefined
-            ? await createDeal(tx, workspaceId, form, intent, company.record, person.record.id)
-            : null
+
+        const actionLog: FormSubmissionActionEntry[] = []
+
+        // --- Create triggers ---
+
+        const dealId = form.createDeal
+          ? ((await runAction<string>(tx, events, actionLog, 'create_deal', async (inner, emit) => {
+              if (company === undefined) {
+                return { status: 'skipped', detail: 'no company resolved' }
+              }
+              const id = await createDeal(
+                inner,
+                emit,
+                workspaceId,
+                form,
+                intent,
+                company.record,
+                person.record.id,
+              )
+
+              return { status: 'ok', detail: id, value: id }
+            })) ?? null)
+          : null
+
+        const opportunityId = form.createOpportunity
+          ? ((await runAction<string>(
+              tx,
+              events,
+              actionLog,
+              'create_opportunity',
+              async (inner, emit) => {
+                const id = await createOpportunity(
+                  inner,
+                  emit,
+                  workspaceId,
+                  form,
+                  intent,
+                  company?.record,
+                  person.record.id,
+                )
+
+                return { status: 'ok', detail: id, value: id }
+              },
+            )) ?? null)
+          : null
+
+        const partnershipId = form.createPartnership
+          ? ((await runAction<string>(
+              tx,
+              events,
+              actionLog,
+              'create_partnership',
+              async (inner, emit) => {
+                if (company === undefined) {
+                  return { status: 'skipped', detail: 'no company resolved' }
+                }
+                const id = await createPartnership(
+                  inner,
+                  emit,
+                  workspaceId,
+                  form,
+                  intent,
+                  company.record,
+                  person.record.id,
+                )
+
+                return { status: 'ok', detail: id, value: id }
+              },
+            )) ?? null)
+          : null
+
+        // --- Tag merges ---
+
+        if (form.personTags.length > 0) {
+          await runAction<void>(tx, events, actionLog, 'tag_person', async (inner, emit) => {
+            const merged = mergeTags(person.record.tags, form.personTags)
+
+            if (!merged.changed) {
+              return { status: 'ok', detail: 'no new tags' }
+            }
+
+            const now = dependencies.now()
+            await peopleRepository.updatePerson(inner, workspaceId, person.record.id, {
+              tags: [...merged.next],
+              updatedAt: now,
+            })
+            emit(
+              'people.person.updated',
+              { type: 'person', id: person.record.id },
+              { changed: ['tags'] },
+            )
+
+            return { status: 'ok', detail: `merged ${String(merged.next.length - person.record.tags.length)}` }
+          })
+        }
+
+        if (form.companyTags.length > 0) {
+          await runAction<void>(tx, events, actionLog, 'tag_company', async (inner, emit) => {
+            if (company === undefined) {
+              return { status: 'skipped', detail: 'no company resolved' }
+            }
+
+            const merged = mergeTags(company.record.tags, form.companyTags)
+
+            if (!merged.changed) {
+              return { status: 'ok', detail: 'no new tags' }
+            }
+
+            const now = dependencies.now()
+            await companyRepository.updateCompany(inner, workspaceId, company.record.id, {
+              tags: [...merged.next],
+              updatedAt: now,
+            })
+            emit(
+              'companies.company.updated',
+              { type: 'company', id: company.record.id },
+              { changed: ['tags'] },
+            )
+
+            return { status: 'ok', detail: `merged ${String(merged.next.length - company.record.tags.length)}` }
+          })
+        }
+
+        // --- List memberships ---
+
+        for (const row of formListRows) {
+          await runAction<void>(
+            tx,
+            events,
+            actionLog,
+            `add_list:${row.listId}`,
+            async (inner, emit) => {
+              const targetId =
+                row.targetType === 'person'
+                  ? person.record.id
+                  : row.targetType === 'company' && company !== undefined
+                    ? company.record.id
+                    : undefined
+
+              if (targetId === undefined) {
+                return { status: 'skipped', detail: 'no company resolved' }
+              }
+
+              try {
+                await listsRepository.insertListMember(inner, {
+                  id: dependencies.createId('listMember'),
+                  workspaceId,
+                  listId: row.listId,
+                  targetType: row.targetType,
+                  targetId,
+                  addedAt: dependencies.now(),
+                })
+              } catch (error: unknown) {
+                if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+                  return { status: 'ok', detail: 'already a member' }
+                }
+
+                throw error
+              }
+
+              emit(
+                'lists.member.added',
+                { type: row.targetType, id: targetId },
+                { listId: row.listId },
+              )
+
+              return { status: 'ok', detail: targetId }
+            },
+          )
+        }
+
+        // --- Attach the submitter to pre-existing pipeline records ---
+
+        for (const target of attachTargets) {
+          await runAction<void>(
+            tx,
+            events,
+            actionLog,
+            `attach:${target.targetType}:${target.targetId}`,
+            async (inner) => {
+              // Racing a target delete would fail the FK-less insert with the
+              // same effect as an existence check: log an error, continue.
+              if (!(await targetExists(inner, workspaceId, target.targetType, target.targetId))) {
+                throw AppError.notFound(`${target.targetType} ${target.targetId} not found`)
+              }
+
+              const inserted = await personLinks.linkPersonIfAbsent(
+                inner,
+                dependencies.createId,
+                workspaceId,
+                target,
+                person.record.id,
+              )
+
+              return {
+                status: 'ok',
+                detail: inserted ? 'linked' : 'already linked',
+              }
+            },
+          )
+        }
+
+        // --- Persist submission + core activity + record events ---
 
         const submission = await repository.insertSubmission(tx, {
           id: dependencies.createId('formSubmission'),
@@ -522,7 +939,10 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           companyId: company?.record.id ?? null,
           positionId: position?.record.id ?? null,
           dealId,
+          opportunityId,
+          partnershipId,
           submittedAt: dependencies.now(),
+          actionLog,
         })
 
         await dependencies.recordActivity(tx, workspaceId, FORM_ACTOR, {
@@ -532,20 +952,17 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           ...describeFormSubmission(form.name, describeAnswers(fields, answers)),
         })
 
-        if (dealId !== null) {
-          await dependencies.recordActivity(tx, workspaceId, FORM_ACTOR, {
-            targetType: 'deal',
-            targetId: dealId,
-            kind: 'created',
-            ...describeCreationVia('Deal', form.name),
-          })
-        }
-
-        emitRecordEvents(events, workspaceId, { person, company, position, dealId })
+        emitRecordEvents(events, workspaceId, { person, company, position })
         events.emit(
           'forms.submission.submitted',
           { type: 'submission', id: submission.id },
-          { formId: form.id, submissionId: submission.id },
+          {
+            formId: form.id,
+            submissionId: submission.id,
+            opportunityId,
+            partnershipId,
+            actions: actionLog.map((entry) => ({ action: entry.action, status: entry.status })),
+          },
         )
 
         return {
@@ -555,8 +972,11 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           companyId: company?.record.id ?? null,
           positionId: position?.record.id ?? null,
           dealId,
+          opportunityId,
+          partnershipId,
           submittedAt: submission.submittedAt,
           thankYouMessage: form.thankYouMessage,
+          actionLog,
         }
       }, { workspaceId })
     },

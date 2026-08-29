@@ -1,4 +1,4 @@
-import type { Form, FormSubmission } from '@kelpie/schemas'
+import type { Form, FormSubmission, FormSubmissionActionEntry } from '@kelpie/schemas'
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 
@@ -66,17 +66,33 @@ export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): 
       ),
     },
     {
-      key: 'deal',
-      header: 'Deal',
-      className: 'w-24',
-      render: (submission) =>
-        submission.dealId === null ? (
-          <span className="text-ink-faint">—</span>
-        ) : (
-          <Link to={`/deals/${submission.dealId}`} className="text-accent hover:underline">
-            View
-          </Link>
-        ),
+      key: 'created',
+      header: 'Created',
+      className: 'w-40',
+      render: (submission) => (
+        <div className="flex flex-wrap gap-2 text-[12px]">
+          <CreatedLink to={`/deals/${submission.dealId ?? ''}`} id={submission.dealId} label="deal" />
+          <CreatedLink
+            to={`/opportunities/${submission.opportunityId ?? ''}`}
+            id={submission.opportunityId}
+            label="opp"
+          />
+          <CreatedLink
+            to={`/partnerships/${submission.partnershipId ?? ''}`}
+            id={submission.partnershipId}
+            label="prt"
+          />
+          {submission.dealId === null &&
+            submission.opportunityId === null &&
+            submission.partnershipId === null && <span className="text-ink-faint">—</span>}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      className: 'w-32',
+      render: (submission) => <ActionLogChip entries={submission.actionLog} />,
     },
     {
       key: 'answers',
@@ -110,6 +126,54 @@ export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): 
       />
       <Paginator list={submissions} />
     </div>
+  )
+}
+
+function CreatedLink({
+  to,
+  id,
+  label,
+}: {
+  readonly to: string
+  readonly id: string | null
+  readonly label: string
+}): React.JSX.Element | null {
+  if (id === null) {
+    return null
+  }
+
+  return (
+    <Link to={to} className="text-accent hover:underline">
+      {label}
+    </Link>
+  )
+}
+
+function ActionLogChip({
+  entries,
+}: {
+  readonly entries: readonly FormSubmissionActionEntry[]
+}): React.JSX.Element {
+  if (entries.length === 0) {
+    return <span className="text-ink-faint">—</span>
+  }
+
+  const errors = entries.filter((entry) => entry.status === 'error').length
+  const skipped = entries.filter((entry) => entry.status === 'skipped').length
+  const ok = entries.length - errors - skipped
+  const detail = entries
+    .map((entry) => `${entry.action}: ${entry.status}${entry.detail.length > 0 ? ` — ${entry.detail}` : ''}`)
+    .join('\n')
+
+  return (
+    <span
+      title={detail}
+      className="inline-flex gap-1 text-[11px] font-mono text-ink-muted"
+    >
+      {ok > 0 && <span className="text-success">✓{ok}</span>}
+      {skipped > 0 && <span className="text-ink-faint">−{skipped}</span>}
+      {errors > 0 && <span className="text-danger">!{errors}</span>}
+    </span>
   )
 }
 

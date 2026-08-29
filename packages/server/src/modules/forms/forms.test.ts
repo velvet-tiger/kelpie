@@ -902,4 +902,290 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(response.status).toBe(404)
     })
   })
+
+  describe('post-submit actions', () => {
+    async function firstStageOfKind(kind: string): Promise<string> {
+      const response = await client.send('GET', `/v1/pipeline_stages?kind=${kind}`, {
+        cookie: acme.cookie,
+      })
+      const stage = readList(await response.json())[0]
+
+      return readString(stage ?? {}, 'id')
+    }
+
+    async function submissionFor(formId: string): Promise<Record<string, unknown>> {
+      const response = await client.send('GET', `/v1/forms/${formId}/submissions`, {
+        cookie: acme.cookie,
+      })
+      const [row] = readList(await response.json())
+
+      expect(row).toBeDefined()
+
+      return row as Record<string, unknown>
+    }
+
+    it('creates a Deal through the runner and logs one create_deal:ok entry', async () => {
+      const form = await createForm({ create_deal: true })
+      const ids = fieldIds(form)
+      const response = await submit(
+        readString(form, 'public_key'),
+        filledIn(ids, { [ids.Company ?? '']: 'Analytical Engines' }),
+      )
+
+      expect(response.status).toBe(201)
+
+      const submission = await submissionFor(readString(form, 'id'))
+
+      expect(submission.deal_id).toEqual(expect.stringMatching(/^deal_/u))
+      expect(submission.action_log).toEqual([
+        expect.objectContaining({ action: 'create_deal', status: 'ok' }),
+      ])
+    })
+
+    it('creates an Opportunity without a company and stamps opportunity_id', async () => {
+      const form = await createForm({
+        create_opportunity: true,
+        opportunity_kind: 'Grant',
+      })
+      const ids = fieldIds(form)
+      const response = await submit(readString(form, 'public_key'), filledIn(ids))
+
+      expect(response.status).toBe(201)
+
+      const submission = await submissionFor(readString(form, 'id'))
+
+      expect(submission.opportunity_id).toEqual(expect.stringMatching(/^opp_/u))
+      expect(submission.action_log).toEqual([
+        expect.objectContaining({ action: 'create_opportunity', status: 'ok' }),
+      ])
+    })
+
+    it('skips create_partnership when no company was resolved', async () => {
+      const form = await createForm({
+        create_partnership: true,
+        partnership_kind: 'Reseller',
+      })
+      const ids = fieldIds(form)
+      const response = await submit(readString(form, 'public_key'), filledIn(ids))
+
+      expect(response.status).toBe(201)
+
+      const submission = await submissionFor(readString(form, 'id'))
+
+      expect(submission.partnership_id).toBeNull()
+      expect(submission.action_log).toEqual([
+        expect.objectContaining({ action: 'create_partnership', status: 'skipped' }),
+      ])
+    })
+
+    it('merges person_tags into the submitter without overwriting anything set by hand', async () => {
+      const form = await createForm({ person_tags: ['inbound', 'website'] })
+      const ids = fieldIds(form)
+
+      await submit(readString(form, 'public_key'), filledIn(ids))
+
+      const submission = await submissionFor(readString(form, 'id'))
+      const personId = String(submission.person_id)
+      const personResponse = await client.send('GET', `/v1/people/${personId}`, {
+        cookie: acme.cookie,
+      })
+      const person = readRecord(await personResponse.json())
+
+      expect(person.tags).toEqual(expect.arrayContaining(['inbound', 'website']))
+      expect(submission.action_log).toEqual(
+        expect.arrayContaining([expect.objectContaining({ action: 'tag_person', status: 'ok' })]),
+      )
+    })
+
+    it('adds the submitter to a person list configured on the form', async () => {
+      const listResponse = await client.send('POST', '/v1/lists', {
+        body: { name: 'Inbound leads', target_type: 'person' },
+        cookie: acme.cookie,
+      })
+      const listId = readString(await listResponse.json(), 'id')
+
+      const form = await createForm({ list_ids: [listId] })
+      const ids = fieldIds(form)
+
+      await submit(readString(form, 'public_key'), filledIn(ids))
+
+      const submission = await submissionFor(readString(form, 'id'))
+      const membershipResponse = await client.send('GET', `/v1/lists/${listId}/members`, {
+        cookie: acme.cookie,
+      })
+      const members = readList(await membershipResponse.json())
+
+      expect(members.map((row) => row.target_id)).toContain(submission.person_id)
+      expect(submission.action_log).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ action: `add_list:${listId}`, status: 'ok' }),
+        ]),
+      )
+    })
+
+    it('links the submitter to an attach_target through person_links', async () => {
+      const stageId = await firstStageOfKind('opportunity')
+      const oppResponse = await client.send('POST', '/v1/opportunities', {
+        body: { name: 'Q4 accelerator', kind: 'Accelerator', stage_id: stageId },
+        cookie: acme.cookie,
+      })
+      const opportunityId = readString(await oppResponse.json(), 'id')
+
+      const form = await createForm({
+        attach_targets: [{ target_type: 'opportunity', target_id: opportunityId }],
+      })
+      const ids = fieldIds(form)
+
+      await submit(readString(form, 'public_key'), filledIn(ids))
+
+      const submission = await submissionFor(readString(form, 'id'))
+      const opportunityResponse = await client.send('GET', `/v1/opportunities/${opportunityId}`, {
+        cookie: acme.cookie,
+      })
+      const opportunity = readRecord(await opportunityResponse.json())
+
+      expect(opportunity.person_ids).toEqual([submission.person_id])
+      expect(submission.action_log).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: `attach:opportunity:${opportunityId}`,
+            status: 'ok',
+          }),
+        ]),
+      )
+    })
+
+    it('drops the attach action for a target the API deleted, keeping later actions running', async () => {
+      // The proof-of-savepoint mechanics live in `src/runtime/savepoint.test.ts`.
+      // Here the assertion is the sibling behaviour: deleting a target through
+      // the API cascades to `form_attach_targets` via `attachedRecords.ts`, so
+      // the form no longer tries to attach and the submit runs the rest.
+      const stageId = await firstStageOfKind('opportunity')
+      const oppResponse = await client.send('POST', '/v1/opportunities', {
+        body: { name: 'Q4 accelerator', kind: 'Accelerator', stage_id: stageId },
+        cookie: acme.cookie,
+      })
+      const opportunityId = readString(await oppResponse.json(), 'id')
+      const form = await createForm({
+        attach_targets: [{ target_type: 'opportunity', target_id: opportunityId }],
+        person_tags: ['inbound'],
+      })
+
+      await client.send('DELETE', `/v1/opportunities/${opportunityId}`, { cookie: acme.cookie })
+
+      const ids = fieldIds(form)
+      const response = await submit(readString(form, 'public_key'), filledIn(ids))
+
+      expect(response.status).toBe(201)
+
+      const submission = await submissionFor(readString(form, 'id'))
+      const actions = Array.isArray(submission.action_log) ? submission.action_log : []
+      const actionNames = actions.map((entry: unknown) =>
+        String((entry as Record<string, unknown>).action ?? ''),
+      )
+
+      expect(actionNames).not.toContain(`attach:opportunity:${opportunityId}`)
+      expect(submission.action_log).toEqual(
+        expect.arrayContaining([expect.objectContaining({ action: 'tag_person', status: 'ok' })]),
+      )
+    })
+
+    it('refuses create_partnership without a company mapping at form write', async () => {
+      const response = await client.send('POST', '/v1/forms', {
+        body: {
+          name: 'Broken partnership form',
+          fields: CONTACT_FIELDS.filter((field) => !field.map_to.startsWith('company.')),
+          create_partnership: true,
+          partnership_kind: 'Reseller',
+        },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(422)
+      expect(JSON.stringify(await response.json())).toContain('creates partnerships needs')
+    })
+
+    it('refuses create_opportunity with an empty kind at form write', async () => {
+      const response = await client.send('POST', '/v1/forms', {
+        body: {
+          name: 'Kindless opportunity',
+          fields: CONTACT_FIELDS,
+          create_opportunity: true,
+        },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(422)
+      expect(JSON.stringify(await response.json())).toContain('creates opportunitys needs a kind')
+    })
+
+    it('refuses a list_id targeting a type other than person or company', async () => {
+      const stageId = await firstStageOfKind('deal')
+      // A deal list is a valid list but not a valid form action target.
+      const listResponse = await client.send('POST', '/v1/lists', {
+        body: { name: 'All deals', target_type: 'deal' },
+        cookie: acme.cookie,
+      })
+      const listId = readString(await listResponse.json(), 'id')
+
+      const response = await client.send('POST', '/v1/forms', {
+        body: {
+          name: 'Bad list form',
+          fields: CONTACT_FIELDS,
+          list_ids: [listId],
+        },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(422)
+      expect(JSON.stringify(await response.json())).toContain('must target person or company')
+      // Silence the unused `stageId` — it exists so a future test in this
+      // block can spell out the deal it wants a list of, but the failure
+      // above already covers what this test is proving.
+      void stageId
+    })
+
+    it('refuses an unknown attach_target with 404', async () => {
+      const response = await client.send('POST', '/v1/forms', {
+        body: {
+          name: 'Bad attach form',
+          fields: CONTACT_FIELDS,
+          attach_targets: [{ target_type: 'opportunity', target_id: 'opp_missing' }],
+        },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(404)
+    })
+
+    it('does not double-tag or double-link on a resubmission from the same person', async () => {
+      const form = await createForm({ person_tags: ['inbound'] })
+      const ids = fieldIds(form)
+
+      await submit(readString(form, 'public_key'), filledIn(ids))
+      await submit(readString(form, 'public_key'), filledIn(ids))
+
+      const submissions = readList(
+        await (
+          await client.send('GET', `/v1/forms/${readString(form, 'id')}/submissions`, {
+            cookie: acme.cookie,
+          })
+        ).json(),
+      )
+
+      expect(submissions).toHaveLength(2)
+
+      const [second, first] = submissions
+      const personId = String(second?.person_id ?? '')
+
+      // Second submit is idempotent: the tag merge logs ok and adds nothing.
+      const personResponse = await client.send('GET', `/v1/people/${personId}`, {
+        cookie: acme.cookie,
+      })
+      const person = readRecord(await personResponse.json())
+
+      expect(person.tags.filter((tag: unknown) => tag === 'inbound')).toEqual(['inbound'])
+      expect(String(first?.person_id ?? '')).toBe(personId)
+    })
+  })
 })

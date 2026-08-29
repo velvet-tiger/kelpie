@@ -37,6 +37,10 @@ export interface SubmitIntent {
   readonly positionTitle: string | undefined
   /** Only meaningful when the form creates deals. */
   readonly dealName: string | undefined
+  /** Only meaningful when the form creates opportunities. */
+  readonly opportunityName: string | undefined
+  /** Only meaningful when the form creates partnerships. */
+  readonly partnershipName: string | undefined
 }
 
 /**
@@ -151,6 +155,8 @@ export function readIntent(mapped: MappedAnswers): SubmitIntent | undefined {
     companyDomain: resolveDomain(mapped),
     positionTitle: mapped['position.title'],
     dealName: mapped['deal.name'],
+    opportunityName: mapped['opportunity.name'],
+    partnershipName: mapped['partnership.name'],
   }
 }
 
@@ -178,19 +184,54 @@ export function companyNameFrom(intent: SubmitIntent): string | undefined {
 }
 
 /**
- * Expands `{{company.name}}` and `{{person.name}}` in a deal name template.
+ * Expands `{{company.name}}` and `{{person.name}}` in a create-trigger name
+ * template. Shared by the deal, opportunity, and partnership triggers.
  *
  * The fallbacks are the mockup's: a template is written once by an admin and
  * then run against whatever arrives, so a submission with no company name must
- * still produce a deal with a name somebody can read on a board.
+ * still produce a record with a name somebody can read on a board.
  */
-export function expandDealNameTemplate(
+export function expandNameTemplate(
   template: string,
   values: { readonly companyName: string; readonly personName: string },
 ): string {
   return template
     .replaceAll('{{company.name}}', values.companyName.length > 0 ? values.companyName : 'Website lead')
     .replaceAll('{{person.name}}', values.personName.length > 0 ? values.personName : 'Lead')
+}
+
+/**
+ * The union merge for a form's tag actions. The stored order is preserved and
+ * new tags land at the end, so the timeline reads oldest-first. Never removes
+ * a tag a human set: `forms.md` §Tags is explicit on that.
+ *
+ * @returns The merged list, and `changed` = true when at least one new tag
+ *   landed. The caller uses `changed` to decide whether to emit an update
+ *   event, since a no-op merge should not publish `*.updated`.
+ */
+export function mergeTags(
+  stored: readonly string[],
+  inbound: readonly string[],
+): { readonly next: readonly string[]; readonly changed: boolean } {
+  const known = new Set(stored)
+  const additions: string[] = []
+
+  for (const tag of inbound) {
+    const trimmed = tag.trim()
+
+    if (trimmed.length === 0 || known.has(trimmed)) {
+      continue
+    }
+
+    known.add(trimmed)
+    additions.push(trimmed)
+  }
+
+  if (additions.length === 0) {
+    return { next: stored, changed: false }
+  }
+
+  return { next: [...stored, ...additions], changed: true }
 }
 
 /** How far ahead a deal created by a form is expected to close (`forms.md` rule 6). */

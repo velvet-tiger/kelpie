@@ -103,6 +103,31 @@ export async function findList(
   return { ...found, memberCount: await countMembers(db, id) }
 }
 
+/**
+ * Bare list rows for a bulk existence + target-type check, without the
+ * member-count round trip `findList` pays for. Used by the forms service to
+ * validate `list_ids` at write time in one query rather than N.
+ */
+export interface ListIdRow {
+  readonly id: string
+  readonly targetType: string
+}
+
+export async function listListsById(
+  db: Queryable,
+  workspaceId: string,
+  ids: readonly string[],
+): Promise<ListIdRow[]> {
+  if (ids.length === 0) {
+    return []
+  }
+
+  return db
+    .select({ id: lists.id, targetType: lists.targetType })
+    .from(lists)
+    .where(and(eq(lists.workspaceId, workspaceId), inArray(lists.id, ids)))
+}
+
 async function countMembers(db: Queryable, listId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })

@@ -10,6 +10,7 @@ import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryStat
 import { RecordTabs } from '../components/RecordTabs.tsx'
 import { EmbedPanel } from './forms/EmbedPanel.tsx'
 import { FieldsEditor } from './forms/FieldsEditor.tsx'
+import { FormActions } from './forms/FormActions.tsx'
 import { FormSettings } from './forms/FormSettings.tsx'
 import { SubmissionsTable } from './forms/SubmissionsTable.tsx'
 
@@ -21,7 +22,7 @@ import { SubmissionsTable } from './forms/SubmissionsTable.tsx'
  * committing per keystroke would rewrite every field on every character.
  */
 
-type FormTab = 'submissions' | 'fields' | 'settings' | 'embed'
+type FormTab = 'submissions' | 'fields' | 'actions' | 'settings' | 'embed'
 
 export function FormDetail(): React.JSX.Element {
   const { id } = useParams()
@@ -72,6 +73,7 @@ export function FormDetail(): React.JSX.Element {
         tabs={[
           { id: 'submissions', label: 'Submissions', count: submissions.records.length },
           { id: 'fields', label: 'Fields', count: record.fields.length },
+          { id: 'actions', label: 'Actions', count: actionCount(record) },
           { id: 'settings', label: 'Settings' },
           { id: 'embed', label: 'Embed' },
         ]}
@@ -81,10 +83,29 @@ export function FormDetail(): React.JSX.Element {
       >
         {tab === 'submissions' && <SubmissionsTable form={record} submissions={submissions} />}
         {tab === 'fields' && <FieldsEditor form={record} />}
+        {tab === 'actions' && <FormActions form={record} />}
         {tab === 'settings' && <FormSettings form={record} />}
         {tab === 'embed' && <EmbedPanel form={record} />}
       </RecordTabs>
     </div>
+  )
+}
+
+/**
+ * How many post-submit actions the form is configured to run. Toggled
+ * triggers, tag lists (each counted once when non-empty), lists, and attach
+ * targets all contribute. The tab count is a hint, not a total — a reader
+ * sees "3" and knows the form does more than just capture answers.
+ */
+function actionCount(form: Form): number {
+  return (
+    (form.createDeal ? 1 : 0) +
+    (form.createOpportunity ? 1 : 0) +
+    (form.createPartnership ? 1 : 0) +
+    (form.personTags.length > 0 ? 1 : 0) +
+    (form.companyTags.length > 0 ? 1 : 0) +
+    form.listIds.length +
+    form.attachTargets.length
   )
 }
 

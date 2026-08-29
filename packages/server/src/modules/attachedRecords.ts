@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm'
 import type { Queryable } from '../runtime/transaction.ts'
 import * as activityRepository from './activities/repository.ts'
 import * as decisionRepository from './decisions/repository.ts'
+import { formAttachTargets } from './forms/schema.ts'
 import { candidates } from './hiring/schema.ts'
 import * as listRepository from './lists/repository.ts'
 import * as noteRepository from './notes/repository.ts'
@@ -23,7 +24,9 @@ import * as planRepository from './plans/repository.ts'
  * four pipeline types, so they are removed only for those targets. `person_links`
  * follows the same rule: it holds a person's involvement in a pipeline record
  * and its check constraint allows only the four pipeline types, so a deleted
- * deal/opportunity/raise/partnership sheds its people here.
+ * deal/opportunity/raise/partnership sheds its people here. `form_attach_targets`
+ * is the same shape: forms pinning submitters into a pre-existing pipeline
+ * record shed the mapping when the target goes.
  */
 
 /** Target types that can own attached records here. */
@@ -56,6 +59,20 @@ export async function deleteRecordsAttachedTo(
         targetId,
       })
     : 0
+  const attachTargets = PLAN_TARGET_TYPES.has(targetType)
+    ? (
+        await db
+          .delete(formAttachTargets)
+          .where(
+            and(
+              eq(formAttachTargets.workspaceId, workspaceId),
+              eq(formAttachTargets.targetType, targetType),
+              eq(formAttachTargets.targetId, targetId),
+            ),
+          )
+          .returning({ formId: formAttachTargets.formId })
+      ).length
+    : 0
   const memberships = await listRepository.deleteMembershipsForTarget(
     db,
     workspaceId,
@@ -63,7 +80,7 @@ export async function deleteRecordsAttachedTo(
     targetId,
   )
 
-  return notes + activities + decisions + plans + links + memberships
+  return notes + activities + decisions + plans + links + attachTargets + memberships
 }
 
 /**

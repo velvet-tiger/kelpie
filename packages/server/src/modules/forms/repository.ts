@@ -1,11 +1,14 @@
 import { and, asc, eq, ilike, inArray, or } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
+import type { PipelineKind } from '@kelpie/schemas'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import { containsPattern } from '../../lib/search.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
-import { formFields, formSubmissions, forms } from './schema.ts'
+import { lists } from '../lists/schema.ts'
+import type { RecordTargetType } from '../recordTargets.ts'
+import { formAttachTargets, formFields, formLists, formSubmissions, forms } from './schema.ts'
 
 export type FormRecord = typeof forms.$inferSelect
 export type FormFieldRecord = typeof formFields.$inferSelect
@@ -220,4 +223,85 @@ export async function insertSubmission(
   }
 
   return created
+}
+
+/** One form's configured list memberships, joined to the list for target-type. */
+export interface FormListRow {
+  readonly listId: string
+  readonly targetType: RecordTargetType
+}
+
+export async function listFormLists(db: Queryable, formId: string): Promise<FormListRow[]> {
+  const rows = await db
+    .select({ listId: formLists.listId, targetType: lists.targetType })
+    .from(formLists)
+    .innerJoin(lists, eq(lists.id, formLists.listId))
+    .where(eq(formLists.formId, formId))
+    .orderBy(asc(formLists.listId))
+
+  return rows.map((row) => ({
+    listId: row.listId,
+    targetType: row.targetType as RecordTargetType,
+  }))
+}
+
+export async function replaceFormLists(
+  db: Queryable,
+  workspaceId: string,
+  formId: string,
+  listIds: readonly string[],
+): Promise<void> {
+  await db.delete(formLists).where(eq(formLists.formId, formId))
+
+  if (listIds.length === 0) {
+    return
+  }
+
+  await db.insert(formLists).values(listIds.map((listId) => ({ workspaceId, formId, listId })))
+}
+
+/** One form's configured attach targets, ordered so a resent identical set is not a write. */
+export interface FormAttachTargetRow {
+  readonly targetType: PipelineKind
+  readonly targetId: string
+}
+
+export async function listAttachTargets(
+  db: Queryable,
+  formId: string,
+): Promise<FormAttachTargetRow[]> {
+  const rows = await db
+    .select({ targetType: formAttachTargets.targetType, targetId: formAttachTargets.targetId })
+    .from(formAttachTargets)
+    .where(eq(formAttachTargets.formId, formId))
+    .orderBy(asc(formAttachTargets.targetType), asc(formAttachTargets.targetId))
+
+  return rows.map((row) => ({
+    targetType: row.targetType as PipelineKind,
+    targetId: row.targetId,
+  }))
+}
+
+export async function replaceAttachTargets(
+  db: Queryable,
+  workspaceId: string,
+  formId: string,
+  targets: readonly FormAttachTargetRow[],
+): Promise<void> {
+  await db.delete(formAttachTargets).where(eq(formAttachTargets.formId, formId))
+
+  if (targets.length === 0) {
+    return
+  }
+
+  await db
+    .insert(formAttachTargets)
+    .values(
+      targets.map((target) => ({
+        workspaceId,
+        formId,
+        targetType: target.targetType,
+        targetId: target.targetId,
+      })),
+    )
 }

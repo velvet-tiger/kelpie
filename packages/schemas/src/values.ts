@@ -331,6 +331,8 @@ export const FORM_FIELD_MAP_TARGETS = [
   'company.domain',
   'position.title',
   'deal.name',
+  'opportunity.name',
+  'partnership.name',
   'submission',
 ] as const
 
@@ -343,6 +345,8 @@ export const FORM_FIELD_MAP_TARGET_LABELS: Readonly<Record<FormFieldMapTarget, s
   'company.domain': 'Company · domain',
   'position.title': 'Position · title',
   'deal.name': 'Deal · name',
+  'opportunity.name': 'Opportunity · name',
+  'partnership.name': 'Partnership · name',
   submission: 'Submission only',
 }
 
@@ -358,6 +362,16 @@ export const PERSON_EMAIL_TARGET: FormFieldMapTarget = 'person.email'
 export const FORM_OPTION_VALUE_TYPES = ['string', 'number', 'boolean'] as const
 
 export type FormOptionValueType = (typeof FORM_OPTION_VALUE_TYPES)[number]
+
+/**
+ * Each post-submit action lands one of these on the submission's `action_log`.
+ * `ok` = the action ran; `skipped` = its precondition was absent (a company
+ * list on a submit that never resolved one); `error` = the savepoint rolled
+ * back so the rest of the submit could continue.
+ */
+export const FORM_ACTION_STATUSES = ['ok', 'skipped', 'error'] as const
+
+export type FormActionStatus = (typeof FORM_ACTION_STATUSES)[number]
 
 /**
  * The domain events a webhook can subscribe to.

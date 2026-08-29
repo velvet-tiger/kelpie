@@ -10,6 +10,41 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — one polymorphic
+  `person_links` table folds `deal_people`, `partnership_people`, and
+  `raise_people` into a single join; Opportunity gains `person_ids` on the
+  wire and a Contacts section on its detail page. The person side keeps a
+  real foreign key with restrict, so the database still blocks deleting a
+  person who is on a deal, opportunity, raise, or partnership. Person delete
+  responses name each pipeline the person is on, in `PIPELINE_KINDS` order.
+  The person activity roll-up now covers all four kinds in one query. Adds
+  migrations `0024` (create + backfill) and `0025` (drop the three joins).
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — forms post-submit
+  actions. A form's new **Actions** tab hosts three side-by-side create
+  triggers (Deal, Opportunity, Partnership; the Deal trigger moved off
+  Settings for parity), person and company tag merges, list memberships, and
+  attach-to-existing-record links via `person_links`. The public submit is
+  now core capture plus per-action savepoints: an action that fails logs
+  `{action, status, detail}` to the new `form_submissions.action_log` and
+  the runner continues, so a broken action never loses the lead or the
+  visitor's `201`. `form.submitted` webhooks carry `opportunity_id`,
+  `partnership_id`, and one status per action. Adds migration `0026`.
+
+### Changed
+
+- **`@kelpie/schemas`** — `Form`, `FormInput`, and `CreateFormInput` gain
+  the twelve new form settings (opportunity trigger, partnership trigger,
+  person/company tags, list ids, attach targets); `FormSubmission` gains
+  `opportunityId`, `partnershipId`, and `actionLog`; `Opportunity` gains
+  `personIds`. All additions are backwards-compatible: a newer schema
+  against an older server would reject a response missing the new fields,
+  so publish the packages together.
+- **`@kelpie/schemas`** — `FORM_FIELD_MAP_TARGETS` gains `opportunity.name`
+  and `partnership.name`. The `form_fields.map_to` check constraint moves
+  with them.
+
 ## [0.8.0] - 2026-08-28
 
 ### Added

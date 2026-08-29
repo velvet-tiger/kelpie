@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   companyNameFrom,
   describeAnswers,
-  expandDealNameTemplate,
+  expandNameTemplate,
   expectedCloseFrom,
   fillBlank,
   findAnswerProblems,
@@ -206,6 +206,8 @@ describe('companyNameFrom', () => {
     personName: 'a',
     positionTitle: undefined,
     dealName: undefined,
+    opportunityName: undefined,
+    partnershipName: undefined,
   } as const
 
   it('prefers the name that was given', () => {
@@ -227,9 +229,9 @@ describe('companyNameFrom', () => {
   })
 })
 
-describe('expandDealNameTemplate', () => {
+describe('expandNameTemplate', () => {
   it('substitutes both placeholders', () => {
-    const name = expandDealNameTemplate('{{company.name}} — {{person.name}}', {
+    const name = expandNameTemplate('{{company.name}} — {{person.name}}', {
       companyName: 'Example Co',
       personName: 'Alex Rivera',
     })
@@ -238,7 +240,7 @@ describe('expandDealNameTemplate', () => {
   })
 
   it('substitutes a placeholder used more than once', () => {
-    const name = expandDealNameTemplate('{{person.name}} and {{person.name}}', {
+    const name = expandNameTemplate('{{person.name}} and {{person.name}}', {
       companyName: '',
       personName: 'Alex',
     })
@@ -247,7 +249,7 @@ describe('expandDealNameTemplate', () => {
   })
 
   it('leaves a readable name when a value is missing', () => {
-    expect(expandDealNameTemplate('{{company.name}}', { companyName: '', personName: '' })).toBe(
+    expect(expandNameTemplate('{{company.name}}', { companyName: '', personName: '' })).toBe(
       'Website lead',
     )
   })
