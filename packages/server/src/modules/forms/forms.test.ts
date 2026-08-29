@@ -1184,7 +1184,8 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       })
       const person = readRecord(await personResponse.json())
 
-      expect(person.tags.filter((tag: unknown) => tag === 'inbound')).toEqual(['inbound'])
+      // Exactly one 'inbound' — the second submit must not append a duplicate.
+      expect(person.tags).toEqual(['inbound'])
       expect(String(first?.person_id ?? '')).toBe(personId)
     })
   })
