@@ -8,6 +8,7 @@ import * as decisionRepository from './decisions/repository.ts'
 import { candidates } from './hiring/schema.ts'
 import * as listRepository from './lists/repository.ts'
 import * as noteRepository from './notes/repository.ts'
+import * as personLinks from './personLinks.ts'
 import * as planRepository from './plans/repository.ts'
 
 /**
@@ -19,7 +20,10 @@ import * as planRepository from './plans/repository.ts'
  * record they described and reappear the day an id is reused.
  *
  * `plan_items` attach the same way but their check constraint allows only the
- * four pipeline types, so they are removed only for those targets.
+ * four pipeline types, so they are removed only for those targets. `person_links`
+ * follows the same rule: it holds a person's involvement in a pipeline record
+ * and its check constraint allows only the four pipeline types, so a deleted
+ * deal/opportunity/raise/partnership sheds its people here.
  */
 
 /** Target types that can own attached records here. */
@@ -46,6 +50,12 @@ export async function deleteRecordsAttachedTo(
   const plans = PLAN_TARGET_TYPES.has(targetType)
     ? await planRepository.deleteForTarget(db, workspaceId, targetType, targetId)
     : 0
+  const links = PLAN_TARGET_TYPES.has(targetType)
+    ? await personLinks.deleteLinksForTarget(db, workspaceId, {
+        targetType: targetType as PipelineKind,
+        targetId,
+      })
+    : 0
   const memberships = await listRepository.deleteMembershipsForTarget(
     db,
     workspaceId,
@@ -53,7 +63,7 @@ export async function deleteRecordsAttachedTo(
     targetId,
   )
 
-  return notes + activities + decisions + plans + memberships
+  return notes + activities + decisions + plans + links + memberships
 }
 
 /**

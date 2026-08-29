@@ -1,5 +1,5 @@
 import { raiseSchema } from '@kelpie/schemas'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -11,8 +11,8 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
+import { personLinks } from '../people/schema.ts'
 import { planItems } from '../plans/schema.ts'
-import { raisePeople } from './schema.ts'
 
 /** `/v1/raises` against real Postgres. Fundraising processes: CRUD, stage moves, key people. */
 
@@ -407,9 +407,9 @@ describe.skipIf(connectionString === undefined)('raises', () => {
         .from(planItems)
         .where(eq(planItems.targetId, id))
       const remainingLinks = await database.db
-        .select({ personId: raisePeople.personId })
-        .from(raisePeople)
-        .where(eq(raisePeople.raiseId, id))
+        .select({ personId: personLinks.personId })
+        .from(personLinks)
+        .where(and(eq(personLinks.targetType, 'raise'), eq(personLinks.targetId, id)))
 
       expect(remainingPlans).toHaveLength(0)
       expect(remainingLinks).toHaveLength(0)

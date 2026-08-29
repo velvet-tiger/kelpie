@@ -1,5 +1,6 @@
 import type { Opportunity, OpportunityInput, PipelineStage } from '@kelpie/schemas'
 import { useState } from 'react'
+import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { usePatch } from '../api/resource.ts'
@@ -11,6 +12,7 @@ import {
   useOpportunity,
   useUpdateOpportunity,
 } from '../api/resources/opportunities.ts'
+import { usePeople } from '../api/resources/people.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { useRecordPlanItems } from '../api/resources/planItems.ts'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
@@ -28,6 +30,7 @@ import { PlanPanel } from '../components/PlanPanel.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
+import { SectionHeader } from '../components/SectionHeader.tsx'
 import { SidebarField } from '../components/SidebarField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { formatDay } from '../lib/dates.ts'
@@ -39,8 +42,10 @@ import { toTags } from './fields.ts'
  * One opportunity.
  *
  * The same shape as `DealDetail` minus what an opportunity does not have: no
- * value, no contacts, and a company that may be absent. A UI module can add its
- * own tab through the `opportunity` record-tab slot.
+ * value, and a company that may be absent. People attach through `person_links`
+ * the same way they do on a deal, and they are shown in the same contacts
+ * section in the aside. A UI module can add its own tab through the
+ * `opportunity` record-tab slot.
  */
 
 const STAGE_TONES: Readonly<Record<string, ChipTone>> = {
@@ -131,6 +136,7 @@ export function OpportunityDetail(): React.JSX.Element {
 
         <aside className="space-y-4 text-[12px] lg:sticky lg:top-6">
           <OpportunitySidebar opportunity={record} />
+          <OpportunityContacts opportunity={record} />
         </aside>
       </div>
     </div>
@@ -335,6 +341,131 @@ function OpportunitySidebar({
           displayClassName="not-italic"
         />
       </SidebarField>
+    </section>
+  )
+}
+
+/** The people on the opportunity, linked and unlinked by replacing `person_ids`. */
+function OpportunityContacts({
+  opportunity,
+}: {
+  readonly opportunity: Opportunity
+}): React.JSX.Element {
+  const { patch, error } = useOpportunityPatch(opportunity)
+
+  const [adding, setAdding] = useState(false)
+  const [personId, setPersonId] = useState('')
+  const [search, setSearch] = useState('')
+
+  // No `?id=` filter exists on people, so names come from the directory's first
+  // page. Past it, a contact renders by id rather than silently vanishing.
+  const directory = usePeople({ limit: 200 })
+  const searchable = usePeople({ term: search.trim().length > 0 ? search.trim() : undefined })
+  const nameById = new Map(directory.records.map((person) => [person.id, person.name]))
+  const linked = new Set(opportunity.personIds)
+
+  function reset(): void {
+    setAdding(false)
+    setPersonId('')
+    setSearch('')
+  }
+
+  function submit(event: FormEvent): void {
+    event.preventDefault()
+
+    if (personId.length === 0 || linked.has(personId)) {
+      return
+    }
+
+    patch({ personIds: [...opportunity.personIds, personId] })
+    reset()
+  }
+
+  return (
+    <section className="rounded-md border border-border">
+      <div className="border-b border-border px-3.5 py-2.5">
+        <SectionHeader
+          title="Contacts"
+          onAdd={() => {
+            setAdding((current) => !current)
+          }}
+          addLabel="Add contact"
+          compact
+        />
+      </div>
+
+      {error !== null && (
+        <div className="px-3.5 py-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
+
+      <ul className="divide-y divide-border">
+        {opportunity.personIds.length === 0 && !adding && (
+          <li className="px-3.5 py-4 text-[12px] text-ink-faint">No contacts yet.</li>
+        )}
+        {opportunity.personIds.map((linkedPersonId) => (
+          <li
+            key={linkedPersonId}
+            className="flex items-start justify-between gap-2 px-3.5 py-2.5"
+          >
+            <Link
+              to={`/people/${linkedPersonId}`}
+              className="text-[13px] font-medium text-ink hover:text-accent"
+            >
+              {nameById.get(linkedPersonId) ?? linkedPersonId}
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                patch({
+                  personIds: opportunity.personIds.filter(
+                    (candidate) => candidate !== linkedPersonId,
+                  ),
+                })
+              }}
+              className="text-[11px] font-medium text-danger hover:underline"
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {adding && (
+        <form onSubmit={submit} className="space-y-2 border-t border-border bg-surface px-3.5 py-3">
+          <EntitySearch
+            options={searchable.records
+              .filter((person) => !linked.has(person.id))
+              .map((person) => ({
+                id: person.id,
+                label: person.name,
+                meta: person.email ?? undefined,
+              }))}
+            value={personId}
+            onChange={setPersonId}
+            onQueryChange={setSearch}
+            placeholder="Search people…"
+            emptyMessage="No people match"
+            required
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={reset}
+              className="rounded-md px-2.5 py-1 text-[12px] font-medium text-ink-muted hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover"
+            >
+              Add
+            </button>
+          </div>
+        </form>
+      )}
     </section>
   )
 }

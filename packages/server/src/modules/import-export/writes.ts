@@ -9,6 +9,7 @@ import type { Actor } from '../auth/actor.ts'
 import * as companyRepository from '../companies/repository.ts'
 import * as dealRepository from '../deals/repository.ts'
 import * as peopleRepository from '../people/repository.ts'
+import * as personLinks from '../personLinks.ts'
 import * as positionRepository from '../positions/repository.ts'
 import { IMPORT_DEAL_CURRENCY, NEW_COMPANY_DEFAULTS, NEW_PERSON_DEFAULTS } from './drafts.ts'
 import type { ImportWrite, PlannedAffiliation, RowPlan } from './plan.ts'
@@ -318,12 +319,19 @@ async function reconcileDealPeople(
   dealId: string,
   personIds: readonly string[],
 ): Promise<boolean> {
-  const current = await dealRepository.listPersonIds(dependencies.tx, dealId)
+  const target = { targetType: 'deal' as const, targetId: dealId }
+  const current = await personLinks.listPersonIds(dependencies.tx, dependencies.workspaceId, target)
   const added = personIds.filter((personId) => !current.includes(personId))
   const removed = current.filter((personId) => !personIds.includes(personId))
 
-  await dealRepository.insertDealPeople(dependencies.tx, dealId, added)
-  await dealRepository.deleteDealPeople(dependencies.tx, dealId, removed)
+  await personLinks.linkPeople(
+    dependencies.tx,
+    dependencies.createId,
+    dependencies.workspaceId,
+    target,
+    added,
+  )
+  await personLinks.unlinkPeople(dependencies.tx, dependencies.workspaceId, target, removed)
 
   return added.length > 0 || removed.length > 0
 }
@@ -352,7 +360,13 @@ async function writeDeal(
       // the same way, and no CSV column carries one.
       currency: IMPORT_DEAL_CURRENCY,
     })
-    await dealRepository.insertDealPeople(tx, id, write.personIds)
+    await personLinks.linkPeople(
+      tx,
+      dependencies.createId,
+      workspaceId,
+      { targetType: 'deal', targetId: id },
+      write.personIds,
+    )
 
     return { recordId: id, objectType: 'deal', changedFields: [] }
   }

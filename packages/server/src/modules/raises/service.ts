@@ -20,6 +20,7 @@ import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
+import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import type { PipelineStageRecord } from '../pipelines/repository.ts'
 import * as repository from './repository.ts'
@@ -31,7 +32,7 @@ import type { RaiseFilters, RaiseRecord } from './repository.ts'
  * passed. The firm is `company_id`; the ongoing relationship with that firm
  * stays a Partnership (`brief.md`).
  *
- * Key people attach through `raise_people` and appear as `person_ids` on the
+ * Key people attach through `person_links` and appear as `person_ids` on the
  * wire, and the check size is integer cents plus an ISO 4217 code, both the
  * Deals mechanics. A stage move is an ordinary PATCH of `stage_id`, and it is
  * the one change that files a `stage_changed` activity and a `stage.changed`
@@ -207,7 +208,7 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
     workspaceId: string,
     personIds: readonly string[],
   ): Promise<ReadonlyMap<string, string>> {
-    const named = await repository.findPeopleNamed(dependencies.db, workspaceId, personIds)
+    const named = await personLinks.findPeopleNamed(dependencies.db, workspaceId, personIds)
     const missing = personIds.filter((id) => !named.has(id))
 
     if (missing.length > 0) {
@@ -222,9 +223,14 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
   }
 
   /** @returns The page's views, with every raise's people fetched in one query. */
-  async function toViews(records: readonly RaiseRecord[]): Promise<RaiseView[]> {
-    const peopleByRaise = await repository.listPersonIdsFor(
+  async function toViews(
+    workspaceId: string,
+    records: readonly RaiseRecord[],
+  ): Promise<RaiseView[]> {
+    const peopleByRaise = await personLinks.listPersonIdsFor(
       dependencies.db,
+      workspaceId,
+      'raise',
       records.map((record) => record.id),
     )
 
@@ -238,14 +244,20 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
       const rows = await repository.listRaises(dependencies.db, workspaceId, filters, window)
       const page = toPage(rows, window, (raise) => raise.id)
 
-      return { items: await toViews(page.items), nextCursor: page.nextCursor }
+      return { items: await toViews(workspaceId, page.items), nextCursor: page.nextCursor }
     },
 
     async get(actor, id) {
       const workspaceId = requireWorkspaceId(actor)
       const raise = await require(workspaceId, id)
 
-      return toView(raise, await repository.listPersonIds(dependencies.db, id))
+      return toView(
+        raise,
+        await personLinks.listPersonIds(dependencies.db, workspaceId, {
+          targetType: 'raise',
+          targetId: id,
+        }),
+      )
     },
 
     async create(actor, input) {
@@ -284,7 +296,13 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
           tags: [...input.tags],
         })
 
-        await repository.insertRaisePeople(tx, id, personIds)
+        await personLinks.linkPeople(
+          tx,
+          dependencies.createId,
+          workspaceId,
+          { targetType: 'raise', targetId: id },
+          personIds,
+        )
 
         await dependencies.recordActivity(tx, workspaceId, actor, {
           targetType: 'raise',
@@ -329,7 +347,10 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
         await requireOwner(workspaceId, changes.ownerId)
       }
 
-      const currentPeople = await repository.listPersonIds(dependencies.db, id)
+      const currentPeople = await personLinks.listPersonIds(dependencies.db, workspaceId, {
+        targetType: 'raise',
+        targetId: id,
+      })
       const nextPeople =
         changes.personIds === undefined ? undefined : [...new Set(changes.personIds)]
       const added =
@@ -360,8 +381,19 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
           throw AppError.notFound('Raise not found')
         }
 
-        await repository.insertRaisePeople(tx, id, added)
-        await repository.deleteRaisePeople(tx, id, removed)
+        await personLinks.linkPeople(
+          tx,
+          dependencies.createId,
+          workspaceId,
+          { targetType: 'raise', targetId: id },
+          added,
+        )
+        await personLinks.unlinkPeople(
+          tx,
+          workspaceId,
+          { targetType: 'raise', targetId: id },
+          removed,
+        )
 
         if (stageMove !== undefined) {
           await dependencies.recordActivity(tx, workspaceId, actor, {
@@ -428,7 +460,7 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
       await dependencies.transaction(async ({ tx, events }) => {
         await require(workspaceId, id)
 
-        // `raise_people` dies with the raise through its foreign key; notes,
+        // Notes, activities, decisions, plan items, and person_links have no key back to the raise;
         // activities, decisions and plan items have no key, so they are removed
         // here, in the same transaction.
         await deleteRecordsAttachedTo(tx, workspaceId, 'raise', id)

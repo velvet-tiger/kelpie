@@ -6,18 +6,18 @@ import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 
 import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
-import { dealPeople, deals } from '../deals/schema.ts'
+import { deals } from '../deals/schema.ts'
 import { decisions } from '../decisions/schema.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { candidates, roles } from '../hiring/schema.ts'
 import { notes } from '../notes/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
-import { partnershipPeople, partnerships } from '../partnerships/schema.ts'
-import { people } from '../people/schema.ts'
+import { partnerships } from '../partnerships/schema.ts'
+import { people, personLinks } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { planItems } from '../plans/schema.ts'
 import { positions } from '../positions/schema.ts'
-import { raisePeople, raises } from '../raises/schema.ts'
+import { raises } from '../raises/schema.ts'
 import { isRecordTargetType, resolveTargetNames, targetKey } from '../recordTargets.ts'
 import { workspaces } from '../workspace/schema.ts'
 import type { HandbookPageReference, PromptInputs, RelatedIdList, WorkspaceSignal } from './prompt.ts'
@@ -254,6 +254,33 @@ async function relatedFrom(
 }
 
 /**
+ * The people on one pipeline record, capped and truncation-aware. Uses
+ * `person_links` directly rather than the shared helper because it needs the
+ * limit + 1 semantics of `relatedFrom`.
+ */
+async function personLinkIds(
+  db: Queryable,
+  workspaceId: string,
+  targetType: 'deal' | 'opportunity' | 'partnership' | 'raise',
+  targetId: string,
+): Promise<RelatedIdList> {
+  const rows = await db
+    .select({ id: personLinks.personId })
+    .from(personLinks)
+    .where(
+      and(
+        eq(personLinks.workspaceId, workspaceId),
+        eq(personLinks.targetType, targetType),
+        eq(personLinks.targetId, targetId),
+      ),
+    )
+    .orderBy(asc(personLinks.personId))
+    .limit(RELATED_ID_LIMIT + 1)
+
+  return limitedIds(rows.map((row) => row.id))
+}
+
+/**
  * The related record ids `agent-tasks.md`'s context recipe names, per target
  * type: positions for a person, people on a deal, the company behind a raise,
  * candidates on a role, and so on. Only relations the data model records — no
@@ -326,14 +353,7 @@ async function collectRelated(
 
       return {
         company_ids: wholeList(deal === undefined ? [] : [deal.companyId]),
-        // The link table has no workspace column; the parent deal was already
-        // resolved inside this workspace, which is what scopes the join.
-        person_ids: await relatedFrom(
-          db,
-          dealPeople,
-          dealPeople.personId,
-          eq(dealPeople.dealId, targetId),
-        ),
+        person_ids: await personLinkIds(db, workspaceId, 'deal', targetId),
       }
     }
 
@@ -349,6 +369,7 @@ async function collectRelated(
             ? []
             : [opportunity.companyId],
         ),
+        person_ids: await personLinkIds(db, workspaceId, 'opportunity', targetId),
       }
     }
 
@@ -360,12 +381,7 @@ async function collectRelated(
 
       return {
         company_ids: wholeList(partnership === undefined ? [] : [partnership.companyId]),
-        person_ids: await relatedFrom(
-          db,
-          partnershipPeople,
-          partnershipPeople.personId,
-          eq(partnershipPeople.partnershipId, targetId),
-        ),
+        person_ids: await personLinkIds(db, workspaceId, 'partnership', targetId),
       }
     }
 
@@ -377,12 +393,7 @@ async function collectRelated(
 
       return {
         company_ids: wholeList(raise === undefined ? [] : [raise.companyId]),
-        person_ids: await relatedFrom(
-          db,
-          raisePeople,
-          raisePeople.personId,
-          eq(raisePeople.raiseId, targetId),
-        ),
+        person_ids: await personLinkIds(db, workspaceId, 'raise', targetId),
       }
     }
 

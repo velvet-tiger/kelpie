@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
@@ -6,9 +6,9 @@ import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import { arrayContainsPattern, containsPattern } from '../../lib/search.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
-import { people } from '../people/schema.ts'
+import { anyPersonLinked } from '../personLinks.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
-import { partnershipPeople, partnerships } from './schema.ts'
+import { partnerships } from './schema.ts'
 
 export type PartnershipRecord = typeof partnerships.$inferSelect
 
@@ -51,15 +51,6 @@ function companyNameMatches(pattern: string): SQL {
   )`
 }
 
-function hasAnyOfPeople(personIds: readonly string[]): SQL {
-  return sql`exists (
-    select 1
-    from ${partnershipPeople}
-    where ${partnershipPeople.partnershipId} = ${partnerships.id}
-      and ${inArray(partnershipPeople.personId, personIds)}
-  )`
-}
-
 function matchesTerm(term: string): SQL | undefined {
   const pattern = containsPattern(term)
 
@@ -81,7 +72,9 @@ function conditionsFor(workspaceId: string, filters: PartnershipFilters): (SQL |
       ? undefined
       : inArray(partnerships.companyId, filters.companyIds),
     filters.stageIds === undefined ? undefined : inArray(partnerships.stageId, filters.stageIds),
-    filters.personIds === undefined ? undefined : hasAnyOfPeople(filters.personIds),
+    filters.personIds === undefined
+      ? undefined
+      : anyPersonLinked('partnership', partnerships.id, partnerships.workspaceId, filters.personIds),
   ]
 }
 
@@ -153,110 +146,6 @@ export async function deletePartnership(
     .returning({ id: partnerships.id })
 
   return deleted.length
-}
-
-/** The key people on one partnership. Ordered by id so a response is stable across reads. */
-export async function listPersonIds(db: Queryable, partnershipId: string): Promise<string[]> {
-  const rows = await db
-    .select({ personId: partnershipPeople.personId })
-    .from(partnershipPeople)
-    .where(eq(partnershipPeople.partnershipId, partnershipId))
-    .orderBy(asc(partnershipPeople.personId))
-
-  return rows.map((row) => row.personId)
-}
-
-/**
- * The key people on each of a page of partnerships, in one query rather than one
- * per row.
- *
- * @returns Ids missing from the map have no people.
- */
-export async function listPersonIdsFor(
-  db: Queryable,
-  partnershipIds: readonly string[],
-): Promise<ReadonlyMap<string, readonly string[]>> {
-  if (partnershipIds.length === 0) {
-    return new Map()
-  }
-
-  const rows = await db
-    .select({
-      partnershipId: partnershipPeople.partnershipId,
-      personId: partnershipPeople.personId,
-    })
-    .from(partnershipPeople)
-    .where(inArray(partnershipPeople.partnershipId, partnershipIds))
-    .orderBy(asc(partnershipPeople.personId))
-
-  const byPartnership = new Map<string, string[]>()
-
-  for (const row of rows) {
-    const existing = byPartnership.get(row.partnershipId)
-
-    if (existing === undefined) {
-      byPartnership.set(row.partnershipId, [row.personId])
-    } else {
-      existing.push(row.personId)
-    }
-  }
-
-  return byPartnership
-}
-
-export async function insertPartnershipPeople(
-  db: Queryable,
-  partnershipId: string,
-  personIds: readonly string[],
-): Promise<void> {
-  if (personIds.length === 0) {
-    return
-  }
-
-  await db
-    .insert(partnershipPeople)
-    .values(personIds.map((personId) => ({ partnershipId, personId })))
-}
-
-export async function deletePartnershipPeople(
-  db: Queryable,
-  partnershipId: string,
-  personIds: readonly string[],
-): Promise<void> {
-  if (personIds.length === 0) {
-    return
-  }
-
-  await db
-    .delete(partnershipPeople)
-    .where(
-      and(
-        eq(partnershipPeople.partnershipId, partnershipId),
-        inArray(partnershipPeople.personId, personIds),
-      ),
-    )
-}
-
-/**
- * The names of these people in this workspace, keyed by id. An id missing from
- * the map does not exist here, which is how `person_ids` is validated. Reads the
- * `people` *table*, per the cross-relation rule in `architecture.md`.
- */
-export async function findPeopleNamed(
-  db: Queryable,
-  workspaceId: string,
-  personIds: readonly string[],
-): Promise<ReadonlyMap<string, string>> {
-  if (personIds.length === 0) {
-    return new Map()
-  }
-
-  const rows = await db
-    .select({ id: people.id, name: people.name })
-    .from(people)
-    .where(and(eq(people.workspaceId, workspaceId), inArray(people.id, personIds)))
-
-  return new Map(rows.map((row) => [row.id, row.name]))
 }
 
 /** Whether a member belongs to this workspace, for validating `owner_id`. */

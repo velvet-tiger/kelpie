@@ -23,6 +23,7 @@ const opportunityShape = {
   company_id: z.string().min(1).nullable(),
   owner_id: z.string().min(1).nullable(),
   expected_close: isoDateSchema.nullable(),
+  person_ids: z.array(z.string().min(1)),
   summary: z.string(),
   tags: z.array(z.string().min(1)),
 }
@@ -41,6 +42,7 @@ export const createBody = z.strictObject({
   company_id: opportunityShape.company_id.default(null),
   owner_id: opportunityShape.owner_id.optional(),
   expected_close: opportunityShape.expected_close.default(null),
+  person_ids: opportunityShape.person_ids.default([]),
   summary: opportunityShape.summary.default(''),
   tags: opportunityShape.tags.default([]),
 })
@@ -59,6 +61,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateOpportuni
     companyId: body.company_id,
     ownerId: body.owner_id,
     expectedClose: body.expected_close,
+    personIds: body.person_ids,
     summary: body.summary,
     tags: body.tags,
   }
@@ -72,6 +75,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateOpportuni
     ...(body.company_id === undefined ? {} : { companyId: body.company_id }),
     ...(body.owner_id === undefined ? {} : { ownerId: body.owner_id }),
     ...(body.expected_close === undefined ? {} : { expectedClose: body.expected_close }),
+    ...(body.person_ids === undefined ? {} : { personIds: body.person_ids }),
     ...(body.summary === undefined ? {} : { summary: body.summary }),
     ...(body.tags === undefined ? {} : { tags: body.tags }),
   }
@@ -86,6 +90,7 @@ export function opportunityResponse(opportunity: OpportunityView): Record<string
     company_id: opportunity.companyId,
     owner_id: opportunity.ownerId,
     expected_close: opportunity.expectedClose,
+    person_ids: opportunity.personIds,
     summary: opportunity.summary,
     tags: opportunity.tags,
     created_at: opportunity.createdAt.toISOString(),
@@ -107,6 +112,7 @@ export function mountOpportunitiesRoutes(
         kinds: readIdFilter(context, 'kind'),
         companyIds: readIdFilter(context, 'company_id'),
         stageIds: readIdFilter(context, 'stage_id'),
+        personIds: readIdFilter(context, 'person_id'),
       },
       readListParameters(context),
     )

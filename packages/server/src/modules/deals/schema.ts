@@ -1,9 +1,8 @@
-import { bigint, date, index, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
+import { bigint, date, index, pgTable, text } from 'drizzle-orm/pg-core'
 
 import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
 import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
-import { people } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 
@@ -57,16 +56,3 @@ export const deals = pgTable(
   ],
 )
 
-/** People attached to a deal. Restrict on person: a deal contact cannot vanish. */
-export const dealPeople = pgTable(
-  'deal_people',
-  {
-    dealId: text('deal_id')
-      .notNull()
-      .references(() => deals.id, { onDelete: 'cascade' }),
-    personId: text('person_id')
-      .notNull()
-      .references(() => people.id, { onDelete: 'restrict' }),
-  },
-  (table) => [primaryKey({ columns: [table.dealId, table.personId] })],
-)

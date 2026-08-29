@@ -10,8 +10,9 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
-import { dealPeople, deals } from '../deals/schema.ts'
-import { partnershipPeople, partnerships } from '../partnerships/schema.ts'
+import { deals } from '../deals/schema.ts'
+import { partnerships } from '../partnerships/schema.ts'
+import { personLinks } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 
 /**
@@ -104,7 +105,13 @@ describe.skipIf(connectionString === undefined)('activities', () => {
     })
 
     if (personId !== undefined) {
-      await database.db.insert(dealPeople).values({ dealId, personId })
+      await database.db.insert(personLinks).values({
+        id: `plink_${dealId}_${personId}`,
+        workspaceId: acme.workspaceId,
+        personId,
+        targetType: 'deal',
+        targetId: dealId,
+      })
     }
 
     return dealId
@@ -343,9 +350,12 @@ describe.skipIf(connectionString === undefined)('activities', () => {
         stageId: await firstStageId('partnership'),
         kind: 'reseller',
       })
-      await database.db.insert(partnershipPeople).values({
-        partnershipId: 'prt_one',
+      await database.db.insert(personLinks).values({
+        id: `plink_prt_one_${personId}`,
+        workspaceId: acme.workspaceId,
         personId,
+        targetType: 'partnership',
+        targetId: 'prt_one',
       })
 
       await client.send('POST', '/v1/notes', {

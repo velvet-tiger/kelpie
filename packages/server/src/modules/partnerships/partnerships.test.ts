@@ -12,7 +12,8 @@ import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
 import { planItems } from '../plans/schema.ts'
-import { partnershipPeople } from './schema.ts'
+import { and } from 'drizzle-orm'
+import { personLinks } from '../people/schema.ts'
 
 /** `/v1/partnerships` against real Postgres. Ongoing relationships: CRUD, stage moves, key people. */
 
@@ -425,9 +426,9 @@ describe.skipIf(connectionString === undefined)('partnerships', () => {
         .from(planItems)
         .where(eq(planItems.targetId, id))
       const remainingLinks = await database.db
-        .select({ personId: partnershipPeople.personId })
-        .from(partnershipPeople)
-        .where(eq(partnershipPeople.partnershipId, id))
+        .select({ personId: personLinks.personId })
+        .from(personLinks)
+        .where(and(eq(personLinks.targetType, 'partnership'), eq(personLinks.targetId, id)))
 
       expect(remainingPlans).toHaveLength(0)
       expect(remainingLinks).toHaveLength(0)

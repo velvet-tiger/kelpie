@@ -4,9 +4,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { isReferenceViolation } from '../lib/database.ts'
 import { createIdFactory } from '../lib/ids.ts'
 import { companies } from '../modules/companies/schema.ts'
-import { dealPeople, deals } from '../modules/deals/schema.ts'
+import { deals } from '../modules/deals/schema.ts'
 import { formFields, formSubmissions, forms } from '../modules/forms/schema.ts'
-import { people } from '../modules/people/schema.ts'
+import { people, personLinks } from '../modules/people/schema.ts'
 import { pipelineStages } from '../modules/pipelines/schema.ts'
 import { positions } from '../modules/positions/schema.ts'
 import { workspaces } from '../modules/workspace/schema.ts'
@@ -163,7 +163,13 @@ describe.skipIf(connectionString === undefined)('delete rules', () => {
     const companyId = await insertCompany('Bletchley')
     const stageId = await insertDealStage('qualifying')
     const dealId = await insertDeal(companyId, stageId)
-    await database.db.insert(dealPeople).values({ dealId, personId })
+    await database.db.insert(personLinks).values({
+      id: createId('personLink'),
+      workspaceId: fixture.workspaceId,
+      personId,
+      targetType: 'deal',
+      targetId: dealId,
+    })
 
     await expectBlockedByReference(database.db.delete(people).where(eq(people.id, personId)))
   })
@@ -278,7 +284,11 @@ describe.skipIf(connectionString === undefined)('migrations', () => {
       expect(names).toContain('rate_limit_buckets')
       expect(names).toContain('lists')
       expect(names).toContain('list_members')
-      expect(names).toHaveLength(41)
+      expect(names).toContain('person_links')
+      expect(names).not.toContain('deal_people')
+      expect(names).not.toContain('partnership_people')
+      expect(names).not.toContain('raise_people')
+      expect(names).toHaveLength(39)
     } finally {
       await database.close()
     }

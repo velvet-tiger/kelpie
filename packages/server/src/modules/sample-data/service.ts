@@ -9,16 +9,16 @@ import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import * as authRepository from '../auth/repository.ts'
 import { companies } from '../companies/schema.ts'
-import { dealPeople, deals } from '../deals/schema.ts'
+import { deals } from '../deals/schema.ts'
 import { candidates, roles } from '../hiring/schema.ts'
 import { notes } from '../notes/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
-import { partnershipPeople, partnerships } from '../partnerships/schema.ts'
-import { people } from '../people/schema.ts'
+import { partnerships } from '../partnerships/schema.ts'
+import { people, personLinks } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { planItems } from '../plans/schema.ts'
 import { positions } from '../positions/schema.ts'
-import { raisePeople, raises } from '../raises/schema.ts'
+import { raises } from '../raises/schema.ts'
 import { parseMemberRole, roleAllows } from '../workspace/roles.ts'
 import { SAMPLE_DATA_FIXTURE } from './fixture.ts'
 import type { Fixture } from './fixture.ts'
@@ -269,7 +269,13 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
                 )
               }
 
-              await tx.insert(dealPeople).values({ dealId: id, personId })
+              await tx.insert(personLinks).values({
+                id: dependencies.createId('personLink'),
+                workspaceId,
+                personId,
+                targetType: 'deal',
+                targetId: id,
+              })
             }
           }
 
@@ -355,7 +361,13 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
                 )
               }
 
-              await tx.insert(raisePeople).values({ raiseId: id, personId })
+              await tx.insert(personLinks).values({
+                id: dependencies.createId('personLink'),
+                workspaceId,
+                personId,
+                targetType: 'raise',
+                targetId: id,
+              })
             }
           }
 
@@ -405,7 +417,13 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
                 )
               }
 
-              await tx.insert(partnershipPeople).values({ partnershipId: id, personId })
+              await tx.insert(personLinks).values({
+                id: dependencies.createId('personLink'),
+                workspaceId,
+                personId,
+                targetType: 'partnership',
+                targetId: id,
+              })
             }
           }
 

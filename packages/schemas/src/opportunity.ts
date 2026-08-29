@@ -16,6 +16,7 @@ export interface Opportunity extends RecordTimestamps {
   readonly ownerId: string | null
   /** `YYYY-MM-DD`, per `api.md` date-only fields. */
   readonly expectedClose: string | null
+  readonly personIds: readonly string[]
   readonly summary: string
   readonly tags: readonly string[]
 }
@@ -29,6 +30,7 @@ export const opportunitySchema: z.ZodType<Opportunity, unknown> = z
     company_id: idSchema.nullable(),
     owner_id: idSchema.nullable(),
     expected_close: z.string().nullable(),
+    person_ids: z.array(idSchema),
     summary: z.string(),
     tags: z.array(z.string()),
     ...recordTimestamps,
@@ -42,6 +44,7 @@ export const opportunitySchema: z.ZodType<Opportunity, unknown> = z
       companyId: wire.company_id,
       ownerId: wire.owner_id,
       expectedClose: wire.expected_close,
+      personIds: wire.person_ids,
       summary: wire.summary,
       tags: wire.tags,
       createdAt: wire.created_at,
@@ -56,6 +59,7 @@ export interface OpportunityInput {
   readonly companyId?: string | null
   readonly ownerId?: string | null
   readonly expectedClose?: string | null
+  readonly personIds?: readonly string[]
   readonly summary?: string
   readonly tags?: readonly string[]
 }
@@ -68,6 +72,7 @@ export function opportunityBody(input: OpportunityInput): Record<string, unknown
     company_id: input.companyId,
     owner_id: input.ownerId,
     expected_close: input.expectedClose,
+    person_ids: input.personIds,
     summary: input.summary,
     tags: input.tags,
   })

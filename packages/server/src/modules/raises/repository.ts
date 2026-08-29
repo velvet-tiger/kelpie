@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
@@ -6,9 +6,9 @@ import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import { arrayContainsPattern, containsPattern } from '../../lib/search.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
-import { people } from '../people/schema.ts'
+import { anyPersonLinked } from '../personLinks.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
-import { raisePeople, raises } from './schema.ts'
+import { raises } from './schema.ts'
 
 export type RaiseRecord = typeof raises.$inferSelect
 
@@ -52,15 +52,6 @@ function companyNameMatches(pattern: string): SQL {
   )`
 }
 
-function hasAnyOfPeople(personIds: readonly string[]): SQL {
-  return sql`exists (
-    select 1
-    from ${raisePeople}
-    where ${raisePeople.raiseId} = ${raises.id}
-      and ${inArray(raisePeople.personId, personIds)}
-  )`
-}
-
 function matchesTerm(term: string): SQL | undefined {
   const pattern = containsPattern(term)
 
@@ -78,7 +69,9 @@ function conditionsFor(workspaceId: string, filters: RaiseFilters): (SQL | undef
     filters.term === undefined ? undefined : matchesTerm(filters.term),
     filters.companyIds === undefined ? undefined : inArray(raises.companyId, filters.companyIds),
     filters.stageIds === undefined ? undefined : inArray(raises.stageId, filters.stageIds),
-    filters.personIds === undefined ? undefined : hasAnyOfPeople(filters.personIds),
+    filters.personIds === undefined
+      ? undefined
+      : anyPersonLinked('raise', raises.id, raises.workspaceId, filters.personIds),
   ]
 }
 
@@ -143,100 +136,6 @@ export async function deleteRaise(db: Queryable, workspaceId: string, id: string
     .returning({ id: raises.id })
 
   return deleted.length
-}
-
-/** The key people on one raise. Ordered by id so a response is stable across reads. */
-export async function listPersonIds(db: Queryable, raiseId: string): Promise<string[]> {
-  const rows = await db
-    .select({ personId: raisePeople.personId })
-    .from(raisePeople)
-    .where(eq(raisePeople.raiseId, raiseId))
-    .orderBy(asc(raisePeople.personId))
-
-  return rows.map((row) => row.personId)
-}
-
-/**
- * The key people on each of a page of raises, in one query rather than one per
- * row.
- *
- * @returns Ids missing from the map have no people.
- */
-export async function listPersonIdsFor(
-  db: Queryable,
-  raiseIds: readonly string[],
-): Promise<ReadonlyMap<string, readonly string[]>> {
-  if (raiseIds.length === 0) {
-    return new Map()
-  }
-
-  const rows = await db
-    .select({ raiseId: raisePeople.raiseId, personId: raisePeople.personId })
-    .from(raisePeople)
-    .where(inArray(raisePeople.raiseId, raiseIds))
-    .orderBy(asc(raisePeople.personId))
-
-  const byRaise = new Map<string, string[]>()
-
-  for (const row of rows) {
-    const existing = byRaise.get(row.raiseId)
-
-    if (existing === undefined) {
-      byRaise.set(row.raiseId, [row.personId])
-    } else {
-      existing.push(row.personId)
-    }
-  }
-
-  return byRaise
-}
-
-export async function insertRaisePeople(
-  db: Queryable,
-  raiseId: string,
-  personIds: readonly string[],
-): Promise<void> {
-  if (personIds.length === 0) {
-    return
-  }
-
-  await db.insert(raisePeople).values(personIds.map((personId) => ({ raiseId, personId })))
-}
-
-export async function deleteRaisePeople(
-  db: Queryable,
-  raiseId: string,
-  personIds: readonly string[],
-): Promise<void> {
-  if (personIds.length === 0) {
-    return
-  }
-
-  await db
-    .delete(raisePeople)
-    .where(and(eq(raisePeople.raiseId, raiseId), inArray(raisePeople.personId, personIds)))
-}
-
-/**
- * The names of these people in this workspace, keyed by id. An id missing from
- * the map does not exist here, which is how `person_ids` is validated. Reads the
- * `people` *table*, per the cross-relation rule in `architecture.md`.
- */
-export async function findPeopleNamed(
-  db: Queryable,
-  workspaceId: string,
-  personIds: readonly string[],
-): Promise<ReadonlyMap<string, string>> {
-  if (personIds.length === 0) {
-    return new Map()
-  }
-
-  const rows = await db
-    .select({ id: people.id, name: people.name })
-    .from(people)
-    .where(and(eq(people.workspaceId, workspaceId), inArray(people.id, personIds)))
-
-  return new Map(rows.map((row) => [row.id, row.name]))
 }
 
 /** Whether a member belongs to this workspace, for validating `owner_id`. */

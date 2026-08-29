@@ -6,6 +6,7 @@ import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import { arrayContainsPattern, containsPattern } from '../../lib/search.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
+import { anyPersonLinked } from '../personLinks.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
 import { opportunities } from './schema.ts'
 
@@ -32,6 +33,8 @@ export interface OpportunityFilters {
   readonly companyIds?: readonly string[] | undefined
   /** `?stage_id=`, repeatable: the board fetches one column with one of these. */
   readonly stageIds?: readonly string[] | undefined
+  /** `?person_id=`, repeatable: opportunities any of these people are on. */
+  readonly personIds?: readonly string[] | undefined
 }
 
 /**
@@ -69,6 +72,14 @@ function conditionsFor(workspaceId: string, filters: OpportunityFilters): (SQL |
       ? undefined
       : inArray(opportunities.companyId, filters.companyIds),
     filters.stageIds === undefined ? undefined : inArray(opportunities.stageId, filters.stageIds),
+    filters.personIds === undefined
+      ? undefined
+      : anyPersonLinked(
+          'opportunity',
+          opportunities.id,
+          opportunities.workspaceId,
+          filters.personIds,
+        ),
   ]
 }
 

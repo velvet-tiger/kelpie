@@ -15,6 +15,7 @@ import '../deals/events.ts'
 import '../people/events.ts'
 import * as peopleRepository from '../people/repository.ts'
 import type { PersonRecord } from '../people/repository.ts'
+import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import '../positions/events.ts'
 import * as positionRepository from '../positions/repository.ts'
@@ -431,7 +432,13 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       expectedClose: expectedCloseFrom(dependencies.now(), DEAL_CLOSE_HORIZON_DAYS),
     })
 
-    await dealRepository.insertDealPeople(tx, id, [personId])
+    await personLinks.linkPeople(
+      tx,
+      dependencies.createId,
+      workspaceId,
+      { targetType: 'deal', targetId: id },
+      [personId],
+    )
 
     return id
   }

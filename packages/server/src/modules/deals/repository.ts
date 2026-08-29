@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
@@ -6,9 +6,9 @@ import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import { arrayContainsPattern, containsPattern } from '../../lib/search.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
-import { people } from '../people/schema.ts'
+import { anyPersonLinked } from '../personLinks.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
-import { dealPeople, deals } from './schema.ts'
+import { deals } from './schema.ts'
 
 export type DealRecord = typeof deals.$inferSelect
 
@@ -49,15 +49,6 @@ function companyNameMatches(pattern: string): SQL {
   )`
 }
 
-function hasAnyOfPeople(personIds: readonly string[]): SQL {
-  return sql`exists (
-    select 1
-    from ${dealPeople}
-    where ${dealPeople.dealId} = ${deals.id}
-      and ${inArray(dealPeople.personId, personIds)}
-  )`
-}
-
 function matchesTerm(term: string): SQL | undefined {
   const pattern = containsPattern(term)
 
@@ -76,7 +67,9 @@ function conditionsFor(workspaceId: string, filters: DealFilters): (SQL | undefi
     filters.term === undefined ? undefined : matchesTerm(filters.term),
     filters.companyIds === undefined ? undefined : inArray(deals.companyId, filters.companyIds),
     filters.stageIds === undefined ? undefined : inArray(deals.stageId, filters.stageIds),
-    filters.personIds === undefined ? undefined : hasAnyOfPeople(filters.personIds),
+    filters.personIds === undefined
+      ? undefined
+      : anyPersonLinked('deal', deals.id, deals.workspaceId, filters.personIds),
   ]
 }
 
@@ -141,99 +134,6 @@ export async function deleteDeal(db: Queryable, workspaceId: string, id: string)
     .returning({ id: deals.id })
 
   return deleted.length
-}
-
-/** The people on one deal. Ordered by id so a response is stable across reads. */
-export async function listPersonIds(db: Queryable, dealId: string): Promise<string[]> {
-  const rows = await db
-    .select({ personId: dealPeople.personId })
-    .from(dealPeople)
-    .where(eq(dealPeople.dealId, dealId))
-    .orderBy(asc(dealPeople.personId))
-
-  return rows.map((row) => row.personId)
-}
-
-/**
- * The people on each of a page of deals, in one query rather than one per row.
- *
- * @returns Ids missing from the map have no people.
- */
-export async function listPersonIdsFor(
-  db: Queryable,
-  dealIds: readonly string[],
-): Promise<ReadonlyMap<string, readonly string[]>> {
-  if (dealIds.length === 0) {
-    return new Map()
-  }
-
-  const rows = await db
-    .select({ dealId: dealPeople.dealId, personId: dealPeople.personId })
-    .from(dealPeople)
-    .where(inArray(dealPeople.dealId, dealIds))
-    .orderBy(asc(dealPeople.personId))
-
-  const byDeal = new Map<string, string[]>()
-
-  for (const row of rows) {
-    const existing = byDeal.get(row.dealId)
-
-    if (existing === undefined) {
-      byDeal.set(row.dealId, [row.personId])
-    } else {
-      existing.push(row.personId)
-    }
-  }
-
-  return byDeal
-}
-
-export async function insertDealPeople(
-  db: Queryable,
-  dealId: string,
-  personIds: readonly string[],
-): Promise<void> {
-  if (personIds.length === 0) {
-    return
-  }
-
-  await db.insert(dealPeople).values(personIds.map((personId) => ({ dealId, personId })))
-}
-
-export async function deleteDealPeople(
-  db: Queryable,
-  dealId: string,
-  personIds: readonly string[],
-): Promise<void> {
-  if (personIds.length === 0) {
-    return
-  }
-
-  await db
-    .delete(dealPeople)
-    .where(and(eq(dealPeople.dealId, dealId), inArray(dealPeople.personId, personIds)))
-}
-
-/**
- * The names of these people in this workspace, keyed by id. An id missing from
- * the map does not exist here, which is how `person_ids` is validated. Reads the
- * `people` *table*, per the cross-relation rule in `architecture.md`.
- */
-export async function findPeopleNamed(
-  db: Queryable,
-  workspaceId: string,
-  personIds: readonly string[],
-): Promise<ReadonlyMap<string, string>> {
-  if (personIds.length === 0) {
-    return new Map()
-  }
-
-  const rows = await db
-    .select({ id: people.id, name: people.name })
-    .from(people)
-    .where(and(eq(people.workspaceId, workspaceId), inArray(people.id, personIds)))
-
-  return new Map(rows.map((row) => [row.id, row.name]))
 }
 
 /** Whether a member belongs to this workspace, for validating `owner_id`. */

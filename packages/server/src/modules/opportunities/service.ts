@@ -6,7 +6,13 @@ import { readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
-import { describeCreation, describeStageChange, describeUpdate } from '../activities/wording.ts'
+import {
+  describeCreation,
+  describeLink,
+  describeStageChange,
+  describeUnlink,
+  describeUpdate,
+} from '../activities/wording.ts'
 import type { FieldLabels } from '../activities/wording.ts'
 import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
@@ -14,6 +20,7 @@ import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
+import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import type { PipelineStageRecord } from '../pipelines/repository.ts'
 import * as repository from './repository.ts'
@@ -22,7 +29,9 @@ import type { OpportunityFilters, OpportunityRecord } from './repository.ts'
 
 /**
  * Opportunities: the non-sales pipeline. Grants, accelerators, tenders, press,
- * speaking — same stage mechanics as Deals, different lens, and no people links.
+ * speaking — same stage mechanics as Deals, different lens. People attach
+ * through `person_links` and appear as `person_ids` on the wire, the same
+ * shape deals/partnerships/raises use.
  *
  * A stage move is an ordinary PATCH of `stage_id`, and it is the one change that
  * files a `stage_changed` activity and a `stage.changed` event instead of the
@@ -48,8 +57,10 @@ const OPPORTUNITY_FIELD_LABELS: FieldLabels = {
   tags: 'Tags',
 }
 
-/** An opportunity as the API returns one: the stored row minus tenancy. */
-export type OpportunityView = Omit<OpportunityRecord, 'workspaceId'>
+/** An opportunity as the API returns one: the stored row minus tenancy, plus its people. */
+export type OpportunityView = Omit<OpportunityRecord, 'workspaceId'> & {
+  readonly personIds: readonly string[]
+}
 
 export interface CreateOpportunityInput {
   readonly name: string
@@ -64,6 +75,7 @@ export interface CreateOpportunityInput {
   /** Absent means the caller: the member creating an opportunity starts as its owner. */
   readonly ownerId: string | null | undefined
   readonly expectedClose: string | null
+  readonly personIds: readonly string[]
   readonly summary: string
   readonly tags: readonly string[]
 }
@@ -76,6 +88,8 @@ export interface UpdateOpportunityInput {
   readonly companyId?: string | null | undefined
   readonly ownerId?: string | null | undefined
   readonly expectedClose?: string | null | undefined
+  /** Replaces the set. The service works out who was added and who left. */
+  readonly personIds?: readonly string[] | undefined
   readonly summary?: string | undefined
   readonly tags?: readonly string[] | undefined
 }
@@ -92,10 +106,10 @@ export interface OpportunitiesService {
   remove(actor: Actor, id: string): Promise<void>
 }
 
-function toView(record: OpportunityRecord): OpportunityView {
+function toView(record: OpportunityRecord, personIds: readonly string[]): OpportunityView {
   const { workspaceId: _workspaceId, ...view } = record
 
-  return view
+  return { ...view, personIds }
 }
 
 function toStoredColumns(input: UpdateOpportunityInput): Partial<repository.OpportunityColumns> {
@@ -182,6 +196,40 @@ export function createOpportunitiesService(
     }
   }
 
+  /** @returns Each person's name, for the link activities. Any id missing here is a 404. */
+  async function requirePeople(
+    workspaceId: string,
+    personIds: readonly string[],
+  ): Promise<ReadonlyMap<string, string>> {
+    const named = await personLinks.findPeopleNamed(dependencies.db, workspaceId, personIds)
+    const missing = personIds.filter((id) => !named.has(id))
+
+    if (missing.length > 0) {
+      throw new AppError(
+        'not_found',
+        'Person not found',
+        missing.map((id) => ({ field: 'person_ids', message: `No person ${id} here` })),
+      )
+    }
+
+    return named
+  }
+
+  /** @returns The page's views, with every opportunity's people fetched in one query. */
+  async function toViews(
+    workspaceId: string,
+    records: readonly OpportunityRecord[],
+  ): Promise<OpportunityView[]> {
+    const peopleByOpportunity = await personLinks.listPersonIdsFor(
+      dependencies.db,
+      workspaceId,
+      'opportunity',
+      records.map((record) => record.id),
+    )
+
+    return records.map((record) => toView(record, peopleByOpportunity.get(record.id) ?? []))
+  }
+
   return {
     async list(actor, filters, query) {
       const workspaceId = requireWorkspaceId(actor)
@@ -189,13 +237,20 @@ export function createOpportunitiesService(
       const rows = await repository.listOpportunities(dependencies.db, workspaceId, filters, window)
       const page = toPage(rows, window, (opportunity) => opportunity.id)
 
-      return { items: page.items.map(toView), nextCursor: page.nextCursor }
+      return { items: await toViews(workspaceId, page.items), nextCursor: page.nextCursor }
     },
 
     async get(actor, id) {
       const workspaceId = requireWorkspaceId(actor)
+      const opportunity = await require(workspaceId, id)
 
-      return toView(await require(workspaceId, id))
+      return toView(
+        opportunity,
+        await personLinks.listPersonIds(dependencies.db, workspaceId, {
+          targetType: 'opportunity',
+          targetId: id,
+        }),
+      )
     },
 
     async create(actor, input) {
@@ -215,6 +270,8 @@ export function createOpportunitiesService(
         await requireOwner(workspaceId, ownerId)
       }
 
+      const personIds = [...new Set(input.personIds)]
+      const named = await requirePeople(workspaceId, personIds)
       const id = dependencies.createId('opportunity')
 
       return dependencies.transaction(async ({ tx, events }) => {
@@ -231,6 +288,14 @@ export function createOpportunitiesService(
           tags: [...input.tags],
         })
 
+        await personLinks.linkPeople(
+          tx,
+          dependencies.createId,
+          workspaceId,
+          { targetType: 'opportunity', targetId: id },
+          personIds,
+        )
+
         await dependencies.recordActivity(tx, workspaceId, actor, {
           targetType: 'opportunity',
           targetId: id,
@@ -238,9 +303,19 @@ export function createOpportunitiesService(
           ...describeCreation('Opportunity'),
         })
 
+        // One row per person, so the timeline names who was on it from day one.
+        for (const personId of personIds) {
+          await dependencies.recordActivity(tx, workspaceId, actor, {
+            targetType: 'opportunity',
+            targetId: id,
+            kind: 'linked',
+            ...describeLink('person', named.get(personId) ?? personId),
+          })
+        }
+
         events.emit('opportunities.opportunity.created', { type: 'opportunity', id }, {})
 
-        return toView(created)
+        return toView(created, personIds)
       }, { workspaceId, actor: toEventActor(actor) })
     },
 
@@ -267,11 +342,28 @@ export function createOpportunitiesService(
         await requireOwner(workspaceId, changes.ownerId)
       }
 
+      const currentPeople = await personLinks.listPersonIds(dependencies.db, workspaceId, {
+        targetType: 'opportunity',
+        targetId: id,
+      })
+      const nextPeople =
+        changes.personIds === undefined ? undefined : [...new Set(changes.personIds)]
+      const added =
+        nextPeople === undefined
+          ? []
+          : nextPeople.filter((personId) => !currentPeople.includes(personId))
+      const removed =
+        nextPeople === undefined
+          ? []
+          : currentPeople.filter((personId) => !nextPeople.includes(personId))
+      const named = await requirePeople(workspaceId, [...added, ...removed])
+
       const columns = toStoredColumns(changes)
       const changed = changedKeys(existing, columns)
+      const linksChanged = added.length > 0 || removed.length > 0
 
-      if (changed.length === 0) {
-        return toView(existing)
+      if (changed.length === 0 && !linksChanged) {
+        return toView(existing, currentPeople)
       }
 
       return dependencies.transaction(async ({ tx, events }) => {
@@ -283,6 +375,20 @@ export function createOpportunitiesService(
         if (updated === undefined) {
           throw AppError.notFound('Opportunity not found')
         }
+
+        await personLinks.linkPeople(
+          tx,
+          dependencies.createId,
+          workspaceId,
+          { targetType: 'opportunity', targetId: id },
+          added,
+        )
+        await personLinks.unlinkPeople(
+          tx,
+          workspaceId,
+          { targetType: 'opportunity', targetId: id },
+          removed,
+        )
 
         if (stageMove !== undefined) {
           await dependencies.recordActivity(tx, workspaceId, actor, {
@@ -304,10 +410,31 @@ export function createOpportunitiesService(
           })
         }
 
+        // Links land on the opportunity's timeline only: a person's page already
+        // rolls up the activity of every pipeline record they are on, so a
+        // second row targeted at the person would show them the same news twice.
+        for (const personId of added) {
+          await dependencies.recordActivity(tx, workspaceId, actor, {
+            targetType: 'opportunity',
+            targetId: id,
+            kind: 'linked',
+            ...describeLink('person', named.get(personId) ?? personId),
+          })
+        }
+
+        for (const personId of removed) {
+          await dependencies.recordActivity(tx, workspaceId, actor, {
+            targetType: 'opportunity',
+            targetId: id,
+            kind: 'unlinked',
+            ...describeUnlink('person', named.get(personId) ?? personId),
+          })
+        }
+
         events.emit(
           'opportunities.opportunity.updated',
           { type: 'opportunity', id },
-          { changed },
+          { changed: linksChanged ? [...changed, 'personIds'] : changed },
         )
 
         if (stageMove !== undefined) {
@@ -318,7 +445,7 @@ export function createOpportunitiesService(
           )
         }
 
-        return toView(updated)
+        return toView(updated, nextPeople ?? currentPeople)
       }, { workspaceId, actor: toEventActor(actor) })
     },
 
@@ -328,9 +455,9 @@ export function createOpportunitiesService(
       await dependencies.transaction(async ({ tx, events }) => {
         await require(workspaceId, id)
 
-        // Notes, activities, decisions and plan items have no foreign key to
-        // their target, so the deleting service removes them here, in the same
-        // transaction. Nothing else references an opportunity.
+        // Notes, activities, decisions, plan items, and person_links have no
+        // foreign key to their target, so the deleting service removes them
+        // here, in the same transaction. Nothing else references an opportunity.
         await deleteRecordsAttachedTo(tx, workspaceId, 'opportunity', id)
         await repository.deleteOpportunity(tx, workspaceId, id)
 

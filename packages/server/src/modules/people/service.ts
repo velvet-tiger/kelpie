@@ -19,7 +19,9 @@ import {
   deleteRecordsAttachedTo,
   deleteRecordsAttachedToCandidaciesOf,
 } from '../attachedRecords.ts'
-import { referencedElsewhere } from '../references.ts'
+import * as personLinks from '../personLinks.ts'
+import { referenceViolationTable } from '../../lib/database.ts'
+import { referencedByPipelineRecords, referencedElsewhere } from '../references.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_PERSON_SORT, PERSON_SORTS } from './repository.ts'
 import type { PersonFilters, PersonRecord } from './repository.ts'
@@ -295,14 +297,33 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
           // notes have to be taken here: no hiring service sees that delete.
           await deleteRecordsAttachedToCandidaciesOf(tx, workspaceId, id)
 
+          // A person delete failing on a foreign key aborts the enclosing
+          // transaction, so the follow-up read that names the referring pipeline
+          // types would run against a dead tx. Wrap only the delete in a nested
+          // transaction: drizzle emits SAVEPOINT/ROLLBACK TO for it, so the
+          // outer tx survives the refusal and the listLinkedTargetTypes read
+          // below sees person_links.
+          let deleteError: unknown = null
+
           try {
-            await repository.deletePerson(tx, workspaceId, id)
+            await tx.transaction(async (savepoint) => {
+              await repository.deletePerson(savepoint, workspaceId, id)
+            })
           } catch (error: unknown) {
-            if (isReferenceViolation(error)) {
-              throw referencedElsewhere(error, 'person')
+            deleteError = error
+          }
+
+          if (deleteError !== null) {
+            if (isReferenceViolation(deleteError)) {
+              if (referenceViolationTable(deleteError) === 'person_links') {
+                const types = await personLinks.listLinkedTargetTypes(tx, workspaceId, id)
+                throw referencedByPipelineRecords('person', types)
+              }
+
+              throw referencedElsewhere(deleteError, 'person')
             }
 
-            throw error
+            throw deleteError
           }
 
           events.emit('people.person.deleted', { type: 'person', id }, {})

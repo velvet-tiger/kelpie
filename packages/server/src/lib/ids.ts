@@ -30,6 +30,14 @@ export const idPrefixes = {
   activity: 'act',
   list: 'list',
   listMember: 'lmem',
+  /**
+   * Never returns over the wire either: `person_links` has no routes of its
+   * own — the link surfaces as a `person_ids` array on each pipeline record —
+   * so the prefix is not in `api.md`'s public prefix table, matching `idem`
+   * and `rl`. It still comes from this factory rather than a bare ULID call,
+   * so every id in the database is generated the same, injectable way.
+   */
+  personLink: 'plink',
   handbookPage: 'hb',
   form: 'form',
   formField: 'ff',

@@ -20,6 +20,7 @@ import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
+import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import type { PipelineStageRecord } from '../pipelines/repository.ts'
 import * as repository from './repository.ts'
@@ -29,8 +30,8 @@ import type { DealFilters, DealRecord } from './repository.ts'
 /**
  * Deals: the sales pipeline, and the first of the four staged objects.
  *
- * People attach through `deal_people` and appear as `person_ids` on the wire;
- * the join table is a storage detail. A stage move is an ordinary PATCH of
+ * People attach through `person_links` and appear as `person_ids` on the wire;
+ * the polymorphic link table is a storage detail. A stage move is an ordinary PATCH of
  * `stage_id`, and it is the one change that files a `stage_changed` activity and
  * a `stage.changed` event instead of the generic update pair.
  */
@@ -201,7 +202,7 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
     workspaceId: string,
     personIds: readonly string[],
   ): Promise<ReadonlyMap<string, string>> {
-    const named = await repository.findPeopleNamed(dependencies.db, workspaceId, personIds)
+    const named = await personLinks.findPeopleNamed(dependencies.db, workspaceId, personIds)
     const missing = personIds.filter((id) => !named.has(id))
 
     if (missing.length > 0) {
@@ -216,9 +217,11 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
   }
 
   /** @returns The page's views, with every deal's people fetched in one query. */
-  async function toViews(records: readonly DealRecord[]): Promise<DealView[]> {
-    const peopleByDeal = await repository.listPersonIdsFor(
+  async function toViews(workspaceId: string, records: readonly DealRecord[]): Promise<DealView[]> {
+    const peopleByDeal = await personLinks.listPersonIdsFor(
       dependencies.db,
+      workspaceId,
+      'deal',
       records.map((record) => record.id),
     )
 
@@ -232,14 +235,20 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
       const rows = await repository.listDeals(dependencies.db, workspaceId, filters, window)
       const page = toPage(rows, window, (deal) => deal.id)
 
-      return { items: await toViews(page.items), nextCursor: page.nextCursor }
+      return { items: await toViews(workspaceId, page.items), nextCursor: page.nextCursor }
     },
 
     async get(actor, id) {
       const workspaceId = requireWorkspaceId(actor)
       const deal = await require(workspaceId, id)
 
-      return toView(deal, await repository.listPersonIds(dependencies.db, id))
+      return toView(
+        deal,
+        await personLinks.listPersonIds(dependencies.db, workspaceId, {
+          targetType: 'deal',
+          targetId: id,
+        }),
+      )
     },
 
     async create(actor, input) {
@@ -280,7 +289,13 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
           externalId: input.externalId,
         })
 
-        await repository.insertDealPeople(tx, id, personIds)
+        await personLinks.linkPeople(
+          tx,
+          dependencies.createId,
+          workspaceId,
+          { targetType: 'deal', targetId: id },
+          personIds,
+        )
 
         await dependencies.recordActivity(tx, workspaceId, actor, {
           targetType: 'deal',
@@ -325,7 +340,10 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
         await requireOwner(workspaceId, changes.ownerId)
       }
 
-      const currentPeople = await repository.listPersonIds(dependencies.db, id)
+      const currentPeople = await personLinks.listPersonIds(dependencies.db, workspaceId, {
+        targetType: 'deal',
+        targetId: id,
+      })
       const nextPeople = changes.personIds === undefined ? undefined : [...new Set(changes.personIds)]
       const added =
         nextPeople === undefined ? [] : nextPeople.filter((personId) => !currentPeople.includes(personId))
@@ -351,8 +369,19 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
           throw AppError.notFound('Deal not found')
         }
 
-        await repository.insertDealPeople(tx, id, added)
-        await repository.deleteDealPeople(tx, id, removed)
+        await personLinks.linkPeople(
+          tx,
+          dependencies.createId,
+          workspaceId,
+          { targetType: 'deal', targetId: id },
+          added,
+        )
+        await personLinks.unlinkPeople(
+          tx,
+          workspaceId,
+          { targetType: 'deal', targetId: id },
+          removed,
+        )
 
         if (stageMove !== undefined) {
           await dependencies.recordActivity(tx, workspaceId, actor, {
@@ -419,9 +448,9 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
       await dependencies.transaction(async ({ tx, events }) => {
         await require(workspaceId, id)
 
-        // `deal_people` dies with the deal through its foreign key and form
-        // submissions unlink themselves; notes, activities, decisions and plan
-        // items have no key, so they are removed here, in the same transaction.
+        // Form submissions unlink themselves through `set null`; notes,
+        // activities, decisions, plan items, and person_links have no key back
+        // to the deal, so they are removed here, in the same transaction.
         await deleteRecordsAttachedTo(tx, workspaceId, 'deal', id)
         await repository.deleteDeal(tx, workspaceId, id)
 

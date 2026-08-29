@@ -20,6 +20,7 @@ import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
+import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import type { PipelineStageRecord } from '../pipelines/repository.ts'
 import * as repository from './repository.ts'
@@ -30,7 +31,7 @@ import type { PartnershipFilters, PartnershipRecord } from './repository.ts'
  * Partnerships: ongoing two-way relationships. Status is a stage of the
  * `partnership` pipeline; there is no favour ledger (`brief.md` non-goal).
  *
- * Key people attach through `partnership_people` and appear as `person_ids` on
+ * Key people attach through `person_links` and appear as `person_ids` on
  * the wire, the Deals mechanics; kind is free text, the Opportunities mechanics.
  * A stage move is an ordinary PATCH of `stage_id`, and it is the one change that
  * files a `stage_changed` activity and a `stage.changed` event instead of the
@@ -208,7 +209,7 @@ export function createPartnershipsService(
     workspaceId: string,
     personIds: readonly string[],
   ): Promise<ReadonlyMap<string, string>> {
-    const named = await repository.findPeopleNamed(dependencies.db, workspaceId, personIds)
+    const named = await personLinks.findPeopleNamed(dependencies.db, workspaceId, personIds)
     const missing = personIds.filter((id) => !named.has(id))
 
     if (missing.length > 0) {
@@ -223,9 +224,14 @@ export function createPartnershipsService(
   }
 
   /** @returns The page's views, with every partnership's people fetched in one query. */
-  async function toViews(records: readonly PartnershipRecord[]): Promise<PartnershipView[]> {
-    const peopleByPartnership = await repository.listPersonIdsFor(
+  async function toViews(
+    workspaceId: string,
+    records: readonly PartnershipRecord[],
+  ): Promise<PartnershipView[]> {
+    const peopleByPartnership = await personLinks.listPersonIdsFor(
       dependencies.db,
+      workspaceId,
+      'partnership',
       records.map((record) => record.id),
     )
 
@@ -239,14 +245,20 @@ export function createPartnershipsService(
       const rows = await repository.listPartnerships(dependencies.db, workspaceId, filters, window)
       const page = toPage(rows, window, (partnership) => partnership.id)
 
-      return { items: await toViews(page.items), nextCursor: page.nextCursor }
+      return { items: await toViews(workspaceId, page.items), nextCursor: page.nextCursor }
     },
 
     async get(actor, id) {
       const workspaceId = requireWorkspaceId(actor)
       const partnership = await require(workspaceId, id)
 
-      return toView(partnership, await repository.listPersonIds(dependencies.db, id))
+      return toView(
+        partnership,
+        await personLinks.listPersonIds(dependencies.db, workspaceId, {
+          targetType: 'partnership',
+          targetId: id,
+        }),
+      )
     },
 
     async create(actor, input) {
@@ -284,7 +296,13 @@ export function createPartnershipsService(
           tags: [...input.tags],
         })
 
-        await repository.insertPartnershipPeople(tx, id, personIds)
+        await personLinks.linkPeople(
+          tx,
+          dependencies.createId,
+          workspaceId,
+          { targetType: 'partnership', targetId: id },
+          personIds,
+        )
 
         await dependencies.recordActivity(tx, workspaceId, actor, {
           targetType: 'partnership',
@@ -329,7 +347,10 @@ export function createPartnershipsService(
         await requireOwner(workspaceId, changes.ownerId)
       }
 
-      const currentPeople = await repository.listPersonIds(dependencies.db, id)
+      const currentPeople = await personLinks.listPersonIds(dependencies.db, workspaceId, {
+        targetType: 'partnership',
+        targetId: id,
+      })
       const nextPeople =
         changes.personIds === undefined ? undefined : [...new Set(changes.personIds)]
       const added =
@@ -360,8 +381,19 @@ export function createPartnershipsService(
           throw AppError.notFound('Partnership not found')
         }
 
-        await repository.insertPartnershipPeople(tx, id, added)
-        await repository.deletePartnershipPeople(tx, id, removed)
+        await personLinks.linkPeople(
+          tx,
+          dependencies.createId,
+          workspaceId,
+          { targetType: 'partnership', targetId: id },
+          added,
+        )
+        await personLinks.unlinkPeople(
+          tx,
+          workspaceId,
+          { targetType: 'partnership', targetId: id },
+          removed,
+        )
 
         if (stageMove !== undefined) {
           await dependencies.recordActivity(tx, workspaceId, actor, {
@@ -428,9 +460,9 @@ export function createPartnershipsService(
       await dependencies.transaction(async ({ tx, events }) => {
         await require(workspaceId, id)
 
-        // `partnership_people` dies with the partnership through its foreign key;
-        // notes, activities, decisions and plan items have no key, so they are
-        // removed here, in the same transaction.
+        // Notes, activities, decisions, plan items, and person_links have no
+        // key back to the partnership, so they are removed here, in the same
+        // transaction.
         await deleteRecordsAttachedTo(tx, workspaceId, 'partnership', id)
         await repository.deletePartnership(tx, workspaceId, id)
 

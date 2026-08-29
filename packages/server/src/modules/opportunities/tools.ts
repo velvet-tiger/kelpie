@@ -13,6 +13,7 @@ const listArgs = z.strictObject({
   kind: idSetArg.optional().describe('Kinds are free text, so a match here is exact.'),
   company_id: idSetArg.optional().describe('Only opportunities with these companies.'),
   stage_id: idSetArg.optional().describe('Only opportunities in these pipeline stages.'),
+  person_id: idSetArg.optional().describe('Only opportunities any of these people are on.'),
 })
 
 export function registerOpportunitiesTools(mcp: McpToolRegistry, service: OpportunitiesService): void {
@@ -30,6 +31,7 @@ export function registerOpportunitiesTools(mcp: McpToolRegistry, service: Opport
       kinds: toSet(args.kind),
       companyIds: toSet(args.company_id),
       stageIds: toSet(args.stage_id),
+      personIds: toSet(args.person_id),
     }),
     createArgs: createBody,
     toCreateInput,

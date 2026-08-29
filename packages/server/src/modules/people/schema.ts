@@ -1,4 +1,9 @@
-import { INFLUENCE_LEVELS, PREFERRED_CHANNELS, RELATIONSHIP_LEVELS } from '@kelpie/schemas'
+import {
+  INFLUENCE_LEVELS,
+  PIPELINE_KINDS,
+  PREFERRED_CHANNELS,
+  RELATIONSHIP_LEVELS,
+} from '@kelpie/schemas'
 import type { SocialProfile } from '@kelpie/schemas'
 import { index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
@@ -85,5 +90,38 @@ export const people = pgTable(
     checkOneOf('people_preferred_channel_check', table.preferredChannel, PREFERRED_CHANNELS),
     checkOneOf('people_influence_check', table.influence, INFLUENCE_LEVELS),
     checkOneOf('people_relationship_check', table.relationship, RELATIONSHIP_LEVELS),
+  ],
+)
+
+/**
+ * A person's involvement in a pipeline record — a deal, opportunity, raise, or
+ * partnership. One polymorphic table instead of a join per pipeline type; the
+ * person side keeps a real foreign key with **restrict**, so the database still
+ * blocks deleting a person who is on a deal. The target side is polymorphic per
+ * the convention: no FK, existence checked by the service, rows removed in the
+ * target's own delete transaction (`attachedRecords.ts`).
+ *
+ * `company` and `role` are deliberately absent from the check constraint: a
+ * link with a payload and its own lifecycle stays a typed object —
+ * Person↔Company is **Position** (title), Person↔Role is **Candidate** (status,
+ * stage, referrer).
+ */
+export const personLinks = pgTable(
+  'person_links',
+  {
+    id: primaryId(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    personId: text('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'restrict' }),
+    targetType: text('target_type').notNull(),
+    targetId: text('target_id').notNull(),
+  },
+  (table) => [
+    index('person_links_target_idx').on(table.workspaceId, table.targetType, table.targetId),
+    unique('person_links_person_target_key').on(table.personId, table.targetType, table.targetId),
+    checkOneOf('person_links_target_type_check', table.targetType, PIPELINE_KINDS),
   ],
 )

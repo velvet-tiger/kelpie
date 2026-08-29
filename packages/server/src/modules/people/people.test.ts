@@ -11,8 +11,9 @@ import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { activities } from '../activities/schema.ts'
 import { coreModules } from '../core.ts'
-import { dealPeople, deals } from '../deals/schema.ts'
+import { deals } from '../deals/schema.ts'
 import { notes } from '../notes/schema.ts'
+import { personLinks } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { eq } from 'drizzle-orm'
 
@@ -634,7 +635,13 @@ describe.skipIf(connectionString === undefined)('people', () => {
         companyId,
         stageId: String(stage?.id),
       })
-      await database.db.insert(dealPeople).values({ dealId: 'deal_test_one', personId })
+      await database.db.insert(personLinks).values({
+        id: 'plink_test_one',
+        workspaceId: acme.workspaceId,
+        personId,
+        targetType: 'deal',
+        targetId: 'deal_test_one',
+      })
       await database.db.insert(notes).values({
         id: 'note_test_two',
         workspaceId: acme.workspaceId,

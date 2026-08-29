@@ -52,10 +52,12 @@ async function* pageThrough<TRow extends { readonly id: string }>(
 /** The rows of one page, all their people in one query rather than one per deal. */
 async function dealPage(
   db: Database,
+  workspaceId: string,
   rows: readonly repository.ExportDealRow[],
 ): Promise<readonly (readonly string[])[]> {
   const emails = await repository.readDealPersonEmails(
     db,
+    workspaceId,
     rows.map((row) => row.id),
   )
 
@@ -91,7 +93,7 @@ export async function* streamExport(
     case 'deals':
       yield* pageThrough({
         read: (after) => repository.readDeals(db, workspaceId, after),
-        cells: (rows) => dealPage(db, rows),
+        cells: (rows) => dealPage(db, workspaceId, rows),
       })
       return
   }

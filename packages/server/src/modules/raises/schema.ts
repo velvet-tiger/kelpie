@@ -1,9 +1,8 @@
-import { bigint, date, index, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
+import { bigint, date, index, pgTable, text } from 'drizzle-orm/pg-core'
 
 import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
 import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
-import { people } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 
@@ -52,15 +51,3 @@ export const raises = pgTable(
   ],
 )
 
-export const raisePeople = pgTable(
-  'raise_people',
-  {
-    raiseId: text('raise_id')
-      .notNull()
-      .references(() => raises.id, { onDelete: 'cascade' }),
-    personId: text('person_id')
-      .notNull()
-      .references(() => people.id, { onDelete: 'restrict' }),
-  },
-  (table) => [primaryKey({ columns: [table.raiseId, table.personId] })],
-)

@@ -100,6 +100,7 @@ describe.skipIf(connectionString === undefined)('opportunities', () => {
       expect(opportunity.expected_close).toBeNull()
       expect(opportunity.summary).toBe('')
       expect(opportunity.tags).toEqual([])
+      expect(opportunity.person_ids).toEqual([])
     })
 
     it('files the creation on the opportunity\'s timeline', async () => {
@@ -242,6 +243,87 @@ describe.skipIf(connectionString === undefined)('opportunities', () => {
 
       expect(readList(await list.json())).toHaveLength(0)
       expect(get.status).toBe(404)
+    })
+  })
+
+  describe('people', () => {
+    async function createPerson(name: string, cookie = acme.cookie): Promise<string> {
+      const response = await client.send('POST', '/v1/people', {
+        body: { name, email: `${name.replace(/\W/gu, '.').toLowerCase()}@example.com` },
+        cookie,
+      })
+
+      return readString(await response.json(), 'id')
+    }
+
+    it('links people on create and files a "linked" activity per person', async () => {
+      const ada = await createPerson('Ada Lovelace')
+      const charles = await createPerson('Charles Babbage')
+      const opportunity = await createOpportunity({ person_ids: [ada, charles] })
+
+      expect(opportunity.person_ids).toEqual([ada, charles].sort())
+
+      const linked = (await activitiesFor(readString(opportunity, 'id'))).filter(
+        (activity) => activity.kind === 'linked',
+      )
+
+      expect(linked.map((activity) => activity.detail).sort()).toEqual([
+        'Ada Lovelace',
+        'Charles Babbage',
+      ])
+    })
+
+    it('reports an unknown person as 404', async () => {
+      const other = await client.owner('grace@example.com', 'other')
+      const foreignPerson = await createPerson('Grace Hopper', other.cookie)
+
+      const response = await client.send('POST', '/v1/opportunities', {
+        body: { name: 'Nope', person_ids: [foreignPerson] },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(404)
+    })
+
+    it('replaces the people set, filing who joined and who left', async () => {
+      const ada = await createPerson('Ada Lovelace')
+      const charles = await createPerson('Charles Babbage')
+      const opportunity = await createOpportunity({ person_ids: [ada] })
+      const id = readString(opportunity, 'id')
+
+      const response = await client.send('PATCH', `/v1/opportunities/${id}`, {
+        body: { person_ids: [charles] },
+        cookie: acme.cookie,
+      })
+      const updated = readRecord(await response.json())
+
+      expect(response.status).toBe(200)
+      expect(updated.person_ids).toEqual([charles])
+
+      const activities = await activitiesFor(id)
+      const linked = activities.filter((activity) => activity.kind === 'linked')
+      const unlinked = activities.filter((activity) => activity.kind === 'unlinked')
+
+      expect(linked.map((activity) => activity.detail).sort()).toEqual([
+        'Ada Lovelace',
+        'Charles Babbage',
+      ])
+      expect(unlinked.map((activity) => activity.detail)).toEqual(['Ada Lovelace'])
+    })
+
+    it('filters ?person_id= by any of the ids', async () => {
+      const ada = await createPerson('Ada Lovelace')
+      const charles = await createPerson('Charles Babbage')
+      const first = await createOpportunity({ name: 'ARC grant', person_ids: [ada] })
+      const second = await createOpportunity({ name: 'YC application', person_ids: [charles] })
+
+      const response = await client.send('GET', `/v1/opportunities?person_id=${ada}`, {
+        cookie: acme.cookie,
+      })
+      const items = readList(await response.json())
+
+      expect(items.map((item) => item.id)).toEqual([readString(first, 'id')])
+      expect(items.map((item) => item.id)).not.toContain(readString(second, 'id'))
     })
   })
 

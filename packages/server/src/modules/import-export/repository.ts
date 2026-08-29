@@ -3,8 +3,8 @@ import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { users } from '../auth/schema.ts'
 import { companies } from '../companies/schema.ts'
-import { dealPeople, deals } from '../deals/schema.ts'
-import { people } from '../people/schema.ts'
+import { deals } from '../deals/schema.ts'
+import { people, personLinks } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { positions } from '../positions/schema.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
@@ -604,6 +604,7 @@ export function readDeals(
 /** The addresses of the people on each of a page of deals, in one query. */
 export async function readDealPersonEmails(
   db: Queryable,
+  workspaceId: string,
   dealIds: readonly string[],
 ): Promise<ReadonlyMap<string, readonly string[]>> {
   if (dealIds.length === 0) {
@@ -611,10 +612,16 @@ export async function readDealPersonEmails(
   }
 
   const rows = await db
-    .select({ dealId: dealPeople.dealId, email: people.email })
-    .from(dealPeople)
-    .innerJoin(people, eq(people.id, dealPeople.personId))
-    .where(inArray(dealPeople.dealId, [...dealIds]))
+    .select({ dealId: personLinks.targetId, email: people.email })
+    .from(personLinks)
+    .innerJoin(people, eq(people.id, personLinks.personId))
+    .where(
+      and(
+        eq(personLinks.workspaceId, workspaceId),
+        eq(personLinks.targetType, 'deal'),
+        inArray(personLinks.targetId, [...dealIds]),
+      ),
+    )
     .orderBy(asc(people.email))
 
   const byDeal = new Map<string, string[]>()

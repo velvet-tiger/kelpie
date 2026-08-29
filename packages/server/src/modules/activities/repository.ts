@@ -1,12 +1,15 @@
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
+import type { PipelineKind } from '@kelpie/schemas'
+
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
-import { dealPeople, deals } from '../deals/schema.ts'
+import { deals } from '../deals/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
-import { partnershipPeople, partnerships } from '../partnerships/schema.ts'
+import { partnerships } from '../partnerships/schema.ts'
+import * as personLinks from '../personLinks.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import { activities } from './schema.ts'
 
@@ -91,26 +94,16 @@ export async function listRolledUpTargets(
   }
 
   if (targetType === 'person') {
-    // An opportunity has no people, so a person rolls up two relations, not three.
-    const [dealRows, partnershipRows] = await Promise.all([
-      db
-        .select({ id: deals.id })
-        .from(deals)
-        .innerJoin(dealPeople, eq(dealPeople.dealId, deals.id))
-        .where(and(eq(deals.workspaceId, workspaceId), eq(dealPeople.personId, targetId))),
-      db
-        .select({ id: partnerships.id })
-        .from(partnerships)
-        .innerJoin(partnershipPeople, eq(partnershipPeople.partnershipId, partnerships.id))
-        .where(
-          and(eq(partnerships.workspaceId, workspaceId), eq(partnershipPeople.personId, targetId)),
-        ),
-    ])
+    // person_links carries all four pipeline kinds in one table, so a person's
+    // roll-up is one read regardless of how many pipelines they touch. The
+    // shared helper's `PipelineKind` narrows to the check-constraint set, which
+    // is exactly what an ActivityTarget expects to receive.
+    const links = await personLinks.listTargetsOfPerson(db, workspaceId, targetId)
 
-    return [
-      ...dealRows.map((row) => ({ targetType: 'deal' as const, targetId: row.id })),
-      ...partnershipRows.map((row) => ({ targetType: 'partnership' as const, targetId: row.id })),
-    ]
+    return links.map((link) => ({
+      targetType: link.targetType satisfies PipelineKind as RecordTargetType,
+      targetId: link.targetId,
+    }))
   }
 
   return []
