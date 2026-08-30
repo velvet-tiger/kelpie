@@ -330,26 +330,6 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
   }
 
   /**
-   * Refuses a trigger whose `kind` is empty while the toggle is on. Kinds are
-   * free text (no pipeline enum), so the only way to catch a misconfiguration
-   * before submit time is at form write: the runner would otherwise store an
-   * opportunity or partnership with an empty `kind`, which is a valid string
-   * but not a valid opportunity/partnership.
-   */
-  function requireKindWhenCreating(
-    createFlag: boolean,
-    kind: string | null,
-    field: string,
-    trigger: string,
-  ): void {
-    if (createFlag && (kind === null || kind.trim().length === 0)) {
-      throw AppError.validationFailed(`A form that creates ${trigger}s needs a kind`, [
-        { field, message: `Set a kind when create_${trigger} is on` },
-      ])
-    }
-  }
-
-  /**
    * The lists an action-configured form names must exist in this workspace and
    * target `person` or `company`. A list of another target type would never
    * receive a submitter or a company — a form only knows how to feed those two
@@ -449,18 +429,6 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
     state: ResultingState,
   ): Promise<void> {
     requireUsableFields(state.fields, state.createDeal, state.createPartnership)
-    requireKindWhenCreating(
-      state.createOpportunity,
-      state.opportunityKind,
-      'opportunity_kind',
-      'opportunity',
-    )
-    requireKindWhenCreating(
-      state.createPartnership,
-      state.partnershipKind,
-      'partnership_kind',
-      'partnership',
-    )
     await requireActionLists(workspaceId, state.listIds)
     await requireAttachTargets(workspaceId, state.attachTargets)
   }

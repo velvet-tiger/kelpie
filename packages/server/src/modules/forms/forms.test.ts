@@ -1212,7 +1212,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(JSON.stringify(await response.json())).toContain('creates partnerships needs')
     })
 
-    it('refuses create_opportunity with an empty kind at form write', async () => {
+    it('accepts create_opportunity with no kind at form write', async () => {
       const response = await client.send('POST', '/v1/forms', {
         body: {
           name: 'Kindless opportunity',
@@ -1222,8 +1222,18 @@ describe.skipIf(connectionString === undefined)('forms', () => {
         cookie: acme.cookie,
       })
 
-      expect(response.status).toBe(422)
-      expect(JSON.stringify(await response.json())).toContain('creates opportunitys needs a kind')
+      expect(response.status).toBe(201)
+
+      const stored = (await response.json()) as {
+        readonly create_opportunity: boolean
+        readonly opportunity_kind: string | null
+      }
+
+      expect(stored.create_opportunity).toBe(true)
+      // Optional now — the trigger is on, but the kind was never set. The
+      // opportunity created on submit will carry the shape's own default
+      // (empty string on the record).
+      expect(stored.opportunity_kind).toBeNull()
     })
 
     it('refuses a list_id targeting a type other than person or company', async () => {

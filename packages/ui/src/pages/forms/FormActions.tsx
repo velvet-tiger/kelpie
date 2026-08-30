@@ -77,7 +77,6 @@ export function FormActions({ form }: FormActionsProps): React.JSX.Element {
         nameTemplate={form.opportunityNameTemplate}
         ownerId={form.opportunityOwnerId}
         onToggle={(next) => patch({ createOpportunity: next })}
-        onEnableWithKind={(kind) => patch({ createOpportunity: true, opportunityKind: kind })}
         onKind={(next) => patch({ opportunityKind: next })}
         onStage={(next) => patch({ opportunityStageId: next })}
         onTemplate={(next) => patch({ opportunityNameTemplate: next })}
@@ -95,7 +94,6 @@ export function FormActions({ form }: FormActionsProps): React.JSX.Element {
         requiresCompany
         hasCompanyField={hasCompanyField}
         onToggle={(next) => patch({ createPartnership: next })}
-        onEnableWithKind={(kind) => patch({ createPartnership: true, partnershipKind: kind })}
         onKind={(next) => patch({ partnershipKind: next })}
         onStage={(next) => patch({ partnershipStageId: next })}
         onTemplate={(next) => patch({ partnershipNameTemplate: next })}
@@ -106,12 +104,11 @@ export function FormActions({ form }: FormActionsProps): React.JSX.Element {
         form={form}
         kind="enquiry"
         toggle={form.createEnquiry}
-        kindValue={form.enquirySource}
+        kindValue={null}
         stageId={form.enquiryStageId}
         nameTemplate={form.enquiryNameTemplate}
         ownerId={form.enquiryOwnerId}
         onToggle={(next) => patch({ createEnquiry: next })}
-        onKind={(next) => patch({ enquirySource: next })}
         onStage={(next) => patch({ enquiryStageId: next })}
         onTemplate={(next) => patch({ enquiryNameTemplate: next })}
         onOwner={(next) => patch({ enquiryOwnerId: next })}
@@ -150,12 +147,6 @@ interface TriggerBlockProps {
   readonly requiresCompany?: boolean
   readonly hasCompanyField?: boolean
   readonly onToggle: (next: boolean) => void
-  /**
-   * Provided for triggers whose server-side validation refuses an "on" toggle
-   * without a kind (opportunity, partnership). The block waits for a kind
-   * before enabling and sends both fields in one PATCH.
-   */
-  readonly onEnableWithKind?: (kind: string) => void
   readonly onKind?: (next: string | null) => void
   readonly onStage: (next: string | null) => void
   readonly onTemplate: (next: string | null) => void
@@ -176,64 +167,15 @@ function TriggerBlock(props: TriggerBlockProps): React.JSX.Element {
   const disabled = props.requiresCompany === true && props.hasCompanyField !== true && !props.toggle
   const showsKind = props.onKind !== undefined
   const showsOwner = props.onOwner !== undefined
-  const kindRequired = props.onEnableWithKind !== undefined
-
-  // Local "pending" state: the user asked to turn the trigger on, but a
-  // required kind is missing. Opening the block reveals the kind input; the
-  // toggle-on PATCH is held until the kind arrives, and then both fields go
-  // together. Without this the checkbox would fire a lone `create_*: true`
-  // PATCH the server refuses, the optimistic revert clears the checkbox, and
-  // the surviving mutation error leaves the panel warning about a state the
-  // user never persisted.
-  const [pendingOpen, setPendingOpen] = useState(false)
-  const open = props.toggle || pendingOpen
-
-  function handleToggle(next: boolean): void {
-    if (!next) {
-      setPendingOpen(false)
-      props.onToggle(false)
-
-      return
-    }
-
-    if (
-      kindRequired &&
-      (props.kindValue === null || props.kindValue.trim().length === 0)
-    ) {
-      setPendingOpen(true)
-
-      return
-    }
-
-    setPendingOpen(false)
-    props.onToggle(true)
-  }
-
-  function handleKindBlur(next: string | null): void {
-    if (pendingOpen && props.onEnableWithKind !== undefined) {
-      if (next !== null && next.trim().length > 0) {
-        setPendingOpen(false)
-        props.onEnableWithKind(next)
-      } else {
-        setPendingOpen(false)
-      }
-
-      return
-    }
-
-    if (next !== props.kindValue) {
-      props.onKind?.(next)
-    }
-  }
 
   return (
     <div className="space-y-3 rounded-md border border-border p-4">
       <label className="flex items-center gap-2 text-[13px] font-medium text-ink">
         <input
           type="checkbox"
-          checked={open}
+          checked={props.toggle}
           disabled={disabled}
-          onChange={(event) => handleToggle(event.target.checked)}
+          onChange={(event) => props.onToggle(event.target.checked)}
         />
         {TRIGGER_LABEL[props.kind]}
       </label>
@@ -245,25 +187,22 @@ function TriggerBlock(props: TriggerBlockProps): React.JSX.Element {
         </p>
       )}
 
-      {open && (
+      {props.toggle && (
         <>
           {showsKind && (
             <Labelled
               label="Kind"
-              hint={
-                pendingOpen
-                  ? `Enter a kind to turn this on. Free text: "Grant", "Accelerator", …`
-                  : `Required. Free text: "Grant", "Accelerator", …`
-              }
+              hint={`Optional. Free text: "Grant", "Accelerator", …`}
             >
               <input
                 className={inputClass}
                 defaultValue={props.kindValue ?? ''}
-                autoFocus={pendingOpen}
                 onBlur={(event) => {
                   const next = event.target.value.length === 0 ? null : event.target.value
 
-                  handleKindBlur(next)
+                  if (next !== props.kindValue) {
+                    props.onKind?.(next)
+                  }
                 }}
               />
             </Labelled>
