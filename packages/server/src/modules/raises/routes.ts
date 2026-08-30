@@ -1,3 +1,4 @@
+import { customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -6,6 +7,7 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import type { CreateRaiseInput, RaiseView, RaisesService, UpdateRaiseInput } from './service.ts'
 
 /** Wire shapes for `/v1/raises`. Bodies are strict; an unknown field is a 422, per `api.md`. */
@@ -26,6 +28,7 @@ const raiseShape = {
   person_ids: z.array(z.string().min(1)),
   summary: z.string(),
   tags: z.array(z.string().min(1)),
+  custom_fields: customFieldsPatchShape,
 }
 
 /**
@@ -48,6 +51,7 @@ export const createBody = z.strictObject({
   person_ids: raiseShape.person_ids.default([]),
   summary: raiseShape.summary.default(''),
   tags: raiseShape.tags.default([]),
+  custom_fields: raiseShape.custom_fields.default({}),
 })
 
 export const updateBody = z.strictObject(raiseShape).partial()
@@ -70,6 +74,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateRaiseInpu
     personIds: body.person_ids,
     summary: body.summary,
     tags: body.tags,
+    customFields: body.custom_fields,
   }
 }
 
@@ -87,6 +92,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateRaiseInpu
     ...(body.person_ids === undefined ? {} : { personIds: body.person_ids }),
     ...(body.summary === undefined ? {} : { summary: body.summary }),
     ...(body.tags === undefined ? {} : { tags: body.tags }),
+    ...(body.custom_fields === undefined ? {} : { customFields: body.custom_fields }),
   }
 }
 
@@ -105,6 +111,7 @@ export function raiseResponse(raise: RaiseView): Record<string, unknown> {
     person_ids: raise.personIds,
     summary: raise.summary,
     tags: raise.tags,
+    custom_fields: renderCustomFieldsForWire(raise.customFields),
     created_at: raise.createdAt.toISOString(),
     updated_at: raise.updatedAt.toISOString(),
   }

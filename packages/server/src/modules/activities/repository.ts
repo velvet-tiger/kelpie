@@ -7,6 +7,7 @@ import { keysetCondition, orderByWindow, timestampSort } from '../../lib/paginat
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { deals } from '../deals/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
 import * as personLinks from '../personLinks.ts'
@@ -69,7 +70,7 @@ export async function listRolledUpTargets(
   targetId: string,
 ): Promise<ActivityTarget[]> {
   if (targetType === 'company') {
-    const [dealRows, opportunityRows, partnershipRows] = await Promise.all([
+    const [dealRows, opportunityRows, partnershipRows, enquiryRows] = await Promise.all([
       db
         .select({ id: deals.id })
         .from(deals)
@@ -84,12 +85,17 @@ export async function listRolledUpTargets(
         .select({ id: partnerships.id })
         .from(partnerships)
         .where(and(eq(partnerships.workspaceId, workspaceId), eq(partnerships.companyId, targetId))),
+      db
+        .select({ id: enquiries.id })
+        .from(enquiries)
+        .where(and(eq(enquiries.workspaceId, workspaceId), eq(enquiries.companyId, targetId))),
     ])
 
     return [
       ...dealRows.map((row) => ({ targetType: 'deal' as const, targetId: row.id })),
       ...opportunityRows.map((row) => ({ targetType: 'opportunity' as const, targetId: row.id })),
       ...partnershipRows.map((row) => ({ targetType: 'partnership' as const, targetId: row.id })),
+      ...enquiryRows.map((row) => ({ targetType: 'enquiry' as const, targetId: row.id })),
     ]
   }
 

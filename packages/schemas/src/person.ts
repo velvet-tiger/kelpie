@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
 import {
+  customFieldValuesBody,
+  customFieldValuesSchema,
+} from './customField.ts'
+import type { CustomFieldValue, CustomFieldValues } from './customField.ts'
+import {
   INFLUENCE_LEVELS,
   PREFERRED_CHANNELS,
   RELATIONSHIP_LEVELS,
@@ -43,6 +48,8 @@ export interface Person extends RecordTimestamps {
   readonly summary: string
   readonly tags: readonly string[]
   readonly lastContactedAt: Date | null
+  /** Workspace-defined fields, keyed by definition key. Always present (default `{}`). */
+  readonly customFields: CustomFieldValues
 }
 
 const socialProfileSchema = z.object({
@@ -69,6 +76,7 @@ export const personSchema: z.ZodType<Person, unknown> = z
     summary: z.string(),
     tags: z.array(z.string()),
     last_contacted_at: nullableTimestampSchema,
+    custom_fields: customFieldValuesSchema,
     ...recordTimestamps,
   })
   .transform(
@@ -90,6 +98,7 @@ export const personSchema: z.ZodType<Person, unknown> = z
       summary: wire.summary,
       tags: wire.tags,
       lastContactedAt: wire.last_contacted_at,
+      customFields: wire.custom_fields,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),
@@ -118,6 +127,11 @@ export interface PersonInput {
   readonly summary?: string
   readonly tags?: readonly string[]
   readonly lastContactedAt?: Date | null
+  /**
+   * Partial merge patch: sent keys change, `null` clears a key, absent keys are
+   * left alone. Unknown keys are rejected at `422`.
+   */
+  readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>
 }
 
 export function personBody(input: PersonInput): Record<string, unknown> {
@@ -141,5 +155,7 @@ export function personBody(input: PersonInput): Record<string, unknown> {
       input.lastContactedAt === undefined || input.lastContactedAt === null
         ? input.lastContactedAt
         : input.lastContactedAt.toISOString(),
+    custom_fields:
+      input.customFields === undefined ? undefined : customFieldValuesBody(input.customFields),
   })
 }

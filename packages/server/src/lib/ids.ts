@@ -19,6 +19,7 @@ export const idPrefixes = {
   position: 'pos',
   pipelineStage: 'stage',
   deal: 'deal',
+  enquiry: 'enq',
   opportunity: 'opp',
   partnership: 'prt',
   raise: 'rse',
@@ -39,6 +40,7 @@ export const idPrefixes = {
    */
   personLink: 'plink',
   handbookPage: 'hb',
+  customFieldDefinition: 'fld',
   form: 'form',
   formField: 'ff',
   formSubmission: 'sub',

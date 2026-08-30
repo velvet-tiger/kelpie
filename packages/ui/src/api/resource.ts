@@ -367,7 +367,12 @@ export function createReadOnlyResourceHooks<TRecord>(
 export function createResourceHooks<
   TRecord extends { readonly id: string },
   TCreateInput,
-  TUpdateInput extends Partial<TRecord>,
+  // The constraint is deliberately looser than `Partial<TRecord>`. A merge-patch
+  // field (a record whose value type includes `null` to clear a key) does not
+  // fit `Partial<TRecord>` when the record's own value type is non-null, and
+  // that shape reaches the record for real (custom-fields, and any later
+  // module that carries one). `mergeDefined` needs no more than an object here.
+  TUpdateInput extends object,
 >(
   definition: ResourceDefinition<TRecord, TCreateInput, TUpdateInput>,
 ): ResourceHooks<TRecord, TCreateInput, TUpdateInput> {

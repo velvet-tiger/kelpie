@@ -29,6 +29,7 @@ const EMPTY_TYPES = [
   'person',
   'role',
   'company',
+  'enquiry',
   'deal',
   'opportunity',
   'raise',
@@ -36,7 +37,7 @@ const EMPTY_TYPES = [
   'decision',
 ] as const
 
-/** A full nine-group response with the named groups filled in. */
+/** A full ten-group response with the named groups filled in. */
 function wireResults(query: string, filled: readonly WireGroup[]): Record<string, unknown> {
   const byType = new Map(filled.map((group) => [group.type, group]))
 

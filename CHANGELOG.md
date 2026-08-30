@@ -12,6 +12,50 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Enquiry**, a
+  new top-of-funnel pipeline object. Inbound requests (from a website form,
+  an email, a referral) that may become a Deal once qualified. Fields:
+  name, free-text `source` (like Opportunity's `kind`), optional company,
+  optional owner, `converted_deal_id`, summary, tags, custom fields.
+  Starter stages `new → in_progress → closed`; migration 0030 seeds them
+  for every existing workspace as well as new ones. Full Opportunity
+  parity: `/v1/enquiries` CRUD, MCP tools, kanban page + detail page +
+  stage settings, notes / activities / decisions / plans / lists
+  attachment, custom fields (seventh object type), search collection,
+  dashboard pipeline counts, webhook `record.*` events, sample-data
+  fixture. **Convert to Deal**: `POST /v1/enquiries/:id/convert` mints a
+  Deal, copies name / company / owner / linked people to it, records
+  `converted_deal_id`, and moves the enquiry to its first closed stage.
+  409 on a second convert (existing deal id in `details`); 422 when the
+  enquiry has no company (deals' `company_id` is `NOT NULL`); deleting the
+  deal nulls the pointer and re-opens conversion. Also available as MCP
+  tool `enquiries_convert_to_deal`. **Forms trigger**: a fourth create
+  trigger — `create_enquiry`, optional `enquiry_source` (written to the
+  enquiry's `source`; no kind requirement), `enquiry_stage_id`,
+  `enquiry_name_template`, `enquiry_owner_id`. Company optional; a submit
+  without a company creates the enquiry with `company_id` null. New
+  `form_submissions.enquiry_id` (set-null) and `form.submitted` webhook
+  payload gains `enquiry_id`. Six new agent-task catalog entries
+  (`enquiry.triage`, `.propose_plan`, `.refresh_summary`, `.draft_reply`
+  as primary; `.capture_decision`, `.log_transcript` as overflow). New id
+  prefix `enq_`. Nav sits between Companies and Deals.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — custom fields
+  (Phase 1). A workspace defines its own fields on the six taggable record
+  types (Person, Company, Deal, Opportunity, Partnership, Raise) at
+  Admin → Custom fields, and every record on those types carries a
+  `custom_fields` object over the same REST and MCP surface the UI uses.
+  Nine field types (`text`, `long_text`, `number`, `currency`, `date`,
+  `checkbox`, `select`, `multi_select`, `url`), immutable `key` and `type`
+  after create, hard delete strips values from every record in one
+  transaction, no per-record webhook flood for the strip. `PATCH` on a
+  record's `custom_fields` is a partial merge: sent keys change, `null`
+  clears a key, an unknown key is `422` with
+  `details[].field = custom_fields.<key>`, absent keys are left alone. Five
+  new MCP tools (`custom_fields_list/get/create/update/delete`) and every
+  existing record tool accepts `custom_fields` automatically. New id
+  prefix `fld_`, new entitlement `custom_fields.limit` (unlimited in open
+  source), admin-only writes, member-visible reads. Spec:
+  [`docs/custom-fields.md`](../docs/custom-fields.md).
 - **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — structured name
   parts on Person: `salutation`, `first_name`, `last_name`, and `suffix`,
   all nullable, beside the existing required `name`. `name` stays the

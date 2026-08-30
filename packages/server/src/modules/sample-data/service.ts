@@ -12,6 +12,7 @@ import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { candidates, roles } from '../hiring/schema.ts'
 import { notes } from '../notes/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
 import { people, personLinks } from '../people/schema.ts'
@@ -51,6 +52,7 @@ export interface SampleDataCounts {
   readonly opportunities: number
   readonly raises: number
   readonly partnerships: number
+  readonly enquiries: number
   readonly roles: number
   readonly candidates: number
 }
@@ -137,7 +139,13 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
             .where(
               and(
                 eq(pipelineStages.workspaceId, workspaceId),
-                inArray(pipelineStages.kind, ['deal', 'opportunity', 'raise', 'partnership']),
+                inArray(pipelineStages.kind, [
+                  'deal',
+                  'opportunity',
+                  'raise',
+                  'partnership',
+                  'enquiry',
+                ]),
               ),
             )
 
@@ -154,6 +162,7 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
           const opportunityIds = new Map<string, string>()
           const raiseIds = new Map<string, string>()
           const partnershipIds = new Map<string, string>()
+          const enquiryIds = new Map<string, string>()
           const roleIds = new Map<string, string>()
           const candidateIds = new Map<string, string>()
 
@@ -429,6 +438,61 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
             }
           }
 
+          for (const record of fixture.enquiries) {
+            const stageId = stageIdByKindAndSlug.get(
+              stageLookupKey('enquiry', record.stageSlug),
+            )
+
+            if (stageId === undefined) {
+              throw new Error(
+                `Sample enquiry "${record.name}" names stage "${record.stageSlug}", which this workspace's enquiry pipeline does not carry`,
+              )
+            }
+
+            const companyId =
+              record.companyKey === null ? null : (companyIds.get(record.companyKey) ?? undefined)
+
+            if (companyId === undefined) {
+              throw new Error(
+                `Sample enquiry "${record.name}" names unknown company "${String(record.companyKey)}"`,
+              )
+            }
+
+            const id = dependencies.createId('enquiry')
+            enquiryIds.set(record.key, id)
+
+            await tx.insert(enquiries).values({
+              id,
+              workspaceId,
+              name: record.name,
+              source: record.source,
+              stageId,
+              companyId,
+              summary: record.summary,
+              tags: [...record.tags],
+              createdAt: now,
+              updatedAt: now,
+            })
+
+            for (const personKey of record.peopleKeys) {
+              const personId = personIds.get(personKey)
+
+              if (personId === undefined) {
+                throw new Error(
+                  `Sample enquiry "${record.name}" names unknown person "${personKey}"`,
+                )
+              }
+
+              await tx.insert(personLinks).values({
+                id: dependencies.createId('personLink'),
+                workspaceId,
+                personId,
+                targetType: 'enquiry',
+                targetId: id,
+              })
+            }
+          }
+
           for (const record of fixture.roles) {
             const id = dependencies.createId('role')
             roleIds.set(record.key, id)
@@ -518,6 +582,7 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
               opportunityIds,
               raiseIds,
               partnershipIds,
+              enquiryIds,
               candidateIds,
             })
 
@@ -554,6 +619,7 @@ interface KeyMaps {
   readonly opportunityIds: ReadonlyMap<string, string>
   readonly raiseIds: ReadonlyMap<string, string>
   readonly partnershipIds: ReadonlyMap<string, string>
+  readonly enquiryIds: ReadonlyMap<string, string>
   readonly candidateIds: ReadonlyMap<string, string>
 }
 
@@ -575,6 +641,8 @@ function resolveNoteTargetId(
       return maps.raiseIds.get(targetKey)
     case 'partnership':
       return maps.partnershipIds.get(targetKey)
+    case 'enquiry':
+      return maps.enquiryIds.get(targetKey)
     case 'candidate':
       return maps.candidateIds.get(targetKey)
     default:
@@ -604,6 +672,7 @@ function countsFor(fixture: Fixture): SampleDataCounts {
     opportunities: fixture.opportunities.length,
     raises: fixture.raises.length,
     partnerships: fixture.partnerships.length,
+    enquiries: fixture.enquiries.length,
     roles: fixture.roles.length,
     candidates: fixture.candidates.length,
   }

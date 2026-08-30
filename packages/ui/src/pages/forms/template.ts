@@ -79,6 +79,7 @@ export const CRM_FIELD_PRESETS: readonly FormFieldInput[] = [
     placeholder: 'company.com',
   },
   { label: 'Job title', type: 'text', required: false, mapTo: 'position.title', placeholder: 'Your role' },
+  { label: 'Enquiry name', type: 'text', required: false, mapTo: 'enquiry.name', placeholder: null },
   { label: 'Deal name', type: 'text', required: false, mapTo: 'deal.name', placeholder: null },
   { label: 'Opportunity name', type: 'text', required: false, mapTo: 'opportunity.name', placeholder: null },
   { label: 'Partnership name', type: 'text', required: false, mapTo: 'partnership.name', placeholder: null },

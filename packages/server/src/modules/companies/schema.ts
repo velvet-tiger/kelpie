@@ -1,5 +1,6 @@
 import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from '@kelpie/schemas'
-import { boolean, index, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import type { CustomFieldValue } from '@kelpie/schemas'
+import { boolean, index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
 import {
   checkOneOf,
@@ -46,6 +47,11 @@ export const companies = pgTable(
     // and subsidiary) so downstream views can distinguish self from prospects.
     // Loose semantics on purpose — zero or many rows may carry it.
     isOwn: boolean('is_own').notNull().default(false),
+    // Workspace-defined fields, keyed by definition key. See people/schema.ts.
+    customFields: jsonb('custom_fields')
+      .$type<Readonly<Record<string, CustomFieldValue>>>()
+      .notNull()
+      .default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     searchVector: searchVector((): readonly SearchVectorPart[] => [

@@ -12,6 +12,8 @@ import {
   useUpdateCompany,
 } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
+import { useEnquiries } from '../api/resources/enquiries.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { usePeople } from '../api/resources/people.ts'
@@ -29,6 +31,9 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -69,7 +74,9 @@ export function CompanyDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = useCompany(id)
   const deleteCompany = useDeleteCompany()
   const moduleTabs = inSlotOrder(useRecordTabs('company'))
+  const hasCustomFields = useHasCustomFields('company')
   const [activeTab, setActiveTab] = useState('overview')
+  const formSubmissions = useFormSubmissionsForRecord('company', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Company" backTo="/companies" />
@@ -85,11 +92,15 @@ export function CompanyDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'activity', label: 'Activity' },
     { id: 'people', label: 'People' },
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -131,11 +142,13 @@ export function CompanyDetail(): React.JSX.Element {
             ariaLabel="Company sections"
           >
             {active === 'overview' && <CompanyOverview company={record} />}
+            {active === 'fields' && <CompanyFields company={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="company" targetId={record.id} />}
             {active === 'people' && <CompanyPeople company={record} />}
             {active === 'notes' && <NotesPanel targetType="company" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="company" targetId={record.id} />}
             {active === 'lists' && <ListsPanel targetType="company" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="company" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'company', recordId: record.id })}
           </RecordTabs>
         </div>
@@ -196,6 +209,7 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
   const opportunities = useOpportunities({ companyIds: [company.id] })
   const raises = useRaises({ companyIds: [company.id] })
   const partnerships = usePartnerships({ companyIds: [company.id] })
+  const enquiries = useEnquiries({ companyIds: [company.id] })
 
   return (
     <div className="space-y-8">
@@ -211,8 +225,13 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
         opportunities={opportunities.records}
         raises={raises.records}
         partnerships={partnerships.records}
+        enquiries={enquiries.records}
         isLoading={
-          deals.isLoading || opportunities.isLoading || raises.isLoading || partnerships.isLoading
+          deals.isLoading ||
+          opportunities.isLoading ||
+          raises.isLoading ||
+          partnerships.isLoading ||
+          enquiries.isLoading
         }
       />
       <LatestActivity targetType="company" targetId={company.id} />
@@ -354,6 +373,22 @@ function CompanySidebar({ company }: { readonly company: Company }): React.JSX.E
         />
       </SidebarField>
     </section>
+  )
+}
+
+function CompanyFields({ company }: { readonly company: Company }): React.JSX.Element {
+  const { patch, error } = useCompanyPatch(company)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
+        objectType="company"
+        values={company.customFields}
+        onPatch={(customFields) => {
+          patch({ customFields })
+        }}
+      />
+    </div>
   )
 }
 

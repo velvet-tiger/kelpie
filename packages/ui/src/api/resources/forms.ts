@@ -5,6 +5,7 @@ import type {
   FormFieldInput,
   FormInput,
   FormSubmission,
+  FormSubmissionLinkTarget,
 } from '@kelpie/schemas'
 import {
   useMutation,
@@ -144,6 +145,27 @@ export function useFormSubmissions(formId: string | undefined): RecordListResult
     decode: formSubmissionSchema.parse,
     query: {},
     enabled: formId !== undefined,
+  })
+}
+
+/**
+ * Submissions that touched one record, newest first.
+ *
+ * Powers the Forms tab on every record type a submission can name (person,
+ * company, position, deal, opportunity, partnership, enquiry). Returns an
+ * empty page for a record no submission has ever named — the server does no
+ * per-target existence check, so a stale id reads the same as a real one.
+ */
+export function useFormSubmissionsForRecord(
+  targetType: FormSubmissionLinkTarget | undefined,
+  targetId: string | undefined,
+): RecordListResult<FormSubmission> {
+  return usePagedList<FormSubmission>({
+    queryKey: ['form-submissions', 'by-target', targetType ?? '', targetId ?? ''],
+    path: '/form-submissions',
+    decode: formSubmissionSchema.parse,
+    query: { target_type: targetType, target_id: targetId },
+    enabled: targetType !== undefined && targetId !== undefined,
   })
 }
 

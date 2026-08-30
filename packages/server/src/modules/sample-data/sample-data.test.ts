@@ -69,6 +69,7 @@ describe.skipIf(connectionString === undefined)('sample-data', () => {
     expect(body.opportunities).toBe(SAMPLE_DATA_FIXTURE.opportunities.length)
     expect(body.raises).toBe(SAMPLE_DATA_FIXTURE.raises.length)
     expect(body.partnerships).toBe(SAMPLE_DATA_FIXTURE.partnerships.length)
+    expect(body.enquiries).toBe(SAMPLE_DATA_FIXTURE.enquiries.length)
     expect(body.roles).toBe(SAMPLE_DATA_FIXTURE.roles.length)
     expect(body.candidates).toBe(SAMPLE_DATA_FIXTURE.candidates.length)
 

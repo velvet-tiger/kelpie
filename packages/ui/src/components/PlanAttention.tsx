@@ -1,5 +1,13 @@
 import { PIPELINE_KIND_LABELS, PLAN_ITEM_STATUS_LABELS } from '@kelpie/schemas'
-import type { Deal, Opportunity, Partnership, PipelineKind, PlanItem, Raise } from '@kelpie/schemas'
+import type {
+  Deal,
+  Enquiry,
+  Opportunity,
+  Partnership,
+  PipelineKind,
+  PlanItem,
+  Raise,
+} from '@kelpie/schemas'
 import { Link } from 'react-router'
 
 import { useMembers } from '../api/resources/members.ts'
@@ -20,6 +28,7 @@ import { SectionHeader } from './SectionHeader.tsx'
 
 /** Where a plan item's record lives. */
 const ROUTES: Readonly<Record<PipelineKind, string | undefined>> = {
+  enquiry: '/enquiries',
   deal: '/deals',
   opportunity: '/opportunities',
   raise: '/fundraising',
@@ -93,12 +102,14 @@ export function RelatedPlanAttention({
   opportunities = [],
   raises = [],
   partnerships = [],
+  enquiries = [],
   isLoading,
 }: {
   readonly deals: readonly Deal[]
   readonly opportunities?: readonly Opportunity[]
   readonly raises?: readonly Raise[]
   readonly partnerships?: readonly Partnership[]
+  readonly enquiries?: readonly Enquiry[]
   readonly isLoading: boolean
 }): React.JSX.Element {
   const dealItems = usePlanItemsForRecords(
@@ -117,6 +128,10 @@ export function RelatedPlanAttention({
     'partnership',
     partnerships.map((partnership) => partnership.id),
   )
+  const enquiryItems = usePlanItemsForRecords(
+    'enquiry',
+    enquiries.map((enquiry) => enquiry.id),
+  )
 
   return (
     <PlanAttention
@@ -125,11 +140,12 @@ export function RelatedPlanAttention({
         ...opportunityItems.records,
         ...raiseItems.records,
         ...partnershipItems.records,
+        ...enquiryItems.records,
       ]}
       showTarget
       targetNames={
         new Map(
-          [...deals, ...opportunities, ...raises, ...partnerships].map((record) => [
+          [...deals, ...opportunities, ...raises, ...partnerships, ...enquiries].map((record) => [
             record.id,
             record.name,
           ]),
@@ -140,7 +156,8 @@ export function RelatedPlanAttention({
         dealItems.isLoading ||
         opportunityItems.isLoading ||
         raiseItems.isLoading ||
-        partnershipItems.isLoading
+        partnershipItems.isLoading ||
+        enquiryItems.isLoading
       }
     />
   )

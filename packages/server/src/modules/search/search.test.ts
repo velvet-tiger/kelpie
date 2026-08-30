@@ -139,6 +139,7 @@ describe.skipIf(connectionString === undefined)('search', () => {
         'person',
         'role',
         'company',
+        'enquiry',
         'deal',
         'opportunity',
         'raise',

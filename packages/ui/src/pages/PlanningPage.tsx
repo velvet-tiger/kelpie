@@ -9,6 +9,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useDeals } from '../api/resources/deals.ts'
+import { useEnquiries } from '../api/resources/enquiries.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
@@ -213,8 +214,10 @@ function usePipelineTargets(): {
   const opportunities = useOpportunities({ limit: MAX_PAGE_SIZE })
   const raises = useRaises({ limit: MAX_PAGE_SIZE })
   const partnerships = usePartnerships({ limit: MAX_PAGE_SIZE })
+  const enquiries = useEnquiries({ limit: MAX_PAGE_SIZE })
 
   const byKind: Readonly<Record<PipelineKind, readonly PipelineTarget[]>> = {
+    enquiry: enquiries.records.map((record) => ({ id: record.id, name: record.name })),
     deal: deals.records.map((record) => ({ id: record.id, name: record.name })),
     opportunity: opportunities.records.map((record) => ({ id: record.id, name: record.name })),
     raise: raises.records.map((record) => ({ id: record.id, name: record.name })),

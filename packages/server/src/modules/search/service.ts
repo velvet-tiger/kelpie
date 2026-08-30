@@ -10,6 +10,7 @@ import {
   searchCompanies,
   searchDeals,
   searchDecisions,
+  searchEnquiries,
   searchHandbookPages,
   searchOpportunities,
   searchPartnerships,
@@ -20,7 +21,7 @@ import {
 import type { CollectionHits } from './repository.ts'
 
 /**
- * One box across nine collections, ranked per collection rather than merged.
+ * One box across ten collections, ranked per collection rather than merged.
  *
  * A single merged ranking would need `ts_rank` values from different tables to
  * mean the same thing, and they do not: a handbook page is a thousand words and a
@@ -49,7 +50,7 @@ export interface SearchResults {
   readonly limit: number
   /** Across every group. The number a "12 results" heading is built from. */
   readonly total: number
-  /** Always all nine, in `SEARCH_COLLECTIONS` order, empty ones included. */
+  /** Always all ten, in `SEARCH_COLLECTIONS` order, empty ones included. */
   readonly groups: readonly SearchGroup[]
 }
 
@@ -71,7 +72,7 @@ export interface SearchServiceDependencies {
 /**
  * How many rows a group carries when the caller does not say.
  *
- * Small on purpose: nine groups on one page, and a reader scanning them wants the
+ * Small on purpose: ten groups on one page, and a reader scanning them wants the
  * best few of each rather than a page of People they have to scroll past to reach
  * the handbook. The exact total sits beside each group regardless.
  */
@@ -89,6 +90,7 @@ const SEARCHES: Readonly<Record<SearchCollection, CollectionSearch>> = {
   person: searchPeople,
   role: searchRoles,
   company: searchCompanies,
+  enquiry: searchEnquiries,
   deal: searchDeals,
   opportunity: searchOpportunities,
   raise: searchRaises,
@@ -134,8 +136,8 @@ export function createSearchService(dependencies: SearchServiceDependencies): Se
       const query = compileQuery(tsQuery)
       const words = searchWords(request.term)
 
-      // Nine independent reads with nothing to share but the compiled query. Run
-      // in sequence they would be nine round trips deep rather than wide.
+      // Ten independent reads with nothing to share but the compiled query. Run
+      // in sequence they would be ten round trips deep rather than wide.
       const groups = await Promise.all(
         wanted.map(async (collection) =>
           toGroup(await SEARCHES[collection](dependencies.db, workspaceId, query, limit), words),

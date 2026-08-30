@@ -3,6 +3,7 @@ import type { Form, FormAttachTarget, PipelineKind } from '@kelpie/schemas'
 import { useMemo, useState } from 'react'
 
 import { useDeals } from '../../api/resources/deals.ts'
+import { useEnquiries } from '../../api/resources/enquiries.ts'
 import { useUpdateForm } from '../../api/resources/forms.ts'
 import { useLists } from '../../api/resources/lists.ts'
 import { useMembers } from '../../api/resources/members.ts'
@@ -99,6 +100,20 @@ export function FormActions({ form }: FormActionsProps): React.JSX.Element {
         onOwner={(next) => patch({ partnershipOwnerId: next })}
       />
 
+      <TriggerBlock
+        form={form}
+        kind="enquiry"
+        toggle={form.createEnquiry}
+        kindValue={null}
+        stageId={form.enquiryStageId}
+        nameTemplate={form.enquiryNameTemplate}
+        ownerId={form.enquiryOwnerId}
+        onToggle={(next) => patch({ createEnquiry: next })}
+        onStage={(next) => patch({ enquiryStageId: next })}
+        onTemplate={(next) => patch({ enquiryNameTemplate: next })}
+        onOwner={(next) => patch({ enquiryOwnerId: next })}
+      />
+
       <TagsBlock
         title="Tag the person"
         hint="Merged into the submitter's tags. Never removes a tag someone set by hand."
@@ -139,6 +154,7 @@ interface TriggerBlockProps {
 }
 
 const TRIGGER_LABEL: Readonly<Record<PipelineKind, string>> = {
+  enquiry: 'Create an Enquiry',
   deal: 'Create a Deal',
   opportunity: 'Create an Opportunity',
   raise: 'Create a Raise',
@@ -174,7 +190,10 @@ function TriggerBlock(props: TriggerBlockProps): React.JSX.Element {
       {props.toggle && (
         <>
           {showsKind && (
-            <Labelled label="Kind" hint={`Required. Free text: "Grant", "Accelerator", …`}>
+            <Labelled
+              label="Kind"
+              hint={`Optional. Free text: "Grant", "Accelerator", …`}
+            >
               <input
                 className={inputClass}
                 defaultValue={props.kindValue ?? ''}
@@ -386,6 +405,7 @@ function useAttachOptions(kind: PipelineKind): readonly AttachRecord[] {
   const opportunities = useOpportunities({}, { enabled: kind === 'opportunity' })
   const raises = useRaises({}, { enabled: kind === 'raise' })
   const partnerships = usePartnerships({}, { enabled: kind === 'partnership' })
+  const enquiries = useEnquiries({}, { enabled: kind === 'enquiry' })
 
   switch (kind) {
     case 'deal':
@@ -399,6 +419,8 @@ function useAttachOptions(kind: PipelineKind): readonly AttachRecord[] {
         id: partnership.id,
         name: partnership.name,
       }))
+    case 'enquiry':
+      return enquiries.records.map((enquiry) => ({ id: enquiry.id, name: enquiry.name }))
   }
 }
 

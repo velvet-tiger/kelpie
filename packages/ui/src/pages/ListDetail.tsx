@@ -13,6 +13,7 @@ import {
   useListMembers,
   useRemoveListMember,
 } from '../api/resources/listMembers.ts'
+import { useEnquiries } from '../api/resources/enquiries.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { usePeople } from '../api/resources/people.ts'
@@ -271,6 +272,8 @@ function detailPathFor(targetType: RecordTargetType, targetId: string): string {
       return `/partnerships/${targetId}`
     case 'raise':
       return `/fundraising/${targetId}`
+    case 'enquiry':
+      return `/enquiries/${targetId}`
     case 'candidate':
       // A candidate has no page of its own; the person's does.
       return `/hiring`
@@ -304,6 +307,8 @@ function MemberPicker({
       return <PartnershipsPicker attached={attached} onPick={onPick} />
     case 'raise':
       return <RaisesPicker attached={attached} onPick={onPick} />
+    case 'enquiry':
+      return <EnquiriesPicker attached={attached} onPick={onPick} />
     case 'candidate':
       return (
         <p className="text-[12px] text-ink-faint">
@@ -372,6 +377,16 @@ function PartnershipsPicker({ attached, onPick }: PickerProps): React.JSX.Elemen
 function RaisesPicker({ attached, onPick }: PickerProps): React.JSX.Element {
   const [search, setSearch] = useState('')
   const records = useRaises({ term: trimmedOrUndefined(search) })
+  const options: readonly SearchOption[] = records.records
+    .filter((row) => !attached.has(row.id))
+    .map((row) => ({ id: row.id, label: row.name }))
+
+  return <PickerBox onQueryChange={setSearch} onPick={onPick} options={options} />
+}
+
+function EnquiriesPicker({ attached, onPick }: PickerProps): React.JSX.Element {
+  const [search, setSearch] = useState('')
+  const records = useEnquiries({ term: trimmedOrUndefined(search) })
   const options: readonly SearchOption[] = records.records
     .filter((row) => !attached.has(row.id))
     .map((row) => ({ id: row.id, label: row.name }))

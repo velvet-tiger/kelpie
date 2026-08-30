@@ -1,3 +1,4 @@
+import { customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -6,6 +7,7 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import type {
   CreateOpportunityInput,
   OpportunitiesService,
@@ -26,6 +28,7 @@ const opportunityShape = {
   person_ids: z.array(z.string().min(1)),
   summary: z.string(),
   tags: z.array(z.string().min(1)),
+  custom_fields: customFieldsPatchShape,
 }
 
 /**
@@ -45,6 +48,7 @@ export const createBody = z.strictObject({
   person_ids: opportunityShape.person_ids.default([]),
   summary: opportunityShape.summary.default(''),
   tags: opportunityShape.tags.default([]),
+  custom_fields: opportunityShape.custom_fields.default({}),
 })
 
 export const updateBody = z.strictObject(opportunityShape).partial()
@@ -64,6 +68,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateOpportuni
     personIds: body.person_ids,
     summary: body.summary,
     tags: body.tags,
+    customFields: body.custom_fields,
   }
 }
 
@@ -78,6 +83,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateOpportuni
     ...(body.person_ids === undefined ? {} : { personIds: body.person_ids }),
     ...(body.summary === undefined ? {} : { summary: body.summary }),
     ...(body.tags === undefined ? {} : { tags: body.tags }),
+    ...(body.custom_fields === undefined ? {} : { customFields: body.custom_fields }),
   }
 }
 
@@ -93,6 +99,7 @@ export function opportunityResponse(opportunity: OpportunityView): Record<string
     person_ids: opportunity.personIds,
     summary: opportunity.summary,
     tags: opportunity.tags,
+    custom_fields: renderCustomFieldsForWire(opportunity.customFields),
     created_at: opportunity.createdAt.toISOString(),
     updated_at: opportunity.updatedAt.toISOString(),
   }

@@ -1,3 +1,5 @@
+import type { CustomFieldWireValue } from '@kelpie/schemas'
+
 import { changedKeys } from '../../lib/changes.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
@@ -16,6 +18,7 @@ import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
+import type { CustomFieldValuesValidator } from '../custom-fields/values.ts'
 import { referencedElsewhere } from '../references.ts'
 import * as repository from './repository.ts'
 import { COMPANY_SORTS, DEFAULT_COMPANY_SORT } from './repository.ts'
@@ -35,6 +38,7 @@ export interface CompaniesDependencies {
   readonly createId: IdFactory
   readonly now: () => Date
   readonly recordActivity: ActivityRecorder
+  readonly customFields: CustomFieldValuesValidator
 }
 
 /** What a changed column is called on a timeline. `icpFit` is why these are written out. */
@@ -73,6 +77,8 @@ export interface CreateCompanyInput {
   readonly summary: string
   readonly tags: readonly string[]
   readonly isOwn: boolean
+  /** Wire shape merge patch (undefined for a create without any). */
+  readonly customFields: Readonly<Record<string, CustomFieldWireValue | null>> | undefined
 }
 
 /** PATCH semantics: an absent field is left alone, and null clears a nullable one. */
@@ -156,6 +162,12 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
       const id = dependencies.createId('company')
 
       return dependencies.transaction(async ({ tx, events }) => {
+        const customFields = await dependencies.customFields.forCreate(
+          tx,
+          workspaceId,
+          'company',
+          input.customFields,
+        )
         let created: CompanyRecord
 
         try {
@@ -176,6 +188,7 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
             summary: input.summary,
             tags: [...input.tags],
             isOwn: input.isOwn,
+            customFields,
           })
         } catch (error: unknown) {
           if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
@@ -211,18 +224,28 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
       const workspaceId = requireWorkspaceId(actor)
       const existing = await require(workspaceId, id)
       const columns = toStoredColumns(changes)
-      const changed = changedKeys(existing, columns)
-
-      if (changed.length === 0) {
-        return toView(existing)
-      }
+      const scalarChanged = changedKeys(existing, columns)
 
       return dependencies.transaction(async ({ tx, events }) => {
+        const cf = await dependencies.customFields.forUpdate(
+          tx,
+          workspaceId,
+          'company',
+          existing.customFields,
+          changes.customFields,
+        )
+        const customFieldsChanged = cf !== undefined && cf.changedPaths.length > 0
+
+        if (scalarChanged.length === 0 && !customFieldsChanged) {
+          return toView(existing)
+        }
+
         let updated: CompanyRecord | undefined
 
         try {
           updated = await repository.updateCompany(tx, workspaceId, id, {
             ...columns,
+            ...(customFieldsChanged ? { customFields: cf.merged } : {}),
             updatedAt: dependencies.now(),
           })
         } catch (error: unknown) {
@@ -237,19 +260,31 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
           throw AppError.notFound('Company not found')
         }
 
-        await dependencies.recordActivity(tx, workspaceId, actor, {
-          targetType: 'company',
-          targetId: id,
-          kind: 'updated',
-          ...describeUpdate(changed, COMPANY_FIELD_LABELS, existing, columns),
-        })
+        const customFieldPaths = cf?.changedPaths ?? []
+        const activityChanged = [...scalarChanged, ...customFieldPaths]
 
-        events.emit('companies.company.updated', { type: 'company', id }, { changed })
+        if (activityChanged.length > 0) {
+          const labels: Record<string, string> = { ...COMPANY_FIELD_LABELS, ...cf?.labels }
+          const before: Record<string, unknown> = { ...existing, ...cf?.flatBefore }
+          const after: Record<string, unknown> = { ...columns, ...cf?.flatAfter }
+          await dependencies.recordActivity(tx, workspaceId, actor, {
+            targetType: 'company',
+            targetId: id,
+            kind: 'updated',
+            ...describeUpdate(activityChanged, labels, before, after),
+          })
+        }
+
+        events.emit(
+          'companies.company.updated',
+          { type: 'company', id },
+          { changed: [...scalarChanged, ...customFieldPaths] },
+        )
 
         // Sync sweep when the domain moved. A newly-set domain gains matches;
         // a changed domain gains new matches without touching the old links
         // (never-remove — a person may still work at the previous domain).
-        if (changed.includes('domain')) {
+        if (scalarChanged.includes('domain')) {
           await autoLinkCompanyByDomain(tx, events, workspaceId, updated, {
             createId: dependencies.createId,
             now: dependencies.now,

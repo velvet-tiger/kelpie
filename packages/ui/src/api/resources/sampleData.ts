@@ -45,6 +45,7 @@ export function useInstallSampleData(): MutationResult<InstallSampleDataInput, S
           'opportunities',
           'raises',
           'partnerships',
+          'enquiries',
           'roles',
           'candidates',
         ].map((name) => cache.invalidateQueries({ queryKey: [name] })),

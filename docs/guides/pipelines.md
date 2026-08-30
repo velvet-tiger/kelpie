@@ -1,11 +1,12 @@
 # Pipelines and hiring
 
-Everything that moves through stages: deals, opportunities, partnerships, and raises on a shared board, and roles with candidates in hiring.
+Everything that moves through stages: enquiries, deals, opportunities, partnerships, and raises on a shared board, and roles with candidates in hiring.
 
-## The four pipelines
+## The five pipelines
 
-Kelpie deliberately keeps four kinds of pipeline apart, because a grant application and a sales deal do not want the same fields:
+Kelpie deliberately keeps five kinds of pipeline apart, because an inbound enquiry and a sales deal do not want the same fields:
 
+- **Enquiries** — the top of the funnel. Inbound requests from a website form, an email, or a referral. Free-text `source`, optional company. Once qualified, one click on the detail page converts an enquiry to a **Deal** (name, company, owner, and linked people carry over; the enquiry moves to Closed and remembers the deal on `converted_deal_id`).
 - **Deals** — the sales pipeline. Value, owner, expected close, and the agent fields: competitors, risks, why we win.
 - **Opportunities** — non-sales chances: grants, accelerators, tenders, press, speaking. Each carries a `kind` so the list can be sliced.
 - **Fundraising (Raises)** — one raise per firm per round: thesis fit, check size, and a pass reason when it ends that way. The ongoing investor relationship lives as a Partnership; the raise is the process.
@@ -13,7 +14,7 @@ Kelpie deliberately keeps four kinds of pipeline apart, because a grant applicat
 
 ## The board
 
-All four share one kanban. Drag a card between columns to change its stage; switch to the list view to see the same records grouped. Each pipeline also has a detail page per record with its notes, plans, and decisions.
+All five share one kanban. Drag a card between columns to change its stage; switch to the list view to see the same records grouped. Each pipeline also has a detail page per record with its notes, plans, and decisions.
 
 <!-- screenshot: deals kanban -->
 

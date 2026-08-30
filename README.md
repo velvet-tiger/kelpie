@@ -2,7 +2,7 @@
 
 Open-source CRM that AI agents can operate. Every record, every pipeline, and every page of your company handbook is available over MCP and a REST API. Your agent reads the same data your team does, and takes action through the same surface.
 
-People, companies, deals, hiring, partnerships, fundraising, opportunities, and a markdown handbook. Self-host for free (AGPL-3.0) or use the paid cloud. No bundled AI. You bring the agent.
+People, companies, enquiries, deals, hiring, partnerships, fundraising, opportunities, and a markdown handbook. Self-host for free (AGPL-3.0) or use the paid cloud. No bundled AI. You bring the agent.
 
 ## Get started
 

@@ -18,6 +18,8 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -60,6 +62,7 @@ export function RaiseDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = useRaise(id)
   const deleteRaise = useDeleteRaise()
   const moduleTabs = inSlotOrder(useRecordTabs('raise'))
+  const hasCustomFields = useHasCustomFields('raise')
   const [activeTab, setActiveTab] = useState('overview')
 
   if (isNotFound) {
@@ -76,6 +79,7 @@ export function RaiseDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'plan', label: 'Plan' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
@@ -117,6 +121,7 @@ export function RaiseDetail(): React.JSX.Element {
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Raise sections">
             {active === 'overview' && <RaiseOverview raise={record} />}
+            {active === 'fields' && <RaiseFields raise={record} />}
             {active === 'plan' && <PlanPanel targetType="raise" targetId={record.id} />}
             {active === 'activity' && <ActivitiesPanel targetType="raise" targetId={record.id} />}
             {active === 'notes' && <NotesPanel targetType="raise" targetId={record.id} />}
@@ -381,6 +386,22 @@ function RaiseSidebar({ raise }: { readonly raise: Raise }): React.JSX.Element {
         />
       </SidebarField>
     </section>
+  )
+}
+
+function RaiseFields({ raise }: { readonly raise: Raise }): React.JSX.Element {
+  const { patch, error } = useRaisePatch(raise)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
+        objectType="raise"
+        values={raise.customFields}
+        onPatch={(customFields) => {
+          patch({ customFields })
+        }}
+      />
+    </div>
   )
 }
 

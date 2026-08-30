@@ -6,10 +6,12 @@ import { createAgentTasksModule } from './agent-tasks/index.ts'
 import { createApiKeysModule } from './api-keys/index.ts'
 import { createAuthModule } from './auth/index.ts'
 import { createCompaniesModule } from './companies/index.ts'
+import { createCustomFieldsModule } from './custom-fields/index.ts'
 import { createDashboardModule } from './dashboard/index.ts'
 import { createDealsModule } from './deals/index.ts'
 import { createDecisionsModule } from './decisions/index.ts'
 import { createEmailDomainLinkerModule } from './email-domain-linker/index.ts'
+import { createEnquiriesModule } from './enquiries/index.ts'
 import { createFormsModule } from './forms/index.ts'
 import { createHandbookModule } from './handbook/index.ts'
 import { createHiringModule } from './hiring/index.ts'
@@ -47,6 +49,9 @@ export const coreModules: readonly KelpieModule[] = [
   createAuthModule(coreMigrationsDirectory),
   createWorkspaceModule(coreMigrationsDirectory),
   createApiKeysModule(coreMigrationsDirectory),
+  // Structural. Registers before the six object modules so the validator
+  // factory it exports is present when they inject it into their services.
+  createCustomFieldsModule(coreMigrationsDirectory),
   createPeopleModule(coreMigrationsDirectory),
   createCompaniesModule(coreMigrationsDirectory),
   createPositionsModule(coreMigrationsDirectory),
@@ -54,6 +59,7 @@ export const coreModules: readonly KelpieModule[] = [
   createNotesModule(coreMigrationsDirectory),
   createPipelinesModule(coreMigrationsDirectory),
   createDealsModule(coreMigrationsDirectory),
+  createEnquiriesModule(coreMigrationsDirectory),
   createOpportunitiesModule(coreMigrationsDirectory),
   createPartnershipsModule(coreMigrationsDirectory),
   createRaisesModule(coreMigrationsDirectory),

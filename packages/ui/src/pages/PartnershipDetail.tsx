@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
 import {
   useDeletePartnership,
@@ -22,6 +23,9 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -59,7 +63,9 @@ export function PartnershipDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = usePartnership(id)
   const deletePartnership = useDeletePartnership()
   const moduleTabs = inSlotOrder(useRecordTabs('partnership'))
+  const hasCustomFields = useHasCustomFields('partnership')
   const [activeTab, setActiveTab] = useState('overview')
+  const formSubmissions = useFormSubmissionsForRecord('partnership', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Partnership" backTo="/partnerships" />
@@ -75,11 +81,15 @@ export function PartnershipDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'plan', label: 'Plan' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -121,6 +131,7 @@ export function PartnershipDetail(): React.JSX.Element {
             ariaLabel="Partnership sections"
           >
             {active === 'overview' && <PartnershipOverview partnership={record} />}
+            {active === 'fields' && <PartnershipFields partnership={record} />}
             {active === 'plan' && <PlanPanel targetType="partnership" targetId={record.id} />}
             {active === 'activity' && (
               <ActivitiesPanel targetType="partnership" targetId={record.id} />
@@ -130,6 +141,7 @@ export function PartnershipDetail(): React.JSX.Element {
               <DecisionsPanel targetType="partnership" targetId={record.id} />
             )}
             {active === 'lists' && <ListsPanel targetType="partnership" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="partnership" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'partnership', recordId: record.id })}
           </RecordTabs>
         </div>
@@ -364,6 +376,26 @@ function PartnershipSidebar({
         />
       </SidebarField>
     </section>
+  )
+}
+
+function PartnershipFields({
+  partnership,
+}: {
+  readonly partnership: Partnership
+}): React.JSX.Element {
+  const { patch, error } = usePartnershipPatch(partnership)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
+        objectType="partnership"
+        values={partnership.customFields}
+        onPatch={(customFields) => {
+          patch({ customFields })
+        }}
+      />
+    </div>
   )
 }
 

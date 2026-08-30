@@ -5,6 +5,23 @@ import type { FormActionStatus } from './values.ts'
 import { idSchema, timestampSchema } from './wire.ts'
 
 /**
+ * The record types a submission can name through its FK columns. Used by
+ * `GET /v1/form-submissions?target_type=…` so the query, the server, and the
+ * UI hook agree on the seven values.
+ */
+export const FORM_SUBMISSION_LINK_TARGETS = [
+  'person',
+  'company',
+  'position',
+  'deal',
+  'opportunity',
+  'partnership',
+  'enquiry',
+] as const
+
+export type FormSubmissionLinkTarget = (typeof FORM_SUBMISSION_LINK_TARGETS)[number]
+
+/**
  * Wire shape for `/v1/forms/:id/submissions`, and for what the public submit
  * endpoint answers with.
  *
@@ -43,6 +60,7 @@ export interface FormSubmission {
   readonly dealId: string | null
   readonly opportunityId: string | null
   readonly partnershipId: string | null
+  readonly enquiryId: string | null
   /**
    * Per-action outcome from the post-submit runner, in the order attempted.
    * Only actions the form was configured to run appear; a form with no
@@ -78,6 +96,7 @@ export const formSubmissionSchema: z.ZodType<FormSubmission, unknown> = z
     deal_id: idSchema.nullable(),
     opportunity_id: idSchema.nullable(),
     partnership_id: idSchema.nullable(),
+    enquiry_id: idSchema.nullable(),
     action_log: z.array(actionEntrySchema),
     created_at: timestampSchema,
   })
@@ -93,6 +112,7 @@ export const formSubmissionSchema: z.ZodType<FormSubmission, unknown> = z
       dealId: wire.deal_id,
       opportunityId: wire.opportunity_id,
       partnershipId: wire.partnership_id,
+      enquiryId: wire.enquiry_id,
       actionLog: wire.action_log,
       createdAt: wire.created_at,
     }),

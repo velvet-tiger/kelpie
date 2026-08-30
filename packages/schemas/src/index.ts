@@ -24,6 +24,11 @@ export {
   CANDIDATE_STATUS_LABELS,
   CANDIDATE_STATUSES,
   COMPANY_STAGES,
+  CUSTOM_FIELD_OBJECT_TYPE_LABELS,
+  CUSTOM_FIELD_OBJECT_TYPES,
+  CUSTOM_FIELD_TYPE_LABELS,
+  CUSTOM_FIELD_TYPES,
+  CUSTOM_FIELD_TYPES_WITH_OPTIONS,
   EXTENSIBLE_RECORD_TYPES,
   FIRST_INTERVIEW_STAGE,
   FORM_ACTION_STATUSES,
@@ -72,6 +77,9 @@ export type {
   ApiKeyKind,
   CandidateStatus,
   CompanyStage,
+  CustomFieldObjectType,
+  CustomFieldType,
+  CustomFieldTypeWithOptions,
   ExtensibleRecordType,
   FormActionStatus,
   FormFieldMapTarget,
@@ -104,6 +112,24 @@ export { definedFields, idSchema, nullableTimestampSchema, timestampSchema } fro
 export type { RecordTimestamps } from './wire.ts'
 
 export {
+  createCustomFieldDefinitionBody,
+  customFieldDefinitionBody,
+  customFieldDefinitionSchema,
+  customFieldValuesBody,
+  customFieldValuesSchema,
+  customFieldWireValue,
+  customFieldsPatchShape,
+} from './customField.ts'
+export type {
+  CreateCustomFieldDefinitionInput,
+  CustomFieldDefinition,
+  CustomFieldDefinitionInput,
+  CustomFieldValue,
+  CustomFieldValues,
+  CustomFieldWireValue,
+} from './customField.ts'
+
+export {
   eventActorSchema,
   eventEnvelopeSchema,
   eventTargetSchema,
@@ -127,6 +153,9 @@ export type { Deal, DealInput } from './deal.ts'
 
 export { opportunityBody, opportunitySchema } from './opportunity.ts'
 export type { Opportunity, OpportunityInput } from './opportunity.ts'
+
+export { enquiryBody, enquirySchema } from './enquiry.ts'
+export type { Enquiry, EnquiryInput } from './enquiry.ts'
 
 export { partnershipBody, partnershipSchema } from './partnership.ts'
 export type { Partnership, PartnershipInput } from './partnership.ts'
@@ -193,10 +222,15 @@ export type {
   FormInput,
 } from './form.ts'
 
-export { formSubmissionSchema, formSubmitResultSchema } from './formSubmission.ts'
+export {
+  FORM_SUBMISSION_LINK_TARGETS,
+  formSubmissionSchema,
+  formSubmitResultSchema,
+} from './formSubmission.ts'
 export type {
   FormSubmission,
   FormSubmissionActionEntry,
+  FormSubmissionLinkTarget,
   FormSubmitResult,
 } from './formSubmission.ts'
 

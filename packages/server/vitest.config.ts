@@ -46,9 +46,12 @@ export default defineConfig({
   },
   test: {
     env: process.env,
-    // Integration tests share one Postgres database and truncate between cases,
-    // so they cannot run in parallel with each other.
-    fileParallelism: false,
+    /*
+     * Test files run in parallel, and integration tests still never share
+     * tables: `testDatabaseUrl` gives every Vitest worker its own database by
+     * suffixing the configured name with the worker's pool id. The first file
+     * a worker runs creates and migrates that database; later files reuse it.
+     */
     /**
      * Vitest defaults to 5s, which is calibrated for a unit test that touches
      * nothing. Almost every test here makes several HTTP round trips into a
@@ -66,8 +69,9 @@ export default defineConfig({
      * the suite's slow end moves rather than raising it again by feel.
      */
     testTimeout: 20_000,
-    // The same reasoning. Every `beforeEach` here truncates 37 tables and
-    // rebuilds the app, against the default 10s.
+    // The same reasoning. Every `beforeEach` here empties every table and
+    // rebuilds the app, and the first `beforeAll` in a worker creates and
+    // migrates a fresh database, against the default 10s.
     hookTimeout: 30_000,
   },
 })

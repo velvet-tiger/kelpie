@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { customFieldValuesBody, customFieldValuesSchema } from './customField.ts'
+import type { CustomFieldValue, CustomFieldValues } from './customField.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
 import type { RecordTimestamps } from './wire.ts'
 
@@ -22,6 +24,8 @@ export interface Raise extends RecordTimestamps {
   readonly personIds: readonly string[]
   readonly summary: string
   readonly tags: readonly string[]
+  /** Workspace-defined fields, keyed by definition key. Always present (default `{}`). */
+  readonly customFields: CustomFieldValues
 }
 
 export const raiseSchema: z.ZodType<Raise, unknown> = z
@@ -39,6 +43,7 @@ export const raiseSchema: z.ZodType<Raise, unknown> = z
     person_ids: z.array(idSchema),
     summary: z.string(),
     tags: z.array(z.string()),
+    custom_fields: customFieldValuesSchema,
     ...recordTimestamps,
   })
   .transform(
@@ -56,6 +61,7 @@ export const raiseSchema: z.ZodType<Raise, unknown> = z
       personIds: wire.person_ids,
       summary: wire.summary,
       tags: wire.tags,
+      customFields: wire.custom_fields,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),
@@ -74,6 +80,11 @@ export interface RaiseInput {
   readonly personIds?: readonly string[]
   readonly summary?: string
   readonly tags?: readonly string[]
+  /**
+   * Partial merge patch: sent keys change, `null` clears a key, absent keys are
+   * left alone. Unknown keys are rejected at `422`.
+   */
+  readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>
 }
 
 export function raiseBody(input: RaiseInput): Record<string, unknown> {
@@ -90,5 +101,7 @@ export function raiseBody(input: RaiseInput): Record<string, unknown> {
     person_ids: input.personIds,
     summary: input.summary,
     tags: input.tags,
+    custom_fields:
+      input.customFields === undefined ? undefined : customFieldValuesBody(input.customFields),
   })
 }

@@ -1011,9 +1011,9 @@ function SampleDataSection(): ReactNode {
         <p className="text-[12px] text-ink-muted">
           Added {counts.companies} companies, {counts.people} people, {counts.positions}{' '}
           positions, {counts.deals} deals, {counts.opportunities} opportunities,{' '}
-          {counts.raises} raises, {counts.partnerships} partnerships, {counts.roles} roles,{' '}
-          {counts.candidates} candidates, {counts.planItems} plan items, and{' '}
-          {counts.notes} notes.
+          {counts.raises} raises, {counts.partnerships} partnerships, {counts.enquiries}{' '}
+          enquiries, {counts.roles} roles, {counts.candidates} candidates,{' '}
+          {counts.planItems} plan items, and {counts.notes} notes.
         </p>
       ) : null}
       {failure === null ? null : (

@@ -7,6 +7,7 @@ import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
 import { useDeal, useDeleteDeal, useUpdateDeal } from '../api/resources/deals.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
@@ -18,6 +19,9 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -54,7 +58,9 @@ export function DealDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = useDeal(id)
   const deleteDeal = useDeleteDeal()
   const moduleTabs = inSlotOrder(useRecordTabs('deal'))
+  const hasCustomFields = useHasCustomFields('deal')
   const [activeTab, setActiveTab] = useState('overview')
+  const formSubmissions = useFormSubmissionsForRecord('deal', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Deal" backTo="/deals" />
@@ -70,11 +76,15 @@ export function DealDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'plan', label: 'Plan' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -111,11 +121,15 @@ export function DealDetail(): React.JSX.Element {
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Deal sections">
             {active === 'overview' && <DealOverview deal={record} />}
+            {active === 'fields' && (
+              <DealFields deal={record} />
+            )}
             {active === 'plan' && <PlanPanel targetType="deal" targetId={record.id} />}
             {active === 'activity' && <ActivitiesPanel targetType="deal" targetId={record.id} />}
             {active === 'notes' && <NotesPanel targetType="deal" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="deal" targetId={record.id} />}
             {active === 'lists' && <ListsPanel targetType="deal" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="deal" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'deal', recordId: record.id })}
           </RecordTabs>
         </div>
@@ -238,6 +252,23 @@ function DealOverview({ deal }: { readonly deal: Deal }): React.JSX.Element {
       <PlanAttention items={planItems.records} isLoading={planItems.isLoading} />
 
       <LatestActivity targetType="deal" targetId={deal.id} />
+    </div>
+  )
+}
+
+/** The Fields tab: the workspace's custom fields for this deal. */
+function DealFields({ deal }: { readonly deal: Deal }): React.JSX.Element {
+  const { patch, error } = useDealPatch(deal)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
+        objectType="deal"
+        values={deal.customFields}
+        onPatch={(customFields) => {
+          patch({ customFields })
+        }}
+      />
     </div>
   )
 }

@@ -18,6 +18,9 @@ import { HiringPage } from '../pages/HiringPage.tsx'
 import { ListDetail } from '../pages/ListDetail.tsx'
 import { ListsPage } from '../pages/ListsPage.tsx'
 import { NotFoundPage } from '../pages/NotFoundPage.tsx'
+import { EnquiriesPage } from '../pages/EnquiriesPage.tsx'
+import { EnquiryDetail } from '../pages/EnquiryDetail.tsx'
+import { EnquiryStageSettingsPage } from '../pages/EnquiryStageSettingsPage.tsx'
 import { OpportunitiesPage } from '../pages/OpportunitiesPage.tsx'
 import { OpportunityDetail } from '../pages/OpportunityDetail.tsx'
 import { OpportunityStageSettingsPage } from '../pages/OpportunityStageSettingsPage.tsx'
@@ -37,6 +40,7 @@ import { ProfilePage } from '../pages/account/ProfilePage.tsx'
 import { SecurityPage } from '../pages/account/SecurityPage.tsx'
 import { ApiKeysPage } from '../pages/admin/ApiKeysPage.tsx'
 import { DataPage } from '../pages/admin/DataPage.tsx'
+import { FieldsPage } from '../pages/admin/FieldsPage.tsx'
 import { McpPage } from '../pages/admin/McpPage.tsx'
 import { ModulesPage } from '../pages/admin/ModulesPage.tsx'
 import { TeamPage } from '../pages/admin/TeamPage.tsx'
@@ -156,6 +160,9 @@ function AppRoutes(): React.JSX.Element {
           <Route path="opportunities" element={<OpportunitiesPage />} />
           <Route path="opportunities/settings" element={<OpportunityStageSettingsPage />} />
           <Route path="opportunities/:id" element={<OpportunityDetail />} />
+          <Route path="enquiries" element={<EnquiriesPage />} />
+          <Route path="enquiries/settings" element={<EnquiryStageSettingsPage />} />
+          <Route path="enquiries/:id" element={<EnquiryDetail />} />
           <Route path="fundraising" element={<FundraisingPage />} />
           <Route path="fundraising/settings" element={<RaiseStageSettingsPage />} />
           <Route path="fundraising/:id" element={<RaiseDetail />} />
@@ -174,6 +181,7 @@ function AppRoutes(): React.JSX.Element {
           <Route path="handbook/:pageId" element={<HandbookLayout />} />
           <Route path="admin/workspace" element={<WorkspaceSettingsPage />} />
           <Route path="admin/team" element={<TeamPage />} />
+          <Route path="admin/fields" element={<FieldsPage />} />
           <Route path="admin/data" element={<DataPage />} />
           <Route path="admin/api-keys" element={<ApiKeysPage />} />
           <Route path="admin/mcp" element={<McpPage />} />

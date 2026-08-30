@@ -22,6 +22,7 @@ import { ErrorBoundary } from './ErrorBoundary.tsx'
 const CORE_ADMIN_NAV: readonly NavItem[] = [
   { id: 'workspace', label: 'Workspace', to: '/admin/workspace', order: 100 },
   { id: 'team', label: 'Team', to: '/admin/team', order: 200 },
+  { id: 'fields', label: 'Fields', to: '/admin/fields', order: 250 },
   { id: 'data', label: 'Data', to: '/admin/data', order: 300 },
   { id: 'api-keys', label: 'API keys', to: '/admin/api-keys', order: 350 },
   { id: 'webhooks', label: 'Webhooks', to: '/admin/webhooks', order: 400 },
@@ -34,6 +35,7 @@ const CORE_NAV: readonly NavItem[] = [
   { id: 'people', label: 'People', to: '/people', order: 100 },
   { id: 'hiring', label: 'Hiring', to: '/hiring', order: 150 },
   { id: 'companies', label: 'Companies', to: '/companies', order: 200 },
+  { id: 'enquiries', label: 'Enquiries', to: '/enquiries', order: 250 },
   { id: 'deals', label: 'Deals', to: '/deals', order: 300 },
   { id: 'opportunities', label: 'Opportunities', to: '/opportunities', order: 350 },
   { id: 'fundraising', label: 'Fundraising', to: '/fundraising', order: 360 },

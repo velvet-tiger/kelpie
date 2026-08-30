@@ -27,6 +27,7 @@ export function sampleDataResponse(counts: SampleDataCounts): Record<string, unk
     opportunities: counts.opportunities,
     raises: counts.raises,
     partnerships: counts.partnerships,
+    enquiries: counts.enquiries,
     roles: counts.roles,
     candidates: counts.candidates,
   }

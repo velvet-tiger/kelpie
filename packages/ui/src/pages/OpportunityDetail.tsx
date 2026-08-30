@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
 import {
   useDeleteOpportunity,
@@ -22,6 +23,9 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -59,7 +63,9 @@ export function OpportunityDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = useOpportunity(id)
   const deleteOpportunity = useDeleteOpportunity()
   const moduleTabs = inSlotOrder(useRecordTabs('opportunity'))
+  const hasCustomFields = useHasCustomFields('opportunity')
   const [activeTab, setActiveTab] = useState('overview')
+  const formSubmissions = useFormSubmissionsForRecord('opportunity', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Opportunity" backTo="/opportunities" />
@@ -75,11 +81,15 @@ export function OpportunityDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'plan', label: 'Plan' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -121,6 +131,7 @@ export function OpportunityDetail(): React.JSX.Element {
             ariaLabel="Opportunity sections"
           >
             {active === 'overview' && <OpportunityOverview opportunity={record} />}
+            {active === 'fields' && <OpportunityFields opportunity={record} />}
             {active === 'plan' && <PlanPanel targetType="opportunity" targetId={record.id} />}
             {active === 'activity' && (
               <ActivitiesPanel targetType="opportunity" targetId={record.id} />
@@ -130,6 +141,7 @@ export function OpportunityDetail(): React.JSX.Element {
               <DecisionsPanel targetType="opportunity" targetId={record.id} />
             )}
             {active === 'lists' && <ListsPanel targetType="opportunity" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="opportunity" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'opportunity', recordId: record.id })}
           </RecordTabs>
         </div>
@@ -342,6 +354,26 @@ function OpportunitySidebar({
         />
       </SidebarField>
     </section>
+  )
+}
+
+function OpportunityFields({
+  opportunity,
+}: {
+  readonly opportunity: Opportunity
+}): React.JSX.Element {
+  const { patch, error } = useOpportunityPatch(opportunity)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
+        objectType="opportunity"
+        values={opportunity.customFields}
+        onPatch={(customFields) => {
+          patch({ customFields })
+        }}
+      />
+    </div>
   )
 }
 

@@ -132,7 +132,7 @@ export function WorkspaceStepPage(): React.JSX.Element {
             className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent"
           />
           <span>
-            Install sample data — a small set of companies, people, deals, opportunities,
+            Install sample data — a small set of companies, people, deals, enquiries, opportunities,
             fundraising, partnerships, and hiring so the workspace has something to look at.
             You can delete it later.
           </span>

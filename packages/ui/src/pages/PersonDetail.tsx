@@ -9,6 +9,8 @@ import type { PatchResult } from '../api/resource.ts'
 import { useCandidates } from '../api/resources/candidates.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
+import { useEnquiries } from '../api/resources/enquiries.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { useDeletePerson, usePerson, useUpdatePerson } from '../api/resources/people.ts'
 import {
@@ -21,8 +23,11 @@ import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.t
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
 import { RelatedPlanAttention } from '../components/PlanAttention.tsx'
@@ -70,10 +75,12 @@ export function PersonDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = usePerson(id)
   const deletePerson = useDeletePerson()
   const moduleTabs = inSlotOrder(useRecordTabs('person'))
+  const hasCustomFields = useHasCustomFields('person')
   const [activeTab, setActiveTab] = useState('overview')
   const candidacies = useCandidates({ personIds: id === undefined ? [] : [id] }, {
     enabled: id !== undefined,
   })
+  const formSubmissions = useFormSubmissionsForRecord('person', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Person" backTo="/people" />
@@ -89,6 +96,7 @@ export function PersonDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'activity', label: 'Activity' },
     ...(candidacies.records.length === 0
       ? []
@@ -96,6 +104,9 @@ export function PersonDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -132,6 +143,7 @@ export function PersonDetail(): React.JSX.Element {
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Person sections">
             {active === 'overview' && <PersonOverview person={record} />}
+            {active === 'fields' && <PersonFields person={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="person" targetId={record.id} />}
             {active === 'hiring' && (
               <PersonHiring candidacies={candidacies.records} personName={record.name} />
@@ -139,6 +151,7 @@ export function PersonDetail(): React.JSX.Element {
             {active === 'notes' && <NotesPanel targetType="person" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="person" targetId={record.id} />}
             {active === 'lists' && <ListsPanel targetType="person" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="person" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'person', recordId: record.id })}
           </RecordTabs>
         </div>
@@ -201,6 +214,7 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
   const { patch, error } = usePersonPatch(person)
   const deals = useDeals({ personIds: [person.id] })
   const partnerships = usePartnerships({ personIds: [person.id] })
+  const enquiries = useEnquiries({ personIds: [person.id] })
 
   return (
     <div className="space-y-8">
@@ -214,7 +228,8 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
       <RelatedPlanAttention
         deals={deals.records}
         partnerships={partnerships.records}
-        isLoading={deals.isLoading || partnerships.isLoading}
+        enquiries={enquiries.records}
+        isLoading={deals.isLoading || partnerships.isLoading || enquiries.isLoading}
       />
       <LatestActivity targetType="person" targetId={person.id} />
     </div>
@@ -417,6 +432,22 @@ function PersonSidebar({ person }: { readonly person: Person }): React.JSX.Eleme
         />
       </SidebarField>
     </section>
+  )
+}
+
+function PersonFields({ person }: { readonly person: Person }): React.JSX.Element {
+  const { patch, error } = usePersonPatch(person)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
+        objectType="person"
+        values={person.customFields}
+        onPatch={(customFields) => {
+          patch({ customFields })
+        }}
+      />
+    </div>
   )
 }
 

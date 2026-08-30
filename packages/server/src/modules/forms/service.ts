@@ -1,4 +1,8 @@
-import type { FormAttachTarget, PipelineKind } from '@kelpie/schemas'
+import type {
+  FormAttachTarget,
+  FormSubmissionLinkTarget,
+  PipelineKind,
+} from '@kelpie/schemas'
 import { PIPELINE_KINDS } from '@kelpie/schemas'
 
 import { changedKeys } from '../../lib/changes.ts'
@@ -88,6 +92,11 @@ export interface CreateFormInput {
   readonly partnershipStageId: string | null
   readonly partnershipNameTemplate: string | null
   readonly partnershipOwnerId: string | null
+  readonly createEnquiry: boolean
+  readonly enquirySource: string | null
+  readonly enquiryStageId: string | null
+  readonly enquiryNameTemplate: string | null
+  readonly enquiryOwnerId: string | null
   readonly personTags: readonly string[]
   readonly companyTags: readonly string[]
   readonly listIds: readonly string[]
@@ -116,6 +125,11 @@ export interface UpdateFormInput {
   readonly partnershipStageId?: string | null | undefined
   readonly partnershipNameTemplate?: string | null | undefined
   readonly partnershipOwnerId?: string | null | undefined
+  readonly createEnquiry?: boolean | undefined
+  readonly enquirySource?: string | null | undefined
+  readonly enquiryStageId?: string | null | undefined
+  readonly enquiryNameTemplate?: string | null | undefined
+  readonly enquiryOwnerId?: string | null | undefined
   readonly personTags?: readonly string[] | undefined
   readonly companyTags?: readonly string[] | undefined
   /** Absent leaves list memberships alone. Present replaces the whole set. */
@@ -133,6 +147,12 @@ export interface FormsService {
   listSubmissions(
     actor: Actor,
     formId: string,
+    query: ListQueryParameters,
+  ): Promise<Page<FormSubmissionView>>
+  listSubmissionsLinkedTo(
+    actor: Actor,
+    target: FormSubmissionLinkTarget,
+    targetId: string,
     query: ListQueryParameters,
   ): Promise<Page<FormSubmissionView>>
   getSubmission(actor: Actor, formId: string, submissionId: string): Promise<FormSubmissionView>
@@ -197,6 +217,13 @@ function toStoredColumns(input: UpdateFormInput): Partial<repository.FormColumns
     ...(input.partnershipOwnerId === undefined
       ? {}
       : { partnershipOwnerId: input.partnershipOwnerId }),
+    ...(input.createEnquiry === undefined ? {} : { createEnquiry: input.createEnquiry }),
+    ...(input.enquirySource === undefined ? {} : { enquirySource: input.enquirySource }),
+    ...(input.enquiryStageId === undefined ? {} : { enquiryStageId: input.enquiryStageId }),
+    ...(input.enquiryNameTemplate === undefined
+      ? {}
+      : { enquiryNameTemplate: input.enquiryNameTemplate }),
+    ...(input.enquiryOwnerId === undefined ? {} : { enquiryOwnerId: input.enquiryOwnerId }),
     ...(input.personTags === undefined ? {} : { personTags: [...input.personTags] }),
     ...(input.companyTags === undefined ? {} : { companyTags: [...input.companyTags] }),
   }
@@ -313,26 +340,6 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
   }
 
   /**
-   * Refuses a trigger whose `kind` is empty while the toggle is on. Kinds are
-   * free text (no pipeline enum), so the only way to catch a misconfiguration
-   * before submit time is at form write: the runner would otherwise store an
-   * opportunity or partnership with an empty `kind`, which is a valid string
-   * but not a valid opportunity/partnership.
-   */
-  function requireKindWhenCreating(
-    createFlag: boolean,
-    kind: string | null,
-    field: string,
-    trigger: string,
-  ): void {
-    if (createFlag && (kind === null || kind.trim().length === 0)) {
-      throw AppError.validationFailed(`A form that creates ${trigger}s needs a kind`, [
-        { field, message: `Set a kind when create_${trigger} is on` },
-      ])
-    }
-  }
-
-  /**
    * The lists an action-configured form names must exist in this workspace and
    * target `person` or `company`. A list of another target type would never
    * receive a submitter or a company — a form only knows how to feed those two
@@ -432,18 +439,6 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
     state: ResultingState,
   ): Promise<void> {
     requireUsableFields(state.fields, state.createDeal, state.createPartnership)
-    requireKindWhenCreating(
-      state.createOpportunity,
-      state.opportunityKind,
-      'opportunity_kind',
-      'opportunity',
-    )
-    requireKindWhenCreating(
-      state.createPartnership,
-      state.partnershipKind,
-      'partnership_kind',
-      'partnership',
-    )
     await requireActionLists(workspaceId, state.listIds)
     await requireAttachTargets(workspaceId, state.attachTargets)
   }
@@ -564,6 +559,9 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           'partnership_stage_id',
         )
       }
+      if (input.enquiryStageId !== null) {
+        await requireStageOfKind(workspaceId, 'enquiry', input.enquiryStageId, 'enquiry_stage_id')
+      }
 
       const id = dependencies.createId('form')
       const sortedAttachTargets = sortAttachTargets(input.attachTargets)
@@ -590,6 +588,11 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           partnershipStageId: input.partnershipStageId,
           partnershipNameTemplate: input.partnershipNameTemplate,
           partnershipOwnerId: input.partnershipOwnerId,
+          createEnquiry: input.createEnquiry,
+          enquirySource: input.enquirySource,
+          enquiryStageId: input.enquiryStageId,
+          enquiryNameTemplate: input.enquiryNameTemplate,
+          enquiryOwnerId: input.enquiryOwnerId,
           personTags: [...input.personTags],
           companyTags: [...input.companyTags],
           publicKey: generatePublicKey(),
@@ -658,6 +661,17 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           'partnership',
           changes.partnershipStageId,
           'partnership_stage_id',
+        )
+      }
+      if (
+        typeof changes.enquiryStageId === 'string' &&
+        changes.enquiryStageId !== existing.enquiryStageId
+      ) {
+        await requireStageOfKind(
+          workspaceId,
+          'enquiry',
+          changes.enquiryStageId,
+          'enquiry_stage_id',
         )
       }
 
@@ -762,6 +776,28 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
 
       const window = readListWindow(query, FORM_SUBMISSION_SORTS, DEFAULT_FORM_SUBMISSION_SORT)
       const rows = await repository.listSubmissions(dependencies.db, workspaceId, formId, window)
+
+      return mapPage(
+        toPage(rows, window, (submission) => submission.id),
+        toSubmissionView,
+      )
+    },
+
+    async listSubmissionsLinkedTo(actor, target, targetId, query) {
+      const workspaceId = requireWorkspaceId(actor)
+
+      // The target's existence is not checked here — a missing or cross-workspace
+      // target reads as an empty page, the same answer any other cross-workspace
+      // list returns. Adding a per-type existence check would need seven queries
+      // for one behaviour that the FK filter already produces.
+      const window = readListWindow(query, FORM_SUBMISSION_SORTS, DEFAULT_FORM_SUBMISSION_SORT)
+      const rows = await repository.listSubmissionsLinkedTo(
+        dependencies.db,
+        workspaceId,
+        target,
+        targetId,
+        window,
+      )
 
       return mapPage(
         toPage(rows, window, (submission) => submission.id),

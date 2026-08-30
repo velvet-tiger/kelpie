@@ -50,6 +50,8 @@ export interface SubmitIntent {
   readonly opportunityName: string | undefined
   /** Only meaningful when the form creates partnerships. */
   readonly partnershipName: string | undefined
+  /** Only meaningful when the form creates enquiries. */
+  readonly enquiryName: string | undefined
 }
 
 /**
@@ -180,6 +182,7 @@ export function readIntent(mapped: MappedAnswers): SubmitIntent | undefined {
     dealName: mapped['deal.name'],
     opportunityName: mapped['opportunity.name'],
     partnershipName: mapped['partnership.name'],
+    enquiryName: mapped['enquiry.name'],
   }
 }
 
