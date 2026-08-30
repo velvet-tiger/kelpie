@@ -17,6 +17,7 @@ export interface SampleDataCounts {
   readonly opportunities: number
   readonly raises: number
   readonly partnerships: number
+  readonly enquiries: number
   readonly roles: number
   readonly candidates: number
 }
@@ -32,6 +33,7 @@ export const sampleDataCountsSchema: z.ZodType<SampleDataCounts, unknown> = z
     opportunities: z.number().int().nonnegative(),
     raises: z.number().int().nonnegative(),
     partnerships: z.number().int().nonnegative(),
+    enquiries: z.number().int().nonnegative(),
     roles: z.number().int().nonnegative(),
     candidates: z.number().int().nonnegative(),
   })
@@ -46,6 +48,7 @@ export const sampleDataCountsSchema: z.ZodType<SampleDataCounts, unknown> = z
       opportunities: wire.opportunities,
       raises: wire.raises,
       partnerships: wire.partnerships,
+      enquiries: wire.enquiries,
       roles: wire.roles,
       candidates: wire.candidates,
     }),

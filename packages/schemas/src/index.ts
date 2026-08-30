@@ -154,6 +154,9 @@ export type { Deal, DealInput } from './deal.ts'
 export { opportunityBody, opportunitySchema } from './opportunity.ts'
 export type { Opportunity, OpportunityInput } from './opportunity.ts'
 
+export { enquiryBody, enquirySchema } from './enquiry.ts'
+export type { Enquiry, EnquiryInput } from './enquiry.ts'
+
 export { partnershipBody, partnershipSchema } from './partnership.ts'
 export type { Partnership, PartnershipInput } from './partnership.ts'
 

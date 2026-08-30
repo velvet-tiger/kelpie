@@ -4,6 +4,7 @@ import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 import type { Queryable } from '../runtime/transaction.ts'
 import { companies } from './companies/schema.ts'
 import { deals } from './deals/schema.ts'
+import { enquiries } from './enquiries/schema.ts'
 import { candidates } from './hiring/schema.ts'
 import { RECORD_TARGET_TYPES } from './notes/schema.ts'
 import { opportunities } from './opportunities/schema.ts'
@@ -64,6 +65,7 @@ const TABLES: Readonly<Record<RecordTargetType, TargetTable>> = {
     partnerships.name,
   ),
   raise: targetTable(raises, raises.id, raises.workspaceId, raises.name),
+  enquiry: targetTable(enquiries, enquiries.id, enquiries.workspaceId, enquiries.name),
   candidate: targetTable(candidates, candidates.id, candidates.workspaceId),
 }
 

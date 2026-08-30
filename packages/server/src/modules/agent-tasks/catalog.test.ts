@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_TASK_DEFINITIONS, SHARED_WRITE_POLICY, findTask, tasksFor } from './catalog.ts'
 
 describe('agent task catalog', () => {
-  it('carries the 69 tasks agent-tasks.md names, with unique ids', () => {
-    expect(AGENT_TASK_DEFINITIONS).toHaveLength(69)
-    expect(new Set(AGENT_TASK_DEFINITIONS.map((task) => task.id)).size).toBe(69)
+  it('carries the 75 tasks agent-tasks.md names, with unique ids', () => {
+    expect(AGENT_TASK_DEFINITIONS).toHaveLength(75)
+    expect(new Set(AGENT_TASK_DEFINITIONS.map((task) => task.id)).size).toBe(75)
   })
 
   it('prefixes every id with its target type', () => {

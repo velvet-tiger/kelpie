@@ -99,6 +99,19 @@ export interface FixtureOpportunity {
   readonly tags: readonly string[]
 }
 
+export interface FixtureEnquiry {
+  readonly key: string
+  readonly name: string
+  /** Free text ("Website", "Email", "Referral"). Empty means unclassified. */
+  readonly source: string
+  readonly stageSlug: string
+  /** Nullable: an enquiry may arrive before a company is on file. */
+  readonly companyKey: string | null
+  readonly summary: string
+  readonly tags: readonly string[]
+  readonly peopleKeys: readonly string[]
+}
+
 export interface FixtureRaise {
   readonly key: string
   readonly name: string
@@ -153,6 +166,7 @@ export interface Fixture {
   readonly opportunities: readonly FixtureOpportunity[]
   readonly raises: readonly FixtureRaise[]
   readonly partnerships: readonly FixturePartnership[]
+  readonly enquiries: readonly FixtureEnquiry[]
   readonly roles: readonly FixtureRole[]
   readonly candidates: readonly FixtureCandidate[]
 }
@@ -586,6 +600,29 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       summary: 'Exploring. Mei can slot us into the next alumni dinner.',
       tags: ['community'],
       peopleKeys: ['mei'],
+    },
+  ],
+
+  enquiries: [
+    {
+      key: 'website-demo-request',
+      name: 'Demo request from northwind.dev',
+      source: 'Website',
+      stageSlug: 'in_progress',
+      companyKey: 'northwind',
+      summary: 'Team of six looking to trial the pipeline module this quarter.',
+      tags: ['inbound'],
+      peopleKeys: ['ada'],
+    },
+    {
+      key: 'referral-globex',
+      name: 'Introduction from a mutual contact',
+      source: 'Referral',
+      stageSlug: 'new',
+      companyKey: 'globex',
+      summary: 'Warm intro from a former colleague. Wants a 20-minute walkthrough.',
+      tags: ['inbound', 'referral'],
+      peopleKeys: [],
     },
   ],
 

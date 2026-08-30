@@ -7,6 +7,7 @@ import { containsPattern } from '../../lib/search.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
 import { people } from '../people/schema.ts'
@@ -176,6 +177,7 @@ const TABLES = {
   opportunity: opportunities,
   partnership: partnerships,
   raise: raises,
+  enquiry: enquiries,
 } as const
 
 /**

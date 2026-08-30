@@ -10,6 +10,7 @@ import { boolean, index, integer, jsonb, pgTable, primaryKey, text } from 'drizz
 import { checkOneOf, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
 import { lists } from '../lists/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
@@ -104,6 +105,20 @@ export const forms = pgTable(
     }),
     partnershipNameTemplate: text('partnership_name_template'),
     partnershipOwnerId: text('partnership_owner_id').references(() => workspaceMembers.id, {
+      onDelete: 'set null',
+    }),
+    createEnquiry: boolean('create_enquiry').notNull().default(false),
+    /**
+     * Optional free-text `source` written onto every enquiry the form creates
+     * (e.g. "Website contact"). Enquiries have no `kind` so there is no
+     * required-kind rule — an unset source stores empty on the enquiry.
+     */
+    enquirySource: text('enquiry_source'),
+    enquiryStageId: text('enquiry_stage_id').references(() => pipelineStages.id, {
+      onDelete: 'restrict',
+    }),
+    enquiryNameTemplate: text('enquiry_name_template'),
+    enquiryOwnerId: text('enquiry_owner_id').references(() => workspaceMembers.id, {
       onDelete: 'set null',
     }),
     personTags: text('person_tags').array().notNull().default([]),
@@ -241,6 +256,7 @@ export const formSubmissions = pgTable(
     partnershipId: text('partnership_id').references(() => partnerships.id, {
       onDelete: 'set null',
     }),
+    enquiryId: text('enquiry_id').references(() => enquiries.id, { onDelete: 'set null' }),
     actionLog: jsonb('action_log')
       .$type<readonly FormSubmissionActionEntry[]>()
       .notNull()

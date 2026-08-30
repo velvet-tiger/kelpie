@@ -37,6 +37,11 @@ export interface StarterStage {
 
 /** `open: false` hides a stage from the Open scope filter; it is not a delete. */
 export const STARTER_PIPELINE_STAGES: Readonly<Record<string, readonly StarterStage[]>> = {
+  enquiry: [
+    { slug: 'new', label: 'New', open: true },
+    { slug: 'in_progress', label: 'In progress', open: true },
+    { slug: 'closed', label: 'Closed', open: false },
+  ],
   deal: [
     { slug: 'qualifying', label: 'Qualifying', open: true },
     { slug: 'proposal', label: 'Proposal', open: true },

@@ -2,20 +2,21 @@ import { and, eq } from 'drizzle-orm'
 
 import type { Queryable } from '../runtime/transaction.ts'
 import { deals } from './deals/schema.ts'
+import { enquiries } from './enquiries/schema.ts'
 import { opportunities } from './opportunities/schema.ts'
 import { partnerships } from './partnerships/schema.ts'
 import type { PipelineKind } from './pipelines/schema.ts'
 import { raises } from './raises/schema.ts'
 
 /**
- * The four tables whose rows sit in a pipeline stage, for the one operation that
+ * The five tables whose rows sit in a pipeline stage, for the one operation that
  * spans them all: removing a stage moves whatever still references it.
  *
- * Touching four modules' tables here rather than composing four services follows
+ * Touching five modules' tables here rather than composing five services follows
  * `attachedRecords.ts`: the alternative is a stage removal that imports every
  * staged service to ask each for a bulk move it exists for nowhere else.
  *
- * Four written-out branches rather than a table-of-tables, because Drizzle's
+ * Five written-out branches rather than a table-of-tables, because Drizzle's
  * `update().set()` needs the concrete table type to check the column names.
  */
 
@@ -84,6 +85,20 @@ export async function reassignStagedRecords(
           ),
         )
         .returning({ id: partnerships.id })
+
+      return moved.map((row) => row.id)
+    }
+    case 'enquiry': {
+      const moved = await db
+        .update(enquiries)
+        .set(changes)
+        .where(
+          and(
+            eq(enquiries.workspaceId, move.workspaceId),
+            eq(enquiries.stageId, move.fromStageId),
+          ),
+        )
+        .returning({ id: enquiries.id })
 
       return moved.map((row) => row.id)
     }

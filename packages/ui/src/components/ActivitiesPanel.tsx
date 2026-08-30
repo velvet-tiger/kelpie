@@ -48,6 +48,7 @@ const TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {
   opportunity: 'Opportunity',
   partnership: 'Partnership',
   raise: 'Raise',
+  enquiry: 'Enquiry',
   candidate: 'Candidate',
 }
 

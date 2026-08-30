@@ -19,6 +19,7 @@ const COLLECTIONS: Readonly<Record<SearchCollection, { label: string; path: (id:
   person: { label: 'People', path: (id) => `/people/${id}` },
   role: { label: 'Roles', path: (id) => `/hiring/${id}` },
   company: { label: 'Companies', path: (id) => `/companies/${id}` },
+  enquiry: { label: 'Enquiries', path: (id) => `/enquiries/${id}` },
   deal: { label: 'Deals', path: (id) => `/deals/${id}` },
   opportunity: { label: 'Opportunities', path: (id) => `/opportunities/${id}` },
   raise: { label: 'Fundraising', path: (id) => `/fundraising/${id}` },

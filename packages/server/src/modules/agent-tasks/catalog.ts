@@ -305,6 +305,69 @@ Optionally save as a Note.`,
 Append a Note, propose Plan items, update summary/whyWin/risks only with clear evidence, extract Decisions.`,
   }),
 
+  // Enquiry
+  task({
+    id: 'enquiry.triage',
+    label: 'Triage enquiry',
+    description: 'Recommend pursue, nurture, or close.',
+    targetTypes: ['enquiry'],
+    placement: 'primary',
+    handbookSlugs: ['ideal-customer-profile', 'product', 'agent-faq'],
+    instructions: `Assess this Enquiry against Ideal customer profile and Product. Recommend one of:
+- pursue (convert to Deal)
+- nurture (keep in In progress, add a follow-up Plan item)
+- close (move to Closed, note the reason).
+Save the recommendation and rationale as a Note. Do not change the stage or convert without human confirmation.`,
+  }),
+  task({
+    id: 'enquiry.propose_plan',
+    label: 'Propose Plan',
+    description: 'Dated follow-up items.',
+    targetTypes: ['enquiry'],
+    placement: 'primary',
+    handbookSlugs: ['agent-faq'],
+    instructions: `Propose dated Plan items for this Enquiry (a first response, a follow-up, a review).
+Prefer concrete actions over vague reminders.`,
+  }),
+  task({
+    id: 'enquiry.refresh_summary',
+    label: 'Refresh enquiry summary',
+    description: 'Rewrite summary from evidence.',
+    targetTypes: ['enquiry'],
+    placement: 'primary',
+    handbookSlugs: ['agent-faq'],
+    instructions: `Rewrite the Enquiry summary from source, stage, notes, and linked Company.`,
+  }),
+  task({
+    id: 'enquiry.draft_reply',
+    label: 'Draft reply',
+    description: 'First-response email in Voice.',
+    targetTypes: ['enquiry'],
+    placement: 'primary',
+    handbookSlugs: ['voice-and-tone', 'product', 'agent-faq'],
+    instructions: `Draft a first response to this Enquiry in Voice. Reference the Product handbook only where the
+Enquiry's summary or notes signal a match. Save the draft as a Note. Do not send.`,
+  }),
+  task({
+    id: 'enquiry.capture_decision',
+    label: 'Capture decision',
+    description: 'Log what was decided about this enquiry.',
+    targetTypes: ['enquiry'],
+    placement: 'overflow',
+    handbookSlugs: ['agent-faq'],
+    instructions: `Create a Decision linked to this Enquiry from recent commitments or the human's instruction.`,
+  }),
+  task({
+    id: 'enquiry.log_transcript',
+    label: 'Log transcript',
+    description: 'Parse call notes into CRM updates.',
+    targetTypes: ['enquiry'],
+    placement: 'overflow',
+    handbookSlugs: ['agent-faq'],
+    instructions: `The human will paste a call or chat transcript after this prompt.
+Append a Note, propose Plan items, update the summary only with clear evidence, extract Decisions.`,
+  }),
+
   // Opportunity
   task({
     id: 'opportunity.propose_plan',

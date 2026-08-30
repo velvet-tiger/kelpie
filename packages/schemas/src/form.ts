@@ -92,6 +92,17 @@ export interface Form extends RecordTimestamps {
   readonly partnershipNameTemplate: string | null
   /** Null falls back to the workspace default member at submit time. */
   readonly partnershipOwnerId: string | null
+  readonly createEnquiry: boolean
+  /**
+   * Free-text label for the enquiry's `source` column. Optional: an unset value
+   * stores an empty string. Enquiry needs no `kind` because it has no `kind`
+   * column — a form's source is the source.
+   */
+  readonly enquirySource: string | null
+  readonly enquiryStageId: string | null
+  readonly enquiryNameTemplate: string | null
+  /** Null falls back to the workspace default member at submit time. */
+  readonly enquiryOwnerId: string | null
   /** Tags to merge (union) into the resolved Person's `tags` on every submit. */
   readonly personTags: readonly string[]
   /** Tags to merge (union) into the resolved Company's `tags`; skipped when no company resolved. */
@@ -179,6 +190,11 @@ export const formSchema: z.ZodType<Form, unknown> = z
     partnership_stage_id: idSchema.nullable(),
     partnership_name_template: z.string().nullable(),
     partnership_owner_id: idSchema.nullable(),
+    create_enquiry: z.boolean(),
+    enquiry_source: z.string().nullable(),
+    enquiry_stage_id: idSchema.nullable(),
+    enquiry_name_template: z.string().nullable(),
+    enquiry_owner_id: idSchema.nullable(),
     person_tags: z.array(z.string()),
     company_tags: z.array(z.string()),
     list_ids: z.array(idSchema),
@@ -208,6 +224,11 @@ export const formSchema: z.ZodType<Form, unknown> = z
       partnershipStageId: wire.partnership_stage_id,
       partnershipNameTemplate: wire.partnership_name_template,
       partnershipOwnerId: wire.partnership_owner_id,
+      createEnquiry: wire.create_enquiry,
+      enquirySource: wire.enquiry_source,
+      enquiryStageId: wire.enquiry_stage_id,
+      enquiryNameTemplate: wire.enquiry_name_template,
+      enquiryOwnerId: wire.enquiry_owner_id,
       personTags: wire.person_tags,
       companyTags: wire.company_tags,
       listIds: wire.list_ids,
@@ -261,6 +282,11 @@ export interface CreateFormInput {
   readonly partnershipStageId?: string | null
   readonly partnershipNameTemplate?: string | null
   readonly partnershipOwnerId?: string | null
+  readonly createEnquiry?: boolean
+  readonly enquirySource?: string | null
+  readonly enquiryStageId?: string | null
+  readonly enquiryNameTemplate?: string | null
+  readonly enquiryOwnerId?: string | null
   readonly personTags?: readonly string[]
   readonly companyTags?: readonly string[]
   readonly listIds?: readonly string[]
@@ -291,6 +317,11 @@ export interface FormInput {
   readonly partnershipStageId?: string | null
   readonly partnershipNameTemplate?: string | null
   readonly partnershipOwnerId?: string | null
+  readonly createEnquiry?: boolean
+  readonly enquirySource?: string | null
+  readonly enquiryStageId?: string | null
+  readonly enquiryNameTemplate?: string | null
+  readonly enquiryOwnerId?: string | null
   readonly personTags?: readonly string[]
   readonly companyTags?: readonly string[]
   readonly listIds?: readonly string[]
@@ -335,6 +366,11 @@ export function createFormBody(input: CreateFormInput): Record<string, unknown> 
     partnership_stage_id: input.partnershipStageId,
     partnership_name_template: input.partnershipNameTemplate,
     partnership_owner_id: input.partnershipOwnerId,
+    create_enquiry: input.createEnquiry,
+    enquiry_source: input.enquirySource,
+    enquiry_stage_id: input.enquiryStageId,
+    enquiry_name_template: input.enquiryNameTemplate,
+    enquiry_owner_id: input.enquiryOwnerId,
     person_tags: input.personTags,
     company_tags: input.companyTags,
     list_ids: input.listIds,
@@ -363,6 +399,11 @@ export function formBody(input: FormInput): Record<string, unknown> {
     partnership_stage_id: input.partnershipStageId,
     partnership_name_template: input.partnershipNameTemplate,
     partnership_owner_id: input.partnershipOwnerId,
+    create_enquiry: input.createEnquiry,
+    enquiry_source: input.enquirySource,
+    enquiry_stage_id: input.enquiryStageId,
+    enquiry_name_template: input.enquiryNameTemplate,
+    enquiry_owner_id: input.enquiryOwnerId,
     person_tags: input.personTags,
     company_tags: input.companyTags,
     list_ids: input.listIds,

@@ -43,6 +43,7 @@ interface FormSubmittedData {
   readonly submissionId?: string
   readonly opportunityId?: string | null
   readonly partnershipId?: string | null
+  readonly enquiryId?: string | null
   readonly actions?: readonly { readonly action: string; readonly status: string }[]
 }
 
@@ -111,6 +112,7 @@ export function translateEnvelopeEvent(
         submission_id: data.submissionId,
         opportunity_id: data.opportunityId ?? null,
         partnership_id: data.partnershipId ?? null,
+        enquiry_id: data.enquiryId ?? null,
         actions:
           data.actions === undefined
             ? []

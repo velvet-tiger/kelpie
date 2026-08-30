@@ -90,6 +90,7 @@ export const EXTENSIBLE_RECORD_TYPES = [
   'opportunity',
   'partnership',
   'raise',
+  'enquiry',
   'role',
   'candidate',
 ] as const
@@ -110,6 +111,7 @@ export const RECORD_TARGET_TYPES = [
   'opportunity',
   'partnership',
   'raise',
+  'enquiry',
   'candidate',
 ] as const
 
@@ -123,6 +125,7 @@ export const RECORD_TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string
   opportunity: 'Opportunity',
   partnership: 'Partnership',
   raise: 'Raise',
+  enquiry: 'Enquiry',
   candidate: 'Candidate',
 }
 
@@ -142,6 +145,7 @@ export const SEARCH_COLLECTIONS = [
   'person',
   'role',
   'company',
+  'enquiry',
   'deal',
   'opportunity',
   'raise',
@@ -207,16 +211,23 @@ export const INTERVIEW_STAGE_LABELS: Readonly<Record<InterviewStage, string>> = 
 export const FIRST_INTERVIEW_STAGE: InterviewStage = INTERVIEW_STAGES[0]
 
 /**
- * The four pipelines whose board columns live in `pipeline_stages`. A Deal moves
+ * The five pipelines whose board columns live in `pipeline_stages`. A Deal moves
  * through `deal` stages and so on; the kinds are fixed even though the stages
  * within each are workspace-configurable.
  */
-export const PIPELINE_KINDS = ['deal', 'opportunity', 'raise', 'partnership'] as const
+export const PIPELINE_KINDS = [
+  'enquiry',
+  'deal',
+  'opportunity',
+  'raise',
+  'partnership',
+] as const
 
 export type PipelineKind = (typeof PIPELINE_KINDS)[number]
 
 /** Display names for `PIPELINE_KINDS`. "Fundraising" is what the nav calls a Raise. */
 export const PIPELINE_KIND_LABELS: Readonly<Record<PipelineKind, string>> = {
+  enquiry: 'Enquiry',
   deal: 'Deal',
   opportunity: 'Opportunity',
   raise: 'Fundraising',
@@ -339,6 +350,7 @@ export const FORM_FIELD_MAP_TARGETS = [
   'company.name',
   'company.domain',
   'position.title',
+  'enquiry.name',
   'deal.name',
   'opportunity.name',
   'partnership.name',
@@ -355,6 +367,7 @@ export const FORM_FIELD_MAP_TARGET_LABELS: Readonly<Record<FormFieldMapTarget, s
   'company.name': 'Company · name',
   'company.domain': 'Company · domain',
   'position.title': 'Position · title',
+  'enquiry.name': 'Enquiry · name',
   'deal.name': 'Deal · name',
   'opportunity.name': 'Opportunity · name',
   'partnership.name': 'Partnership · name',
@@ -440,6 +453,7 @@ export const AGENT_TASK_TARGET_TYPES = [
   'opportunity',
   'partnership',
   'raise',
+  'enquiry',
   'candidate',
   'role',
   'handbook',
@@ -471,9 +485,9 @@ export const AGENT_RUN_STATUS_LABELS: Readonly<Record<AgentRunStatus, string>> =
 }
 
 /**
- * The six record types a workspace may attach custom field definitions to.
+ * The seven record types a workspace may attach custom field definitions to.
  *
- * The six that already carry `tags` and agent-oriented fields on the record
+ * The ones that already carry `tags` and agent-oriented fields on the record
  * itself. Role and Candidate are absent on purpose: hiring state hangs off the
  * Candidate link and a Role is a header rather than a rich record, so the demand
  * signal for custom fields on either has not landed. Kept separate from
@@ -487,6 +501,7 @@ export const CUSTOM_FIELD_OBJECT_TYPES = [
   'opportunity',
   'partnership',
   'raise',
+  'enquiry',
 ] as const
 
 export type CustomFieldObjectType = (typeof CUSTOM_FIELD_OBJECT_TYPES)[number]
@@ -498,6 +513,7 @@ export const CUSTOM_FIELD_OBJECT_TYPE_LABELS: Readonly<Record<CustomFieldObjectT
   opportunity: 'Opportunity',
   partnership: 'Partnership',
   raise: 'Raise',
+  enquiry: 'Enquiry',
 }
 
 /**

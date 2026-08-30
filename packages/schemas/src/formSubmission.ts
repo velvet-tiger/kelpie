@@ -43,6 +43,7 @@ export interface FormSubmission {
   readonly dealId: string | null
   readonly opportunityId: string | null
   readonly partnershipId: string | null
+  readonly enquiryId: string | null
   /**
    * Per-action outcome from the post-submit runner, in the order attempted.
    * Only actions the form was configured to run appear; a form with no
@@ -78,6 +79,7 @@ export const formSubmissionSchema: z.ZodType<FormSubmission, unknown> = z
     deal_id: idSchema.nullable(),
     opportunity_id: idSchema.nullable(),
     partnership_id: idSchema.nullable(),
+    enquiry_id: idSchema.nullable(),
     action_log: z.array(actionEntrySchema),
     created_at: timestampSchema,
   })
@@ -93,6 +95,7 @@ export const formSubmissionSchema: z.ZodType<FormSubmission, unknown> = z
       dealId: wire.deal_id,
       opportunityId: wire.opportunity_id,
       partnershipId: wire.partnership_id,
+      enquiryId: wire.enquiry_id,
       actionLog: wire.action_log,
       createdAt: wire.created_at,
     }),

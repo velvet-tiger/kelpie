@@ -8,6 +8,7 @@ import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { decisions } from '../decisions/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { roles } from '../hiring/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
@@ -210,7 +211,7 @@ function byPlanItem(
   db: Queryable,
   workspaceId: string,
   query: SQL,
-  targetType: 'deal' | 'opportunity' | 'raise',
+  targetType: 'deal' | 'opportunity' | 'raise' | 'enquiry',
 ) {
   return db
     .select({ id: planItems.targetId, rank: relatedRank(planItems.searchVector, query).as('rank') })
@@ -222,6 +223,37 @@ function byPlanItem(
         matches(planItems.searchVector, query),
       ),
     )
+}
+
+export async function searchEnquiries(
+  db: Queryable,
+  workspaceId: string,
+  query: SQL,
+  limit: number,
+): Promise<CollectionHits> {
+  const own = db
+    .select({ id: enquiries.id, rank: rank(enquiries.searchVector, query).as('rank') })
+    .from(enquiries)
+    .where(and(eq(enquiries.workspaceId, workspaceId), matches(enquiries.searchVector, query)))
+
+  const hits = unionAll(own, byPlanItem(db, workspaceId, query, 'enquiry')).as('hits')
+
+  const rows = await db
+    .select({
+      id: enquiries.id,
+      title: enquiries.name,
+      subtitle: pipelineStages.label,
+      snippetSource: enquiries.summary,
+      total,
+    })
+    .from(hits)
+    .innerJoin(enquiries, eq(enquiries.id, hits.id))
+    .innerJoin(pipelineStages, eq(pipelineStages.id, enquiries.stageId))
+    .groupBy(enquiries.id, pipelineStages.label)
+    .orderBy(desc(bestRank(hits.rank)), asc(enquiries.id))
+    .limit(limit)
+
+  return collect('enquiry', rows)
 }
 
 export async function searchDeals(

@@ -179,13 +179,13 @@ describe.skipIf(connectionString === undefined)('dashboard', () => {
       expect(payload.recent_decisions).toEqual([])
     })
 
-    it('names every pipeline, so a caller need not know which four there are', async () => {
+    it('names every pipeline, so a caller need not know which five there are', async () => {
       const payload = await snapshot()
       const kinds = (Array.isArray(payload.pipelines) ? payload.pipelines : []).map((row) =>
         readRecord(row).kind,
       )
 
-      expect(kinds).toEqual(['deal', 'opportunity', 'raise', 'partnership'])
+      expect(kinds).toEqual(['enquiry', 'deal', 'opportunity', 'raise', 'partnership'])
     })
   })
 

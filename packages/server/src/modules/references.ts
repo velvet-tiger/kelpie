@@ -24,6 +24,7 @@ import { AppError } from '../lib/errors.ts'
 const REFERENCING_TYPE_BY_TABLE: Readonly<Record<string, string>> = {
   candidates: 'candidate',
   deals: 'deal',
+  enquiries: 'enquiry',
   form_submissions: 'form submission',
   forms: 'form',
   opportunities: 'opportunity',

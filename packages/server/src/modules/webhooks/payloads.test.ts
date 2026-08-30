@@ -120,6 +120,7 @@ describe('translateEnvelopeEvent', () => {
         submission_id: 'sub_1',
         opportunity_id: null,
         partnership_id: null,
+        enquiry_id: null,
         actions: [],
       },
     })
@@ -151,6 +152,7 @@ describe('translateEnvelopeEvent', () => {
         submission_id: 'sub_2',
         opportunity_id: 'opp_1',
         partnership_id: 'prt_1',
+        enquiry_id: null,
         actions: [
           { action: 'create_deal', status: 'ok' },
           { action: 'tag_company', status: 'skipped' },

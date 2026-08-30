@@ -20,7 +20,7 @@ Notes attach to any record and support markdown. **Pin** the notes that matter: 
 
 ## Search
 
-The header search box (and the `/search` page behind it) queries nine collections at once: handbook pages, people, roles, companies, deals, opportunities, raises, partnerships, and decisions. Results come back grouped, each group with its true total.
+The header search box (and the `/search` page behind it) queries ten collections at once: handbook pages, people, roles, companies, enquiries, deals, opportunities, raises, partnerships, and decisions. Results come back grouped, each group with its true total.
 
 Matching is forgiving in one direction and strict in another: every word matches as a prefix (`acm` finds Acme, `meetings` finds "meeting"), and adding a second word narrows the result rather than widening it. Punctuation separates words, so pasting an email address finds the person by their address or by its domain alone.
 

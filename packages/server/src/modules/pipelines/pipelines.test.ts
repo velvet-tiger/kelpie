@@ -10,7 +10,7 @@ import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
 
-/** `/v1/pipeline_stages` against real Postgres. The configurable board columns of the four pipelines. */
+/** `/v1/pipeline_stages` against real Postgres. The configurable board columns of the five pipelines. */
 
 const connectionString = testDatabaseUrl(process.env)
 
@@ -77,14 +77,14 @@ describe.skipIf(connectionString === undefined)('pipeline stages', () => {
       expect(stages.map((stage) => stage.open)).toEqual([true, true, true, false, false])
     })
 
-    it('lists all four pipelines without a kind filter', async () => {
+    it('lists all five pipelines without a kind filter', async () => {
       const response = await client.send('GET', '/v1/pipeline_stages?limit=200', {
         cookie: acme.cookie,
       })
       const stages = readList(await response.json())
       const kinds = new Set(stages.map((stage) => stage.kind))
 
-      expect(kinds).toEqual(new Set(['deal', 'opportunity', 'raise', 'partnership']))
+      expect(kinds).toEqual(new Set(['enquiry', 'deal', 'opportunity', 'raise', 'partnership']))
     })
 
     it('refuses an unknown kind with 422', async () => {

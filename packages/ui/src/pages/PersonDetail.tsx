@@ -9,6 +9,7 @@ import type { PatchResult } from '../api/resource.ts'
 import { useCandidates } from '../api/resources/candidates.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
+import { useEnquiries } from '../api/resources/enquiries.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { useDeletePerson, usePerson, useUpdatePerson } from '../api/resources/people.ts'
 import {
@@ -206,6 +207,7 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
   const { patch, error } = usePersonPatch(person)
   const deals = useDeals({ personIds: [person.id] })
   const partnerships = usePartnerships({ personIds: [person.id] })
+  const enquiries = useEnquiries({ personIds: [person.id] })
 
   return (
     <div className="space-y-8">
@@ -219,7 +221,8 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
       <RelatedPlanAttention
         deals={deals.records}
         partnerships={partnerships.records}
-        isLoading={deals.isLoading || partnerships.isLoading}
+        enquiries={enquiries.records}
+        isLoading={deals.isLoading || partnerships.isLoading || enquiries.isLoading}
       />
       <LatestActivity targetType="person" targetId={person.id} />
     </div>

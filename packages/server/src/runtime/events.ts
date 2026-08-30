@@ -29,6 +29,7 @@ export const RECORD_OBJECT_TYPES = [
   'company',
   'position',
   'deal',
+  'enquiry',
   'opportunity',
   'partnership',
   'raise',

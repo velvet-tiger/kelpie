@@ -25,6 +25,7 @@ export function createSampleDataModule(): KelpieModule {
       'opportunities',
       'raises',
       'partnerships',
+      'enquiries',
       'hiring',
     ],
 

@@ -32,6 +32,7 @@ export const formsEvents = {
     submissionId: z.string(),
     opportunityId: z.string().nullable(),
     partnershipId: z.string().nullable(),
+    enquiryId: z.string().nullable(),
     actions: z.array(actionSummarySchema).readonly(),
   }),
 } satisfies ModuleEventCatalog
@@ -50,6 +51,7 @@ export interface FormSubmissionData {
   readonly submissionId: string
   readonly opportunityId: string | null
   readonly partnershipId: string | null
+  readonly enquiryId: string | null
   readonly actions: readonly FormSubmissionActionSummary[]
 }
 

@@ -241,6 +241,7 @@ describe('companyNameFrom', () => {
     dealName: undefined,
     opportunityName: undefined,
     partnershipName: undefined,
+    enquiryName: undefined,
   } as const
 
   it('prefers the name that was given', () => {

@@ -102,6 +102,7 @@ function actionCount(form: Form): number {
     (form.createDeal ? 1 : 0) +
     (form.createOpportunity ? 1 : 0) +
     (form.createPartnership ? 1 : 0) +
+    (form.createEnquiry ? 1 : 0) +
     (form.personTags.length > 0 ? 1 : 0) +
     (form.companyTags.length > 0 ? 1 : 0) +
     form.listIds.length +

@@ -28,6 +28,7 @@ Nine targets:
 | Deal · name | The deal's name, when the Deal trigger is on. |
 | Opportunity · name | The opportunity's name, when the Opportunity trigger is on. |
 | Partnership · name | The partnership's name, when the Partnership trigger is on. |
+| Enquiry · name | The enquiry's name, when the Enquiry trigger is on. |
 | Submission only | Stored with the submission and written to no record — right for "How can we help?". |
 
 ## What a submission creates
@@ -40,13 +41,13 @@ A submit matches the person by email and the company by domain, then by name. Th
 
 The **Actions** tab is where you say what the form does with a submission beyond capturing it. All actions are optional and every control commits as you change it. If any action fails, the runner logs the failure to the submission's action log and keeps going — a broken action never loses the lead.
 
-**Deal / Opportunity / Partnership triggers** sit side by side. (Before this release, the Deal trigger lived on Settings; it now sits with the other two, so the whole "what happens next?" story is on one screen.) For each: pick a stage (or let it default to the first open one), a name template that expands `{{company.name}}` and `{{person.name}}`, and — for Opportunity and Partnership — a kind and an owner. Deal and Partnership need a Company · name or Company · domain field on the form, because a deal and a partnership each belong to a company; Opportunity does not, because it may have none.
+**Deal / Opportunity / Partnership / Enquiry triggers** sit side by side. (Before this release, the Deal trigger lived on Settings; it now sits with the others, so the whole "what happens next?" story is on one screen.) For each: pick a stage (or let it default to the first open one), a name template that expands `{{company.name}}` and `{{person.name}}`, and — for Opportunity and Partnership — a kind and an owner. Enquiry takes an optional free-text Source (e.g. "Website contact"), written to the enquiry's `source` column; no kind requirement. Deal and Partnership need a Company · name or Company · domain field on the form, because a deal and a partnership each belong to a company; Opportunity and Enquiry do not, because their company is optional.
 
 **Tag the person / tag the company** merge a list of tags into the captured records. The merge is a union: it never removes a tag anyone set by hand. Company tags are skipped when no company is resolved.
 
 **Add to a list** feeds the submitter (for a person list) or the resolved company (for a company list) into an existing list. Deleting the list quietly drops the action from every form naming it — a list delete is never blocked by a form.
 
-**Attach the submitter to a record** links every submitter into a pre-existing deal, opportunity, raise, or partnership through `person_links` — "everyone who fills this form joins the Q4 accelerator opportunity". Deleting the record drops the mapping.
+**Attach the submitter to a record** links every submitter into a pre-existing enquiry, deal, opportunity, raise, or partnership through `person_links` — "everyone who fills this form joins the Q4 accelerator opportunity". Deleting the record drops the mapping.
 
 Each configured action lands one entry on the submission's `action_log` — `ok`, `skipped` (the precondition was absent — a company tag on a submit that resolved no company), or `error` (something went wrong; the rest of the submit still ran). The Submissions tab shows the counts and the detail on hover.
 

@@ -28,6 +28,7 @@ const ROUTES: Readonly<Record<RecordTargetType, string | undefined>> = {
   opportunity: '/opportunities',
   partnership: '/partnerships',
   raise: '/fundraising',
+  enquiry: '/enquiries',
   candidate: undefined,
 }
 
@@ -38,6 +39,7 @@ const TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {
   opportunity: 'Opportunity',
   partnership: 'Partnership',
   raise: 'Fundraising',
+  enquiry: 'Enquiry',
   candidate: 'Candidate',
 }
 
@@ -147,6 +149,7 @@ function plural(count: number, singular: string, pluralForm = `${singular}s`): s
 const OPEN_PIPELINE_NOUNS: Readonly<
   Record<PipelineKind, { readonly one: string; readonly many: string }>
 > = {
+  enquiry: { one: 'enquiry', many: 'enquiries' },
   deal: { one: 'deal', many: 'deals' },
   opportunity: { one: 'opportunity', many: 'opportunities' },
   raise: { one: 'raise', many: 'raises' },

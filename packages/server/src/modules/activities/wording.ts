@@ -147,6 +147,24 @@ export function describeStageChange(fromStage: string, toStage: string): Activit
   return { action: `moved to ${toStage}`, detail: `${fromStage} → ${toStage}` }
 }
 
+/**
+ * `converted to Deal`, with the deal's name beneath it. Files on the enquiry;
+ * the deal's own timeline gets `created Deal from Enquiry` via
+ * `describeCreationFrom`.
+ */
+export function describeConversion(objectLabel: string, name: string): ActivityWording {
+  return { action: `converted to ${objectLabel}`, detail: name }
+}
+
+/**
+ * `created Deal from Enquiry`, with the source record's name beneath it. Mirror
+ * of `describeCreationVia` but the source is another CRM record rather than a
+ * form or import file.
+ */
+export function describeCreationFrom(objectLabel: string, sourceLabel: string, sourceName: string): ActivityWording {
+  return { action: `created ${objectLabel} from ${sourceLabel}`, detail: sourceName }
+}
+
 /** How much of a note's body the timeline repeats before trailing off. */
 const NOTE_EXCERPT_LENGTH = 120
 

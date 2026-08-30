@@ -262,7 +262,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(pages.map((page) => page.slug)).toContain('ideal-customer-profile')
     })
 
-    it('seeds stages for all four pipelines', async () => {
+    it('seeds stages for all five pipelines', async () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
 
@@ -272,7 +272,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         .where(eq(pipelineStages.workspaceId, workspaceId))
 
       expect(new Set(stages.map((stage) => stage.kind))).toEqual(
-        new Set(['deal', 'opportunity', 'raise', 'partnership']),
+        new Set(['enquiry', 'deal', 'opportunity', 'raise', 'partnership']),
       )
     })
 

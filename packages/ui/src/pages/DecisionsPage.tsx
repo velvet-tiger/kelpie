@@ -44,6 +44,7 @@ const TARGET_LABELS: Readonly<Record<RecordTargetType, string>> = {
   opportunity: 'Opportunity',
   partnership: 'Partnership',
   raise: 'Raise',
+  enquiry: 'Enquiry',
   candidate: 'Candidate',
 }
 
@@ -54,6 +55,7 @@ const TARGET_ROUTES: Readonly<Partial<Record<RecordTargetType, string>>> = {
   opportunity: '/opportunities',
   raise: '/fundraising',
   partnership: '/partnerships',
+  enquiry: '/enquiries',
 }
 
 interface TargetDirectory {

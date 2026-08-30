@@ -8,6 +8,7 @@ import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { decisions } from '../decisions/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { candidates, roles } from '../hiring/schema.ts'
 import { notes } from '../notes/schema.ts'
@@ -47,6 +48,7 @@ const DEEP_LINKS: Readonly<Partial<Record<AgentTaskTargetType, string>>> = {
   person: '/people',
   company: '/companies',
   deal: '/deals',
+  enquiry: '/enquiries',
   opportunity: '/opportunities',
   partnership: '/partnerships',
   raise: '/fundraising',
@@ -261,7 +263,7 @@ async function relatedFrom(
 async function personLinkIds(
   db: Queryable,
   workspaceId: string,
-  targetType: 'deal' | 'opportunity' | 'partnership' | 'raise',
+  targetType: 'deal' | 'enquiry' | 'opportunity' | 'partnership' | 'raise',
   targetId: string,
 ): Promise<RelatedIdList> {
   const rows = await db
@@ -324,6 +326,12 @@ async function collectRelated(
           deals.id,
           workspaceScoped(deals.workspaceId, deals.companyId),
         ),
+        enquiry_ids: await relatedFrom(
+          db,
+          enquiries,
+          enquiries.id,
+          workspaceScoped(enquiries.workspaceId, enquiries.companyId),
+        ),
         opportunity_ids: await relatedFrom(
           db,
           opportunities,
@@ -370,6 +378,20 @@ async function collectRelated(
             : [opportunity.companyId],
         ),
         person_ids: await personLinkIds(db, workspaceId, 'opportunity', targetId),
+      }
+    }
+
+    case 'enquiry': {
+      const [enquiry] = await db
+        .select({ companyId: enquiries.companyId })
+        .from(enquiries)
+        .where(and(eq(enquiries.workspaceId, workspaceId), eq(enquiries.id, targetId)))
+
+      return {
+        company_ids: wholeList(
+          enquiry?.companyId === null || enquiry === undefined ? [] : [enquiry.companyId],
+        ),
+        person_ids: await personLinkIds(db, workspaceId, 'enquiry', targetId),
       }
     }
 
@@ -443,6 +465,13 @@ const SWEEP_TABLES = {
     workspaceId: deals.workspaceId,
     stageId: deals.stageId,
     summary: deals.summary,
+  },
+  enquiry: {
+    table: enquiries,
+    id: enquiries.id,
+    workspaceId: enquiries.workspaceId,
+    stageId: enquiries.stageId,
+    summary: enquiries.summary,
   },
   opportunity: {
     table: opportunities,

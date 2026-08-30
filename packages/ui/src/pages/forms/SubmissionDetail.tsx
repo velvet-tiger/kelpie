@@ -169,6 +169,11 @@ function SubmissionDetailView({
               }
               text={submission.partnershipId === null ? null : 'Open partnership'}
             />
+            <RecordRow
+              label="Enquiry"
+              to={submission.enquiryId === null ? null : `/enquiries/${submission.enquiryId}`}
+              text={submission.enquiryId === null ? null : 'Open enquiry'}
+            />
           </ul>
         </section>
 

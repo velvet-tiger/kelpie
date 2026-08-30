@@ -15,6 +15,8 @@ import * as companyRepository from '../companies/repository.ts'
 import type { CompanyRecord } from '../companies/repository.ts'
 import * as dealRepository from '../deals/repository.ts'
 import '../deals/events.ts'
+import * as enquiryRepository from '../enquiries/repository.ts'
+import '../enquiries/events.ts'
 import '../lists/events.ts'
 import * as listsRepository from '../lists/repository.ts'
 import * as opportunityRepository from '../opportunities/repository.ts'
@@ -119,6 +121,7 @@ export interface SubmitOutcome {
   readonly dealId: string | null
   readonly opportunityId: string | null
   readonly partnershipId: string | null
+  readonly enquiryId: string | null
   readonly submittedAt: Date
   /** Echoed so an embed can render it without a second request. */
   readonly thankYouMessage: string
@@ -668,6 +671,65 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
   }
 
   /**
+   * Creates the Enquiry, when the form makes them.
+   *
+   * `enquiries.company_id` is nullable, so a submit that resolved no company
+   * still creates the enquiry. Enquiries have no `kind`; the form's optional
+   * `enquirySource` is written to the enquiry's `source` column, or empty when
+   * unset — an unclassified source reads as unclassified.
+   */
+  async function createEnquiry(
+    tx: Transaction,
+    emit: BufferedEvents['emit'],
+    workspaceId: string,
+    form: FormRecord,
+    intent: SubmitIntent,
+    company: CompanyRecord | undefined,
+    personId: string,
+  ): Promise<string> {
+    const id = dependencies.createId('enquiry')
+    const owner =
+      form.enquiryOwnerId === null
+        ? await workspaceRepository.findDefaultMember(tx, workspaceId)
+        : { id: form.enquiryOwnerId }
+
+    await enquiryRepository.insertEnquiry(tx, {
+      id,
+      workspaceId,
+      name:
+        intent.enquiryName ??
+        expandNameTemplate(form.enquiryNameTemplate ?? DEFAULT_DEAL_NAME_TEMPLATE, {
+          companyName: company?.name ?? '',
+          personName: intent.personName,
+        }),
+      source: form.enquirySource ?? '',
+      stageId: await openingStageId(tx, workspaceId, 'enquiry', form.enquiryStageId),
+      companyId: company?.id ?? null,
+      ownerId: owner?.id ?? null,
+      convertedDealId: null,
+    })
+
+    await personLinks.linkPeople(
+      tx,
+      dependencies.createId,
+      workspaceId,
+      { targetType: 'enquiry', targetId: id },
+      [personId],
+    )
+
+    await dependencies.recordActivity(tx, workspaceId, FORM_ACTOR, {
+      targetType: 'enquiry',
+      targetId: id,
+      kind: 'created',
+      ...describeCreationVia('Enquiry', form.name),
+    })
+
+    emit('enquiries.enquiry.created', { type: 'enquiry', id }, {})
+
+    return id
+  }
+
+  /**
    * The form behind a public key, ready to accept answers.
    *
    * @throws AppError 404 for an unknown key, 409 for a paused form (`forms.md`).
@@ -801,6 +863,28 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
                   form,
                   intent,
                   company.record,
+                  person.record.id,
+                )
+
+                return { status: 'ok', detail: id, value: id }
+              },
+            )) ?? null)
+          : null
+
+        const enquiryId = form.createEnquiry
+          ? ((await runAction<string>(
+              tx,
+              events,
+              actionLog,
+              'create_enquiry',
+              async (inner, emit) => {
+                const id = await createEnquiry(
+                  inner,
+                  emit,
+                  workspaceId,
+                  form,
+                  intent,
+                  company?.record,
                   person.record.id,
                 )
 
@@ -953,6 +1037,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           dealId,
           opportunityId,
           partnershipId,
+          enquiryId,
           submittedAt: dependencies.now(),
           actionLog,
         })
@@ -973,6 +1058,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
             submissionId: submission.id,
             opportunityId,
             partnershipId,
+            enquiryId,
             actions: actionLog.map((entry) => ({ action: entry.action, status: entry.status })),
           },
         )
@@ -986,6 +1072,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           dealId,
           opportunityId,
           partnershipId,
+          enquiryId,
           submittedAt: submission.submittedAt,
           thankYouMessage: form.thankYouMessage,
           actionLog,

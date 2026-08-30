@@ -12,6 +12,7 @@ import {
   useUpdateCompany,
 } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
+import { useEnquiries } from '../api/resources/enquiries.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { usePeople } from '../api/resources/people.ts'
@@ -201,6 +202,7 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
   const opportunities = useOpportunities({ companyIds: [company.id] })
   const raises = useRaises({ companyIds: [company.id] })
   const partnerships = usePartnerships({ companyIds: [company.id] })
+  const enquiries = useEnquiries({ companyIds: [company.id] })
 
   return (
     <div className="space-y-8">
@@ -216,8 +218,13 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
         opportunities={opportunities.records}
         raises={raises.records}
         partnerships={partnerships.records}
+        enquiries={enquiries.records}
         isLoading={
-          deals.isLoading || opportunities.isLoading || raises.isLoading || partnerships.isLoading
+          deals.isLoading ||
+          opportunities.isLoading ||
+          raises.isLoading ||
+          partnerships.isLoading ||
+          enquiries.isLoading
         }
       />
       <LatestActivity targetType="company" targetId={company.id} />

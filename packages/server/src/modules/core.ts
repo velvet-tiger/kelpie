@@ -11,6 +11,7 @@ import { createDashboardModule } from './dashboard/index.ts'
 import { createDealsModule } from './deals/index.ts'
 import { createDecisionsModule } from './decisions/index.ts'
 import { createEmailDomainLinkerModule } from './email-domain-linker/index.ts'
+import { createEnquiriesModule } from './enquiries/index.ts'
 import { createFormsModule } from './forms/index.ts'
 import { createHandbookModule } from './handbook/index.ts'
 import { createHiringModule } from './hiring/index.ts'
@@ -58,6 +59,7 @@ export const coreModules: readonly KelpieModule[] = [
   createNotesModule(coreMigrationsDirectory),
   createPipelinesModule(coreMigrationsDirectory),
   createDealsModule(coreMigrationsDirectory),
+  createEnquiriesModule(coreMigrationsDirectory),
   createOpportunitiesModule(coreMigrationsDirectory),
   createPartnershipsModule(coreMigrationsDirectory),
   createRaisesModule(coreMigrationsDirectory),

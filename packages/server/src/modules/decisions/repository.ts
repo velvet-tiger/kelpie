@@ -7,6 +7,7 @@ import { containsPattern } from '../../lib/search.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
 import { people } from '../people/schema.ts'
@@ -55,6 +56,7 @@ const NAMED_TARGET_TABLES = [
   { table: opportunities, id: opportunities.id, workspaceId: opportunities.workspaceId, name: opportunities.name },
   { table: partnerships, id: partnerships.id, workspaceId: partnerships.workspaceId, name: partnerships.name },
   { table: raises, id: raises.id, workspaceId: raises.workspaceId, name: raises.name },
+  { table: enquiries, id: enquiries.id, workspaceId: enquiries.workspaceId, name: enquiries.name },
 ]
 
 /**

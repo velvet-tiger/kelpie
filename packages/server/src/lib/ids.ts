@@ -19,6 +19,7 @@ export const idPrefixes = {
   position: 'pos',
   pipelineStage: 'stage',
   deal: 'deal',
+  enquiry: 'enq',
   opportunity: 'opp',
   partnership: 'prt',
   raise: 'rse',

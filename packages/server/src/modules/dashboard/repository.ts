@@ -8,6 +8,7 @@ import type { Queryable } from '../../runtime/transaction.ts'
 import { activities } from '../activities/schema.ts'
 import { decisions } from '../decisions/schema.ts'
 import { deals } from '../deals/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
 import { notes } from '../notes/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
@@ -88,11 +89,11 @@ function pipelineTable(table: PgTable, workspaceId: PgColumn, stageId: PgColumn)
 }
 
 /**
- * Which table each pipeline kind lives in. Partnership is a pipeline like the
- * other three: `pipeline_stages.kind` carries all four, and its board columns
- * are configured the same way.
+ * Which table each pipeline kind lives in. `pipeline_stages.kind` carries all
+ * five, and every pipeline's board columns are configured the same way.
  */
 const PIPELINE_TABLES: Readonly<Record<PipelineKind, PipelineTable>> = {
+  enquiry: pipelineTable(enquiries, enquiries.workspaceId, enquiries.stageId),
   deal: pipelineTable(deals, deals.workspaceId, deals.stageId),
   opportunity: pipelineTable(opportunities, opportunities.workspaceId, opportunities.stageId),
   raise: pipelineTable(raises, raises.workspaceId, raises.stageId),
