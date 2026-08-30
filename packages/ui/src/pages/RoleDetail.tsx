@@ -243,7 +243,7 @@ function RoleCandidates({ role }: { readonly role: Role }): React.JSX.Element {
       ) : (
         <>
           <Paginator list={candidates} placement="top" />
-          <ul className="overflow-hidden rounded-md border border-border">
+          <ul className="rounded-md border border-border">
             {candidates.records.map((candidate) => (
               <CandidateRow
                 key={candidate.id}
