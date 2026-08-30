@@ -1,3 +1,4 @@
+import { customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -5,6 +6,7 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from './schema.ts'
 import type {
   CompaniesService,
@@ -31,6 +33,7 @@ const companyShape = {
   summary: z.string(),
   tags: z.array(z.string().min(1)),
   is_own: z.boolean(),
+  custom_fields: customFieldsPatchShape,
 }
 
 /**
@@ -53,6 +56,7 @@ export const createBody = z.strictObject({
   summary: companyShape.summary.default(''),
   tags: companyShape.tags.default([]),
   is_own: companyShape.is_own.default(false),
+  custom_fields: companyShape.custom_fields.default({}),
 })
 
 export const updateBody = z.strictObject(companyShape).partial()
@@ -77,6 +81,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateCompanyIn
     summary: body.summary,
     tags: body.tags,
     isOwn: body.is_own,
+    customFields: body.custom_fields,
   }
 }
 
@@ -96,6 +101,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateCompanyIn
     ...(body.summary === undefined ? {} : { summary: body.summary }),
     ...(body.tags === undefined ? {} : { tags: body.tags }),
     ...(body.is_own === undefined ? {} : { isOwn: body.is_own }),
+    ...(body.custom_fields === undefined ? {} : { customFields: body.custom_fields }),
   }
 }
 
@@ -116,6 +122,7 @@ export function companyResponse(company: CompanyView): Record<string, unknown> {
     summary: company.summary,
     tags: company.tags,
     is_own: company.isOwn,
+    custom_fields: renderCustomFieldsForWire(company.customFields),
     created_at: company.createdAt.toISOString(),
     updated_at: company.updatedAt.toISOString(),
   }

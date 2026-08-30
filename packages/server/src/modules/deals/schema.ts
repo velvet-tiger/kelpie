@@ -1,4 +1,5 @@
-import { bigint, date, index, pgTable, text } from 'drizzle-orm/pg-core'
+import type { CustomFieldValue } from '@kelpie/schemas'
+import { bigint, date, index, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
 
 import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
 import type { SearchVectorPart } from '../../lib/columns.ts'
@@ -37,6 +38,11 @@ export const deals = pgTable(
     summary: text('summary').notNull().default(''),
     tags: text('tags').array().notNull().default([]),
     externalId: text('external_id'),
+    // Workspace-defined fields, keyed by definition key. See people/schema.ts.
+    customFields: jsonb('custom_fields')
+      .$type<Readonly<Record<string, CustomFieldValue>>>()
+      .notNull()
+      .default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     searchVector: searchVector((): readonly SearchVectorPart[] => [

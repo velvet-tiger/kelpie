@@ -1,3 +1,4 @@
+import { customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -6,6 +7,7 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import type { CreateDealInput, DealView, DealsService, UpdateDealInput } from './service.ts'
 
 /** Wire shapes for `/v1/deals`. Bodies are strict; an unknown field is a 422, per `api.md`. */
@@ -26,6 +28,7 @@ const dealShape = {
   summary: z.string(),
   tags: z.array(z.string().min(1)),
   external_id: z.string().min(1).nullable(),
+  custom_fields: customFieldsPatchShape,
 }
 
 /**
@@ -48,6 +51,7 @@ export const createBody = z.strictObject({
   summary: dealShape.summary.default(''),
   tags: dealShape.tags.default([]),
   external_id: dealShape.external_id.default(null),
+  custom_fields: dealShape.custom_fields.default({}),
 })
 
 export const updateBody = z.strictObject(dealShape).partial()
@@ -72,6 +76,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateDealInput
     summary: body.summary,
     tags: body.tags,
     externalId: body.external_id,
+    customFields: body.custom_fields,
   }
 }
 
@@ -91,6 +96,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateDealInput
     ...(body.summary === undefined ? {} : { summary: body.summary }),
     ...(body.tags === undefined ? {} : { tags: body.tags }),
     ...(body.external_id === undefined ? {} : { externalId: body.external_id }),
+    ...(body.custom_fields === undefined ? {} : { customFields: body.custom_fields }),
   }
 }
 
@@ -111,6 +117,7 @@ export function dealResponse(deal: DealView): Record<string, unknown> {
     summary: deal.summary,
     tags: deal.tags,
     external_id: deal.externalId,
+    custom_fields: renderCustomFieldsForWire(deal.customFields),
     created_at: deal.createdAt.toISOString(),
     updated_at: deal.updatedAt.toISOString(),
   }

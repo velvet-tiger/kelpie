@@ -1,4 +1,4 @@
-import { composeName } from '@kelpie/schemas'
+import { composeName, customFieldsPatchShape } from '@kelpie/schemas'
 import type { NameParts } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
@@ -7,6 +7,7 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import {
   INFLUENCE_LEVELS,
   PREFERRED_CHANNELS,
@@ -55,6 +56,7 @@ const personShape = {
   summary: z.string(),
   tags: z.array(z.string().min(1)),
   last_contacted_at: z.iso.datetime().nullable(),
+  custom_fields: customFieldsPatchShape,
 }
 
 /**
@@ -87,6 +89,7 @@ export const createBody = z
     summary: personShape.summary.default(''),
     tags: personShape.tags.default([]),
     last_contacted_at: personShape.last_contacted_at.default(null),
+    custom_fields: personShape.custom_fields.default({}),
   })
   .superRefine((body, context) => {
     if (body.name !== undefined || composeName(toNameParts(body)).length > 0) {
@@ -126,6 +129,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreatePersonInp
     summary: body.summary,
     tags: body.tags,
     lastContactedAt: body.last_contacted_at === null ? null : new Date(body.last_contacted_at),
+    customFields: body.custom_fields,
   }
 }
 
@@ -161,6 +165,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePersonInp
           lastContactedAt:
             body.last_contacted_at === null ? null : new Date(body.last_contacted_at),
         }),
+    ...(body.custom_fields === undefined ? {} : { customFields: body.custom_fields }),
   }
 }
 
@@ -183,6 +188,7 @@ export function personResponse(person: PersonView): Record<string, unknown> {
     summary: person.summary,
     tags: person.tags,
     last_contacted_at: person.lastContactedAt === null ? null : person.lastContactedAt.toISOString(),
+    custom_fields: renderCustomFieldsForWire(person.customFields),
     created_at: person.createdAt.toISOString(),
     updated_at: person.updatedAt.toISOString(),
   }

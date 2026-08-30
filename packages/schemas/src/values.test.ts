@@ -5,6 +5,11 @@ import {
   AGENT_RUN_STATUSES,
   CANDIDATE_STATUS_LABELS,
   CANDIDATE_STATUSES,
+  CUSTOM_FIELD_OBJECT_TYPE_LABELS,
+  CUSTOM_FIELD_OBJECT_TYPES,
+  CUSTOM_FIELD_TYPE_LABELS,
+  CUSTOM_FIELD_TYPES,
+  CUSTOM_FIELD_TYPES_WITH_OPTIONS,
   FIRST_INTERVIEW_STAGE,
   FORM_FIELD_MAP_TARGET_LABELS,
   FORM_FIELD_MAP_TARGETS,
@@ -40,8 +45,22 @@ describe('label records stay in sync with their id arrays', () => {
     ['WEBHOOK_STATUS_LABELS', WEBHOOK_STATUSES, WEBHOOK_STATUS_LABELS],
     ['AGENT_RUN_STATUS_LABELS', AGENT_RUN_STATUSES, AGENT_RUN_STATUS_LABELS],
     ['FORM_FIELD_MAP_TARGET_LABELS', FORM_FIELD_MAP_TARGETS, FORM_FIELD_MAP_TARGET_LABELS],
+    [
+      'CUSTOM_FIELD_OBJECT_TYPE_LABELS',
+      CUSTOM_FIELD_OBJECT_TYPES,
+      CUSTOM_FIELD_OBJECT_TYPE_LABELS,
+    ],
+    ['CUSTOM_FIELD_TYPE_LABELS', CUSTOM_FIELD_TYPES, CUSTOM_FIELD_TYPE_LABELS],
   ] as const)('%s has exactly one entry per id', (_name, ids, labels) => {
     expect(Object.keys(labels).sort()).toEqual([...ids].sort())
+  })
+})
+
+describe('custom fields', () => {
+  it('CUSTOM_FIELD_TYPES_WITH_OPTIONS is a subset of CUSTOM_FIELD_TYPES', () => {
+    for (const type of CUSTOM_FIELD_TYPES_WITH_OPTIONS) {
+      expect(CUSTOM_FIELD_TYPES).toContain(type)
+    }
   })
 })
 

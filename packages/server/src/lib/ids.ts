@@ -39,6 +39,7 @@ export const idPrefixes = {
    */
   personLink: 'plink',
   handbookPage: 'hb',
+  customFieldDefinition: 'fld',
   form: 'form',
   formField: 'ff',
   formSubmission: 'sub',

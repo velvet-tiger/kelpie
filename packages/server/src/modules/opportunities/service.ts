@@ -1,3 +1,5 @@
+import type { CustomFieldWireValue } from '@kelpie/schemas'
+
 import { changedKeys } from '../../lib/changes.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
@@ -20,6 +22,7 @@ import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
+import type { CustomFieldValuesValidator } from '../custom-fields/values.ts'
 import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import type { PipelineStageRecord } from '../pipelines/repository.ts'
@@ -44,6 +47,7 @@ export interface OpportunitiesDependencies {
   readonly createId: IdFactory
   readonly now: () => Date
   readonly recordActivity: ActivityRecorder
+  readonly customFields: CustomFieldValuesValidator
 }
 
 /** What a changed column is called on a timeline. The mockup says "Target date", not "Expected close". */
@@ -78,6 +82,8 @@ export interface CreateOpportunityInput {
   readonly personIds: readonly string[]
   readonly summary: string
   readonly tags: readonly string[]
+  /** Wire shape for a create body: `null` values are ignored, non-null are validated. */
+  readonly customFields: Readonly<Record<string, CustomFieldWireValue | null>> | undefined
 }
 
 /** PATCH semantics: an absent field is left alone, and null clears a nullable one. */
@@ -92,6 +98,11 @@ export interface UpdateOpportunityInput {
   readonly personIds?: readonly string[] | undefined
   readonly summary?: string | undefined
   readonly tags?: readonly string[] | undefined
+  /**
+   * Partial merge patch (wire shape): sent keys change, `null` clears a key,
+   * absent keys are left alone. Unknown keys are `422`.
+   */
+  readonly customFields?: Readonly<Record<string, CustomFieldWireValue | null>> | undefined
 }
 
 export interface OpportunitiesService {
@@ -275,6 +286,12 @@ export function createOpportunitiesService(
       const id = dependencies.createId('opportunity')
 
       return dependencies.transaction(async ({ tx, events }) => {
+        const customFields = await dependencies.customFields.forCreate(
+          tx,
+          workspaceId,
+          'opportunity',
+          input.customFields,
+        )
         const created = await repository.insertOpportunity(tx, {
           id,
           workspaceId,
@@ -286,6 +303,7 @@ export function createOpportunitiesService(
           expectedClose: input.expectedClose,
           summary: input.summary,
           tags: [...input.tags],
+          customFields,
         })
 
         await personLinks.linkPeople(
@@ -359,16 +377,26 @@ export function createOpportunitiesService(
       const named = await requirePeople(workspaceId, [...added, ...removed])
 
       const columns = toStoredColumns(changes)
-      const changed = changedKeys(existing, columns)
+      const scalarChanged = changedKeys(existing, columns)
       const linksChanged = added.length > 0 || removed.length > 0
 
-      if (changed.length === 0 && !linksChanged) {
-        return toView(existing, currentPeople)
-      }
-
       return dependencies.transaction(async ({ tx, events }) => {
+        const cf = await dependencies.customFields.forUpdate(
+          tx,
+          workspaceId,
+          'opportunity',
+          existing.customFields,
+          changes.customFields,
+        )
+        const customFieldsChanged = cf !== undefined && cf.changedPaths.length > 0
+
+        if (scalarChanged.length === 0 && !linksChanged && !customFieldsChanged) {
+          return toView(existing, currentPeople)
+        }
+
         const updated = await repository.updateOpportunity(tx, workspaceId, id, {
           ...columns,
+          ...(customFieldsChanged ? { customFields: cf.merged } : {}),
           updatedAt: dependencies.now(),
         })
 
@@ -399,14 +427,19 @@ export function createOpportunitiesService(
           })
         }
 
-        const otherChanged = changed.filter((field) => field !== 'stageId')
+        const otherChanged = scalarChanged.filter((field) => field !== 'stageId')
+        const customFieldPaths = cf?.changedPaths ?? []
+        const activityChanged = [...otherChanged, ...customFieldPaths]
 
-        if (otherChanged.length > 0) {
+        if (activityChanged.length > 0) {
+          const labels: Record<string, string> = { ...OPPORTUNITY_FIELD_LABELS, ...cf?.labels }
+          const before: Record<string, unknown> = { ...existing, ...cf?.flatBefore }
+          const after: Record<string, unknown> = { ...columns, ...cf?.flatAfter }
           await dependencies.recordActivity(tx, workspaceId, actor, {
             targetType: 'opportunity',
             targetId: id,
             kind: 'updated',
-            ...describeUpdate(otherChanged, OPPORTUNITY_FIELD_LABELS, existing, columns),
+            ...describeUpdate(activityChanged, labels, before, after),
           })
         }
 
@@ -434,7 +467,13 @@ export function createOpportunitiesService(
         events.emit(
           'opportunities.opportunity.updated',
           { type: 'opportunity', id },
-          { changed: linksChanged ? [...changed, 'personIds'] : changed },
+          {
+            changed: [
+              ...scalarChanged,
+              ...(linksChanged ? ['personIds'] : []),
+              ...customFieldPaths,
+            ],
+          },
         )
 
         if (stageMove !== undefined) {

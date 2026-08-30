@@ -37,6 +37,7 @@ import { ProfilePage } from '../pages/account/ProfilePage.tsx'
 import { SecurityPage } from '../pages/account/SecurityPage.tsx'
 import { ApiKeysPage } from '../pages/admin/ApiKeysPage.tsx'
 import { DataPage } from '../pages/admin/DataPage.tsx'
+import { FieldsPage } from '../pages/admin/FieldsPage.tsx'
 import { McpPage } from '../pages/admin/McpPage.tsx'
 import { ModulesPage } from '../pages/admin/ModulesPage.tsx'
 import { TeamPage } from '../pages/admin/TeamPage.tsx'
@@ -174,6 +175,7 @@ function AppRoutes(): React.JSX.Element {
           <Route path="handbook/:pageId" element={<HandbookLayout />} />
           <Route path="admin/workspace" element={<WorkspaceSettingsPage />} />
           <Route path="admin/team" element={<TeamPage />} />
+          <Route path="admin/fields" element={<FieldsPage />} />
           <Route path="admin/data" element={<DataPage />} />
           <Route path="admin/api-keys" element={<ApiKeysPage />} />
           <Route path="admin/mcp" element={<McpPage />} />

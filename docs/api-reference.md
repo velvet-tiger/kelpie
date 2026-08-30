@@ -38,6 +38,7 @@ Every endpoint here has integration tests against a real Postgres.
 | Plan items | `GET`, `POST /v1/plan_items`, `GET`, `PATCH`, `DELETE /v1/plan_items/:id`. Filters `?target_type=`, `?target_id=`, `?status=`, `?from=` and `?to=` |
 | Notes | `GET`, `POST /v1/notes`, `GET`, `PATCH`, `DELETE /v1/notes/:id`. `?target_type=` and `?target_id=` are required, and `?target_id=` repeats to name a set; filter `?pinned=true` or `false` |
 | Lists | `GET`, `POST /v1/lists`, `GET`, `PATCH`, `DELETE /v1/lists/:id`. Filters `?q=` and `?target_type=`. Members at `GET`, `POST /v1/lists/:id/members` and `DELETE .../members/:member_id`; a record's memberships at `GET /v1/list-memberships?target_type=&target_id=` |
+| Custom fields | `GET`, `POST /v1/custom_fields`, `GET`, `PATCH`, `DELETE /v1/custom_fields/:id`. Filters `?q=` (label) and `?object_type=`. Any member reads, admin writes. Six taggable record types carry the values on `custom_fields`, partial-merge on PATCH, `null` clears a key, unknown key `422`. Definition delete strips the key from every record in one transaction. Spec: `custom-fields.md` beside this repository |
 | Activities | `GET /v1/activities`. Read-only: the timeline is written by the writes it describes. `?target_type=` and `?target_id=` are required |
 | Dashboard | `GET /v1/dashboard`. Read-only, no id and no envelope. `?limit=` caps every embedded list |
 | Search | `GET /v1/search?q=` across nine collections at once; `?type=` repeats to narrow the set. Grouped shape with exact totals, per `api.md` |

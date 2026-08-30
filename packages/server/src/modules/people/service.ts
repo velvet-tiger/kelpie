@@ -1,3 +1,5 @@
+import type { CustomFieldWireValue } from '@kelpie/schemas'
+
 import { changedKeys } from '../../lib/changes.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
@@ -19,6 +21,7 @@ import {
   deleteRecordsAttachedTo,
   deleteRecordsAttachedToCandidaciesOf,
 } from '../attachedRecords.ts'
+import type { CustomFieldValuesValidator } from '../custom-fields/values.ts'
 import * as personLinks from '../personLinks.ts'
 import { referenceViolationTable } from '../../lib/database.ts'
 import { referencedByPipelineRecords, referencedElsewhere } from '../references.ts'
@@ -43,6 +46,7 @@ export interface PeopleDependencies {
   readonly createId: IdFactory
   readonly now: () => Date
   readonly recordActivity: ActivityRecorder
+  readonly customFields: CustomFieldValuesValidator
 }
 
 /**
@@ -97,6 +101,8 @@ export interface CreatePersonInput {
   readonly summary: string
   readonly tags: readonly string[]
   readonly lastContactedAt: Date | null
+  /** Wire shape merge patch (undefined for a create without any): sent keys change, null clears. */
+  readonly customFields: Readonly<Record<string, CustomFieldWireValue | null>> | undefined
 }
 
 /** PATCH semantics: an absent field is left alone, and null clears a nullable one. */
@@ -180,6 +186,12 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
 
       return dependencies.transaction(
         async ({ tx, events }) => {
+          const customFields = await dependencies.customFields.forCreate(
+            tx,
+            workspaceId,
+            'person',
+            input.customFields,
+          )
           let created: PersonRecord
 
           try {
@@ -202,6 +214,7 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
               summary: input.summary,
               tags: [...input.tags],
               lastContactedAt: input.lastContactedAt,
+              customFields,
             })
           } catch (error: unknown) {
             if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
@@ -239,22 +252,32 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
       const workspaceId = requireWorkspaceId(actor)
       const existing = await require(workspaceId, id)
       const columns = toStoredColumns(changes)
-      const changed = changedKeys(existing, columns)
-
-      // A PATCH that changes nothing is not a write. Bumping `updated_at` for it
-      // would make the record look freshly touched to everything that sorts or
-      // filters by it.
-      if (changed.length === 0) {
-        return toView(existing)
-      }
+      const scalarChanged = changedKeys(existing, columns)
 
       return dependencies.transaction(
         async ({ tx, events }) => {
+          const cf = await dependencies.customFields.forUpdate(
+            tx,
+            workspaceId,
+            'person',
+            existing.customFields,
+            changes.customFields,
+          )
+          const customFieldsChanged = cf !== undefined && cf.changedPaths.length > 0
+
+          // A PATCH that changes nothing is not a write. Bumping `updated_at`
+          // would make the record look freshly touched to everything that sorts
+          // or filters by it.
+          if (scalarChanged.length === 0 && !customFieldsChanged) {
+            return toView(existing)
+          }
+
           let updated: PersonRecord | undefined
 
           try {
             updated = await repository.updatePerson(tx, workspaceId, id, {
               ...columns,
+              ...(customFieldsChanged ? { customFields: cf.merged } : {}),
               updatedAt: dependencies.now(),
             })
           } catch (error: unknown) {
@@ -269,22 +292,30 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
             throw AppError.notFound('Person not found')
           }
 
-          await dependencies.recordActivity(tx, workspaceId, actor, {
-            targetType: 'person',
-            targetId: id,
-            kind: 'updated',
-            ...describeUpdate(changed, PERSON_FIELD_LABELS, existing, columns),
-          })
+          const customFieldPaths = cf?.changedPaths ?? []
+          const activityChanged = [...scalarChanged, ...customFieldPaths]
+
+          if (activityChanged.length > 0) {
+            const labels: Record<string, string> = { ...PERSON_FIELD_LABELS, ...cf?.labels }
+            const before: Record<string, unknown> = { ...existing, ...cf?.flatBefore }
+            const after: Record<string, unknown> = { ...columns, ...cf?.flatAfter }
+            await dependencies.recordActivity(tx, workspaceId, actor, {
+              targetType: 'person',
+              targetId: id,
+              kind: 'updated',
+              ...describeUpdate(activityChanged, labels, before, after),
+            })
+          }
 
           events.emit(
             'people.person.updated',
             { type: 'person', id },
-            { changed },
+            { changed: [...scalarChanged, ...customFieldPaths] },
           )
 
           // Sync auto-link when the email moved. Same-transaction rationale as
           // the create path above.
-          if (changed.includes('email')) {
+          if (scalarChanged.includes('email')) {
             await autoLinkPersonByEmailDomain(tx, events, workspaceId, updated, {
               createId: dependencies.createId,
               now: dependencies.now,

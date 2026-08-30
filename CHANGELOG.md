@@ -12,6 +12,23 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — custom fields
+  (Phase 1). A workspace defines its own fields on the six taggable record
+  types (Person, Company, Deal, Opportunity, Partnership, Raise) at
+  Admin → Custom fields, and every record on those types carries a
+  `custom_fields` object over the same REST and MCP surface the UI uses.
+  Nine field types (`text`, `long_text`, `number`, `currency`, `date`,
+  `checkbox`, `select`, `multi_select`, `url`), immutable `key` and `type`
+  after create, hard delete strips values from every record in one
+  transaction, no per-record webhook flood for the strip. `PATCH` on a
+  record's `custom_fields` is a partial merge: sent keys change, `null`
+  clears a key, an unknown key is `422` with
+  `details[].field = custom_fields.<key>`, absent keys are left alone. Five
+  new MCP tools (`custom_fields_list/get/create/update/delete`) and every
+  existing record tool accepts `custom_fields` automatically. New id
+  prefix `fld_`, new entitlement `custom_fields.limit` (unlimited in open
+  source), admin-only writes, member-visible reads. Spec:
+  [`docs/custom-fields.md`](../docs/custom-fields.md).
 - **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — structured name
   parts on Person: `salutation`, `first_name`, `last_name`, and `suffix`,
   all nullable, beside the existing required `name`. `name` stays the

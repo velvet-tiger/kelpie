@@ -1,3 +1,4 @@
+import { customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -6,6 +7,7 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import type {
   CreatePartnershipInput,
   PartnershipView,
@@ -28,6 +30,7 @@ const partnershipShape = {
   person_ids: z.array(z.string().min(1)),
   summary: z.string(),
   tags: z.array(z.string().min(1)),
+  custom_fields: customFieldsPatchShape,
 }
 
 /**
@@ -49,6 +52,7 @@ export const createBody = z.strictObject({
   person_ids: partnershipShape.person_ids.default([]),
   summary: partnershipShape.summary.default(''),
   tags: partnershipShape.tags.default([]),
+  custom_fields: partnershipShape.custom_fields.default({}),
 })
 
 export const updateBody = z.strictObject(partnershipShape).partial()
@@ -70,6 +74,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreatePartnersh
     personIds: body.person_ids,
     summary: body.summary,
     tags: body.tags,
+    customFields: body.custom_fields,
   }
 }
 
@@ -88,6 +93,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePartnersh
     ...(body.person_ids === undefined ? {} : { personIds: body.person_ids }),
     ...(body.summary === undefined ? {} : { summary: body.summary }),
     ...(body.tags === undefined ? {} : { tags: body.tags }),
+    ...(body.custom_fields === undefined ? {} : { customFields: body.custom_fields }),
   }
 }
 
@@ -105,6 +111,7 @@ export function partnershipResponse(partnership: PartnershipView): Record<string
     person_ids: partnership.personIds,
     summary: partnership.summary,
     tags: partnership.tags,
+    custom_fields: renderCustomFieldsForWire(partnership.customFields),
     created_at: partnership.createdAt.toISOString(),
     updated_at: partnership.updatedAt.toISOString(),
   }

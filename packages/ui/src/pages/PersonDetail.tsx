@@ -23,6 +23,7 @@ import { Chip } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { CustomFieldsSection } from '../components/CustomFieldsSection.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
 import { RelatedPlanAttention } from '../components/PlanAttention.tsx'
@@ -416,6 +417,13 @@ function PersonSidebar({ person }: { readonly person: Person }): React.JSX.Eleme
           displayClassName="not-italic"
         />
       </SidebarField>
+      <CustomFieldsSection
+        objectType="person"
+        values={person.customFields}
+        onPatch={(customFields) => {
+          patch({ customFields })
+        }}
+      />
     </section>
   )
 }

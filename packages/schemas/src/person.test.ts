@@ -21,6 +21,7 @@ function wirePerson(overrides: Record<string, unknown> = {}): Record<string, unk
     summary: 'Analytical Engine collaborator.',
     tags: ['engineering'],
     last_contacted_at: '2026-08-01T00:00:00.000Z',
+    custom_fields: {},
     created_at: '2026-07-01T00:00:00.000Z',
     updated_at: '2026-08-01T00:00:00.000Z',
     ...overrides,
@@ -49,8 +50,31 @@ describe('personSchema', () => {
       summary: 'Analytical Engine collaborator.',
       tags: ['engineering'],
       lastContactedAt: new Date('2026-08-01T00:00:00.000Z'),
+      customFields: {},
       createdAt: new Date('2026-07-01T00:00:00.000Z'),
       updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+    })
+  })
+
+  it('parses custom_fields values by type and shapes currency to camelCase', () => {
+    const person = personSchema.parse(
+      wirePerson({
+        custom_fields: {
+          budget_owner: 'ada',
+          headcount: 12,
+          on_deck: true,
+          regions: ['emea', 'apac'],
+          budget: { amount_cents: 500000, currency: 'USD' },
+        },
+      }),
+    )
+
+    expect(person.customFields).toEqual({
+      budget_owner: 'ada',
+      headcount: 12,
+      on_deck: true,
+      regions: ['emea', 'apac'],
+      budget: { amountCents: 500000, currency: 'USD' },
     })
   })
 
@@ -138,5 +162,23 @@ describe('personBody', () => {
     })
     expect(personBody({ lastContactedAt: null })).toEqual({ last_contacted_at: null })
     expect(personBody({})).toEqual({})
+  })
+
+  it('builds custom_fields with amountCents mapped back to amount_cents', () => {
+    const body = personBody({
+      customFields: {
+        budget_owner: 'ada',
+        budget: { amountCents: 500000, currency: 'USD' },
+        headcount: null,
+      },
+    })
+
+    expect(body).toEqual({
+      custom_fields: {
+        budget_owner: 'ada',
+        budget: { amount_cents: 500000, currency: 'USD' },
+        headcount: null,
+      },
+    })
   })
 })

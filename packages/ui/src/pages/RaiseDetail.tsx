@@ -18,6 +18,7 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { CustomFieldsSection } from '../components/CustomFieldsSection.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -380,6 +381,13 @@ function RaiseSidebar({ raise }: { readonly raise: Raise }): React.JSX.Element {
           displayClassName="not-italic"
         />
       </SidebarField>
+      <CustomFieldsSection
+        objectType="raise"
+        values={raise.customFields}
+        onPatch={(customFields) => {
+          patch({ customFields })
+        }}
+      />
     </section>
   )
 }

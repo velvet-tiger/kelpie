@@ -1,3 +1,5 @@
+import type { CustomFieldWireValue } from '@kelpie/schemas'
+
 import { changedKeys } from '../../lib/changes.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
@@ -20,6 +22,7 @@ import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as companyRepository from '../companies/repository.ts'
+import type { CustomFieldValuesValidator } from '../custom-fields/values.ts'
 import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import type { PipelineStageRecord } from '../pipelines/repository.ts'
@@ -42,6 +45,7 @@ export interface DealsDependencies {
   readonly createId: IdFactory
   readonly now: () => Date
   readonly recordActivity: ActivityRecorder
+  readonly customFields: CustomFieldValuesValidator
 }
 
 /** What a changed column is called on a timeline. `whyWin` is why these are written out. */
@@ -80,6 +84,8 @@ export interface CreateDealInput {
   readonly summary: string
   readonly tags: readonly string[]
   readonly externalId: string | null
+  /** Wire shape for a create body: `null` values are ignored, non-null are validated. */
+  readonly customFields: Readonly<Record<string, CustomFieldWireValue | null>> | undefined
 }
 
 /** PATCH semantics: an absent field is left alone, and null clears a nullable one. */
@@ -99,6 +105,12 @@ export interface UpdateDealInput {
   readonly summary?: string | undefined
   readonly tags?: readonly string[] | undefined
   readonly externalId?: string | null | undefined
+  /**
+   * Partial merge patch (wire shape): sent keys change, `null` clears a key,
+   * absent keys are left alone. The whole object is undefined when the caller
+   * sent nothing at all. Unknown keys are `422`.
+   */
+  readonly customFields?: Readonly<Record<string, CustomFieldWireValue | null>> | undefined
 }
 
 export interface DealsService {
@@ -271,6 +283,12 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
       const id = dependencies.createId('deal')
 
       return dependencies.transaction(async ({ tx, events }) => {
+        const customFields = await dependencies.customFields.forCreate(
+          tx,
+          workspaceId,
+          'deal',
+          input.customFields,
+        )
         const created = await repository.insertDeal(tx, {
           id,
           workspaceId,
@@ -287,6 +305,7 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
           summary: input.summary,
           tags: [...input.tags],
           externalId: input.externalId,
+          customFields,
         })
 
         await personLinks.linkPeople(
@@ -352,16 +371,26 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
       const named = await requirePeople(workspaceId, [...added, ...removed])
 
       const columns = toStoredColumns(changes)
-      const changed = changedKeys(existing, columns)
+      const scalarChanged = changedKeys(existing, columns)
       const linksChanged = added.length > 0 || removed.length > 0
 
-      if (changed.length === 0 && !linksChanged) {
-        return toView(existing, currentPeople)
-      }
-
       return dependencies.transaction(async ({ tx, events }) => {
+        const cf = await dependencies.customFields.forUpdate(
+          tx,
+          workspaceId,
+          'deal',
+          existing.customFields,
+          changes.customFields,
+        )
+        const customFieldsChanged = cf !== undefined && cf.changedPaths.length > 0
+
+        if (scalarChanged.length === 0 && !linksChanged && !customFieldsChanged) {
+          return toView(existing, currentPeople)
+        }
+
         const updated = await repository.updateDeal(tx, workspaceId, id, {
           ...columns,
+          ...(customFieldsChanged ? { customFields: cf.merged } : {}),
           updatedAt: dependencies.now(),
         })
 
@@ -392,14 +421,19 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
           })
         }
 
-        const otherChanged = changed.filter((field) => field !== 'stageId')
+        const otherChanged = scalarChanged.filter((field) => field !== 'stageId')
+        const customFieldPaths = cf?.changedPaths ?? []
+        const activityChanged = [...otherChanged, ...customFieldPaths]
 
-        if (otherChanged.length > 0) {
+        if (activityChanged.length > 0) {
+          const labels: Record<string, string> = { ...DEAL_FIELD_LABELS, ...cf?.labels }
+          const before: Record<string, unknown> = { ...existing, ...cf?.flatBefore }
+          const after: Record<string, unknown> = { ...columns, ...cf?.flatAfter }
           await dependencies.recordActivity(tx, workspaceId, actor, {
             targetType: 'deal',
             targetId: id,
             kind: 'updated',
-            ...describeUpdate(otherChanged, DEAL_FIELD_LABELS, existing, columns),
+            ...describeUpdate(activityChanged, labels, before, after),
           })
         }
 
@@ -427,7 +461,13 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
         events.emit(
           'deals.deal.updated',
           { type: 'deal', id },
-          { changed: linksChanged ? [...changed, 'personIds'] : changed },
+          {
+            changed: [
+              ...scalarChanged,
+              ...(linksChanged ? ['personIds'] : []),
+              ...customFieldPaths,
+            ],
+          },
         )
 
         if (stageMove !== undefined) {

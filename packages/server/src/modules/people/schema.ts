@@ -4,7 +4,7 @@ import {
   PREFERRED_CHANNELS,
   RELATIONSHIP_LEVELS,
 } from '@kelpie/schemas'
-import type { SocialProfile } from '@kelpie/schemas'
+import type { CustomFieldValue, SocialProfile } from '@kelpie/schemas'
 import { index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
 import {
@@ -80,6 +80,14 @@ export const people = pgTable(
     summary: text('summary').notNull().default(''),
     tags: text('tags').array().notNull().default([]),
     lastContactedAt: moment('last_contacted_at'),
+    // Workspace-defined fields, keyed by definition key. The custom-fields
+    // service validates every key on write; the store here just carries the
+    // shape. Default `{}` mirrors `tags`'s default — the object is always
+    // present, never null.
+    customFields: jsonb('custom_fields')
+      .$type<Readonly<Record<string, CustomFieldValue>>>()
+      .notNull()
+      .default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     // Their title is not here because it is not on this table. `GET /v1/search`

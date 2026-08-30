@@ -1,5 +1,6 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { createCustomFieldValues } from '../custom-fields/index.ts'
 import { dealsEvents } from './events.ts'
 import { mountDealsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
@@ -12,12 +13,13 @@ import { registerDealsTools } from './tools.ts'
  * Requires its relations because creating one checks that the company, stage,
  * owner, and people are all in the caller's workspace before linking them, and
  * `activities` because every write leaves its timeline entry in the same
- * transaction.
+ * transaction. Also requires `custom-fields` so the validator is present when
+ * this service constructs.
  */
 export function createDealsModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'deals',
-    requires: ['companies', 'people', 'pipelines', 'activities'],
+    requires: ['companies', 'people', 'pipelines', 'activities', 'custom-fields'],
     events: dealsEvents,
 
     register(context) {
@@ -30,6 +32,7 @@ export function createDealsModule(migrationsDirectory: string): KelpieModule {
           createId: context.createId,
           now: context.now,
         }),
+        customFields: createCustomFieldValues({ db: context.db }),
       })
 
       context.schema(schema, migrationsDirectory)

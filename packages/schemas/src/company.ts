@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { customFieldValuesBody, customFieldValuesSchema } from './customField.ts'
+import type { CustomFieldValue, CustomFieldValues } from './customField.ts'
 import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from './values.ts'
 import type { AccountType, CompanyStage, IcpFit, SizeBand } from './values.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
@@ -24,6 +26,8 @@ export interface Company extends RecordTimestamps {
   readonly tags: readonly string[]
   /** True when this Company represents the workspace itself ("us"). */
   readonly isOwn: boolean
+  /** Workspace-defined fields, keyed by definition key. Always present (default `{}`). */
+  readonly customFields: CustomFieldValues
 }
 
 export const companySchema: z.ZodType<Company, unknown> = z
@@ -43,6 +47,7 @@ export const companySchema: z.ZodType<Company, unknown> = z
     summary: z.string(),
     tags: z.array(z.string()),
     is_own: z.boolean(),
+    custom_fields: customFieldValuesSchema,
     ...recordTimestamps,
   })
   .transform(
@@ -62,6 +67,7 @@ export const companySchema: z.ZodType<Company, unknown> = z
       summary: wire.summary,
       tags: wire.tags,
       isOwn: wire.is_own,
+      customFields: wire.custom_fields,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),
@@ -82,6 +88,11 @@ export interface CompanyInput {
   readonly summary?: string
   readonly tags?: readonly string[]
   readonly isOwn?: boolean
+  /**
+   * Partial merge patch: sent keys change, `null` clears a key, absent keys are
+   * left alone. Unknown keys are rejected at `422`.
+   */
+  readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>
 }
 
 export function companyBody(input: CompanyInput): Record<string, unknown> {
@@ -100,5 +111,7 @@ export function companyBody(input: CompanyInput): Record<string, unknown> {
     summary: input.summary,
     tags: input.tags,
     is_own: input.isOwn,
+    custom_fields:
+      input.customFields === undefined ? undefined : customFieldValuesBody(input.customFields),
   })
 }

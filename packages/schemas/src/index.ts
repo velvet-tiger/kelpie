@@ -24,6 +24,11 @@ export {
   CANDIDATE_STATUS_LABELS,
   CANDIDATE_STATUSES,
   COMPANY_STAGES,
+  CUSTOM_FIELD_OBJECT_TYPE_LABELS,
+  CUSTOM_FIELD_OBJECT_TYPES,
+  CUSTOM_FIELD_TYPE_LABELS,
+  CUSTOM_FIELD_TYPES,
+  CUSTOM_FIELD_TYPES_WITH_OPTIONS,
   EXTENSIBLE_RECORD_TYPES,
   FIRST_INTERVIEW_STAGE,
   FORM_ACTION_STATUSES,
@@ -72,6 +77,9 @@ export type {
   ApiKeyKind,
   CandidateStatus,
   CompanyStage,
+  CustomFieldObjectType,
+  CustomFieldType,
+  CustomFieldTypeWithOptions,
   ExtensibleRecordType,
   FormActionStatus,
   FormFieldMapTarget,
@@ -102,6 +110,24 @@ export type {
 
 export { definedFields, idSchema, nullableTimestampSchema, timestampSchema } from './wire.ts'
 export type { RecordTimestamps } from './wire.ts'
+
+export {
+  createCustomFieldDefinitionBody,
+  customFieldDefinitionBody,
+  customFieldDefinitionSchema,
+  customFieldValuesBody,
+  customFieldValuesSchema,
+  customFieldWireValue,
+  customFieldsPatchShape,
+} from './customField.ts'
+export type {
+  CreateCustomFieldDefinitionInput,
+  CustomFieldDefinition,
+  CustomFieldDefinitionInput,
+  CustomFieldValue,
+  CustomFieldValues,
+  CustomFieldWireValue,
+} from './customField.ts'
 
 export {
   eventActorSchema,

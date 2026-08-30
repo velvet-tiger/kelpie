@@ -1,5 +1,6 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { createCustomFieldValues } from '../custom-fields/index.ts'
 import { opportunitiesEvents } from './events.ts'
 import { mountOpportunitiesRoutes } from './routes.ts'
 import * as schema from './schema.ts'
@@ -17,7 +18,7 @@ import { registerOpportunitiesTools } from './tools.ts'
 export function createOpportunitiesModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'opportunities',
-    requires: ['companies', 'pipelines', 'activities'],
+    requires: ['companies', 'pipelines', 'activities', 'custom-fields'],
     events: opportunitiesEvents,
 
     register(context) {
@@ -30,6 +31,7 @@ export function createOpportunitiesModule(migrationsDirectory: string): KelpieMo
           createId: context.createId,
           now: context.now,
         }),
+        customFields: createCustomFieldValues({ db: context.db }),
       })
 
       context.schema(schema, migrationsDirectory)
