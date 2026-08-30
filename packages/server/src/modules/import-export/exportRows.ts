@@ -59,6 +59,10 @@ export function companyCells(row: ExportCompanyRow): readonly string[] {
 export function personCells(row: ExportPersonRow): readonly string[] {
   return [
     row.name,
+    row.salutation ?? '',
+    row.firstName ?? '',
+    row.lastName ?? '',
+    row.suffix ?? '',
     row.email ?? '',
     row.timezone ?? '',
     row.location ?? '',

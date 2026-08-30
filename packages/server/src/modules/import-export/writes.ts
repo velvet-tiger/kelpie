@@ -221,6 +221,9 @@ async function writePerson(
       tags: write.draft.tags === undefined ? undefined : [...write.draft.tags],
       id: dependencies.createId('person'),
       workspaceId,
+      // `name` is not a required column any more; the People row check is what
+      // guarantees one, from the row's own `name` or composed from its first and
+      // last name cells. A row reaching here without one never passed validation.
       name: write.draft.name ?? '',
     })
 

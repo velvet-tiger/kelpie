@@ -27,7 +27,12 @@ export const SOURCE_PRESETS: Readonly<Record<ImportSource, SourcePreset>> = {
       description: 'Description',
     },
     people: {
+      // Both, because a HubSpot contact export carries the parts and often no
+      // full name at all. A preset header the file does not have falls through
+      // to the exact-key match below, so mapping all three costs a file nothing.
       name: 'Full Name',
+      first_name: 'First Name',
+      last_name: 'Last Name',
       email: 'Email',
       phones: 'Phone Number',
       location: 'City',
@@ -59,10 +64,15 @@ export const SOURCE_PRESETS: Readonly<Record<ImportSource, SourcePreset>> = {
     },
     people: {
       name: 'Full Name',
+      salutation: 'Salutation',
+      first_name: 'First Name',
+      last_name: 'Last Name',
       email: 'Email',
       phones: 'Phone',
       location: 'Mailing City',
       company_name: 'Account Name',
+      // Salesforce's Contact.Title is the job title, and a job title is a
+      // Position. It is not this object's `suffix`, which stays unmapped.
       title: 'Title',
     },
     positions: {

@@ -111,6 +111,8 @@ export {
 } from './events.ts'
 export type { EventActor, EventTarget, KelpieEvent, UpdateEventData } from './events.ts'
 
+export { composeName } from './names.ts'
+export type { NameParts } from './names.ts'
 export { personBody, personSchema } from './person.ts'
 export type { Person, PersonInput, SocialProfile } from './person.ts'
 

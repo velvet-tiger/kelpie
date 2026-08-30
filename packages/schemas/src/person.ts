@@ -19,7 +19,19 @@ export interface SocialProfile {
 
 export interface Person extends RecordTimestamps {
   readonly id: string
+  /**
+   * What to call this person: the canonical display string, and the only name
+   * field every consumer reads. The parts below are optional detail beside it,
+   * never a replacement for it, so a mononym and a four-part name are both just
+   * a `name`.
+   */
   readonly name: string
+  /** A form of address — "Dr", "Ms". Not a job title: that is on Position. */
+  readonly salutation: string | null
+  readonly firstName: string | null
+  readonly lastName: string | null
+  /** A generational or post-nominal suffix — "Jr", "III", "PhD". */
+  readonly suffix: string | null
   readonly email: string | null
   readonly phones: readonly string[]
   readonly socialProfiles: readonly SocialProfile[]
@@ -42,6 +54,10 @@ export const personSchema: z.ZodType<Person, unknown> = z
   .object({
     id: idSchema,
     name: z.string(),
+    salutation: z.string().nullable(),
+    first_name: z.string().nullable(),
+    last_name: z.string().nullable(),
+    suffix: z.string().nullable(),
     email: z.string().nullable(),
     phones: z.array(z.string()),
     social_profiles: z.array(socialProfileSchema),
@@ -59,6 +75,10 @@ export const personSchema: z.ZodType<Person, unknown> = z
     (wire): Person => ({
       id: wire.id,
       name: wire.name,
+      salutation: wire.salutation,
+      firstName: wire.first_name,
+      lastName: wire.last_name,
+      suffix: wire.suffix,
       email: wire.email,
       phones: wire.phones,
       socialProfiles: wire.social_profiles,
@@ -78,10 +98,15 @@ export const personSchema: z.ZodType<Person, unknown> = z
 /**
  * A create or update body. Every field is optional because `POST` defaults all
  * but `name` server-side and `PATCH` sends only what changed; `name` is required
- * on create by the route, not by this type.
+ * on create by the route, not by this type — and a create may send `first_name`
+ * and `last_name` instead, which the route composes a `name` from.
  */
 export interface PersonInput {
   readonly name?: string
+  readonly salutation?: string | null
+  readonly firstName?: string | null
+  readonly lastName?: string | null
+  readonly suffix?: string | null
   readonly email?: string | null
   readonly phones?: readonly string[]
   readonly socialProfiles?: readonly SocialProfile[]
@@ -98,6 +123,10 @@ export interface PersonInput {
 export function personBody(input: PersonInput): Record<string, unknown> {
   return definedFields({
     name: input.name,
+    salutation: input.salutation,
+    first_name: input.firstName,
+    last_name: input.lastName,
+    suffix: input.suffix,
     email: input.email,
     phones: input.phones,
     social_profiles: input.socialProfiles,

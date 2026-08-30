@@ -134,6 +134,37 @@ describe('readIntent', () => {
     expect(intent?.personName).toBe('alex')
   })
 
+  it('composes the name from a first and last name pair, which most forms ask for', () => {
+    const intent = readIntent({
+      'person.email': 'alex@example.com',
+      'person.first_name': 'Alex',
+      'person.last_name': 'Rivera',
+    })
+
+    expect(intent?.personName).toBe('Alex Rivera')
+    // Kept as parts too, so the Person carries them rather than only the
+    // sentence they were joined into.
+    expect(intent?.personFirstName).toBe('Alex')
+    expect(intent?.personLastName).toBe('Rivera')
+  })
+
+  it('composes from a first name alone rather than falling back to the address', () => {
+    const intent = readIntent({ 'person.email': 'alex@example.com', 'person.first_name': 'Alex' })
+
+    expect(intent?.personName).toBe('Alex')
+  })
+
+  it('prefers a whole name answer over the parts when the form asked for both', () => {
+    const intent = readIntent({
+      'person.email': 'alex@example.com',
+      'person.name': 'Alex Rivera-Nakamura',
+      'person.first_name': 'Alex',
+      'person.last_name': 'Rivera',
+    })
+
+    expect(intent?.personName).toBe('Alex Rivera-Nakamura')
+  })
+
   it('normalises the address', () => {
     const intent = readIntent({ 'person.email': '  Alex@Example.COM ' })
 
@@ -204,6 +235,8 @@ describe('companyNameFrom', () => {
   const base = {
     email: 'a@b.com',
     personName: 'a',
+    personFirstName: undefined,
+    personLastName: undefined,
     positionTitle: undefined,
     dealName: undefined,
     opportunityName: undefined,

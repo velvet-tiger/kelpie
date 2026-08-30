@@ -144,6 +144,7 @@ export function PersonDetail(): React.JSX.Element {
         </div>
 
         <aside className="space-y-4 text-[12px] lg:sticky lg:top-6">
+          <PersonNameParts person={record} />
           <PersonSidebar person={record} />
           <PersonPositions person={record} />
         </aside>
@@ -296,6 +297,46 @@ function PersonHiring({
           </li>
         ))}
       </ul>
+    </section>
+  )
+}
+
+/**
+ * The parts of the name, beside the name itself rather than instead of it.
+ *
+ * Editing one of these does not rename the record: the heading is `name`, and
+ * `name` is only ever what somebody put there. Both halves are on this page at
+ * once so that is visible rather than surprising — a first name corrected here
+ * leaves the heading alone, and the heading is one click away when it should
+ * change too.
+ */
+function PersonNameParts({ person }: { readonly person: Person }): React.JSX.Element {
+  const { patch, error } = usePersonPatch(person)
+  const fields = [
+    { label: 'Salutation', value: person.salutation, key: 'salutation' },
+    { label: 'First name', value: person.firstName, key: 'firstName' },
+    { label: 'Last name', value: person.lastName, key: 'lastName' },
+    { label: 'Suffix', value: person.suffix, key: 'suffix' },
+  ] as const
+
+  return (
+    <section className="rounded-md border border-border p-3">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
+      {fields.map((field) => (
+        <SidebarField key={field.key} label={field.label}>
+          <InlineEdit
+            value={field.value ?? ''}
+            onChange={(next) => {
+              patch({ [field.key]: next.length > 0 ? next : null })
+            }}
+            displayClassName="not-italic normal-case text-[12px]"
+          />
+        </SidebarField>
+      ))}
     </section>
   )
 }

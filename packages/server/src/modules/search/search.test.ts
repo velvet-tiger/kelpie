@@ -178,6 +178,16 @@ describe.skipIf(connectionString === undefined)('search', () => {
       expect(titles(await search('q=warm-intro'), 'person')).toEqual(['Ada Lovelace'])
     })
 
+    it('finds a person by a name part they are not displayed under', async () => {
+      // The point of storing the parts: the display name is what the team calls
+      // her, and the surname is only in `last_name`. Searching a surname and
+      // finding nobody is what this is here to stop.
+      await createPerson('Kit', { first_name: 'Katherine', last_name: 'Johnson' })
+
+      expect(titles(await search('q=johnson'), 'person')).toEqual(['Kit'])
+      expect(titles(await search('q=katherine'), 'person')).toEqual(['Kit'])
+    })
+
     it('matches a partial word, because a search box is typed into', async () => {
       await createCompany('Acme Corporation')
 

@@ -44,6 +44,11 @@ export const MCP_INSTRUCTIONS = [
   '- The handbook holds voice, ICP, and how this company sells. Read handbook_pages_list',
   '  before writing anything a customer will see.',
   '- A job title belongs to a position, not a person. A person may hold several.',
+  '- A person has one name, which is what to call them and what every list shows.',
+  '  first_name, last_name, salutation and suffix are optional detail beside it. Send',
+  '  the parts when you know them; people_create composes a name from first_name and',
+  '  last_name when you send no name. Never split a name into parts yourself, and note',
+  '  that changing a part does not rename the person — send name to do that.',
   '- Next steps are plan_items with a date and an owner, not prose in a summary field.',
 ].join('\n')
 

@@ -58,6 +58,14 @@ export const people = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    // The canonical display name is `name`, and it is the only one of these that
+    // is required. The parts are recorded when they are known and left null when
+    // they are not; nothing composes them back into `name` after the row exists,
+    // so an edit to one never renames the record behind the editor's back.
+    salutation: text('salutation'),
+    firstName: text('first_name'),
+    lastName: text('last_name'),
+    suffix: text('suffix'),
     email: citext('email'),
     phones: jsonb('phones').$type<readonly string[]>().notNull().default([]),
     socialProfiles: jsonb('social_profiles')
@@ -78,6 +86,12 @@ export const people = pgTable(
     // reaches it through `positions.search_vector`.
     searchVector: searchVector((): readonly SearchVectorPart[] => [
       { column: people.name, weight: 'A' },
+      // The parts carry the same weight as the display name: they exist so a
+      // person can be found by a name they are not displayed under, and finding
+      // them is the whole point of storing them. `salutation` and `suffix` are
+      // left out — "Dr" and "Jr" match half a workspace and narrow nothing.
+      { column: people.firstName, weight: 'A' },
+      { column: people.lastName, weight: 'A' },
       { column: people.email, weight: 'B' },
       { column: people.summary, weight: 'B' },
       { column: people.tags, weight: 'C', array: true },

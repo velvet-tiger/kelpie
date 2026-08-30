@@ -63,6 +63,16 @@ describe.skipIf(connectionString === undefined)('people', () => {
     return readRecord(await response.json())
   }
 
+  async function patchPerson(id: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await client.send('PATCH', `/v1/people/${id}`, { body, cookie: acme.cookie })
+
+    if (response.status !== 200) {
+      throw new Error(`Patching a person answered ${String(response.status)}: ${await response.text()}`)
+    }
+
+    return readRecord(await response.json())
+  }
+
   async function createCompany(name: string, extra: Record<string, unknown> = {}): Promise<string> {
     const response = await client.send('POST', '/v1/companies', {
       body: { name, ...extra },
@@ -211,6 +221,94 @@ describe.skipIf(connectionString === undefined)('people', () => {
     })
   })
 
+  /**
+   * `name` is the canonical display string and the parts are optional detail
+   * beside it. Composition runs one way and only on the way in.
+   */
+  describe('names', () => {
+    it('defaults every part to null, because an unknown part is not an empty one', async () => {
+      const person = await createPerson({ name: 'Prince' })
+
+      expect(person.salutation).toBeNull()
+      expect(person.first_name).toBeNull()
+      expect(person.last_name).toBeNull()
+      expect(person.suffix).toBeNull()
+    })
+
+    it('keeps the parts it was given, without touching the name', async () => {
+      const person = await createPerson({
+        name: 'Kit Johnson',
+        salutation: 'Dr',
+        first_name: 'Katherine',
+        last_name: 'Johnson',
+        suffix: 'PhD',
+      })
+
+      expect(person.name).toBe('Kit Johnson')
+      expect(person.salutation).toBe('Dr')
+      expect(person.first_name).toBe('Katherine')
+      expect(person.last_name).toBe('Johnson')
+      expect(person.suffix).toBe('PhD')
+    })
+
+    it('composes a name from the parts when the create sent none', async () => {
+      const person = await createPerson({ first_name: 'Ada', last_name: 'Lovelace' })
+
+      expect(person.name).toBe('Ada Lovelace')
+      expect(person.first_name).toBe('Ada')
+    })
+
+    it('composes from one part alone, and leaves the salutation out of it', async () => {
+      expect((await createPerson({ last_name: 'Lovelace' })).name).toBe('Lovelace')
+      // "Dr Ada Lovelace" is a form of address, not what a list of people shows.
+      const doctor = await createPerson({
+        salutation: 'Dr',
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        email: 'ada2@example.com',
+      })
+
+      expect(doctor.name).toBe('Ada Lovelace')
+    })
+
+    it('refuses a create carrying neither a name nor a part, and says which field', async () => {
+      const response = await client.send('POST', '/v1/people', {
+        body: { salutation: 'Dr' },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(422)
+      expect(readRecord(readRecord(await response.json()).error).details).toEqual([
+        { field: 'name', message: 'Send a name, or a first_name or last_name to compose one from' },
+      ])
+    })
+
+    it('does not rename the person when a part is patched', async () => {
+      const person = await createPerson({ name: 'Kit', first_name: 'Katherine' })
+      const updated = await patchPerson(readString(person, 'id'), { first_name: 'Katharine' })
+
+      // Someone chose "Kit". Recomputing the name from a part would undo that
+      // choice from across the room, so a rename is `name` and nothing else.
+      expect(updated.first_name).toBe('Katharine')
+      expect(updated.name).toBe('Kit')
+    })
+
+    it('clears a part with null', async () => {
+      const person = await createPerson({ name: 'Ada Lovelace', suffix: 'Jr' })
+      const updated = await patchPerson(readString(person, 'id'), { suffix: null })
+
+      expect(updated.suffix).toBeNull()
+      expect(updated.name).toBe('Ada Lovelace')
+    })
+
+    it('never splits a name into parts', async () => {
+      const person = await createPerson({ name: 'Ursula K. Le Guin' })
+
+      expect(person.first_name).toBeNull()
+      expect(person.last_name).toBeNull()
+    })
+  })
+
   describe('reading', () => {
     it('answers 401 without credentials', async () => {
       expect((await client.send('GET', '/v1/people')).status).toBe(401)
@@ -287,6 +385,24 @@ describe.skipIf(connectionString === undefined)('people', () => {
       expect(await matching('compiler')).toEqual(['Grace Hopper'])
       expect(await matching('crypto')).toEqual(['Alan Turing'])
       expect(await matching('nobody')).toEqual([])
+    })
+
+    it('matches a first or last name the display name does not carry', async () => {
+      await createPerson({ name: 'Kit', first_name: 'Katherine', last_name: 'Johnson' })
+      await createPerson({ name: 'Someone Else', email: 'else@example.com' })
+
+      const matching = async (term: string): Promise<string[]> => {
+        const response = await client.send('GET', `/v1/people?q=${encodeURIComponent(term)}`, {
+          cookie: acme.cookie,
+        })
+
+        return readList(await response.json()).map((person) => String(person.name))
+      }
+
+      // The same two parts `search_vector` carries, so this list and the
+      // workspace search agree about who "johnson" is.
+      expect(await matching('johnson')).toEqual(['Kit'])
+      expect(await matching('katherine')).toEqual(['Kit'])
     })
 
     it('matches a position title and the company name behind it', async () => {

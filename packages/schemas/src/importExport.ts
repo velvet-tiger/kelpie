@@ -133,6 +133,14 @@ export interface CsvColumn {
  * still carry `company_domain`, `company_name` and `title`, which drive a
  * Position for the person rather than a field on them. Those three are
  * `importOnly`, so an export and a template leave them out.
+ *
+ * A People row still has to name its person, but `name` is not marked `required`
+ * here: the row satisfies it with `name`, or with `first_name` / `last_name` for
+ * the name to be composed from. `required` is a per-column flag and that is a
+ * statement about a pair of them, so the rule lives in the People row check
+ * instead. Every CRM worth migrating from exports first and last name in their
+ * own columns and most export no full name at all, which is the case this
+ * exists for.
  */
 export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>> = {
   companies: [
@@ -150,7 +158,11 @@ export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>
     { key: 'hq', label: 'HQ', required: false },
   ],
   people: [
-    { key: 'name', label: 'Name', required: true },
+    { key: 'name', label: 'Name', required: false },
+    { key: 'salutation', label: 'Salutation', required: false },
+    { key: 'first_name', label: 'First name', required: false },
+    { key: 'last_name', label: 'Last name', required: false },
+    { key: 'suffix', label: 'Suffix', required: false },
     { key: 'email', label: 'Email', required: true },
     { key: 'timezone', label: 'Timezone', required: false },
     { key: 'location', label: 'Location', required: false },

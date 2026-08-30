@@ -54,6 +54,10 @@ export interface PeopleDependencies {
  */
 const PERSON_FIELD_LABELS: FieldLabels = {
   name: 'Name',
+  salutation: 'Salutation',
+  firstName: 'First name',
+  lastName: 'Last name',
+  suffix: 'Suffix',
   email: 'Email',
   phones: 'Phone numbers',
   socialProfiles: 'Social profiles',
@@ -76,7 +80,12 @@ const PERSON_FIELD_LABELS: FieldLabels = {
 export type PersonView = Omit<PersonRecord, 'workspaceId'>
 
 export interface CreatePersonInput {
+  /** Already resolved. The route composes one from the parts when the caller sent none. */
   readonly name: string
+  readonly salutation: string | null
+  readonly firstName: string | null
+  readonly lastName: string | null
+  readonly suffix: string | null
   readonly email: string | null
   readonly phones: readonly string[]
   readonly socialProfiles: readonly SocialProfile[]
@@ -115,6 +124,10 @@ function toView(record: PersonRecord): PersonView {
 function toStoredColumns(input: UpdatePersonInput): Partial<repository.PersonColumns> {
   return {
     ...(input.name === undefined ? {} : { name: input.name }),
+    ...(input.salutation === undefined ? {} : { salutation: input.salutation }),
+    ...(input.firstName === undefined ? {} : { firstName: input.firstName }),
+    ...(input.lastName === undefined ? {} : { lastName: input.lastName }),
+    ...(input.suffix === undefined ? {} : { suffix: input.suffix }),
     ...(input.email === undefined ? {} : { email: input.email === null ? null : normaliseEmail(input.email) }),
     ...(input.phones === undefined ? {} : { phones: input.phones }),
     ...(input.socialProfiles === undefined ? {} : { socialProfiles: input.socialProfiles }),
@@ -174,6 +187,10 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
               id,
               workspaceId,
               name: input.name,
+              salutation: input.salutation,
+              firstName: input.firstName,
+              lastName: input.lastName,
+              suffix: input.suffix,
               email: input.email === null ? null : normaliseEmail(input.email),
               phones: input.phones,
               socialProfiles: input.socialProfiles,

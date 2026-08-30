@@ -217,6 +217,18 @@ function RecordLink({
 }
 
 /**
+ * Every target whose answer the row already shows in its own column: the Person
+ * link. A form asks for a name as one box or as a first and last pair, and
+ * either way the answers are what the Person column is already displaying.
+ */
+const PERSON_COLUMN_TARGETS: ReadonlySet<string> = new Set([
+  'person.name',
+  'person.first_name',
+  'person.last_name',
+  'person.email',
+])
+
+/**
  * The first two answers that are not already a column.
  *
  * Name and email are the Person link, so repeating them would spend the row's
@@ -225,7 +237,7 @@ function RecordLink({
  */
 function summarise(form: Form, submission: FormSubmission): string {
   const parts = form.fields
-    .filter((field) => field.mapTo !== 'person.name' && field.mapTo !== 'person.email')
+    .filter((field) => !PERSON_COLUMN_TARGETS.has(field.mapTo))
     .map((field) => {
       const answer = submission.answers[field.id]
 

@@ -1,3 +1,5 @@
+import { composeName } from '@kelpie/schemas'
+
 import type { ErrorDetail } from '../../lib/errors.ts'
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
 import type { FormFieldRecord } from './repository.ts'
@@ -29,8 +31,15 @@ export type MappedAnswers = Partial<Record<FormFieldMapTarget, string>>
 export interface SubmitIntent {
   /** Normalised. The one value a submit cannot proceed without. */
   readonly email: string
-  /** The name given, or the part of the address before the `@` when none was. */
+  /**
+   * The name given, the one composed from the first and last name answers, or —
+   * when the form asked for no name at all — the part of the address before the
+   * `@`.
+   */
   readonly personName: string
+  /** The `person.first_name` answer only. Never split out of `personName`. */
+  readonly personFirstName: string | undefined
+  readonly personLastName: string | undefined
   readonly companyName: string | undefined
   /** The `company.domain` answer only. Never derived from the address; see `resolveDomain`. */
   readonly companyDomain: string | undefined
@@ -148,9 +157,23 @@ export function readIntent(mapped: MappedAnswers): SubmitIntent | undefined {
     return undefined
   }
 
+  const firstName = mapped['person.first_name']
+  const lastName = mapped['person.last_name']
+  // A form that asks for a first and last name rather than one name box is the
+  // common arrangement, so the pair composes the display name. The address's
+  // local part stays the last resort it always was, for a form that asks for
+  // neither.
+  const composed = composeName({ firstName, lastName })
+
   return {
     email,
-    personName: mapped['person.name'] ?? email.split('@')[0] ?? email,
+    personName:
+      mapped['person.name'] ??
+      (composed.length > 0 ? composed : undefined) ??
+      email.split('@')[0] ??
+      email,
+    personFirstName: firstName,
+    personLastName: lastName,
     companyName: mapped['company.name'],
     companyDomain: resolveDomain(mapped),
     positionTitle: mapped['position.title'],

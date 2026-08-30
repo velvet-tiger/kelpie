@@ -487,6 +487,10 @@ export function readCompanies(
 export interface ExportPersonRow {
   readonly id: string
   readonly name: string
+  readonly salutation: string | null
+  readonly firstName: string | null
+  readonly lastName: string | null
+  readonly suffix: string | null
   readonly email: string | null
   readonly timezone: string | null
   readonly location: string | null
@@ -507,6 +511,10 @@ export function readPeople(
     .select({
       id: people.id,
       name: people.name,
+      salutation: people.salutation,
+      firstName: people.firstName,
+      lastName: people.lastName,
+      suffix: people.suffix,
       email: people.email,
       timezone: people.timezone,
       location: people.location,

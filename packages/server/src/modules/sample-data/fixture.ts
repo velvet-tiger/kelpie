@@ -34,6 +34,14 @@ export interface FixtureCompany {
 export interface FixturePerson {
   readonly key: string
   readonly name: string
+  /**
+   * Filled for every sample person so the sample workspace shows the parts
+   * carrying real values rather than a column of dashes. `salutation` and
+   * `suffix` are left out: neither is on anybody here, and inventing one for the
+   * sake of the demo would put a title on a person who does not use it.
+   */
+  readonly firstName: string
+  readonly lastName: string
   readonly email: string | null
   readonly location: string | null
   readonly preferredChannel: PreferredChannel
@@ -269,6 +277,8 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
     {
       key: 'ada',
       name: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
       email: 'ada@northwind.dev',
       location: 'Melbourne, AU',
       preferredChannel: 'email',
@@ -280,6 +290,8 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
     {
       key: 'grace',
       name: 'Grace Hopper',
+      firstName: 'Grace',
+      lastName: 'Hopper',
       email: 'grace@northwind.dev',
       location: 'Melbourne, AU',
       preferredChannel: 'email',
@@ -291,6 +303,8 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
     {
       key: 'tom',
       name: 'Tom Anderson',
+      firstName: 'Tom',
+      lastName: 'Anderson',
       email: 'tom@globex.example',
       location: 'Sydney, AU',
       preferredChannel: 'call',
@@ -302,6 +316,8 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
     {
       key: 'peter',
       name: 'Peter Gibbons',
+      firstName: 'Peter',
+      lastName: 'Gibbons',
       email: 'peter@initech.example',
       location: 'Brisbane, AU',
       preferredChannel: 'email',
@@ -313,6 +329,8 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
     {
       key: 'gavin',
       name: 'Gavin Belson',
+      firstName: 'Gavin',
+      lastName: 'Belson',
       email: 'gavin@hooli.example',
       location: 'Perth, AU',
       preferredChannel: 'linkedin',
@@ -324,6 +342,8 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
     {
       key: 'roelof',
       name: 'Roelof Nkosi',
+      firstName: 'Roelof',
+      lastName: 'Nkosi',
       email: 'roelof@southerncross.example',
       location: 'Sydney, AU',
       preferredChannel: 'email',
@@ -335,6 +355,8 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
     {
       key: 'mei',
       name: 'Mei Zhang',
+      firstName: 'Mei',
+      lastName: 'Zhang',
       email: 'mei@sandbox.example',
       location: 'Melbourne, AU',
       preferredChannel: 'email',
@@ -346,6 +368,8 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
     {
       key: 'charlotte',
       name: 'Charlotte Rivera',
+      firstName: 'Charlotte',
+      lastName: 'Rivera',
       email: 'charlotte@example.com',
       location: 'Melbourne, AU',
       preferredChannel: 'email',
@@ -357,6 +381,8 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
     {
       key: 'omar',
       name: 'Omar Haddad',
+      firstName: 'Omar',
+      lastName: 'Haddad',
       email: 'omar@example.com',
       location: 'Sydney, AU',
       preferredChannel: 'email',

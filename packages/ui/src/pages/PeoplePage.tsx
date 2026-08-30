@@ -29,6 +29,14 @@ const DEFAULT_VISIBLE_KEYS: readonly string[] = ['name', 'email', 'phones', 'com
 /** The sort fields `/v1/people` accepts. Anything else is a client-only sort. */
 const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
 
+/** Written out because "Firstname" is what deriving these from the key would give. */
+const NAME_PART_HEADERS = {
+  salutation: 'Salutation',
+  firstName: 'First name',
+  lastName: 'Last name',
+  suffix: 'Suffix',
+} as const
+
 /**
  * The People list.
  *
@@ -65,6 +73,18 @@ export function PeoplePage(): React.JSX.Element {
       sortKey: 'name',
       render: (person) => <span className="font-medium text-ink">{person.name}</span>,
     },
+    // Hidden by default, and sorted page-locally rather than by the server: the
+    // parts are nullable, and `?sort=` is keyset paged, which cannot seek past a
+    // null. The catalog carries them so a workspace that imported them can put
+    // them back through the Columns picker.
+    ...(['salutation', 'firstName', 'lastName', 'suffix'] as const).map(
+      (key): Column<Person> => ({
+        key,
+        header: NAME_PART_HEADERS[key],
+        getSortValue: (person) => person[key],
+        render: (person) => person[key] ?? '—',
+      }),
+    ),
     {
       key: 'position',
       header: 'Position',

@@ -66,6 +66,11 @@ function matchesTerm(term: string): SQL | undefined {
 
   return or(
     ilike(people.name, pattern),
+    // The same two parts `search_vector` carries, so filtering this list and
+    // searching the workspace find a person by their surname alike. Salutation
+    // and suffix are in neither: "Dr" matches half a workspace.
+    ilike(people.firstName, pattern),
+    ilike(people.lastName, pattern),
     ilike(people.email, pattern),
     ilike(people.summary, pattern),
     arrayContainsPattern(people.tags, pattern),

@@ -190,6 +190,8 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
               id,
               workspaceId,
               name: record.name,
+              firstName: record.firstName,
+              lastName: record.lastName,
               email: record.email,
               location: record.location,
               preferredChannel: record.preferredChannel,

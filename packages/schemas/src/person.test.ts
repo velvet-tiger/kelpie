@@ -6,6 +6,10 @@ function wirePerson(overrides: Record<string, unknown> = {}): Record<string, unk
   return {
     id: 'person_01hx',
     name: 'Ada Lovelace',
+    salutation: null,
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    suffix: null,
     email: 'ada@example.com',
     phones: ['+1 555 0100'],
     social_profiles: [{ network: 'linkedin', url: 'https://linkedin.com/in/ada' }],
@@ -30,6 +34,10 @@ describe('personSchema', () => {
     expect(person).toEqual({
       id: 'person_01hx',
       name: 'Ada Lovelace',
+      salutation: null,
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      suffix: null,
       email: 'ada@example.com',
       phones: ['+1 555 0100'],
       socialProfiles: [{ network: 'linkedin', url: 'https://linkedin.com/in/ada' }],
@@ -80,6 +88,16 @@ describe('personSchema', () => {
 
     expect(() => personSchema.parse(withoutName)).toThrow()
   })
+
+  it('carries a name part through as null when the person has none recorded', () => {
+    const person = personSchema.parse(wirePerson({ first_name: null, last_name: null }))
+
+    expect(person.firstName).toBeNull()
+    expect(person.lastName).toBeNull()
+    // The display name is untouched by an absent part. Nothing derives one from
+    // the other on the way in, or anywhere else.
+    expect(person.name).toBe('Ada Lovelace')
+  })
 })
 
 describe('personBody', () => {
@@ -96,6 +114,14 @@ describe('personBody', () => {
     expect(body).toEqual({
       preferred_channel: 'call',
       social_profiles: [{ network: 'github', url: 'https://github.com/ada' }],
+    })
+  })
+
+  it('maps the name parts to their wire keys, and clears one with null', () => {
+    expect(personBody({ firstName: 'Ada', lastName: 'Lovelace', salutation: null })).toEqual({
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      salutation: null,
     })
   })
 

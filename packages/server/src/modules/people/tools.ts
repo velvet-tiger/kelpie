@@ -19,7 +19,11 @@ export function registerPeopleTools(mcp: McpToolRegistry, service: PeopleService
   registerCrudTools(mcp, {
     resource: 'people',
     subject: 'person',
-    about: 'Someone the workspace knows. A job title belongs to a position, never to the person.',
+    about:
+      'Someone the workspace knows. A job title belongs to a position, never to the person. ' +
+      'name is the display name every list shows; first_name, last_name, salutation and suffix ' +
+      'are optional parts beside it. A create with no name composes one from first_name and ' +
+      'last_name. Changing a part never rewrites name.',
     service,
     render: personResponse,
     listArgs,

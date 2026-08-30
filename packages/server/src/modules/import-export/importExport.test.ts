@@ -823,6 +823,34 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       })
     })
 
+    it('composes a name from a file that carries only the parts', async () => {
+      // What a HubSpot or Salesforce contact export actually looks like: first
+      // and last name in their own columns and no full name anywhere.
+      await importCsv('first_name,last_name,email\nGrace,Hopper,grace@acme.com', {
+        object: 'people',
+      })
+
+      const [row] = await database.db.select().from(people).where(eq(people.email, 'grace@acme.com'))
+
+      expect(row).toMatchObject({ name: 'Grace Hopper', firstName: 'Grace', lastName: 'Hopper' })
+    })
+
+    it('keeps the file’s own name and does not split it into parts', async () => {
+      await importCsv('name,email\nUrsula K. Le Guin,ursula@acme.com', { object: 'people' })
+
+      const [row] = await database.db.select().from(people).where(eq(people.email, 'ursula@acme.com'))
+
+      expect(row).toMatchObject({ name: 'Ursula K. Le Guin', firstName: null, lastName: null })
+    })
+
+    it('reports a row that names nobody, rather than importing a nameless person', async () => {
+      const job = await importCsv('name,first_name,last_name,email\n,,,nobody@acme.com', {
+        object: 'people',
+      })
+
+      expect(job).toMatchObject({ counts: { total: 1, error: 1, create: 0 } })
+    })
+
     it('links a position from a contact title and a company domain', async () => {
       const job = await importCsv(
         'person_email,company_domain,title\nada@acme.com,acme.com,CTO',
@@ -1048,8 +1076,22 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       expect(response.status).toBe(200)
       expect(response.headers.get('Content-Type')).toContain('text/csv')
       expect(await response.text()).toBe(
-        'name,email,timezone,location,preferred_channel,influence,relationship,summary,tags,phones\n',
+        'name,salutation,first_name,last_name,suffix,email,timezone,location,preferred_channel,' +
+          'influence,relationship,summary,tags,phones\n',
       )
+    })
+
+    it('round-trips the name parts, so an export reads back as itself', async () => {
+      await importCsv('first_name,last_name,suffix,email\nGrace,Hopper,Jr,grace@acme.com', {
+        object: 'people',
+      })
+
+      const csv = await exportCsv('people')
+
+      // The cells sit under the headers `headersFor` wrote, which is the whole
+      // reason a Kelpie CSV maps onto itself with no preset. The composed name
+      // carries the suffix — "Jr" is part of a name, unlike a salutation.
+      expect(csv).toContain('Grace Hopper Jr,,Grace,Hopper,Jr,grace@acme.com')
     })
 
     it('streams a workspace’s companies', async () => {

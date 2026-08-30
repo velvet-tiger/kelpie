@@ -323,9 +323,18 @@ export type FormFieldType = (typeof FORM_FIELD_TYPES)[number]
  * `position.title` rather than a person field, because a job title belongs to the
  * Person↔Company link and nowhere else. `submission` stores the answer without
  * writing any CRM record, which is what a free-text "How can we help?" wants.
+ *
+ * A form asks for a name the way its author wants it asked: one `person.name`
+ * box, or the `person.first_name` / `person.last_name` pair most sign-up forms
+ * use. Mapping the pair and no `person.name` composes the display name from the
+ * two, so neither arrangement makes a nameless person. `salutation` and `suffix`
+ * are storable on a Person but are not offered here — a public form asking for
+ * them is rare enough that the choice is not worth the room in this list.
  */
 export const FORM_FIELD_MAP_TARGETS = [
   'person.name',
+  'person.first_name',
+  'person.last_name',
   'person.email',
   'company.name',
   'company.domain',
@@ -340,6 +349,8 @@ export type FormFieldMapTarget = (typeof FORM_FIELD_MAP_TARGETS)[number]
 
 export const FORM_FIELD_MAP_TARGET_LABELS: Readonly<Record<FormFieldMapTarget, string>> = {
   'person.name': 'Person · name',
+  'person.first_name': 'Person · first name',
+  'person.last_name': 'Person · last name',
   'person.email': 'Person · email',
   'company.name': 'Company · name',
   'company.domain': 'Company · domain',

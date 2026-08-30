@@ -12,6 +12,23 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — structured name
+  parts on Person: `salutation`, `first_name`, `last_name`, and `suffix`,
+  all nullable, beside the existing required `name`. `name` stays the
+  canonical display string that every list, picker, timeline and search hit
+  shows; the parts are optional detail. Composition runs one way and only on
+  the way in — `POST /v1/people` (and `people_create`) may send the parts
+  and no `name`, and composes one from `first_name`, `last_name` and
+  `suffix`; a body with neither a name nor a part is `422` naming `name`.
+  Nothing ever splits a `name` into parts, and patching a part does not
+  rename the record. `first_name` and `last_name` join `name` at weight `A`
+  in the people `search_vector` and in the `?q=` filter, so a person is
+  found by a surname they are not displayed under. Forms gain
+  `person.first_name` and `person.last_name` map targets, each merging under
+  the existing fill-a-blank rule. The People CSV gains all four columns and
+  round-trips them; `name` is no longer a required column, replaced by a row
+  rule accepting `name` or `first_name`/`last_name`, and the HubSpot and
+  Salesforce packs map `First Name` and `Last Name`. Adds migration `0028`.
 - **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — one polymorphic
   `person_links` table folds `deal_people`, `partnership_people`, and
   `raise_people` into a single join; Opportunity gains `person_ids` on the

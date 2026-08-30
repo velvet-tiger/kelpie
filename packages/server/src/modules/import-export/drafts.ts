@@ -6,6 +6,7 @@ import {
   PREFERRED_CHANNELS,
   RELATIONSHIP_LEVELS,
   SIZE_BANDS,
+  composeName,
 } from '@kelpie/schemas'
 
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
@@ -43,6 +44,10 @@ export interface CompanyDraft {
 
 export interface PersonDraft {
   readonly name?: string
+  readonly salutation?: string
+  readonly firstName?: string
+  readonly lastName?: string
+  readonly suffix?: string
   readonly email?: string
   readonly phones?: readonly string[]
   readonly timezone?: string
@@ -157,11 +162,25 @@ export function companyDraft(mapped: Readonly<Record<string, string>>): CompanyD
   })
 }
 
+/**
+ * `name` falls back to the first and last name cells, because most CRMs export
+ * those two and no full name at all. Composed only when the row's own `name` is
+ * blank, and never the other way round: a `name` cell is never split to fill
+ * `first_name`, since a guessed part is stored exactly like one somebody typed.
+ */
 export function personDraft(mapped: Readonly<Record<string, string>>): PersonDraft {
   const email = text(mapped, 'email')
+  const firstName = text(mapped, 'first_name')
+  const lastName = text(mapped, 'last_name')
+  const suffix = text(mapped, 'suffix')
+  const composed = composeName({ firstName, lastName, suffix })
 
   return present<PersonDraft>({
-    name: text(mapped, 'name'),
+    name: text(mapped, 'name') ?? (composed.length > 0 ? composed : undefined),
+    salutation: text(mapped, 'salutation'),
+    firstName,
+    lastName,
+    suffix,
     email: email === undefined ? undefined : (normaliseEmail(email) ?? undefined),
     phones: list(mapped, 'phones'),
     timezone: text(mapped, 'timezone'),

@@ -90,7 +90,28 @@ function checkCompany(errors: StoredRowError[], mapped: Readonly<Record<string, 
   checkEnum(errors, 'icp_fit', ICP_FITS, mapped.icp_fit)
 }
 
+/**
+ * A People row names its person one way or the other.
+ *
+ * `name` is not a `required` column, because the requirement is really about a
+ * pair of them: the row carries a full `name`, or the `first_name` /
+ * `last_name` cells for one to be composed from. Most CRMs export the parts and
+ * no full name, and refusing every row of such a file over a column it was
+ * never going to have is the migration nobody finishes.
+ */
+function checkPersonName(errors: StoredRowError[], mapped: Readonly<Record<string, string>>): void {
+  const named = ['name', 'first_name', 'last_name'].some(
+    (column) => (mapped[column] ?? '').trim().length > 0,
+  )
+
+  if (!named) {
+    errors.push({ field: 'name', message: 'Missing a name, first_name or last_name' })
+  }
+}
+
 function checkPerson(errors: StoredRowError[], mapped: Readonly<Record<string, string>>): void {
+  checkPersonName(errors, mapped)
+
   const email = (mapped.email ?? '').trim()
 
   if (email.length > 0 && !EMAIL_SHAPE.test(email)) {

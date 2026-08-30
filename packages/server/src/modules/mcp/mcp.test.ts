@@ -578,8 +578,14 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
 
       expect(create?.description).toContain('POST /v1/people')
       expect(create?.inputSchema.type).toBe('object')
-      // `name` is the only field without a default, so it is the only required one.
-      expect(create?.inputSchema.required).toEqual(['name'])
+      // Nothing is required at the schema level: a create names its person with
+      // `name` or with `first_name`/`last_name`, and JSON Schema's `required`
+      // cannot say "one of these". The route's own refinement enforces it.
+      expect(create?.inputSchema.required).toBeUndefined()
+      const properties = create?.inputSchema.properties as Record<string, unknown>
+
+      expect(Object.keys(properties)).toContain('name')
+      expect(Object.keys(properties)).toContain('first_name')
     })
 
     it('names every tool once', async () => {

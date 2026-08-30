@@ -415,6 +415,60 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(person?.lastContactedAt).not.toBeNull()
     })
 
+    /** The arrangement most sign-up forms use: two name boxes rather than one. */
+    it('creates the Person from a first and last name pair, keeping both parts', async () => {
+      const fields = [
+        { label: 'First name', type: 'text', map_to: 'person.first_name', required: true },
+        { label: 'Last name', type: 'text', map_to: 'person.last_name', required: true },
+        { label: 'Email', type: 'email', map_to: 'person.email', required: true },
+      ]
+      const form = await createForm({ fields })
+      const ids = fieldIds(form)
+      const response = await submit(readString(form, 'public_key'), {
+        [ids['First name'] ?? '']: 'Alex',
+        [ids['Last name'] ?? '']: 'Rivera',
+        [ids.Email ?? '']: 'alex@example.com',
+      })
+
+      expect(response.status).toBe(201)
+
+      const [person] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.workspaceId, acme.workspaceId))
+
+      expect(person?.name).toBe('Alex Rivera')
+      expect(person?.firstName).toBe('Alex')
+      expect(person?.lastName).toBe('Rivera')
+    })
+
+    it('fills a blank name part without overwriting one the team already knows', async () => {
+      const fields = [
+        { label: 'First name', type: 'text', map_to: 'person.first_name' },
+        { label: 'Last name', type: 'text', map_to: 'person.last_name' },
+        { label: 'Email', type: 'email', map_to: 'person.email', required: true },
+      ]
+      const form = await createForm({ fields })
+      const ids = fieldIds(form)
+      const answers = (first: string, last: string): Record<string, string> => ({
+        [ids['First name'] ?? '']: first,
+        [ids['Last name'] ?? '']: last,
+        [ids.Email ?? '']: 'alex@example.com',
+      })
+
+      expect((await submit(readString(form, 'public_key'), answers('Alex', 'Rivera'))).status).toBe(201)
+      // The same visitor returns and types a different surname. The stored one
+      // wins, the same rule the whole-name merge has always followed.
+      expect((await submit(readString(form, 'public_key'), answers('Alex', 'Nakamura'))).status).toBe(201)
+
+      const [person] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.workspaceId, acme.workspaceId))
+
+      expect(person?.lastName).toBe('Rivera')
+    })
+
     it('creates the Company, and the Position that carries the title', async () => {
       const result = await submitContact((ids) =>
         filledIn(ids, { [ids.Company ?? '']: 'Example Co', [ids['Job title'] ?? '']: 'Head of Ops' }),

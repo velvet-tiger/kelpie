@@ -288,6 +288,8 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         id: dependencies.createId('person'),
         workspaceId,
         name: intent.personName,
+        firstName: intent.personFirstName ?? null,
+        lastName: intent.personLastName ?? null,
         email: intent.email,
         lastContactedAt: now,
         ...NEW_PERSON_DEFAULTS,
@@ -296,9 +298,19 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       return { record: created, created: true, filled: [] }
     }
 
-    const name = fillBlank(existing.name, intent.personName)
+    // Each part fills its own blank. A stored first name is what the team has
+    // learned and an inbound one is what a visitor typed, so the rule that keeps
+    // an inbound "Alex" off a stored "Alex Rivera" covers these unchanged.
+    const filledName = fillBlank(existing.name, intent.personName)
+    const filledFirstName = fillBlank(existing.firstName, intent.personFirstName)
+    const filledLastName = fillBlank(existing.lastName, intent.personLastName)
+    const changes = {
+      ...(filledName === undefined ? {} : { name: filledName }),
+      ...(filledFirstName === undefined ? {} : { firstName: filledFirstName }),
+      ...(filledLastName === undefined ? {} : { lastName: filledLastName }),
+    }
     const updated = await peopleRepository.updatePerson(tx, workspaceId, existing.id, {
-      ...(name === undefined ? {} : { name }),
+      ...changes,
       lastContactedAt: now,
       updatedAt: now,
     })
@@ -307,7 +319,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       throw new Error(`Person ${existing.id} disappeared during a form submit`)
     }
 
-    return { record: updated, created: false, filled: name === undefined ? [] : ['name'] }
+    return { record: updated, created: false, filled: Object.keys(changes) }
   }
 
   /**

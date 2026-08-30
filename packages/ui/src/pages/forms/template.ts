@@ -46,6 +46,23 @@ export const NEW_SELECT_OPTIONS = [
  */
 export const CRM_FIELD_PRESETS: readonly FormFieldInput[] = [
   { label: 'Name', type: 'text', required: false, mapTo: 'person.name', placeholder: 'Your name' },
+  // The other way to ask for a name. A form takes one box or this pair; the
+  // menu hides whichever is already mapped, so both are offered and neither
+  // ends up used twice.
+  {
+    label: 'First name',
+    type: 'text',
+    required: false,
+    mapTo: 'person.first_name',
+    placeholder: 'First name',
+  },
+  {
+    label: 'Last name',
+    type: 'text',
+    required: false,
+    mapTo: 'person.last_name',
+    placeholder: 'Last name',
+  },
   {
     label: 'Email',
     type: 'email',
