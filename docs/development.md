@@ -100,7 +100,7 @@ Two things that will catch you out:
 - **Never regenerate `0000_initial_schema.sql`.** Its first line creates the `citext` extension. Drizzle Kit does not manage extensions, so a regenerated file drops that line and every `citext` column fails to create. New migrations are additive files; regenerating the first one is never the right fix.
 - **A blocked delete raises SQLSTATE `23001`, not `23503`.** Postgres uses `23001` for an explicit `ON DELETE RESTRICT` and reserves `23503` for references violated without one. Use `isReferenceViolation` rather than comparing codes yourself.
 
-Integration tests need `TEST_DATABASE_URL`. The database is created automatically if it does not exist, and tests truncate it between cases. Without that variable the integration suites skip rather than fail, so `npm test` still works with no Postgres running.
+Integration tests need `TEST_DATABASE_URL`. Each Vitest worker derives its own database from that name (`kelpie_test_1`, `kelpie_test_2`, …) so test files run in parallel; a missing database is created and migrated automatically, and tests empty every table between cases. Without that variable the integration suites skip rather than fail, so `npm test` still works with no Postgres running.
 
 ## Modules
 
