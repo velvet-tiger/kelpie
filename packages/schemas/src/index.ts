@@ -222,10 +222,15 @@ export type {
   FormInput,
 } from './form.ts'
 
-export { formSubmissionSchema, formSubmitResultSchema } from './formSubmission.ts'
+export {
+  FORM_SUBMISSION_LINK_TARGETS,
+  formSubmissionSchema,
+  formSubmitResultSchema,
+} from './formSubmission.ts'
 export type {
   FormSubmission,
   FormSubmissionActionEntry,
+  FormSubmissionLinkTarget,
   FormSubmitResult,
 } from './formSubmission.ts'
 

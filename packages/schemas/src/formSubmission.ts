@@ -5,6 +5,23 @@ import type { FormActionStatus } from './values.ts'
 import { idSchema, timestampSchema } from './wire.ts'
 
 /**
+ * The record types a submission can name through its FK columns. Used by
+ * `GET /v1/form-submissions?target_type=…` so the query, the server, and the
+ * UI hook agree on the seven values.
+ */
+export const FORM_SUBMISSION_LINK_TARGETS = [
+  'person',
+  'company',
+  'position',
+  'deal',
+  'opportunity',
+  'partnership',
+  'enquiry',
+] as const
+
+export type FormSubmissionLinkTarget = (typeof FORM_SUBMISSION_LINK_TARGETS)[number]
+
+/**
  * Wire shape for `/v1/forms/:id/submissions`, and for what the public submit
  * endpoint answers with.
  *

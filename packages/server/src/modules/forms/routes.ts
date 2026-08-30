@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
-import { PIPELINE_KINDS } from '@kelpie/schemas'
-import type { FormAttachTarget } from '@kelpie/schemas'
+import { FORM_SUBMISSION_LINK_TARGETS, PIPELINE_KINDS } from '@kelpie/schemas'
+import type { FormAttachTarget, FormSubmissionLinkTarget } from '@kelpie/schemas'
 
 import { AppError } from '../../lib/errors.ts'
 import {
@@ -399,6 +399,43 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
     const page = await dependencies.service.listSubmissions(
       await requireActor(context),
       context.req.param('id'),
+      readListParameters(context),
+    )
+
+    return context.json(pageBody(page, formSubmissionResponse))
+  })
+
+  /**
+   * Submissions filtered by the record they touched.
+   *
+   * `target_type` names one of the seven FK columns a submission carries
+   * (person, company, position, deal, opportunity, partnership, enquiry) and
+   * `target_id` is the record's id. Both are required — an unfiltered global
+   * list of submissions is deliberately not a route here, since a workspace's
+   * submissions live under their form, not as a top-level browse.
+   */
+  router.get('/form-submissions', async (context) => {
+    const rawTargetType = context.req.query('target_type')
+    const targetId = context.req.query('target_id')
+
+    if (rawTargetType === undefined || targetId === undefined) {
+      throw AppError.validationFailed('target_type and target_id are required', [
+        { field: 'target_type', message: 'Missing filter' },
+        { field: 'target_id', message: 'Missing filter' },
+      ])
+    }
+
+    if (!(FORM_SUBMISSION_LINK_TARGETS as readonly string[]).includes(rawTargetType)) {
+      throw AppError.validationFailed(
+        `target_type must be one of ${FORM_SUBMISSION_LINK_TARGETS.join(', ')}`,
+        [{ field: 'target_type', message: `Got ${rawTargetType}` }],
+      )
+    }
+
+    const page = await dependencies.service.listSubmissionsLinkedTo(
+      await requireActor(context),
+      rawTargetType as FormSubmissionLinkTarget,
+      targetId,
       readListParameters(context),
     )
 

@@ -10,6 +10,7 @@ import { useCandidates } from '../api/resources/candidates.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
 import { useEnquiries } from '../api/resources/enquiries.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { useDeletePerson, usePerson, useUpdatePerson } from '../api/resources/people.ts'
 import {
@@ -22,6 +23,7 @@ import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.t
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
@@ -78,6 +80,7 @@ export function PersonDetail(): React.JSX.Element {
   const candidacies = useCandidates({ personIds: id === undefined ? [] : [id] }, {
     enabled: id !== undefined,
   })
+  const formSubmissions = useFormSubmissionsForRecord('person', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Person" backTo="/people" />
@@ -101,6 +104,9 @@ export function PersonDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -145,6 +151,7 @@ export function PersonDetail(): React.JSX.Element {
             {active === 'notes' && <NotesPanel targetType="person" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="person" targetId={record.id} />}
             {active === 'lists' && <ListsPanel targetType="person" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="person" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'person', recordId: record.id })}
           </RecordTabs>
         </div>

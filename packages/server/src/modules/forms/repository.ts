@@ -1,6 +1,7 @@
 import { and, asc, eq, ilike, inArray, or } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
-import type { PipelineKind } from '@kelpie/schemas'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
+import type { FormSubmissionLinkTarget, PipelineKind } from '@kelpie/schemas'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
@@ -205,6 +206,51 @@ export function listSubmissions(
       and(
         eq(formSubmissions.workspaceId, workspaceId),
         eq(formSubmissions.formId, formId),
+        keysetCondition(window, formSubmissions.id),
+      ),
+    )
+    .orderBy(...orderByWindow(window, formSubmissions.id))
+    .limit(window.fetchLimit)
+}
+
+/**
+ * Maps each `FormSubmissionLinkTarget` (declared in `@kelpie/schemas`) to the
+ * drizzle column that names the record. Keeping the enum in schemas keeps the
+ * wire shape one source of truth; the column mapping lives here because it
+ * references types the schemas package cannot see.
+ */
+const SUBMISSION_LINK_COLUMNS: Readonly<Record<FormSubmissionLinkTarget, AnyPgColumn>> = {
+  person: formSubmissions.personId,
+  company: formSubmissions.companyId,
+  position: formSubmissions.positionId,
+  deal: formSubmissions.dealId,
+  opportunity: formSubmissions.opportunityId,
+  partnership: formSubmissions.partnershipId,
+  enquiry: formSubmissions.enquiryId,
+}
+
+/**
+ * Lists submissions whose {target}_id points at `targetId`.
+ *
+ * The record itself is not checked here — the workspace scope and the FK
+ * filter are enough for a read. A caller reaching for a target from another
+ * workspace or one that no longer exists gets an empty page, which mirrors
+ * the answer any other cross-workspace read gives.
+ */
+export function listSubmissionsLinkedTo(
+  db: Queryable,
+  workspaceId: string,
+  target: FormSubmissionLinkTarget,
+  targetId: string,
+  window: ListWindow<FormSubmissionRecord>,
+): Promise<FormSubmissionRecord[]> {
+  return db
+    .select()
+    .from(formSubmissions)
+    .where(
+      and(
+        eq(formSubmissions.workspaceId, workspaceId),
+        eq(SUBMISSION_LINK_COLUMNS[target], targetId),
         keysetCondition(window, formSubmissions.id),
       ),
     )

@@ -1,5 +1,5 @@
 import { formSchema, formSubmissionSchema, formSubmitResultSchema } from '@kelpie/schemas'
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -672,6 +672,51 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       )
 
       expect(response.status).toBe(404)
+    })
+
+    it('lists submissions filtered by the record they touched', async () => {
+      // Two forms, one submit each — different people, so filtering by the
+      // second person's id must return only the second form's submission.
+      await submitContact((ids) => filledIn(ids))
+      await submitContact((ids) =>
+        filledIn(ids, { [ids.Name ?? '']: 'Blake Jones', [ids.Email ?? '']: 'blake@example.com' }),
+      )
+
+      const [firstPerson, secondPerson] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.workspaceId, acme.workspaceId))
+        .orderBy(asc(people.createdAt))
+
+      const response = await client.send(
+        'GET',
+        `/v1/form-submissions?target_type=person&target_id=${secondPerson?.id ?? ''}`,
+        { cookie: acme.cookie },
+      )
+
+      expect(response.status).toBe(200)
+
+      const rows = readList(await response.json()).map((row) => formSubmissionSchema.parse(row))
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.personId).toBe(secondPerson?.id)
+      expect(rows[0]?.personId).not.toBe(firstPerson?.id)
+    })
+
+    it('refuses a bad target_type with a 422', async () => {
+      const response = await client.send(
+        'GET',
+        '/v1/form-submissions?target_type=raise&target_id=any',
+        { cookie: acme.cookie },
+      )
+
+      expect(response.status).toBe(422)
+    })
+
+    it('refuses missing filters with a 422', async () => {
+      const response = await client.send('GET', '/v1/form-submissions', { cookie: acme.cookie })
+
+      expect(response.status).toBe(422)
     })
 
     it('files the submission on the person timeline, attributed to the form', async () => {

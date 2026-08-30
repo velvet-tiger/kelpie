@@ -1,4 +1,8 @@
-import type { FormAttachTarget, PipelineKind } from '@kelpie/schemas'
+import type {
+  FormAttachTarget,
+  FormSubmissionLinkTarget,
+  PipelineKind,
+} from '@kelpie/schemas'
 import { PIPELINE_KINDS } from '@kelpie/schemas'
 
 import { changedKeys } from '../../lib/changes.ts'
@@ -143,6 +147,12 @@ export interface FormsService {
   listSubmissions(
     actor: Actor,
     formId: string,
+    query: ListQueryParameters,
+  ): Promise<Page<FormSubmissionView>>
+  listSubmissionsLinkedTo(
+    actor: Actor,
+    target: FormSubmissionLinkTarget,
+    targetId: string,
     query: ListQueryParameters,
   ): Promise<Page<FormSubmissionView>>
   getSubmission(actor: Actor, formId: string, submissionId: string): Promise<FormSubmissionView>
@@ -766,6 +776,28 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
 
       const window = readListWindow(query, FORM_SUBMISSION_SORTS, DEFAULT_FORM_SUBMISSION_SORT)
       const rows = await repository.listSubmissions(dependencies.db, workspaceId, formId, window)
+
+      return mapPage(
+        toPage(rows, window, (submission) => submission.id),
+        toSubmissionView,
+      )
+    },
+
+    async listSubmissionsLinkedTo(actor, target, targetId, query) {
+      const workspaceId = requireWorkspaceId(actor)
+
+      // The target's existence is not checked here — a missing or cross-workspace
+      // target reads as an empty page, the same answer any other cross-workspace
+      // list returns. Adding a per-type existence check would need seven queries
+      // for one behaviour that the FK filter already produces.
+      const window = readListWindow(query, FORM_SUBMISSION_SORTS, DEFAULT_FORM_SUBMISSION_SORT)
+      const rows = await repository.listSubmissionsLinkedTo(
+        dependencies.db,
+        workspaceId,
+        target,
+        targetId,
+        window,
+      )
 
       return mapPage(
         toPage(rows, window, (submission) => submission.id),

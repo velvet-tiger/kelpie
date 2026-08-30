@@ -7,6 +7,7 @@ import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
 import { useDeal, useDeleteDeal, useUpdateDeal } from '../api/resources/deals.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
@@ -18,6 +19,7 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
 import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
 import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
@@ -58,6 +60,7 @@ export function DealDetail(): React.JSX.Element {
   const moduleTabs = inSlotOrder(useRecordTabs('deal'))
   const hasCustomFields = useHasCustomFields('deal')
   const [activeTab, setActiveTab] = useState('overview')
+  const formSubmissions = useFormSubmissionsForRecord('deal', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Deal" backTo="/deals" />
@@ -79,6 +82,9 @@ export function DealDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -123,6 +129,7 @@ export function DealDetail(): React.JSX.Element {
             {active === 'notes' && <NotesPanel targetType="deal" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="deal" targetId={record.id} />}
             {active === 'lists' && <ListsPanel targetType="deal" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="deal" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'deal', recordId: record.id })}
           </RecordTabs>
         </div>

@@ -12,6 +12,7 @@ import {
   useEnquiry,
   useUpdateEnquiry,
 } from '../api/resources/enquiries.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
@@ -23,6 +24,7 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
 import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
 import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
@@ -64,6 +66,7 @@ export function EnquiryDetail(): React.JSX.Element {
   const hasCustomFields = useHasCustomFields('enquiry')
   const [activeTab, setActiveTab] = useState('overview')
   const [showConvert, setShowConvert] = useState(false)
+  const formSubmissions = useFormSubmissionsForRecord('enquiry', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Enquiry" backTo="/enquiries" />
@@ -85,6 +88,9 @@ export function EnquiryDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -121,14 +127,14 @@ export function EnquiryDetail(): React.JSX.Element {
                 }}
                 disabled={convertBlockedReason !== null || convertEnquiry.isPending}
                 title={convertBlockedReason ?? undefined}
-                className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-[12px] font-semibold text-ink hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md border border-border px-2.5 py-1 text-[12px] font-medium text-ink-muted transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:text-ink-muted"
               >
                 Convert to deal
               </button>
             ) : (
               <Link
                 to={`/deals/${record.convertedDealId}`}
-                className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-[12px] font-semibold text-accent hover:underline"
+                className="rounded-md border border-border px-2.5 py-1 text-[12px] font-medium text-accent transition hover:border-accent hover:underline"
               >
                 Converted — view deal
               </Link>
@@ -186,6 +192,7 @@ export function EnquiryDetail(): React.JSX.Element {
               <DecisionsPanel targetType="enquiry" targetId={record.id} />
             )}
             {active === 'lists' && <ListsPanel targetType="enquiry" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="enquiry" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'enquiry', recordId: record.id })}
           </RecordTabs>
         </div>

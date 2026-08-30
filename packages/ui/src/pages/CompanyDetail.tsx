@@ -13,6 +13,7 @@ import {
 } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
 import { useEnquiries } from '../api/resources/enquiries.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { usePeople } from '../api/resources/people.ts'
@@ -30,6 +31,7 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
 import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
 import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
@@ -74,6 +76,7 @@ export function CompanyDetail(): React.JSX.Element {
   const moduleTabs = inSlotOrder(useRecordTabs('company'))
   const hasCustomFields = useHasCustomFields('company')
   const [activeTab, setActiveTab] = useState('overview')
+  const formSubmissions = useFormSubmissionsForRecord('company', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Company" backTo="/companies" />
@@ -95,6 +98,9 @@ export function CompanyDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -142,6 +148,7 @@ export function CompanyDetail(): React.JSX.Element {
             {active === 'notes' && <NotesPanel targetType="company" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="company" targetId={record.id} />}
             {active === 'lists' && <ListsPanel targetType="company" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="company" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'company', recordId: record.id })}
           </RecordTabs>
         </div>

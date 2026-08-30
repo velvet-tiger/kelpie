@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
+import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
 import {
   useDeletePartnership,
@@ -22,6 +23,7 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
+import { FormsPanel } from '../components/FormsPanel.tsx'
 import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
 import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
@@ -63,6 +65,7 @@ export function PartnershipDetail(): React.JSX.Element {
   const moduleTabs = inSlotOrder(useRecordTabs('partnership'))
   const hasCustomFields = useHasCustomFields('partnership')
   const [activeTab, setActiveTab] = useState('overview')
+  const formSubmissions = useFormSubmissionsForRecord('partnership', id)
 
   if (isNotFound) {
     return <NotFoundPanel label="Partnership" backTo="/partnerships" />
@@ -84,6 +87,9 @@ export function PartnershipDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    ...(formSubmissions.records.length === 0
+      ? []
+      : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
@@ -135,6 +141,7 @@ export function PartnershipDetail(): React.JSX.Element {
               <DecisionsPanel targetType="partnership" targetId={record.id} />
             )}
             {active === 'lists' && <ListsPanel targetType="partnership" targetId={record.id} />}
+            {active === 'forms' && <FormsPanel targetType="partnership" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'partnership', recordId: record.id })}
           </RecordTabs>
         </div>
