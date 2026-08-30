@@ -29,7 +29,8 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
-import { CustomFieldsSection } from '../components/CustomFieldsSection.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -70,6 +71,7 @@ export function CompanyDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = useCompany(id)
   const deleteCompany = useDeleteCompany()
   const moduleTabs = inSlotOrder(useRecordTabs('company'))
+  const hasCustomFields = useHasCustomFields('company')
   const [activeTab, setActiveTab] = useState('overview')
 
   if (isNotFound) {
@@ -86,6 +88,7 @@ export function CompanyDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'activity', label: 'Activity' },
     { id: 'people', label: 'People' },
     { id: 'notes', label: 'Notes' },
@@ -132,6 +135,7 @@ export function CompanyDetail(): React.JSX.Element {
             ariaLabel="Company sections"
           >
             {active === 'overview' && <CompanyOverview company={record} />}
+            {active === 'fields' && <CompanyFields company={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="company" targetId={record.id} />}
             {active === 'people' && <CompanyPeople company={record} />}
             {active === 'notes' && <NotesPanel targetType="company" targetId={record.id} />}
@@ -354,14 +358,23 @@ function CompanySidebar({ company }: { readonly company: Company }): React.JSX.E
           displayClassName="not-italic"
         />
       </SidebarField>
-      <CustomFieldsSection
+    </section>
+  )
+}
+
+function CompanyFields({ company }: { readonly company: Company }): React.JSX.Element {
+  const { patch, error } = useCompanyPatch(company)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
         objectType="company"
         values={company.customFields}
         onPatch={(customFields) => {
           patch({ customFields })
         }}
       />
-    </section>
+    </div>
   )
 }
 

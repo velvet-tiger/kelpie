@@ -23,7 +23,8 @@ import { Chip } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
-import { CustomFieldsSection } from '../components/CustomFieldsSection.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
 import { RelatedPlanAttention } from '../components/PlanAttention.tsx'
@@ -71,6 +72,7 @@ export function PersonDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = usePerson(id)
   const deletePerson = useDeletePerson()
   const moduleTabs = inSlotOrder(useRecordTabs('person'))
+  const hasCustomFields = useHasCustomFields('person')
   const [activeTab, setActiveTab] = useState('overview')
   const candidacies = useCandidates({ personIds: id === undefined ? [] : [id] }, {
     enabled: id !== undefined,
@@ -90,6 +92,7 @@ export function PersonDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'activity', label: 'Activity' },
     ...(candidacies.records.length === 0
       ? []
@@ -133,6 +136,7 @@ export function PersonDetail(): React.JSX.Element {
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Person sections">
             {active === 'overview' && <PersonOverview person={record} />}
+            {active === 'fields' && <PersonFields person={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="person" targetId={record.id} />}
             {active === 'hiring' && (
               <PersonHiring candidacies={candidacies.records} personName={record.name} />
@@ -417,14 +421,23 @@ function PersonSidebar({ person }: { readonly person: Person }): React.JSX.Eleme
           displayClassName="not-italic"
         />
       </SidebarField>
-      <CustomFieldsSection
+    </section>
+  )
+}
+
+function PersonFields({ person }: { readonly person: Person }): React.JSX.Element {
+  const { patch, error } = usePersonPatch(person)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
         objectType="person"
         values={person.customFields}
         onPatch={(customFields) => {
           patch({ customFields })
         }}
       />
-    </section>
+    </div>
   )
 }
 

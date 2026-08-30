@@ -22,7 +22,8 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
-import { CustomFieldsSection } from '../components/CustomFieldsSection.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -60,6 +61,7 @@ export function PartnershipDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = usePartnership(id)
   const deletePartnership = useDeletePartnership()
   const moduleTabs = inSlotOrder(useRecordTabs('partnership'))
+  const hasCustomFields = useHasCustomFields('partnership')
   const [activeTab, setActiveTab] = useState('overview')
 
   if (isNotFound) {
@@ -76,6 +78,7 @@ export function PartnershipDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'plan', label: 'Plan' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
@@ -122,6 +125,7 @@ export function PartnershipDetail(): React.JSX.Element {
             ariaLabel="Partnership sections"
           >
             {active === 'overview' && <PartnershipOverview partnership={record} />}
+            {active === 'fields' && <PartnershipFields partnership={record} />}
             {active === 'plan' && <PlanPanel targetType="partnership" targetId={record.id} />}
             {active === 'activity' && (
               <ActivitiesPanel targetType="partnership" targetId={record.id} />
@@ -364,14 +368,27 @@ function PartnershipSidebar({
           displayClassName="not-italic"
         />
       </SidebarField>
-      <CustomFieldsSection
+    </section>
+  )
+}
+
+function PartnershipFields({
+  partnership,
+}: {
+  readonly partnership: Partnership
+}): React.JSX.Element {
+  const { patch, error } = usePartnershipPatch(partnership)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
         objectType="partnership"
         values={partnership.customFields}
         onPatch={(customFields) => {
           patch({ customFields })
         }}
       />
-    </section>
+    </div>
   )
 }
 

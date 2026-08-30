@@ -18,7 +18,8 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
-import { CustomFieldsSection } from '../components/CustomFieldsSection.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -55,6 +56,7 @@ export function DealDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = useDeal(id)
   const deleteDeal = useDeleteDeal()
   const moduleTabs = inSlotOrder(useRecordTabs('deal'))
+  const hasCustomFields = useHasCustomFields('deal')
   const [activeTab, setActiveTab] = useState('overview')
 
   if (isNotFound) {
@@ -71,6 +73,7 @@ export function DealDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'plan', label: 'Plan' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
@@ -112,6 +115,9 @@ export function DealDetail(): React.JSX.Element {
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Deal sections">
             {active === 'overview' && <DealOverview deal={record} />}
+            {active === 'fields' && (
+              <DealFields deal={record} />
+            )}
             {active === 'plan' && <PlanPanel targetType="deal" targetId={record.id} />}
             {active === 'activity' && <ActivitiesPanel targetType="deal" targetId={record.id} />}
             {active === 'notes' && <NotesPanel targetType="deal" targetId={record.id} />}
@@ -239,6 +245,23 @@ function DealOverview({ deal }: { readonly deal: Deal }): React.JSX.Element {
       <PlanAttention items={planItems.records} isLoading={planItems.isLoading} />
 
       <LatestActivity targetType="deal" targetId={deal.id} />
+    </div>
+  )
+}
+
+/** The Fields tab: the workspace's custom fields for this deal. */
+function DealFields({ deal }: { readonly deal: Deal }): React.JSX.Element {
+  const { patch, error } = useDealPatch(deal)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
+        objectType="deal"
+        values={deal.customFields}
+        onPatch={(customFields) => {
+          patch({ customFields })
+        }}
+      />
     </div>
   )
 }
@@ -392,13 +415,6 @@ function DealSidebar({ deal }: { readonly deal: Deal }): React.JSX.Element {
           displayClassName="not-italic"
         />
       </SidebarField>
-      <CustomFieldsSection
-        objectType="deal"
-        values={deal.customFields}
-        onPatch={(customFields) => {
-          patch({ customFields })
-        }}
-      />
     </section>
   )
 }

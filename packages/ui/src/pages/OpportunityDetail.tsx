@@ -22,7 +22,8 @@ import type { ChipTone } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
-import { CustomFieldsSection } from '../components/CustomFieldsSection.tsx'
+import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
+import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
@@ -60,6 +61,7 @@ export function OpportunityDetail(): React.JSX.Element {
   const { record, isLoading, isNotFound, error } = useOpportunity(id)
   const deleteOpportunity = useDeleteOpportunity()
   const moduleTabs = inSlotOrder(useRecordTabs('opportunity'))
+  const hasCustomFields = useHasCustomFields('opportunity')
   const [activeTab, setActiveTab] = useState('overview')
 
   if (isNotFound) {
@@ -76,6 +78,7 @@ export function OpportunityDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'plan', label: 'Plan' },
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
@@ -122,6 +125,7 @@ export function OpportunityDetail(): React.JSX.Element {
             ariaLabel="Opportunity sections"
           >
             {active === 'overview' && <OpportunityOverview opportunity={record} />}
+            {active === 'fields' && <OpportunityFields opportunity={record} />}
             {active === 'plan' && <PlanPanel targetType="opportunity" targetId={record.id} />}
             {active === 'activity' && (
               <ActivitiesPanel targetType="opportunity" targetId={record.id} />
@@ -342,14 +346,27 @@ function OpportunitySidebar({
           displayClassName="not-italic"
         />
       </SidebarField>
-      <CustomFieldsSection
+    </section>
+  )
+}
+
+function OpportunityFields({
+  opportunity,
+}: {
+  readonly opportunity: Opportunity
+}): React.JSX.Element {
+  const { patch, error } = useOpportunityPatch(opportunity)
+  return (
+    <div className="space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <CustomFieldsPanel
         objectType="opportunity"
         values={opportunity.customFields}
         onPatch={(customFields) => {
           patch({ customFields })
         }}
       />
-    </section>
+    </div>
   )
 }
 
