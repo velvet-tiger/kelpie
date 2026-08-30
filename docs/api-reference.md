@@ -115,7 +115,7 @@ Three REST operations have no tool. Creating a workspace and accepting an invita
 
 **Sample data is a one-shot install, idempotent by refusal.** `POST /v1/workspaces/:id/sample-data` writes the whole fixture in one transaction and answers the counts; a workspace already holding companies or people gets `409`, because an "install once" button must not double the fixture. The onboarding workspace step offers it as a checkbox and Admin → Data carries the same button.
 
-Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with per-module catalogs and after-commit publication, the entitlements registry (including the `workspace.access` gate on `/v1` and `/mcp`), the `Idempotency-Key` middleware, four rate-limit budgets, 41 tables with migrations, and an integration harness that creates and truncates its own database.
+Underneath: the module runtime with its credentialled and public route contributions, a typed event bus with per-module catalogs and after-commit publication, the entitlements registry (including the `workspace.access` gate on `/v1` and `/mcp`), the `Idempotency-Key` middleware, four rate-limit budgets, 42 tables with migrations, and an integration harness that creates its own database per test worker and empties it between cases.
 
 Passwords are argon2id. Session, invite, reset, and API key secrets are stored as SHA-256 hashes. A webhook signing secret is the one credential that is encrypted rather than hashed, because signing a delivery needs it back; `lib/secrets.ts` seals it with AES-256-GCM under `SECRET_ENCRYPTION_KEY`. Credentials arrive as either a session cookie or a `Bearer kp_live_…` / `kp_user_…` key.
 
