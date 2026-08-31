@@ -40,6 +40,8 @@ export interface SubmitIntent {
   /** The `person.first_name` answer only. Never split out of `personName`. */
   readonly personFirstName: string | undefined
   readonly personLastName: string | undefined
+  /** The `person.phones` answer only. Written when the person's phone list is empty. */
+  readonly personPhone: string | undefined
   readonly companyName: string | undefined
   /** The `company.domain` answer only. Never derived from the address; see `resolveDomain`. */
   readonly companyDomain: string | undefined
@@ -286,6 +288,7 @@ export function readIntent(mapped: MappedAnswers): SubmitIntent | undefined {
       email,
     personFirstName: firstName,
     personLastName: lastName,
+    personPhone: mapped['person.phones'],
     companyName: mapped['company.name'],
     companyDomain: resolveDomain(mapped),
     positionTitle: mapped['position.title'],
@@ -312,6 +315,21 @@ export function fillBlank(stored: string | null, inbound: string | undefined): s
   }
 
   return stored === null || stored.trim().length === 0 ? inbound : undefined
+}
+
+/**
+ * The merge rule for `person.phones`: fill when the stored list is empty, never
+ * append to a list the team has already set.
+ */
+export function fillPhonesBlank(
+  stored: readonly string[],
+  inbound: string | undefined,
+): readonly string[] | undefined {
+  if (inbound === undefined || inbound.length === 0) {
+    return undefined
+  }
+
+  return stored.length === 0 ? [inbound] : undefined
 }
 
 /** What a new Company is called when the answers named a domain and no name. */

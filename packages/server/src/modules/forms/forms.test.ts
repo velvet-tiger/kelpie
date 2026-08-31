@@ -214,9 +214,10 @@ describe.skipIf(connectionString === undefined)('forms', () => {
 
       const response = await client.send('GET', '/v1/forms', { cookie: acme.cookie })
       const rows = readList(await response.json()).map((row) => formSchema.parse(row))
+      const custom = rows.filter((row) => row.name === 'Newer' || row.name === 'Older')
 
-      expect(rows.map((row) => row.name)).toEqual(['Newer', 'Older'])
-      expect(rows[0]?.fields).toHaveLength(5)
+      expect(custom.map((row) => row.name)).toEqual(['Newer', 'Older'])
+      expect(custom[0]?.fields).toHaveLength(5)
     })
 
     it('filters by status', async () => {
@@ -467,6 +468,29 @@ describe.skipIf(connectionString === undefined)('forms', () => {
         .where(eq(people.workspaceId, acme.workspaceId))
 
       expect(person?.lastName).toBe('Rivera')
+    })
+
+    it('writes a phone onto the Person when the stored list is empty', async () => {
+      const fields = [
+        { label: 'Name', type: 'text', map_to: 'person.name', required: true },
+        { label: 'Email', type: 'email', map_to: 'person.email', required: true },
+        { label: 'Phone', type: 'text', map_to: 'person.phones' },
+      ]
+      const form = await createForm({ fields })
+      const ids = fieldIds(form)
+
+      await submit(readString(form, 'public_key'), {
+        [ids.Name ?? '']: 'Alex Rivera',
+        [ids.Email ?? '']: 'alex@example.com',
+        [ids.Phone ?? '']: '+61 400 000 000',
+      })
+
+      const [person] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.workspaceId, acme.workspaceId))
+
+      expect(person?.phones).toEqual(['+61 400 000 000'])
     })
 
     it('creates the Company, and the Position that carries the title', async () => {

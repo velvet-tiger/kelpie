@@ -267,6 +267,13 @@
       "when": 1788150000000,
       "tag": "0037_drop_lists_consent_purpose_id",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1788214656489,
+      "tag": "0038_smart_white_queen",
+      "breakpoints": true
     }
   ]
 }

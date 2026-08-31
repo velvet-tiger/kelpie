@@ -17,6 +17,7 @@ import * as authRepository from '../auth/repository.ts'
 import { SEATS_LIMIT } from './capabilities.ts'
 import { STARTER_CONSENT_PURPOSES } from '../consent-purposes/starters.ts'
 import * as repository from './repository.ts'
+import { seedStarterForms } from './seedStarterForms.ts'
 import { parseInvitableRole, parseMemberRole, roleAllows } from './roles.ts'
 import type { InvitableRole, InviteStatus, MemberRole } from './roles.ts'
 import {
@@ -472,18 +473,31 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
           ),
         )
 
+        const consentPurposeIdsBySlug: Partial<Record<string, string>> = {}
+
         await repository.insertConsentPurposes(
           tx,
-          STARTER_CONSENT_PURPOSES.map((purpose, index) => ({
-            id: dependencies.createId('consentPurpose'),
-            workspaceId,
-            slug: purpose.slug,
-            label: purpose.label,
-            description: purpose.description,
-            defaultStatus: purpose.defaultStatus,
-            sortOrder: index,
-          })),
+          STARTER_CONSENT_PURPOSES.map((purpose, index) => {
+            const id = dependencies.createId('consentPurpose')
+            consentPurposeIdsBySlug[purpose.slug] = id
+            return {
+              id,
+              workspaceId,
+              slug: purpose.slug,
+              label: purpose.label,
+              description: purpose.description,
+              defaultStatus: purpose.defaultStatus,
+              sortOrder: index,
+            }
+          }),
         )
+
+        await seedStarterForms(tx, {
+          workspaceId,
+          createId: dependencies.createId,
+          generatePublicKey: generateToken,
+          consentPurposeIdsBySlug,
+        })
 
         // The session that created the workspace should land in it.
         await authRepository.setActiveWorkspace(tx, actor.sessionId, workspaceId)

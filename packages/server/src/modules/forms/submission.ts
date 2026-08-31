@@ -42,6 +42,7 @@ import {
   expandNameTemplate,
   expectedCloseFrom,
   fillBlank,
+  fillPhonesBlank,
   findAnswerProblems,
   mapAnswers,
   mergeTags,
@@ -290,6 +291,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     const existing = await peopleRepository.findPersonByEmail(tx, workspaceId, intent.email)
 
     if (existing === undefined) {
+      const phones = fillPhonesBlank([], intent.personPhone)
       const created = await peopleRepository.insertPerson(tx, {
         id: dependencies.createId('person'),
         workspaceId,
@@ -298,10 +300,11 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         lastName: intent.personLastName ?? null,
         email: intent.email,
         lastContactedAt: now,
+        ...(phones === undefined ? {} : { phones: [...phones] }),
         ...NEW_PERSON_DEFAULTS,
       })
 
-      return { record: created, created: true, filled: [] }
+      return { record: created, created: true, filled: phones === undefined ? [] : ['phones'] }
     }
 
     // Each part fills its own blank. A stored first name is what the team has
@@ -310,10 +313,12 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     const filledName = fillBlank(existing.name, intent.personName)
     const filledFirstName = fillBlank(existing.firstName, intent.personFirstName)
     const filledLastName = fillBlank(existing.lastName, intent.personLastName)
+    const filledPhones = fillPhonesBlank(existing.phones, intent.personPhone)
     const changes = {
       ...(filledName === undefined ? {} : { name: filledName }),
       ...(filledFirstName === undefined ? {} : { firstName: filledFirstName }),
       ...(filledLastName === undefined ? {} : { lastName: filledLastName }),
+      ...(filledPhones === undefined ? {} : { phones: [...filledPhones] }),
     }
     const updated = await peopleRepository.updatePerson(tx, workspaceId, existing.id, {
       ...changes,

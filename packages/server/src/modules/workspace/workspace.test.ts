@@ -15,6 +15,8 @@ import { coreModules } from '../core.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { invites, workspaceMembers } from './schema.ts'
+import { STARTER_FORMS } from '../forms/starters.ts'
+import { STARTER_LISTS } from '../lists/starters.ts'
 import { STARTER_HANDBOOK_PAGES } from './starters.ts'
 
 /** Workspace creation, membership, and invites against real Postgres. */
@@ -41,6 +43,19 @@ function readList(payload: unknown): unknown[] {
   }
 
   return payload.data
+}
+
+function readListIds(form: unknown): string[] {
+  if (!isRecord(form) || !Array.isArray(form.list_ids)) {
+    throw new Error(`Expected list_ids on ${JSON.stringify(form)}`)
+  }
+
+  return form.list_ids.map((id) => {
+    if (typeof id !== 'string') {
+      throw new Error(`Expected list id string, got ${JSON.stringify(id)}`)
+    }
+    return id
+  })
 }
 
 /** The `details` of an error body, as `api.md` shapes them. */
@@ -273,6 +288,43 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       expect(new Set(stages.map((stage) => stage.kind))).toEqual(
         new Set(['enquiry', 'deal', 'opportunity', 'raise', 'partnership']),
+      )
+    })
+
+    it('seeds the starter forms and newsletter list', async () => {
+      const cookie = await signUp('ada@example.com')
+      await createWorkspace(cookie)
+
+      const formsResponse = await send('GET', '/v1/forms', undefined, cookie)
+      const forms = readList(await formsResponse.json())
+
+      expect(forms).toHaveLength(STARTER_FORMS.length)
+      expect(forms.map((form) => readString(form, 'name')).sort()).toEqual(
+        STARTER_FORMS.map((form) => form.name).sort(),
+      )
+
+      const contact = forms.find((form) => readString(form, 'name') === 'Contact')
+      if (contact === undefined) {
+        throw new Error('Expected the Contact starter form')
+      }
+
+      const contactFields = isRecord(contact) && Array.isArray(contact.fields) ? contact.fields : []
+      expect(contactFields.map((field) => readString(field, 'map_to'))).toContain('person.phones')
+      expect(contactFields.some((field) => readString(field, 'type') === 'consent')).toBe(true)
+
+      const newsletter = forms.find((form) => readString(form, 'name') === 'Newsletter')
+      if (newsletter === undefined) {
+        throw new Error('Expected the Newsletter starter form')
+      }
+
+      expect(readListIds(newsletter)).toHaveLength(1)
+
+      const listsResponse = await send('GET', '/v1/lists', undefined, cookie)
+      const lists = readList(await listsResponse.json())
+
+      expect(lists).toHaveLength(STARTER_LISTS.length)
+      expect(lists.map((list) => readString(list, 'name'))).toEqual(
+        STARTER_LISTS.map((list) => list.name),
       )
     })
 

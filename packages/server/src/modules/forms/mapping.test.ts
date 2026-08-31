@@ -6,6 +6,7 @@ import {
   expandNameTemplate,
   expectedCloseFrom,
   fillBlank,
+  fillPhonesBlank,
   findAnswerProblems,
   mapAnswers,
   readIntent,
@@ -174,6 +175,15 @@ describe('readIntent', () => {
     expect(intent?.email).toBe('alex@example.com')
   })
 
+  it('reads a phone answer from person.phones', () => {
+    const intent = readIntent({
+      'person.email': 'alex@example.com',
+      'person.phones': '+61 400 000 000',
+    })
+
+    expect(intent?.personPhone).toBe('+61 400 000 000')
+  })
+
   it('refuses a value that is not an address', () => {
     expect(readIntent({ 'person.email': 'alex' })).toBeUndefined()
   })
@@ -234,12 +244,27 @@ describe('fillBlank', () => {
   })
 })
 
+describe('fillPhonesBlank', () => {
+  it('fills an empty stored list', () => {
+    expect(fillPhonesBlank([], '+61 400 000 000')).toEqual(['+61 400 000 000'])
+  })
+
+  it('leaves a stored list alone', () => {
+    expect(fillPhonesBlank(['+61 400 000 000'], '+61 411 111 111')).toBeUndefined()
+  })
+
+  it('writes nothing when the answer was absent', () => {
+    expect(fillPhonesBlank([], undefined)).toBeUndefined()
+  })
+})
+
 describe('companyNameFrom', () => {
   const base = {
     email: 'a@b.com',
     personName: 'a',
     personFirstName: undefined,
     personLastName: undefined,
+    personPhone: undefined,
     positionTitle: undefined,
     dealName: undefined,
     opportunityName: undefined,

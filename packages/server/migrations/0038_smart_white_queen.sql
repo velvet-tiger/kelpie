@@ -1,0 +1,2 @@
+ALTER TABLE "form_fields" DROP CONSTRAINT "form_fields_map_to_check";--> statement-breakpoint
+ALTER TABLE "form_fields" ADD CONSTRAINT "form_fields_map_to_check" CHECK ("form_fields"."map_to" in ('person.name', 'person.first_name', 'person.last_name', 'person.email', 'person.phones', 'person.consent', 'company.name', 'company.domain', 'position.title', 'enquiry.name', 'deal.name', 'opportunity.name', 'partnership.name', 'submission'));

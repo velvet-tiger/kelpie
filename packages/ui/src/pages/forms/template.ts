@@ -70,6 +70,13 @@ export const CRM_FIELD_PRESETS: readonly FormFieldInput[] = [
     mapTo: 'person.email',
     placeholder: 'you@company.com',
   },
+  {
+    label: 'Phone',
+    type: 'text',
+    required: false,
+    mapTo: 'person.phones',
+    placeholder: 'Phone number',
+  },
   { label: 'Company', type: 'text', required: false, mapTo: 'company.name', placeholder: 'Company name' },
   {
     label: 'Company website',
