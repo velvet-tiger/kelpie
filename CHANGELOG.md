@@ -10,6 +10,21 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-31
+
+### Added
+
+- **`@kelpie/server`** — `removeListMemberByTarget(deps, input)` on the
+  public export. Lets a module outside `@kelpie/server` drop a list
+  member addressed by target (workspace + list + target type + target
+  id) rather than by member row id, without constructing a synthetic
+  `Actor`. Runs inside the caller's `TransactionScope`, emits
+  `lists.member.removed` on a hit, and returns `false` on a miss so an
+  at-least-once redelivery is safe. Written for the Resend audience
+  sync module in `kelpie-cloud`, whose unsubscribe webhook removes a
+  person from every mapped list, but the shape is general — a
+  compliance sweep or another external signal fits the same seam.
+
 ## [0.9.0] - 2026-08-31
 
 ### Added
