@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
 import { useAccount, useTheme } from '../api/resources/account.ts'
 import { useLogOut } from '../api/resources/session.ts'
@@ -54,6 +54,12 @@ const CORE_NAV: readonly NavItem[] = [
  * presentation only, so it stays here rather than becoming a second slot.
  */
 const TOP_LEVEL_NAV_IDS: ReadonlySet<string> = new Set(['dashboard', 'handbook', 'planning', 'decisions'])
+
+const ADMIN_ENTRY_PATH = '/admin/workspace'
+
+function isAdminRoute(pathname: string): boolean {
+  return pathname.startsWith('/admin/')
+}
 
 function linkClass({ isActive }: { isActive: boolean }): string {
   return [
@@ -120,6 +126,7 @@ export function Shell(): React.JSX.Element {
   const topLevelItems = navItems.filter((item) => TOP_LEVEL_NAV_IDS.has(item.id))
   const crmItems = navItems.filter((item) => !TOP_LEVEL_NAV_IDS.has(item.id))
   const adminItems = useVisibleNavItems(CORE_ADMIN_NAV, moduleAdminNav)
+  const inAdminNav = isAdminRoute(location.pathname)
 
   return (
     <div className="flex min-h-screen bg-surface">
@@ -133,40 +140,54 @@ export function Shell(): React.JSX.Element {
         </div>
 
         <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-2 pb-4">
-          <div className="flex flex-col gap-0.5">
-            {topLevelItems.map((item) => (
-              <NavLink key={item.id} to={item.to} className={linkClass}>
-                {item.label}
-              </NavLink>
-            ))}
-          </div>
+          {inAdminNav ? (
+            <>
+              <Link
+                to="/dashboard"
+                className="inline-flex px-2 text-[12px] font-medium text-sidebar-muted transition-colors hover:text-sidebar-ink"
+              >
+                ← Back
+              </Link>
 
-          <div>
-            <div className="mb-1 px-2 text-[11px] text-sidebar-muted">CRM</div>
-            <div className="flex flex-col gap-0.5">
-              {crmItems.map((item) => (
-                <NavLink key={item.id} to={item.to} className={linkClass}>
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          </div>
+              <div>
+                <div className="mb-1 px-2 text-[11px] text-sidebar-muted">Admin</div>
+                <div className="flex flex-col gap-0.5">
+                  {adminItems.map((item) => (
+                    <NavLink key={item.id} to={item.to} className={linkClass}>
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col gap-0.5">
+                {topLevelItems.map((item) => (
+                  <NavLink key={item.id} to={item.to} className={linkClass}>
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
 
-          {/*
-            Shown to every member. Both pages read for anyone in the workspace
-            and only their controls are admin-gated, so hiding the section would
-            keep a member from seeing who else is on their team.
-          */}
-          <div>
-            <div className="mb-1 px-2 text-[11px] text-sidebar-muted">Admin</div>
-            <div className="flex flex-col gap-0.5">
-              {adminItems.map((item) => (
-                <NavLink key={item.id} to={item.to} className={linkClass}>
-                  {item.label}
+              <div>
+                <div className="mb-1 px-2 text-[11px] text-sidebar-muted">CRM</div>
+                <div className="flex flex-col gap-0.5">
+                  {crmItems.map((item) => (
+                    <NavLink key={item.id} to={item.to} className={linkClass}>
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-0.5">
+                <NavLink to={ADMIN_ENTRY_PATH} className={linkClass}>
+                  Admin
                 </NavLink>
-              ))}
-            </div>
-          </div>
+              </div>
+            </>
+          )}
         </nav>
       </aside>
 

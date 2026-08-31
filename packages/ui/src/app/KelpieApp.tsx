@@ -180,6 +180,7 @@ function AppRoutes(): React.JSX.Element {
           {/* The optional segment is the mockup's: /handbook opens the first page. */}
           <Route path="handbook" element={<HandbookLayout />} />
           <Route path="handbook/:pageId" element={<HandbookLayout />} />
+          <Route path="admin" element={<Navigate to="/admin/workspace" replace />} />
           <Route path="admin/workspace" element={<WorkspaceSettingsPage />} />
           <Route path="admin/team" element={<TeamPage />} />
           <Route path="admin/fields" element={<FieldsPage />} />
