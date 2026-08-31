@@ -9,24 +9,24 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { FORM_FIELD_MAP_TARGET_LABELS, FORM_OPTION_VALUE_TYPES } from '@kelpie/schemas'
+import { FORM_OPTION_VALUE_TYPES } from '@kelpie/schemas'
 import type {
   Form,
   FormFieldInput,
-  FormFieldMapTarget,
   FormFieldOptionInput,
   FormFieldType,
 } from '@kelpie/schemas'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useConsentPurposes } from '../../api/resources/consentPurposes.ts'
+import { useCustomFields } from '../../api/resources/customFields.ts'
 import type { ConsentPurpose } from '@kelpie/schemas'
 import { useUpdateFormFields } from '../../api/resources/forms.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { AddFieldMenu } from './AddFieldMenu.tsx'
+import { MapTargetSearch } from './MapTargetSearch.tsx'
 import {
   FIELD_TYPE_OPTIONS,
-  MAP_TARGET_OPTIONS,
   editField,
   fieldsChanged,
   findProblems,
@@ -78,6 +78,17 @@ export function FieldsEditor({ form }: FieldsEditorProps): React.JSX.Element {
   const [fields, setFields] = useState<EditableField[]>(() => toEditableFields(form))
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const updateFields = useUpdateFormFields()
+  const customFields = useCustomFields()
+  const customFieldDefinitions = useMemo(
+    () =>
+      customFields.records.map((definition) => ({
+        objectType: definition.objectType,
+        key: definition.key,
+        label: definition.label,
+        type: definition.type,
+      })),
+    [customFields.records],
+  )
   const fieldsRef = useRef<readonly EditableField[]>(fields)
   fieldsRef.current = fields
   const sensors = useSensors(
@@ -104,7 +115,7 @@ export function FieldsEditor({ form }: FieldsEditorProps): React.JSX.Element {
     setFields(next)
   }, [form])
 
-  const problems = findProblems(fields, form.createDeal)
+  const problems = findProblems(fields, form.createDeal, { customFieldDefinitions })
   const changed = fieldsChanged(form, fields)
   const selected = fields.find((field) => field.id === selectedId)
 
@@ -190,6 +201,8 @@ export function FieldsEditor({ form }: FieldsEditorProps): React.JSX.Element {
         ) : (
           <FieldSettings
             field={selected}
+            fields={fields}
+            customFieldDefinitions={customFieldDefinitions}
             problem={problems.byField.get(selected.id)}
             onChange={(change) => {
               setFields((current) => editField(current, selected.id, change))
@@ -424,6 +437,13 @@ function ConsentPreview({ field }: { readonly field: EditableField }): React.JSX
 
 interface FieldSettingsProps {
   readonly field: EditableField
+  readonly fields: readonly EditableField[]
+  readonly customFieldDefinitions: readonly {
+    readonly objectType: import('@kelpie/schemas').CustomFieldObjectType
+    readonly key: string
+    readonly label: string
+    readonly type: import('@kelpie/schemas').CustomFieldType
+  }[]
   readonly problem: string | undefined
   readonly onChange: (change: Partial<FormFieldInput>) => void
   readonly onRemove: () => void
@@ -433,11 +453,21 @@ interface FieldSettingsProps {
 /** The panel a selected field's settings edit in. */
 function FieldSettings({
   field,
+  fields,
+  customFieldDefinitions,
   problem,
   onChange,
   onRemove,
   onClose,
 }: FieldSettingsProps): React.JSX.Element {
+  const usedTargets = useMemo(
+    () =>
+      new Set(
+        fields.filter((entry) => entry.id !== field.id).map((entry) => entry.mapTo),
+      ),
+    [fields, field.id],
+  )
+
   return (
     <aside className="rounded-lg border border-border bg-surface-raised p-4 lg:sticky lg:top-4">
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -464,24 +494,19 @@ function FieldSettings({
           />
         </label>
 
-        <label className="block">
+        <div className="block">
           <span className="mb-1 block text-[11px] font-medium text-ink-faint">Maps to</span>
-          <select
-            className={inputClass}
+          <MapTargetSearch
             value={field.mapTo}
-            onChange={(event) => {
-              const mapTo = event.target.value as FormFieldMapTarget
-
-              onChange({ mapTo, type: typeForTarget(mapTo, field.type) })
+            usedTargets={usedTargets}
+            onChange={(mapTo) => {
+              onChange({
+                mapTo,
+                type: typeForTarget(mapTo, field.type, customFieldDefinitions),
+              })
             }}
-          >
-            {MAP_TARGET_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {FORM_FIELD_MAP_TARGET_LABELS[option.value]}
-              </option>
-            ))}
-          </select>
-        </label>
+          />
+        </div>
 
         <label className="block">
           <span className="mb-1 block text-[11px] font-medium text-ink-faint">Type</span>

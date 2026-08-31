@@ -1,4 +1,4 @@
-import { FORM_FIELD_MAP_TARGET_LABELS } from '@kelpie/schemas'
+import { labelForMapTarget } from '@kelpie/schemas'
 import type { FormFieldInput } from '@kelpie/schemas'
 import { useEffect, useRef, useState } from 'react'
 
@@ -92,7 +92,7 @@ export function AddFieldMenu({ fields, onAdd }: AddFieldMenuProps): React.JSX.El
                 >
                   <span>{preset.label}</span>
                   <span className="shrink-0 text-[11px] text-ink-faint">
-                    {FORM_FIELD_MAP_TARGET_LABELS[preset.mapTo]}
+                    {labelForMapTarget(preset.mapTo)}
                   </span>
                 </button>
               ))}

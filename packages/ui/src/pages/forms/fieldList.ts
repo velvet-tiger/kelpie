@@ -1,10 +1,19 @@
 import {
-  FORM_FIELD_MAP_TARGETS,
   FORM_FIELD_TYPES,
+  isCompatibleFormFieldType,
+  isKnownMapTarget,
+  isRepeatableMapTarget,
   PERSON_CONSENT_TARGET,
   PERSON_EMAIL_TARGET,
+  suggestedFormFieldType,
 } from '@kelpie/schemas'
-import type { Form, FormFieldInput, FormFieldMapTarget, FormFieldType } from '@kelpie/schemas'
+import type {
+  CustomFieldDefinitionRef,
+  Form,
+  FormFieldInput,
+  FormFieldMapTarget,
+  FormFieldType,
+} from '@kelpie/schemas'
 
 import { CRM_FIELD_PRESETS, NEW_SELECT_OPTIONS } from './template.ts'
 
@@ -28,10 +37,9 @@ export interface EditableField extends FormFieldInput {
 
 export const FIELD_TYPE_OPTIONS = FORM_FIELD_TYPES.map((type) => ({ value: type, label: type }))
 
-export const MAP_TARGET_OPTIONS = FORM_FIELD_MAP_TARGETS.map((target) => ({
-  value: target,
-  label: target,
-}))
+export interface FindProblemsOptions {
+  readonly customFieldDefinitions?: readonly CustomFieldDefinitionRef[]
+}
 
 /** Reads a saved form into the shape the builder edits. */
 export function toEditableFields(form: Form): EditableField[] {
@@ -92,8 +100,7 @@ export function editField(
       // that may repeat — consent's uniqueness is per purpose, not per
       // target, and is enforced when the purpose is picked.
       return change.mapTo !== undefined &&
-        change.mapTo !== 'submission' &&
-        change.mapTo !== PERSON_CONSENT_TARGET &&
+        !isRepeatableMapTarget(change.mapTo) &&
         field.mapTo === change.mapTo
         ? { ...field, mapTo: 'submission' }
         : field
@@ -182,11 +189,13 @@ export interface FieldListProblems {
 export function findProblems(
   fields: readonly EditableField[],
   createsDeal: boolean,
+  options: FindProblemsOptions = {},
 ): FieldListProblems {
   const list: string[] = []
   const byField = new Map<string, string>()
-  const seen = new Set<FormFieldMapTarget>()
+  const seen = new Set<string>()
   const usedConsentPurposes = new Set<string>()
+  const customFieldDefinitions = options.customFieldDefinitions ?? []
 
   if (!fields.some((field) => field.mapTo === PERSON_EMAIL_TARGET)) {
     list.push(`One field must map to ${PERSON_EMAIL_TARGET}, or no submission can be processed.`)
@@ -197,6 +206,15 @@ export function findProblems(
   }
 
   for (const field of fields) {
+    if (!isKnownMapTarget(field.mapTo, customFieldDefinitions)) {
+      byField.set(field.id, `Unknown map target ${field.mapTo}.`)
+    } else if (
+      field.mapTo !== PERSON_CONSENT_TARGET &&
+      !isCompatibleFormFieldType(field.type, field.mapTo, customFieldDefinitions)
+    ) {
+      byField.set(field.id, `A ${field.type} field cannot map to ${field.mapTo}.`)
+    }
+
     if (field.mapTo === PERSON_CONSENT_TARGET) {
       const purposes = field.consentPurposeIds ?? []
       if (field.type === 'notice' && (field.statement ?? '').trim().length === 0) {
@@ -224,7 +242,7 @@ export function findProblems(
           }
         }
       }
-    } else if (field.mapTo !== 'submission') {
+    } else if (!isRepeatableMapTarget(field.mapTo)) {
       if (seen.has(field.mapTo)) {
         byField.set(field.id, `Another field already maps to ${field.mapTo}.`)
       }
@@ -252,12 +270,12 @@ export function isUsable(problems: FieldListProblems): boolean {
 }
 
 /** The types a mapping can sensibly render as. */
-export function typeForTarget(target: FormFieldMapTarget, current: FormFieldType): FormFieldType {
-  if (target === PERSON_EMAIL_TARGET) return 'email'
-  if (target === PERSON_CONSENT_TARGET) {
-    return current === 'notice' ? 'notice' : 'consent'
-  }
-  return current === 'consent' || current === 'notice' ? 'text' : current
+export function typeForTarget(
+  target: FormFieldMapTarget,
+  current: FormFieldType,
+  customFieldDefinitions: readonly CustomFieldDefinitionRef[] = [],
+): FormFieldType {
+  return suggestedFormFieldType(target, customFieldDefinitions, current)
 }
 
 /**

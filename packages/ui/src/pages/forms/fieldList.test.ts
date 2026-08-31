@@ -299,7 +299,7 @@ describe('typeForTarget', () => {
     expect(typeForTarget('person.email', 'text')).toBe('email')
   })
 
-  it('leaves the chosen type alone for everything else', () => {
-    expect(typeForTarget('company.name', 'textarea')).toBe('textarea')
+  it('suggests textarea for long-text targets', () => {
+    expect(typeForTarget('person.summary', 'text')).toBe('textarea')
   })
 })

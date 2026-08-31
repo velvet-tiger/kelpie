@@ -4,7 +4,6 @@ import type { ErrorDetail } from '../../lib/errors.ts'
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
 import type { FormFieldRecord } from './repository.ts'
 import { PERSON_EMAIL_TARGET } from './schema.ts'
-import type { FormFieldMapTarget } from './schema.ts'
 
 /**
  * The submit rules from `forms.md` that need no database: what an answer map
@@ -19,7 +18,7 @@ import type { FormFieldMapTarget } from './schema.ts'
 export type Answers = Readonly<Record<string, string>>
 
 /** Answers keyed by what they write rather than by which field carried them. */
-export type MappedAnswers = Partial<Record<FormFieldMapTarget, string>>
+export type MappedAnswers = Record<string, string>
 
 /**
  * What a submit will write, once the blanks are known.
@@ -101,7 +100,7 @@ export function mapAnswers(fields: readonly FormFieldRecord[], answers: Answers)
       continue
     }
 
-    mapped[field.mapTo as FormFieldMapTarget] = value
+    mapped[field.mapTo] = value
   }
 
   return mapped

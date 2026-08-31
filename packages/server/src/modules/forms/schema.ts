@@ -1,5 +1,4 @@
 import {
-  FORM_FIELD_MAP_TARGETS,
   FORM_FIELD_TYPES,
   FORM_STATUSES,
   PIPELINE_KINDS,
@@ -250,7 +249,6 @@ export const formFields = pgTable(
   (table) => [
     index('form_fields_form_idx').on(table.formId),
     checkOneOf('form_fields_type_check', table.type, FORM_FIELD_TYPES),
-    checkOneOf('form_fields_map_to_check', table.mapTo, FORM_FIELD_MAP_TARGETS),
   ],
 )
 

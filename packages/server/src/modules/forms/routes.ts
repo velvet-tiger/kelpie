@@ -17,7 +17,6 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import { embedSnippets } from './embed.ts'
 import type { FieldDraft } from './fields.ts'
 import {
-  FORM_FIELD_MAP_TARGETS,
   FORM_FIELD_TYPES,
   FORM_OPTION_VALUE_TYPES,
   FORM_STATUSES,
@@ -51,7 +50,7 @@ const fieldBody = z.strictObject({
   label: z.string().min(1),
   type: z.enum(FORM_FIELD_TYPES),
   required: z.boolean().default(false),
-  map_to: z.enum(FORM_FIELD_MAP_TARGETS),
+  map_to: z.string().min(1),
   options: z.array(optionBody).default([]),
   placeholder: z.string().nullable().default(null),
   statement: z.string().nullable().default(null),

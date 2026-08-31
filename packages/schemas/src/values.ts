@@ -368,9 +368,12 @@ export const FORM_FIELD_MAP_TARGETS = [
   'submission',
 ] as const
 
-export type FormFieldMapTarget = (typeof FORM_FIELD_MAP_TARGETS)[number]
+/** Any valid form map target string. See `formMapTargets.ts` for the full catalog. */
+export type FormFieldMapTarget = string
 
-export const FORM_FIELD_MAP_TARGET_LABELS: Readonly<Record<FormFieldMapTarget, string>> = {
+export const FORM_FIELD_MAP_TARGET_LABELS: Readonly<
+  Record<(typeof FORM_FIELD_MAP_TARGETS)[number], string>
+> = {
   'person.name': 'Person · name',
   'person.first_name': 'Person · first name',
   'person.last_name': 'Person · last name',

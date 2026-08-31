@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 import {
-  FORM_FIELD_MAP_TARGETS,
   FORM_FIELD_TYPES,
   FORM_OPTION_VALUE_TYPES,
   FORM_STATUSES,
@@ -156,7 +155,7 @@ const formFieldSchema = z
     label: z.string(),
     type: z.enum(FORM_FIELD_TYPES),
     required: z.boolean(),
-    map_to: z.enum(FORM_FIELD_MAP_TARGETS),
+    map_to: z.string().min(1),
     options: z.array(formFieldOptionSchema),
     placeholder: z.string().nullable(),
     statement: z.string().nullable(),

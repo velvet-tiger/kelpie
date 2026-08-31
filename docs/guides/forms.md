@@ -16,20 +16,15 @@ The builder is the one screen in Kelpie that saves explicitly rather than as you
 
 ## Mapping fields to records
 
-Nine targets:
+Each field maps to an object and attribute via a searchable picker — not a fixed dropdown. The catalog includes every writable standard field on Person, Company, Position, Deal, Opportunity, Partnership, Enquiry, and Raise, plus your workspace custom fields (`Person · Budget (custom)`, etc.).
 
-| Target | Writes |
-| --- | --- |
-| Person · name | The person's name. |
-| Person · email | The person's email. **Required on every form, at most once** — it is how the submitter is matched. |
-| Company · name | The company's name. |
-| Company · domain | The company's domain, and how an existing company is matched. |
-| Position · title | The submitter's job title, stored on the person↔company link. |
-| Deal · name | The deal's name, when the Deal trigger is on. |
-| Opportunity · name | The opportunity's name, when the Opportunity trigger is on. |
-| Partnership · name | The partnership's name, when the Partnership trigger is on. |
-| Enquiry · name | The enquiry's name, when the Enquiry trigger is on. |
-| Submission only | Stored with the submission and written to no record — right for "How can we help?". |
+**Required:** one field must map to **Person · email** (at most once). It is how the submitter is matched.
+
+**Repeatable:** **Submission only** and **Person · consent** may appear on more than one field.
+
+**When values land:** Person, Company, and Position fields write on every submit. Deal, Opportunity, Partnership, and Enquiry fields write when the matching create trigger runs. Raise fields write when the form attaches submitters to that raise. Everything uses fill-a-blank except tags (union merge).
+
+Common starters — Person · name, Company · domain, Position · title, Submission only — remain in the "Add field" menu for speed.
 
 ## What a submission creates
 

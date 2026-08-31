@@ -145,10 +145,15 @@ describe('formSchema', () => {
     expect(() => formSchema.parse(wireForm({ status: 'archived' }))).toThrow()
   })
 
-  it('rejects a field whose map_to is not one of FORM_FIELD_MAP_TARGETS', () => {
-    expect(() =>
-      formSchema.parse(wireForm({ fields: [wireField({ map_to: 'person.title' })] })),
-    ).toThrow()
+  it('rejects a field whose map_to is empty', () => {
+    expect(() => formSchema.parse(wireForm({ fields: [wireField({ map_to: '' })] }))).toThrow()
+  })
+
+  it('accepts expanded map targets as strings', () => {
+    expect(
+      formSchema.parse(wireForm({ fields: [wireField({ map_to: 'person.summary' })] })).fields[0]
+        ?.mapTo,
+    ).toBe('person.summary')
   })
 
   it('rejects a non-integer sort_order', () => {

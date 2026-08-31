@@ -24,6 +24,8 @@ import '../opportunities/events.ts'
 import * as partnershipRepository from '../partnerships/repository.ts'
 import '../partnerships/events.ts'
 import * as consentPurposesRepository from '../consent-purposes/repository.ts'
+import * as customFieldsRepository from '../custom-fields/repository.ts'
+import { CUSTOM_FIELD_OBJECT_TYPES } from '../custom-fields/schema.ts'
 import '../people/events.ts'
 import { upsertPersonConsent } from '../people/personConsentWrites.ts'
 import * as peopleRepository from '../people/repository.ts'
@@ -33,6 +35,8 @@ import * as pipelineRepository from '../pipelines/repository.ts'
 import '../positions/events.ts'
 import * as positionRepository from '../positions/repository.ts'
 import { targetExists } from '../recordTargets.ts'
+import * as raiseRepository from '../raises/repository.ts'
+import '../raises/events.ts'
 import * as workspaceRepository from '../workspace/repository.ts'
 import './events.ts'
 import {
@@ -52,6 +56,15 @@ import {
 import type { Answers, ConsentGrant, SubmitIntent } from './mapping.ts'
 import * as repository from './repository.ts'
 import type { FormFieldRecord, FormRecord } from './repository.ts'
+import {
+  applyCompanyMappedFields,
+  applyDealMappedFields,
+  applyEnquiryMappedFields,
+  applyOpportunityMappedFields,
+  applyPartnershipMappedFields,
+  applyPersonMappedFields,
+  applyRaiseMappedFields,
+} from './applySubmissionFields.ts'
 
 /**
  * The public submit: `forms.md` rules 1 to 7, server-side.
@@ -852,7 +865,15 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       const { workspaceId } = form
       const fields = await repository.listFields(dependencies.db, form.id)
       const intent = readAnswers(fields, answers)
+      const mapped = mapAnswers(fields, answers)
       const consentGrants = readConsentGrants(fields, answers)
+      const customFieldDefinitions = (
+        await Promise.all(
+          CUSTOM_FIELD_OBJECT_TYPES.map((objectType) =>
+            customFieldsRepository.definitionsForObject(dependencies.db, workspaceId, objectType),
+          ),
+        )
+      ).flat()
       const [formListRows, attachTargets, consentPurposesForGrants] = await Promise.all([
         repository.listFormLists(dependencies.db, form.id),
         repository.listAttachTargets(dependencies.db, form.id),
@@ -860,10 +881,36 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       ])
 
       return dependencies.transaction(async ({ tx, events }) => {
+        const now = dependencies.now()
         // Core capture: atomic. A failure here fails the submit; every
         // post-action below runs under its own savepoint and logs.
-        const person = await upsertPerson(tx, workspaceId, intent)
-        const company = await upsertCompany(tx, workspaceId, intent)
+        const personUpserted = await upsertPerson(tx, workspaceId, intent)
+        const personRecord = await applyPersonMappedFields(
+          tx,
+          workspaceId,
+          personUpserted.record,
+          mapped,
+          customFieldDefinitions,
+          now,
+        )
+        const person = { ...personUpserted, record: personRecord }
+
+        const companyUpserted = await upsertCompany(tx, workspaceId, intent)
+        const companyRecord =
+          companyUpserted === undefined
+            ? undefined
+            : await applyCompanyMappedFields(
+                tx,
+                workspaceId,
+                companyUpserted.record,
+                mapped,
+                customFieldDefinitions,
+                now,
+              )
+        const company =
+          companyUpserted === undefined
+            ? undefined
+            : { ...companyUpserted, record: companyRecord ?? companyUpserted.record }
         const position =
           company === undefined || intent.positionTitle === undefined
             ? undefined
@@ -980,6 +1027,66 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
               },
             )) ?? null)
           : null
+
+        if (dealId !== null) {
+          const deal = await dealRepository.findDeal(tx, workspaceId, dealId)
+
+          if (deal !== undefined) {
+            await applyDealMappedFields(
+              tx,
+              workspaceId,
+              deal,
+              mapped,
+              customFieldDefinitions,
+              now,
+            )
+          }
+        }
+
+        if (opportunityId !== null) {
+          const opportunity = await opportunityRepository.findOpportunity(tx, workspaceId, opportunityId)
+
+          if (opportunity !== undefined) {
+            await applyOpportunityMappedFields(
+              tx,
+              workspaceId,
+              opportunity,
+              mapped,
+              customFieldDefinitions,
+              now,
+            )
+          }
+        }
+
+        if (partnershipId !== null) {
+          const partnership = await partnershipRepository.findPartnership(tx, workspaceId, partnershipId)
+
+          if (partnership !== undefined) {
+            await applyPartnershipMappedFields(
+              tx,
+              workspaceId,
+              partnership,
+              mapped,
+              customFieldDefinitions,
+              now,
+            )
+          }
+        }
+
+        if (enquiryId !== null) {
+          const enquiry = await enquiryRepository.findEnquiry(tx, workspaceId, enquiryId)
+
+          if (enquiry !== undefined) {
+            await applyEnquiryMappedFields(
+              tx,
+              workspaceId,
+              enquiry,
+              mapped,
+              customFieldDefinitions,
+              now,
+            )
+          }
+        }
 
         // --- Tag merges ---
 
@@ -1110,6 +1217,25 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
               }
             },
           )
+        }
+
+        for (const target of attachTargets) {
+          if (target.targetType !== 'raise') {
+            continue
+          }
+
+          const raise = await raiseRepository.findRaise(tx, workspaceId, target.targetId)
+
+          if (raise !== undefined) {
+            await applyRaiseMappedFields(
+              tx,
+              workspaceId,
+              raise,
+              mapped,
+              customFieldDefinitions,
+              now,
+            )
+          }
         }
 
         // --- Persist submission + core activity + record events ---

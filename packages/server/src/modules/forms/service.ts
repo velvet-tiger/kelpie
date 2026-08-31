@@ -1,3 +1,4 @@
+import type { CustomFieldDefinitionRef, CustomFieldObjectType, CustomFieldType } from '@kelpie/schemas'
 import type {
   FormAttachTarget,
   FormSubmissionLinkTarget,
@@ -18,6 +19,8 @@ import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import * as consentPurposesRepository from '../consent-purposes/repository.ts'
+import * as customFieldsRepository from '../custom-fields/repository.ts'
+import { CUSTOM_FIELD_OBJECT_TYPES } from '../custom-fields/schema.ts'
 import * as listsRepository from '../lists/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import { missingTargets } from '../recordTargets.ts'
@@ -328,16 +331,40 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
   /**
    * @throws AppError 422 listing every problem with the field list at once.
    */
-  function requireUsableFields(
+  async function requireUsableFields(
+    workspaceId: string,
     fields: readonly FieldShape[],
     createsDeal: boolean,
     createsPartnership: boolean,
-  ): void {
-    const problems = findFieldProblems(fields, createsDeal, createsPartnership)
+  ): Promise<void> {
+    const customFieldDefinitions = await loadCustomFieldDefinitions(workspaceId)
+    const problems = findFieldProblems(fields, createsDeal, {
+      createsPartnership,
+      customFieldDefinitions,
+    })
 
     if (problems.length > 0) {
       throw AppError.validationFailed('That field list cannot process a submission', problems)
     }
+  }
+
+  async function loadCustomFieldDefinitions(
+    workspaceId: string,
+  ): Promise<readonly CustomFieldDefinitionRef[]> {
+    const rows = await Promise.all(
+      CUSTOM_FIELD_OBJECT_TYPES.map((objectType) =>
+        customFieldsRepository.definitionsForObject(dependencies.db, workspaceId, objectType),
+      ),
+    )
+
+    return rows.flat().map(
+      (row): CustomFieldDefinitionRef => ({
+        objectType: row.objectType as CustomFieldObjectType,
+        key: row.key,
+        label: row.label,
+        type: row.type as CustomFieldType,
+      }),
+    )
   }
 
   /**
@@ -479,7 +506,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
     workspaceId: string,
     state: ResultingState,
   ): Promise<void> {
-    requireUsableFields(state.fields, state.createDeal, state.createPartnership)
+    await requireUsableFields(workspaceId, state.fields, state.createDeal, state.createPartnership)
     await requireConsentPurposes(workspaceId, state.fields)
     await requireActionLists(workspaceId, state.listIds)
     await requireAttachTargets(workspaceId, state.attachTargets)

@@ -248,6 +248,32 @@ export type {
 } from './form.ts'
 
 export {
+  FORM_MAP_OBJECT_TYPES,
+  FORM_MAP_OBJECT_TYPE_LABELS,
+  FORM_STANDARD_MAP_FIELDS,
+  buildCustomMapTarget,
+  buildCustomMapTargetEntry,
+  isCompatibleFormFieldType,
+  isKnownMapTarget,
+  isRepeatableMapTarget,
+  labelForMapTarget,
+  listMapTargetEntries,
+  listStandardMapTargetEntries,
+  metaForMapTargetEntry,
+  parseFormMapTarget,
+  resolveMapTargetEntry,
+  suggestedFormFieldType,
+} from './formMapTargets.ts'
+export type {
+  CustomFieldDefinitionRef,
+  FormMapObjectType,
+  FormMapStandardField,
+  FormMapTargetEntry,
+  FormMapValueType,
+  ParsedFormMapTarget,
+} from './formMapTargets.ts'
+
+export {
   FORM_SUBMISSION_LINK_TARGETS,
   formSubmissionSchema,
   formSubmitResultSchema,

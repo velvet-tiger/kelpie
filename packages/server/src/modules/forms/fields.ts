@@ -1,7 +1,14 @@
+import {
+  isCompatibleFormFieldType,
+  isKnownMapTarget,
+  isRepeatableMapTarget,
+} from '@kelpie/schemas'
+import type { CustomFieldDefinitionRef, FormFieldType } from '@kelpie/schemas'
+
 import type { ErrorDetail } from '../../lib/errors.ts'
 import type { StoredFormFieldOption } from './schema.ts'
 import { PERSON_EMAIL_TARGET } from './schema.ts'
-import type { FormFieldMapTarget, FormFieldType, FormOptionValueType } from './schema.ts'
+import type { FormFieldMapTarget, FormOptionValueType } from './schema.ts'
 
 /** The map target for a consent field. Repeatable, unique per purpose_id. */
 const PERSON_CONSENT_TARGET = 'person.consent'
@@ -40,14 +47,17 @@ export interface OptionDraft {
 /**
  * Targets a form may map more than one field to.
  *
- * Only `submission`, which writes no CRM field and so has nothing to collide
- * over. Two fields both mapped to `person.name` would leave the submit picking
- * one of them by field order, which is not a decision a form author made.
+ * `submission` writes no CRM field; `person.consent` is read separately per
+ * purpose. Everything else is unique per form.
  */
-const REPEATABLE_TARGETS: ReadonlySet<string> = new Set(['submission'])
 
 /** The two targets that establish a company for a submit to attach a Deal to. */
 const COMPANY_TARGETS: readonly string[] = ['company.name', 'company.domain']
+
+export interface FindFieldProblemsOptions {
+  readonly createsPartnership?: boolean
+  readonly customFieldDefinitions?: readonly CustomFieldDefinitionRef[]
+}
 
 /**
  * Everything wrong with a field list, as `api.md` field details.
@@ -69,11 +79,13 @@ const COMPANY_TARGETS: readonly string[] = ['company.name', 'company.domain']
 export function findFieldProblems(
   fields: readonly FieldShape[],
   createsDeal: boolean,
-  createsPartnership = false,
+  options: FindFieldProblemsOptions = {},
 ): readonly ErrorDetail[] {
   const problems: ErrorDetail[] = []
   const seenTargets = new Set<string>()
   const usedConsentPurposes = new Set<string>()
+  const customFieldDefinitions = options.customFieldDefinitions ?? []
+  const createsPartnership = options.createsPartnership ?? false
 
   if (!fields.some((field) => field.mapTo === PERSON_EMAIL_TARGET)) {
     problems.push({
@@ -100,6 +112,18 @@ export function findFieldProblems(
 
   for (const [index, field] of fields.entries()) {
     const at = `fields.${String(index)}`
+
+    if (!isKnownMapTarget(field.mapTo, customFieldDefinitions)) {
+      problems.push({ field: `${at}.map_to`, message: `Unknown map target ${field.mapTo}` })
+    } else if (
+      field.mapTo !== PERSON_CONSENT_TARGET &&
+      !isCompatibleFormFieldType(field.type as FormFieldType, field.mapTo, customFieldDefinitions)
+    ) {
+      problems.push({
+        field: `${at}.type`,
+        message: `A ${field.type} field cannot map to ${field.mapTo}`,
+      })
+    }
 
     // `person.consent` is repeatable — a form may carry more than one consent
     // (checkbox) or notice (implicit) field, each offering its own list of
@@ -153,7 +177,7 @@ export function findFieldProblems(
         field: `${at}.map_to`,
         message: 'A consent or notice field must map to person.consent',
       })
-    } else if (!REPEATABLE_TARGETS.has(field.mapTo)) {
+    } else if (!isRepeatableMapTarget(field.mapTo)) {
       if (seenTargets.has(field.mapTo)) {
         problems.push({ field: `${at}.map_to`, message: `Another field already maps to ${field.mapTo}` })
       }

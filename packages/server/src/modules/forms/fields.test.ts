@@ -159,6 +159,50 @@ describe('findFieldProblems', () => {
       expect(findFieldProblems([name, email], false)).toEqual([])
     })
   })
+
+  describe('expanded map targets', () => {
+    const customDefs = [
+      { objectType: 'person' as const, key: 'region', label: 'Region', type: 'text' as const },
+    ]
+
+    it('accepts a standard field outside the legacy enum', () => {
+      const summary = draft({ label: 'About you', type: 'textarea', mapTo: 'person.summary' })
+
+      expect(findFieldProblems([name, email, summary], false, { customFieldDefinitions: customDefs })).toEqual([])
+    })
+
+    it('accepts a workspace custom field target', () => {
+      const region = draft({
+        label: 'Region',
+        type: 'text',
+        mapTo: 'person.custom_fields.region',
+      })
+
+      expect(findFieldProblems([name, email, region], false, { customFieldDefinitions: customDefs })).toEqual([])
+    })
+
+    it('refuses an unknown map target', () => {
+      const problems = findFieldProblems(
+        [name, email, draft({ label: 'Ghost', type: 'text', mapTo: 'person.custom_fields.missing' })],
+        false,
+        { customFieldDefinitions: customDefs },
+      )
+
+      expect(problems).toEqual([
+        { field: 'fields.2.map_to', message: 'Unknown map target person.custom_fields.missing' },
+      ])
+    })
+
+    it('refuses an incompatible field type for the target', () => {
+      const problems = findFieldProblems(
+        [name, email, draft({ label: 'Consent', type: 'consent', mapTo: 'person.summary' })],
+        false,
+        { customFieldDefinitions: customDefs },
+      )
+
+      expect(problems.some((problem) => problem.field === 'fields.2.type')).toBe(true)
+    })
+  })
 })
 
 describe('fieldsDiffer', () => {
