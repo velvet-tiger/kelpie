@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-31
+
 ### Added
 
 - **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Enquiry**, a
