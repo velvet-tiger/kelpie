@@ -49,11 +49,13 @@ const CORE_NAV: readonly NavItem[] = [
 ]
 
 /**
- * `nav.primary` is one flat slot (`modules.md`); the mockup renders it as two
- * visual groups, an unheaded top section and a headed "CRM" section. This is
- * presentation only, so it stays here rather than becoming a second slot.
+ * `nav.primary` is one flat slot (`modules.md`); the shell renders it as visual
+ * groups: an unheaded top section, an unheaded directory pair (People,
+ * Companies), then a headed "CRM" section for pipeline objects. Presentation
+ * only — it stays here rather than becoming extra slots.
  */
 const TOP_LEVEL_NAV_IDS: ReadonlySet<string> = new Set(['dashboard', 'handbook', 'planning', 'decisions'])
+const DIRECTORY_NAV_IDS: ReadonlySet<string> = new Set(['people', 'companies'])
 
 const ADMIN_ENTRY_PATH = '/admin/workspace'
 
@@ -124,7 +126,9 @@ export function Shell(): React.JSX.Element {
 
   const navItems = useVisibleNavItems(CORE_NAV, moduleNav)
   const topLevelItems = navItems.filter((item) => TOP_LEVEL_NAV_IDS.has(item.id))
-  const crmItems = navItems.filter((item) => !TOP_LEVEL_NAV_IDS.has(item.id))
+  const nonTopLevelItems = navItems.filter((item) => !TOP_LEVEL_NAV_IDS.has(item.id))
+  const directoryItems = nonTopLevelItems.filter((item) => DIRECTORY_NAV_IDS.has(item.id))
+  const crmItems = nonTopLevelItems.filter((item) => !DIRECTORY_NAV_IDS.has(item.id))
   const adminItems = useVisibleNavItems(CORE_ADMIN_NAV, moduleAdminNav)
   const inAdminNav = isAdminRoute(location.pathname)
 
@@ -170,16 +174,28 @@ export function Shell(): React.JSX.Element {
                 ))}
               </div>
 
-              <div>
-                <div className="mb-1 px-2 text-[11px] text-sidebar-muted">CRM</div>
+              {directoryItems.length > 0 && (
                 <div className="flex flex-col gap-0.5">
-                  {crmItems.map((item) => (
+                  {directoryItems.map((item) => (
                     <NavLink key={item.id} to={item.to} className={linkClass}>
                       {item.label}
                     </NavLink>
                   ))}
                 </div>
-              </div>
+              )}
+
+              {crmItems.length > 0 && (
+                <div>
+                  <div className="mb-1 px-2 text-[11px] text-sidebar-muted">CRM</div>
+                  <div className="flex flex-col gap-0.5">
+                    {crmItems.map((item) => (
+                      <NavLink key={item.id} to={item.to} className={linkClass}>
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-col gap-0.5">
                 <NavLink to={ADMIN_ENTRY_PATH} className={linkClass}>
