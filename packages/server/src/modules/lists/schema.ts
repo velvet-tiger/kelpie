@@ -2,7 +2,6 @@ import { RECORD_TARGET_TYPES } from '@kelpie/schemas'
 import { foreignKey, index, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
-import { consentPurposes } from '../consent-purposes/schema.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
@@ -35,15 +34,6 @@ export const lists = pgTable(
     name: text('name').notNull(),
     description: text('description'),
     targetType: text('target_type').notNull(),
-    /**
-     * The consent purpose captured when a form submit adds a person to this
-     * list. Person lists only — the service refuses a non-null value on any
-     * other target type. `restrict` on delete so a purpose in use is not
-     * silently unset behind the list's back.
-     */
-    consentPurposeId: text('consent_purpose_id').references(() => consentPurposes.id, {
-      onDelete: 'restrict',
-    }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

@@ -111,7 +111,6 @@ export async function findList(
 export interface ListIdRow {
   readonly id: string
   readonly targetType: string
-  readonly consentPurposeId: string | null
 }
 
 export async function listListsById(
@@ -127,7 +126,6 @@ export async function listListsById(
     .select({
       id: lists.id,
       targetType: lists.targetType,
-      consentPurposeId: lists.consentPurposeId,
     })
     .from(lists)
     .where(and(eq(lists.workspaceId, workspaceId), inArray(lists.id, ids)))

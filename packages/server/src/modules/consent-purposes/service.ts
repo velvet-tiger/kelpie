@@ -20,7 +20,6 @@ import type { Transaction, TransactionScope } from '../../runtime/transaction.ts
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import { formFields } from '../forms/schema.ts'
-import { lists } from '../lists/schema.ts'
 import { roleAllows } from '../workspace/roles.ts'
 import { CONSENT_PURPOSES_LIMIT } from './capabilities.ts'
 import './events.ts'
@@ -39,7 +38,7 @@ import type {
  *
  * Reads are open to any workspace member — every capture site needs to list
  * them to render its purpose picker. Writes need the admin role: a purpose
- * change touches every form, list, and import job that names it, and it is
+ * change touches every form and import job that names it, and it is
  * team-wide config rather than a per-user preference.
  */
 
@@ -143,17 +142,16 @@ function validateDefaultStatus(status: string): void {
 }
 
 /**
- * A purpose still named by a form's consent field or a list's
- * `consent_purpose_id` cannot be deleted. Counted here so the 409 lists both
- * types; the FK on either side would refuse the delete on its own but only
- * name one.
+ * A purpose still named by a form's consent field cannot be deleted. Counted
+ * here so the 409 names the referencing type; the FK on either side would
+ * refuse the delete on its own but only name one.
  */
 async function referencingTypes(
   db: Database | Transaction,
   workspaceId: string,
   id: string,
 ): Promise<readonly string[]> {
-  const [fieldRow, listRow] = await Promise.all([
+  const [fieldRow] = await Promise.all([
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(formFields)
@@ -165,18 +163,11 @@ async function referencingTypes(
           sql`${id} = ANY(${formFields.consentPurposeIds})`,
         ),
       ),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(lists)
-      .where(and(eq(lists.workspaceId, workspaceId), eq(lists.consentPurposeId, id))),
   ])
 
   const referencing: string[] = []
   if (Number(fieldRow[0]?.count ?? 0) > 0) {
     referencing.push('form_field')
-  }
-  if (Number(listRow[0]?.count ?? 0) > 0) {
-    referencing.push('list')
   }
   return referencing
 }
@@ -390,7 +381,7 @@ export function createConsentPurposesService(
           const referencing = await referencingTypes(tx, workspaceId, id)
           if (referencing.length > 0) {
             throw AppError.conflict(
-              'Remove this purpose from every form and list that names it before deleting it',
+              'Remove this purpose from every form field that names it before deleting it',
               referencing.map((type) => ({ field: type, message: 'still references this purpose' })),
             )
           }
@@ -400,7 +391,7 @@ export function createConsentPurposesService(
           } catch (error: unknown) {
             if (postgresErrorCode(error) === FOREIGN_KEY_VIOLATION) {
               throw AppError.conflict(
-                'Remove this purpose from every form and list that names it before deleting it',
+                'Remove this purpose from every form field that names it before deleting it',
                 [{ field: 'id', message: 'still referenced' }],
               )
             }

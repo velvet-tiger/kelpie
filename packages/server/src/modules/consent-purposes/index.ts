@@ -10,7 +10,7 @@ import { registerConsentPurposesTools } from './tools.ts'
  * Consent purposes: the workspace catalog every capture site names.
  *
  * Structural because Person consent rows carry `purpose_id`, and forms /
- * lists / imports each reference one; a disabled module would leave those
+ * forms / imports each reference one; a disabled module would leave those
  * references without a definition to resolve.
  *
  * Registers before people, forms, lists, and import-export so their `_fk`

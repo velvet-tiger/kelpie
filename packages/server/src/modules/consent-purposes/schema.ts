@@ -7,9 +7,9 @@ import { workspaces } from '../workspace/schema.ts'
 /**
  * Workspace-defined consent purposes.
  *
- * Every capture site — a form's consent field, a list, an import job, the
- * manual override on a Person — names one of these. `slug` is set at create
- * and immutable after: a rename would strand every form/list/import that
+ * Every capture site — a form's consent field, an import job, the manual
+ * override on a Person — names one of these. `slug` is set at create and
+ * immutable after: a rename would strand every form/import that names it and
  * names it and every `person_consents` row that carries it (identified by
  * the purpose id). The strict PATCH body naturally refuses either as a `422`.
  *

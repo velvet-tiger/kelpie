@@ -5,7 +5,7 @@ import type { ConsentPurposeStatus } from '@kelpie/schemas'
  * owner may rename, reorder, or delete them, and add any others they need.
  *
  * Both starters default to `unknown` — silence about a person's wishes is not
- * a grant, and every capture site (forms, lists, imports, manual override)
+ * a grant, and every capture site (forms, imports, manual override)
  * writes an explicit `person_consents` row when consent is actually given.
  */
 

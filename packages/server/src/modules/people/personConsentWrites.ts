@@ -8,7 +8,7 @@ import { personConsents } from './schema.ts'
 
 /**
  * Writes to `person_consents`, shared by the manual PATCH override and every
- * capture site (forms, lists, imports). Every write is idempotent — a second
+ * capture site (forms, imports). Every write is idempotent — a second
  * grant for the same (person, purpose) with the same source is a no-op.
  *
  * `source` follows the shape in `docs/privacy.md`:

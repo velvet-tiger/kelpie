@@ -22,13 +22,6 @@ export interface List extends RecordTimestamps {
   readonly description: string | null
   readonly targetType: RecordTargetType
   readonly memberCount: number
-  /**
-   * The consent purpose captured when a form submit adds a person to this
-   * list. Person lists only. Manual and API list adds capture nothing.
-   */
-  readonly consentPurposeId: string | null
-  /** The named purpose's slug, denormalised so a reader needs no second call. */
-  readonly consentPurposeSlug: string | null
 }
 
 export const listSchema: z.ZodType<List, unknown> = z
@@ -38,8 +31,6 @@ export const listSchema: z.ZodType<List, unknown> = z
     description: z.string().nullable(),
     target_type: z.enum(RECORD_TARGET_TYPES),
     member_count: z.number().int().nonnegative(),
-    consent_purpose_id: idSchema.nullable(),
-    consent_purpose_slug: z.string().nullable(),
     ...recordTimestamps,
   })
   .transform(
@@ -49,8 +40,6 @@ export const listSchema: z.ZodType<List, unknown> = z
       description: wire.description,
       targetType: wire.target_type,
       memberCount: wire.member_count,
-      consentPurposeId: wire.consent_purpose_id,
-      consentPurposeSlug: wire.consent_purpose_slug,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),
@@ -60,8 +49,6 @@ export interface CreateListInput {
   readonly name: string
   readonly targetType: RecordTargetType
   readonly description?: string | null
-  /** Person lists only. `null` on a company list is fine; a non-null value is `422`. */
-  readonly consentPurposeId?: string | null
 }
 
 export function createListBody(input: CreateListInput): Record<string, unknown> {
@@ -69,7 +56,6 @@ export function createListBody(input: CreateListInput): Record<string, unknown> 
     name: input.name,
     target_type: input.targetType,
     description: input.description,
-    consent_purpose_id: input.consentPurposeId,
   })
 }
 
@@ -77,13 +63,11 @@ export function createListBody(input: CreateListInput): Record<string, unknown> 
 export interface ListInput {
   readonly name?: string
   readonly description?: string | null
-  readonly consentPurposeId?: string | null
 }
 
 export function listBody(input: ListInput): Record<string, unknown> {
   return definedFields({
     name: input.name,
     description: input.description,
-    consent_purpose_id: input.consentPurposeId,
   })
 }

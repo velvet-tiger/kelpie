@@ -296,11 +296,6 @@ export async function insertSubmission(
 export interface FormListRow {
   readonly listId: string
   readonly targetType: RecordTargetType
-  /**
-   * When the list has a consent purpose, form-driven adds capture consent
-   * against it. Carried through so submission.ts needs no second query.
-   */
-  readonly consentPurposeId: string | null
 }
 
 export async function listFormLists(db: Queryable, formId: string): Promise<FormListRow[]> {
@@ -308,7 +303,6 @@ export async function listFormLists(db: Queryable, formId: string): Promise<Form
     .select({
       listId: formLists.listId,
       targetType: lists.targetType,
-      consentPurposeId: lists.consentPurposeId,
     })
     .from(formLists)
     .innerJoin(lists, eq(lists.id, formLists.listId))
@@ -318,7 +312,6 @@ export async function listFormLists(db: Queryable, formId: string): Promise<Form
   return rows.map((row) => ({
     listId: row.listId,
     targetType: row.targetType as RecordTargetType,
-    consentPurposeId: row.consentPurposeId,
   }))
 }
 

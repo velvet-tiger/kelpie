@@ -132,7 +132,7 @@ function EmptyState({ onAdd, onSeedStarters, isSeeding }: EmptyStateProps): Reac
       <p className="mt-1 text-ink-muted">
         A purpose is what a person is agreeing to — being contacted at all, marketing, research.
         Every workspace usually has at least a general <span className="font-medium">Contact</span>{' '}
-        purpose. Forms, lists, and imports that don&rsquo;t need consent don&rsquo;t need one.
+        purpose. Forms and imports that don&rsquo;t need consent don&rsquo;t need one.
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button

@@ -1030,30 +1030,8 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
 
         // --- List memberships ---
 
-        // Every purpose named by a person list on this form, so consent
-        // capture below needs no per-row round trip.
-        const listConsentPurposeIds = Array.from(
-          new Set(
-            formListRows
-              .map((row) => row.consentPurposeId)
-              .filter((id): id is string => id !== null),
-          ),
-        )
-        const listConsentPurposes =
-          listConsentPurposeIds.length === 0
-            ? new Map<string, { readonly slug: string; readonly label: string }>()
-            : new Map(
-                (
-                  await consentPurposesRepository.listPurposesByIds(
-                    tx,
-                    workspaceId,
-                    listConsentPurposeIds,
-                  )
-                ).map((row) => [row.id, { slug: row.slug, label: row.label }]),
-              )
-
         for (const row of formListRows) {
-          const inserted = await runAction<boolean>(
+          await runAction<boolean>(
             tx,
             events,
             actionLog,
@@ -1096,49 +1074,6 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
               return { status: 'ok', detail: targetId, value: true }
             },
           )
-
-          // Consent capture rides with the add — only on person lists, only
-          // when the list carries a purpose, and only when we actually added
-          // (or the person was already on it, since a returning submitter
-          // did the same thing again). A record already on the list has
-          // already been consented for its purpose; the upsert reflects
-          // that a fresh submit is fresh evidence.
-          if (
-            row.targetType === 'person' &&
-            row.consentPurposeId !== null &&
-            inserted !== null
-          ) {
-            const purpose = listConsentPurposes.get(row.consentPurposeId)
-            if (purpose !== undefined) {
-              await runAction<void>(
-                tx,
-                events,
-                actionLog,
-                `consent:${row.listId}`,
-                async (inner) => {
-                  await upsertPersonConsent(
-                    inner,
-                    workspaceId,
-                    person.record.id,
-                    row.consentPurposeId as string,
-                    purpose.slug,
-                    purpose.label,
-                    'granted',
-                    `list:${row.listId}`,
-                    dependencies.now(),
-                  )
-                  await dependencies.recordActivity(inner, workspaceId, FORM_ACTOR, {
-                    targetType: 'person',
-                    targetId: person.record.id,
-                    kind: 'updated',
-                    action: `granted ${purpose.label} consent via ${form.name}`,
-                    detail: `Added to list membership`,
-                  })
-                  return { status: 'ok', detail: purpose.slug }
-                },
-              )
-            }
-          }
         }
 
         // --- Attach the submitter to pre-existing pipeline records ---

@@ -31,7 +31,7 @@ export function registerConsentPurposesTools(
     subject: 'consent purpose',
     about:
       'A workspace-defined consent purpose. Read these before writing a person ' +
-      'consent or setting a form/list/import purpose_id.',
+      'consent or setting a form/import purpose_id.',
     service,
     render: consentPurposeResponse,
     listArgs,

@@ -84,7 +84,7 @@ export const people = pgTable(
     lastContactedAt: moment('last_contacted_at'),
     // The Article 21 objection. A global do-not-contact signal, independent
     // of consent purposes: agents check this before outreach regardless of
-    // per-purpose consent state. Never touched by forms, lists, or imports —
+    // per-purpose consent state. Never touched by forms or imports —
     // the workspace member owns this flag.
     doNotContact: boolean('do_not_contact').notNull().default(false),
     // Workspace-defined fields, keyed by definition key. The custom-fields
