@@ -3,6 +3,7 @@ import type { Activity, RecordTargetType } from '@kelpie/schemas'
 
 import { createReadOnlyResourceHooks } from '../resource.ts'
 import type { RecordListResult } from '../resource.ts'
+import type { QueryParameters } from '../client.ts'
 
 /**
  * `/v1/activities`, read-only.
@@ -26,6 +27,13 @@ export interface ActivityTimeline {
   readonly targetId: string
 }
 
-export function useActivities(timeline: ActivityTimeline): RecordListResult<Activity> {
-  return activities.useList({ target_type: timeline.targetType, target_id: timeline.targetId })
+export function useActivities(
+  timeline: ActivityTimeline,
+  query?: QueryParameters,
+): RecordListResult<Activity> {
+  return activities.useList({
+    target_type: timeline.targetType,
+    target_id: timeline.targetId,
+    ...query,
+  })
 }

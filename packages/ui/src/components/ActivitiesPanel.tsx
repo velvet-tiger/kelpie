@@ -57,6 +57,9 @@ interface MonthGroup {
   readonly items: readonly Activity[]
 }
 
+/** How many events the Overview tab's latest-activity block shows. */
+const LATEST_ACTIVITY_COUNT = 5
+
 /** Consecutive runs, not a map: the list is already ordered, so a month never recurs. */
 function groupByMonth(
   activities: readonly Activity[],
@@ -126,19 +129,19 @@ export function ActivitiesPanel({
 }
 
 /**
- * The single most recent event, for a record's Overview tab.
+ * The five most recent events, for a record's Overview tab.
  *
  * Its own request rather than a slice of the panel's: the panel lives on a
- * different tab, so on Overview there is no list to take the first row of.
+ * different tab, so on Overview there is no list to take the first rows of.
  */
 export function LatestActivity({
   targetType,
   targetId,
 }: ActivitiesPanelProps): React.JSX.Element {
-  const activities = useActivities({ targetType, targetId })
+  const activities = useActivities({ targetType, targetId }, { limit: LATEST_ACTIVITY_COUNT })
   const members = useMembers()
   const timezone = useTimezone()
-  const latest = activities.records[0]
+  const latest = activities.records
 
   return (
     <section>
@@ -147,20 +150,23 @@ export function LatestActivity({
       {activities.error !== null && <ErrorPanel error={activities.error} />}
       {activities.isLoading && <p className="text-[13px] text-ink-faint">Loading activity…</p>}
 
-      {!activities.isLoading && latest === undefined && activities.error === null && (
+      {!activities.isLoading && latest.length === 0 && activities.error === null && (
         <p className="text-[13px] text-ink-faint">No activity yet.</p>
       )}
 
-      {latest !== undefined && (
+      {latest.length > 0 && (
         <ol className="overflow-hidden rounded-md border border-border">
-          <ActivityEvent
-            activity={latest}
-            actorName={actorNameFor(latest, members.nameById)}
-            contextType={targetType}
-            contextId={targetId}
-            isLast
-            timezone={timezone}
-          />
+          {latest.map((activity, index) => (
+            <ActivityEvent
+              key={activity.id}
+              activity={activity}
+              actorName={actorNameFor(activity, members.nameById)}
+              contextType={targetType}
+              contextId={targetId}
+              isLast={index === latest.length - 1}
+              timezone={timezone}
+            />
+          ))}
         </ol>
       )}
     </section>
