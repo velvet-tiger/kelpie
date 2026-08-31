@@ -1,0 +1,1 @@
+ALTER TABLE "form_fields" ADD COLUMN "consent_purpose_labels" jsonb DEFAULT '{}'::jsonb NOT NULL;

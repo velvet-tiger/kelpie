@@ -15,6 +15,7 @@ import type { Actor, SessionActor } from '../auth/actor.ts'
 import './events.ts'
 import * as authRepository from '../auth/repository.ts'
 import { SEATS_LIMIT } from './capabilities.ts'
+import { STARTER_CONSENT_PURPOSES } from '../consent-purposes/starters.ts'
 import * as repository from './repository.ts'
 import { parseInvitableRole, parseMemberRole, roleAllows } from './roles.ts'
 import type { InvitableRole, InviteStatus, MemberRole } from './roles.ts'
@@ -469,6 +470,19 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
               sortOrder: index,
             })),
           ),
+        )
+
+        await repository.insertConsentPurposes(
+          tx,
+          STARTER_CONSENT_PURPOSES.map((purpose, index) => ({
+            id: dependencies.createId('consentPurpose'),
+            workspaceId,
+            slug: purpose.slug,
+            label: purpose.label,
+            description: purpose.description,
+            defaultStatus: purpose.defaultStatus,
+            sortOrder: index,
+          })),
         )
 
         // The session that created the workspace should land in it.

@@ -47,6 +47,24 @@ export interface FormField {
   /** Empty for every type but `select`. */
   readonly options: readonly FormFieldOption[]
   readonly placeholder: string | null
+  /**
+   * The intro sentence for a `consent` field — sits above the list of purpose
+   * checkboxes. `label` is the field heading; `statement` is what the visitor
+   * reads before ticking. Null for every other type.
+   */
+  readonly statement: string | null
+  /**
+   * Workspace consent purposes this `consent` field offers, in display order.
+   * Non-empty when `type === 'consent'`; empty otherwise. Each ticked box
+   * grants the purpose it belongs to; an unticked one is absence.
+   */
+  readonly consentPurposeIds: readonly string[]
+  /**
+   * Per-purpose override for the checkbox text, keyed by purpose id. Absent
+   * keys fall back to the workspace purpose's own label. Only the wording
+   * changes — the checkbox stays bound to its purpose.
+   */
+  readonly consentPurposeLabels: Readonly<Record<string, string>>
   /** Position in the form, contiguous from 0. The server renumbers on every write. */
   readonly sortOrder: number
 }
@@ -141,6 +159,9 @@ const formFieldSchema = z
     map_to: z.enum(FORM_FIELD_MAP_TARGETS),
     options: z.array(formFieldOptionSchema),
     placeholder: z.string().nullable(),
+    statement: z.string().nullable(),
+    consent_purpose_ids: z.array(idSchema),
+    consent_purpose_labels: z.record(z.string(), z.string()),
     sort_order: z.number().int(),
   })
   .transform(
@@ -152,6 +173,9 @@ const formFieldSchema = z
       mapTo: wire.map_to,
       options: wire.options,
       placeholder: wire.placeholder,
+      statement: wire.statement,
+      consentPurposeIds: wire.consent_purpose_ids,
+      consentPurposeLabels: wire.consent_purpose_labels,
       sortOrder: wire.sort_order,
     }),
   )
@@ -259,6 +283,12 @@ export interface FormFieldInput {
   readonly mapTo: FormFieldMapTarget
   readonly options?: readonly FormFieldOptionInput[]
   readonly placeholder?: string | null
+  /** The intro sentence above the list of consent checkboxes. */
+  readonly statement?: string | null
+  /** Non-empty for `consent` fields; each id becomes a checkbox in display order. */
+  readonly consentPurposeIds?: readonly string[]
+  /** Per-purpose override for the checkbox text. Falls back to the workspace label. */
+  readonly consentPurposeLabels?: Readonly<Record<string, string>>
 }
 
 export interface CreateFormInput {
@@ -338,6 +368,9 @@ function fieldBody(field: FormFieldInput): Record<string, unknown> {
       definedFields({ key: option.key, value: option.value, value_type: option.valueType }),
     ),
     placeholder: field.placeholder,
+    statement: field.statement,
+    consent_purpose_ids: field.consentPurposeIds,
+    consent_purpose_labels: field.consentPurposeLabels,
   })
 }
 

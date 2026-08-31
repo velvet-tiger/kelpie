@@ -110,4 +110,31 @@ export const SUBMISSION_FIELD_PRESETS: readonly SubmissionFieldPreset[] = [
       options: NEW_SELECT_OPTIONS,
     },
   },
+  {
+    menuLabel: 'Consent',
+    field: {
+      label: 'Consent',
+      type: 'consent',
+      required: false,
+      mapTo: 'person.consent',
+      placeholder: null,
+      statement: 'Please tell us how we can contact you.',
+      consentPurposeIds: [],
+      consentPurposeLabels: {},
+    },
+  },
+  {
+    menuLabel: 'Notice',
+    field: {
+      label: 'Privacy notice',
+      type: 'notice',
+      required: false,
+      mapTo: 'person.consent',
+      placeholder: null,
+      statement:
+        'By submitting this form you agree to us storing your information and using it to contact you about your enquiry.',
+      consentPurposeIds: [],
+      consentPurposeLabels: {},
+    },
+  },
 ]

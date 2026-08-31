@@ -6,6 +6,7 @@ import { createAgentTasksModule } from './agent-tasks/index.ts'
 import { createApiKeysModule } from './api-keys/index.ts'
 import { createAuthModule } from './auth/index.ts'
 import { createCompaniesModule } from './companies/index.ts'
+import { createConsentPurposesModule } from './consent-purposes/index.ts'
 import { createCustomFieldsModule } from './custom-fields/index.ts'
 import { createDashboardModule } from './dashboard/index.ts'
 import { createDealsModule } from './deals/index.ts'
@@ -49,6 +50,9 @@ export const coreModules: readonly KelpieModule[] = [
   createAuthModule(coreMigrationsDirectory),
   createWorkspaceModule(coreMigrationsDirectory),
   createApiKeysModule(coreMigrationsDirectory),
+  // Structural. Registers before People, Forms, Lists, and Import-Export so
+  // its table is defined when their fks and per-person consent join reach it.
+  createConsentPurposesModule(coreMigrationsDirectory),
   // Structural. Registers before the six object modules so the validator
   // factory it exports is present when they inject it into their services.
   createCustomFieldsModule(coreMigrationsDirectory),

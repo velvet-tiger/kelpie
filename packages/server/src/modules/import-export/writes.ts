@@ -7,12 +7,14 @@ import type { ActivityRecorder } from '../activities/recorder.ts'
 import { describeCreationVia, describeLink, describeUpdateVia } from '../activities/wording.ts'
 import type { Actor } from '../auth/actor.ts'
 import * as companyRepository from '../companies/repository.ts'
+import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import * as dealRepository from '../deals/repository.ts'
 import * as peopleRepository from '../people/repository.ts'
+import { upsertPersonConsent } from '../people/personConsentWrites.ts'
 import * as personLinks from '../personLinks.ts'
 import * as positionRepository from '../positions/repository.ts'
 import { IMPORT_DEAL_CURRENCY, NEW_COMPANY_DEFAULTS, NEW_PERSON_DEFAULTS } from './drafts.ts'
-import type { ImportWrite, PlannedAffiliation, RowPlan } from './plan.ts'
+import type { ImportConsentGrant, ImportWrite, PlannedAffiliation, RowPlan } from './plan.ts'
 
 /**
  * Applying one planned row: the insert or update, and the timeline entry that
@@ -232,6 +234,10 @@ async function writePerson(
         ? []
         : await applyAffiliation(dependencies, created.id, write.affiliation)
 
+    if (write.consent !== undefined) {
+      await applyImportConsent(dependencies, created.id, write.consent)
+    }
+
     return { recordId: created.id, objectType: 'person', changedFields: [], sideRecords }
   }
 
@@ -261,7 +267,49 @@ async function writePerson(
       ? []
       : await applyAffiliation(dependencies, id, write.affiliation)
 
+  if (write.consent !== undefined) {
+    await applyImportConsent(dependencies, id, write.consent)
+  }
+
   return { recordId: id, objectType: 'person', changedFields, sideRecords }
+}
+
+/**
+ * Applies the row's consent grant against the job's purpose. The purpose is
+ * looked up once per call rather than cached across rows — a commit runs one
+ * transaction and one row at a time — so the round trip is small and stays
+ * consistent with the current transaction's view.
+ */
+async function applyImportConsent(
+  dependencies: WriteDependencies,
+  personId: string,
+  consent: ImportConsentGrant,
+): Promise<void> {
+  const [purpose] = await consentPurposesRepository.listPurposesByIds(
+    dependencies.tx,
+    dependencies.workspaceId,
+    [consent.purposeId],
+  )
+  if (purpose === undefined) return
+  const notedAt = consent.notedAt === null ? dependencies.now : new Date(`${consent.notedAt}T00:00:00Z`)
+  await upsertPersonConsent(
+    dependencies.tx,
+    dependencies.workspaceId,
+    personId,
+    consent.purposeId,
+    purpose.slug,
+    purpose.label,
+    consent.status,
+    'import',
+    notedAt,
+  )
+  await dependencies.recordActivity(dependencies.tx, dependencies.workspaceId, dependencies.actor, {
+    targetType: 'person',
+    targetId: personId,
+    kind: 'updated',
+    action: `${consent.status === 'granted' ? 'granted' : 'withdrew'} ${purpose.label} consent via ${dependencies.sourceName}`,
+    detail: null,
+  })
 }
 
 /**

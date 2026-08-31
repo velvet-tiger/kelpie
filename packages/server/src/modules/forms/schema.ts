@@ -213,6 +213,36 @@ export const formFields = pgTable(
     mapTo: text('map_to').notNull(),
     options: jsonb('options').$type<readonly StoredFormFieldOption[]>().notNull().default([]),
     placeholder: text('placeholder'),
+    /**
+     * The checkbox statement for a `consent` field — the intro sentence that
+     * sits above the list of purpose checkboxes. `label` is the field's
+     * heading; `statement` is what the visitor reads before ticking. Null for
+     * every other type.
+     */
+    statement: text('statement'),
+    /**
+     * The workspace consent purposes a `consent` field offers, in the order
+     * the visitor sees them. Required (non-empty) when `type === 'consent'`.
+     * A `text[]` rather than a join table because the set is small (usually
+     * one to three), always read whole, and never queried into; the service
+     * validates each id against `consent_purposes` and refuses an unknown one
+     * at 422, and the purposes module refuses to delete a purpose still
+     * listed on any form field (`form_fields.consent_purpose_ids` scan).
+     */
+    consentPurposeIds: text('consent_purpose_ids')
+      .array()
+      .notNull()
+      .default([]),
+    /**
+     * Optional per-purpose override for the text shown next to each checkbox.
+     * Keyed by purpose id; absent keys fall back to the workspace purpose's
+     * own label. Bound to the same purpose the checkbox grants — the map
+     * changes wording, never which purpose is being consented to.
+     */
+    consentPurposeLabels: jsonb('consent_purpose_labels')
+      .$type<Readonly<Record<string, string>>>()
+      .notNull()
+      .default({}),
     sortOrder: integer('sort_order').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

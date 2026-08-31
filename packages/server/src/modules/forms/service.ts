@@ -17,6 +17,7 @@ import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
+import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import * as listsRepository from '../lists/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import { missingTargets } from '../recordTargets.ts'
@@ -430,6 +431,46 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
   }
 
   /**
+   * Every consent field's `consent_purpose_id` must exist in this workspace.
+   * The FK on `form_fields.consent_purpose_id` catches this at the database
+   * on write; running the check here first turns the failure into a 422 with
+   * the offending field pinpointed instead of a foreign-key 500.
+   */
+  async function requireConsentPurposes(
+    workspaceId: string,
+    fields: readonly FieldShape[],
+  ): Promise<void> {
+    const consentIds = Array.from(
+      new Set(fields.flatMap((field) => [...field.consentPurposeIds])),
+    )
+    if (consentIds.length === 0) return
+
+    const rows = await consentPurposesRepository.listPurposesByIds(
+      dependencies.db,
+      workspaceId,
+      consentIds,
+    )
+    const found = new Set(rows.map((row) => row.id))
+    const problems: { field: string; message: string }[] = []
+    fields.forEach((field, index) => {
+      for (const purposeId of field.consentPurposeIds) {
+        if (!found.has(purposeId)) {
+          problems.push({
+            field: `fields.${String(index)}.consent_purpose_ids`,
+            message: `No consent purpose ${purposeId} in this workspace`,
+          })
+        }
+      }
+    })
+    if (problems.length > 0) {
+      throw AppError.validationFailed(
+        'One or more consent fields name a purpose that does not exist',
+        problems,
+      )
+    }
+  }
+
+  /**
    * Resulting-state validation for everything except the three stage-id
    * checks: those depend on whether the id actually changed, which is only
    * known at the call site, so they stay inline in create() and update().
@@ -439,6 +480,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
     state: ResultingState,
   ): Promise<void> {
     requireUsableFields(state.fields, state.createDeal, state.createPartnership)
+    await requireConsentPurposes(workspaceId, state.fields)
     await requireActionLists(workspaceId, state.listIds)
     await requireAttachTargets(workspaceId, state.attachTargets)
   }
@@ -462,9 +504,27 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         mapTo: field.mapTo,
         options: storedOptions(field.options),
         placeholder: field.placeholder,
+        statement: field.statement,
+        consentPurposeIds: [...field.consentPurposeIds],
+        // Prune the override map to just the purposes the field lists, so
+        // deselecting one clears its custom text rather than keeping it
+        // stored against a purpose the field no longer offers.
+        consentPurposeLabels: pruneLabels(field.consentPurposeIds, field.consentPurposeLabels),
         sortOrder: index,
       })),
     )
+  }
+
+  function pruneLabels(
+    ids: readonly string[],
+    labels: Readonly<Record<string, string>>,
+  ): Readonly<Record<string, string>> {
+    const allowed = new Set(ids)
+    const pruned: Record<string, string> = {}
+    for (const [key, value] of Object.entries(labels)) {
+      if (allowed.has(key) && value.length > 0) pruned[key] = value
+    }
+    return pruned
   }
 
   /** @returns The page's views, with every form's fields fetched in one query. */

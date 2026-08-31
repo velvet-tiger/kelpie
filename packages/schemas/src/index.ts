@@ -24,6 +24,11 @@ export {
   CANDIDATE_STATUS_LABELS,
   CANDIDATE_STATUSES,
   COMPANY_STAGES,
+  CONSENT_PURPOSE_STATUS_LABELS,
+  CONSENT_PURPOSE_STATUSES,
+  CONSENT_SOURCE_KINDS,
+  CONSENT_STATUS_LABELS,
+  CONSENT_STATUSES,
   CUSTOM_FIELD_OBJECT_TYPE_LABELS,
   CUSTOM_FIELD_OBJECT_TYPES,
   CUSTOM_FIELD_TYPE_LABELS,
@@ -32,6 +37,7 @@ export {
   EXTENSIBLE_RECORD_TYPES,
   FIRST_INTERVIEW_STAGE,
   FORM_ACTION_STATUSES,
+  FORM_BOOLEAN_FIELD_TYPES,
   FORM_FIELD_MAP_TARGET_LABELS,
   FORM_FIELD_MAP_TARGETS,
   FORM_FIELD_TYPES,
@@ -46,6 +52,7 @@ export {
   INVITE_STATUSES,
   MEMBER_ROLES,
   OPEN_PLAN_ITEM_STATUSES,
+  PERSON_CONSENT_TARGET,
   PERSON_EMAIL_TARGET,
   PIPELINE_KIND_LABELS,
   PIPELINE_KINDS,
@@ -77,11 +84,15 @@ export type {
   ApiKeyKind,
   CandidateStatus,
   CompanyStage,
+  ConsentPurposeStatus,
+  ConsentSourceKind,
+  ConsentStatus,
   CustomFieldObjectType,
   CustomFieldType,
   CustomFieldTypeWithOptions,
   ExtensibleRecordType,
   FormActionStatus,
+  FormBooleanFieldType,
   FormFieldMapTarget,
   FormFieldType,
   FormOptionValueType,
@@ -110,6 +121,20 @@ export type {
 
 export { definedFields, idSchema, nullableTimestampSchema, timestampSchema } from './wire.ts'
 export type { RecordTimestamps } from './wire.ts'
+
+export {
+  consentPurposeBody,
+  consentPurposeSchema,
+  createConsentPurposeBody,
+} from './consentPurpose.ts'
+export type {
+  ConsentPurpose,
+  ConsentPurposeInput,
+  CreateConsentPurposeInput,
+} from './consentPurpose.ts'
+
+export { personConsentSchema, personConsentWriteBody } from './personConsent.ts'
+export type { PersonConsent, PersonConsentInput } from './personConsent.ts'
 
 export {
   createCustomFieldDefinitionBody,

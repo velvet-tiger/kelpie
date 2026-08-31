@@ -1,6 +1,7 @@
 import {
   ACCOUNT_TYPES,
   COMPANY_STAGES,
+  CONSENT_STATUSES,
   ICP_FITS,
   INFLUENCE_LEVELS,
   PREFERRED_CHANNELS,
@@ -121,6 +122,12 @@ function checkPerson(errors: StoredRowError[], mapped: Readonly<Record<string, s
   checkEnum(errors, 'preferred_channel', PREFERRED_CHANNELS, mapped.preferred_channel)
   checkEnum(errors, 'influence', INFLUENCE_LEVELS, mapped.influence)
   checkEnum(errors, 'relationship', RELATIONSHIP_LEVELS, mapped.relationship)
+  checkEnum(errors, 'consent_status', CONSENT_STATUSES, mapped.consent_status)
+
+  const consentAt = (mapped.consent_at ?? '').trim()
+  if (consentAt.length > 0 && !isoDateSchema.safeParse(consentAt).success) {
+    errors.push({ field: 'consent_at', message: `"${consentAt}" is not a date. Use YYYY-MM-DD` })
+  }
 }
 
 function checkPosition(errors: StoredRowError[], mapped: Readonly<Record<string, string>>): void {

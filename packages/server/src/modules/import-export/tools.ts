@@ -69,6 +69,15 @@ const previewArgs = z.strictObject({
     ),
   match_key: z.string().min(1).optional().describe('Which field decides that match.'),
   column_map: columnMapArg.optional(),
+  consent_purpose_id: z
+    .string()
+    .min(1)
+    .nullable()
+    .default(null)
+    .describe(
+      'People imports only: the consent purpose a row grants for each `consent_status`. ' +
+        'Required whenever consent_status or consent_at is mapped.',
+    ),
   file_name: z.string().min(1).nullable().default(null).describe('Recorded on the job, for the log.'),
 })
 
@@ -135,6 +144,7 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
           onMissingCompany: args.on_missing_company,
           matchKeyId: args.match_key ?? defaultMatchKeyId(args.object),
           columnMap: args.column_map,
+          consentPurposeId: args.consent_purpose_id,
           fileName: args.file_name,
           csv: args.csv,
         }),

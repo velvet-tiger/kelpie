@@ -1,11 +1,12 @@
 import {
+  CONSENT_STATUSES,
   INFLUENCE_LEVELS,
   PIPELINE_KINDS,
   PREFERRED_CHANNELS,
   RELATIONSHIP_LEVELS,
 } from '@kelpie/schemas'
 import type { CustomFieldValue, SocialProfile } from '@kelpie/schemas'
-import { index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import { boolean, index, jsonb, pgTable, primaryKey, text, unique } from 'drizzle-orm/pg-core'
 
 import {
   checkOneOf,
@@ -17,6 +18,7 @@ import {
   updatedAt,
 } from '../../lib/columns.ts'
 import type { SearchVectorPart } from '../../lib/columns.ts'
+import { consentPurposes } from '../consent-purposes/schema.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
@@ -80,6 +82,11 @@ export const people = pgTable(
     summary: text('summary').notNull().default(''),
     tags: text('tags').array().notNull().default([]),
     lastContactedAt: moment('last_contacted_at'),
+    // The Article 21 objection. A global do-not-contact signal, independent
+    // of consent purposes: agents check this before outreach regardless of
+    // per-purpose consent state. Never touched by forms, lists, or imports —
+    // the workspace member owns this flag.
+    doNotContact: boolean('do_not_contact').notNull().default(false),
     // Workspace-defined fields, keyed by definition key. The custom-fields
     // service validates every key on write; the store here just carries the
     // shape. Default `{}` mirrors `tags`'s default — the object is always
@@ -112,6 +119,45 @@ export const people = pgTable(
     checkOneOf('people_preferred_channel_check', table.preferredChannel, PREFERRED_CHANNELS),
     checkOneOf('people_influence_check', table.influence, INFLUENCE_LEVELS),
     checkOneOf('people_relationship_check', table.relationship, RELATIONSHIP_LEVELS),
+  ],
+)
+
+/**
+ * The explicit consent decision for one (person, purpose) pair.
+ *
+ * Absence of a row means "inherits the purpose's `default_status`", so no
+ * `unknown` status here — a stored row always carries a decision. The pk is
+ * composite on `(person_id, purpose_id)` with no public id; the row is
+ * addressed by the pair, like `form_lists` and `form_attach_targets`.
+ *
+ * `source` records where the decision came from: `form:<form_id>`,
+ * `list:<list_id>`, `import`, or `manual`. Cascade with both the person and
+ * the purpose — erasing a person drops these with the rest of their record,
+ * and removing a purpose drops every row that still names it.
+ */
+export const personConsents = pgTable(
+  'person_consents',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    personId: text('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+    purposeId: text('purpose_id')
+      .notNull()
+      .references(() => consentPurposes.id, { onDelete: 'cascade' }),
+    status: text('status').notNull(),
+    notedAt: moment('noted_at').notNull().defaultNow(),
+    source: text('source').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.personId, table.purposeId] }),
+    index('person_consents_workspace_idx').on(table.workspaceId),
+    index('person_consents_purpose_idx').on(table.purposeId),
+    checkOneOf('person_consents_status_check', table.status, CONSENT_STATUSES),
   ],
 )
 

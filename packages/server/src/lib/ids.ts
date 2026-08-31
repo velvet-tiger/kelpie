@@ -41,6 +41,7 @@ export const idPrefixes = {
   personLink: 'plink',
   handbookPage: 'hb',
   customFieldDefinition: 'fld',
+  consentPurpose: 'cnp',
   form: 'form',
   formField: 'ff',
   formSubmission: 'sub',

@@ -46,6 +46,8 @@ const createJobForm = z.object({
   on_missing_company: z.enum(ON_MISSING_COMPANY).default('skip'),
   match_key: z.string().min(1).optional(),
   column_map: z.string().optional(),
+  /** People imports only — mirrors on_missing_company's per-object gate. */
+  consent_purpose_id: z.string().min(1).optional(),
   dry_run: z.enum(['true', 'false']).default('true'),
 })
 
@@ -63,6 +65,7 @@ export function importJobResponse(job: ImportJobView): Record<string, unknown> {
     on_missing_company: job.onMissingCompany,
     match_key: job.matchKey,
     column_map: job.columnMap,
+    consent_purpose_id: job.consentPurposeId,
     source_headers: job.sourceHeaders,
     file_name: job.fileName,
     counts: job.counts,
@@ -237,6 +240,7 @@ export function mountImportExportRoutes(
       onMissingCompany: parsed.data.on_missing_company,
       matchKeyId: parsed.data.match_key ?? defaultMatchKeyId(parsed.data.object),
       columnMap: readColumnMap(parsed.data.column_map),
+      consentPurposeId: parsed.data.consent_purpose_id ?? null,
       fileName: file.name.length === 0 ? null : file.name,
       csv: await file.text(),
     })

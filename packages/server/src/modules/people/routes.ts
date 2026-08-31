@@ -1,4 +1,4 @@
-import { composeName, customFieldsPatchShape } from '@kelpie/schemas'
+import { CONSENT_STATUSES, composeName, customFieldsPatchShape } from '@kelpie/schemas'
 import type { NameParts } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
@@ -8,6 +8,7 @@ import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
+import type { EffectiveConsent } from './consentHydration.ts'
 import {
   INFLUENCE_LEVELS,
   PREFERRED_CHANNELS,
@@ -27,6 +28,16 @@ import type { CreatePersonInput, PeopleService, PersonView, UpdatePersonInput } 
 const socialProfileBody = z.strictObject({
   network: z.enum(SOCIAL_NETWORK_IDS),
   url: z.string().min(1),
+})
+
+/**
+ * One manual consent write on a Person body. `purpose_slug` names the
+ * workspace purpose; `status: null` clears the row and falls back to the
+ * purpose default, any other value upserts `source: manual`.
+ */
+const consentWriteBody = z.strictObject({
+  purpose_slug: z.string().min(1),
+  status: z.enum(CONSENT_STATUSES).nullable(),
 })
 
 /** The name parts of a body, under the names `composeName` reads them by. */
@@ -56,6 +67,8 @@ const personShape = {
   summary: z.string(),
   tags: z.array(z.string().min(1)),
   last_contacted_at: z.iso.datetime().nullable(),
+  do_not_contact: z.boolean(),
+  consents: z.array(consentWriteBody),
   custom_fields: customFieldsPatchShape,
 }
 
@@ -89,6 +102,8 @@ export const createBody = z
     summary: personShape.summary.default(''),
     tags: personShape.tags.default([]),
     last_contacted_at: personShape.last_contacted_at.default(null),
+    do_not_contact: personShape.do_not_contact.default(false),
+    consents: personShape.consents.default([]),
     custom_fields: personShape.custom_fields.default({}),
   })
   .superRefine((body, context) => {
@@ -129,6 +144,11 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreatePersonInp
     summary: body.summary,
     tags: body.tags,
     lastContactedAt: body.last_contacted_at === null ? null : new Date(body.last_contacted_at),
+    doNotContact: body.do_not_contact,
+    consents: body.consents.map((consent) => ({
+      purposeSlug: consent.purpose_slug,
+      status: consent.status,
+    })),
     customFields: body.custom_fields,
   }
 }
@@ -165,7 +185,27 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePersonInp
           lastContactedAt:
             body.last_contacted_at === null ? null : new Date(body.last_contacted_at),
         }),
+    ...(body.do_not_contact === undefined ? {} : { doNotContact: body.do_not_contact }),
+    ...(body.consents === undefined
+      ? {}
+      : {
+          consents: body.consents.map((consent) => ({
+            purposeSlug: consent.purpose_slug,
+            status: consent.status,
+          })),
+        }),
     ...(body.custom_fields === undefined ? {} : { customFields: body.custom_fields }),
+  }
+}
+
+function consentEntry(entry: EffectiveConsent): Record<string, unknown> {
+  return {
+    purpose_slug: entry.purposeSlug,
+    purpose_label: entry.purposeLabel,
+    status: entry.status,
+    source: entry.source,
+    noted_at: entry.notedAt === null ? null : entry.notedAt.toISOString(),
+    inherited: entry.inherited,
   }
 }
 
@@ -188,6 +228,8 @@ export function personResponse(person: PersonView): Record<string, unknown> {
     summary: person.summary,
     tags: person.tags,
     last_contacted_at: person.lastContactedAt === null ? null : person.lastContactedAt.toISOString(),
+    do_not_contact: person.doNotContact,
+    consents: person.consents.map(consentEntry),
     custom_fields: renderCustomFieldsForWire(person.customFields),
     created_at: person.createdAt.toISOString(),
     updated_at: person.updatedAt.toISOString(),

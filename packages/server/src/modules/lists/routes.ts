@@ -31,12 +31,14 @@ export const createBody = z.strictObject({
   name: z.string().min(1),
   target_type: z.enum(RECORD_TARGET_TYPES),
   description: z.string().nullable().default(null),
+  consent_purpose_id: z.string().min(1).nullable().default(null),
 })
 
 export const updateBody = z
   .strictObject({
     name: z.string().min(1),
     description: z.string().nullable(),
+    consent_purpose_id: z.string().min(1).nullable(),
   })
   .partial()
 
@@ -54,6 +56,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateListInput
     name: body.name,
     targetType: body.target_type,
     description: body.description,
+    consentPurposeId: body.consent_purpose_id,
   }
 }
 
@@ -61,6 +64,9 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateListInput
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
     ...(body.description === undefined ? {} : { description: body.description }),
+    ...(body.consent_purpose_id === undefined
+      ? {}
+      : { consentPurposeId: body.consent_purpose_id }),
   }
 }
 
@@ -78,6 +84,8 @@ export function listResponse(list: ListView): Record<string, unknown> {
     description: list.description,
     target_type: list.targetType,
     member_count: list.memberCount,
+    consent_purpose_id: list.consentPurposeId,
+    consent_purpose_slug: list.consentPurposeSlug,
     created_at: list.createdAt.toISOString(),
     updated_at: list.updatedAt.toISOString(),
   }

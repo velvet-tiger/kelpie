@@ -30,6 +30,7 @@ function wireJob(id: string, extra: Record<string, unknown> = {}): Record<string
     on_missing_company: 'skip',
     match_key: 'domain',
     column_map: { name: 'name', domain: 'domain' },
+    consent_purpose_id: null,
     source_headers: ['name', 'domain'],
     file_name: 'companies.csv',
     counts: { total: 2, create: 2, update: 0, skip: 0, error: 0 },
@@ -65,6 +66,13 @@ function dataClient(stubs: Stubs, harness: Harness): ApiClient {
 
   return stubClient({
     get: (path) => {
+      // The mapping form's ConsentPurpose picker on People imports lists
+      // workspace purposes. The wizard tests do not care about the picker's
+      // contents, so an empty page keeps the test focused.
+      if (path.startsWith('/consent_purposes')) {
+        return { data: [], next_cursor: null }
+      }
+
       if (!path.startsWith('/import/jobs/')) {
         throw new Error(`Unexpected get ${path}`)
       }

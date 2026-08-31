@@ -35,6 +35,11 @@ export interface CreateImportJobInput {
   readonly onMissingCompany: OnMissingCompany
   readonly matchKeyId: string
   /**
+   * People import only: the consent purpose a row's `consent_status` grants.
+   * Required whenever the map names `consent_status` or `consent_at`.
+   */
+  readonly consentPurposeId?: string | null
+  /**
    * Absent on the first upload, so the server derives one from the source preset
    * and the file's own headers. The mapping screen sends the corrected map back
    * with the same file.
@@ -55,6 +60,10 @@ function jobForm(input: CreateImportJobInput): FormData {
 
   if (input.columnMap !== undefined) {
     form.set('column_map', JSON.stringify(input.columnMap))
+  }
+
+  if (input.consentPurposeId != null && input.consentPurposeId.length > 0) {
+    form.set('consent_purpose_id', input.consentPurposeId)
   }
 
   return form

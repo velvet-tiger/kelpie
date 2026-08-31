@@ -99,7 +99,7 @@ function emitImportedRecordUpdated(
 }
 import { CsvFormatError, csvLine, fileDigest, parseCsv } from './csv.ts'
 import type { CsvRow, ParsedCsv } from './csv.ts'
-import { headersFor } from './exportRows.ts'
+import { templateHeadersFor } from './exportRows.ts'
 import { buildMatchKey, mapRow, splitList } from './mapping.ts'
 import { applyWrite } from './writes.ts'
 import { countPlans, planRow, planRows } from './plan.ts'
@@ -146,6 +146,7 @@ export interface ImportJobView {
   readonly onMissingCompany: OnMissingCompany
   readonly matchKey: string
   readonly columnMap: ImportColumnMap
+  readonly consentPurposeId: string | null
   readonly sourceHeaders: readonly string[]
   readonly fileName: string | null
   readonly counts: ImportCounts
@@ -164,6 +165,11 @@ export interface CreateImportJobInput {
   readonly matchKeyId: string
   /** Absent means "derive one from the source preset and the file's own headers". */
   readonly columnMap: ImportColumnMap | undefined
+  /**
+   * People imports only. Required whenever the mapping names `consent_status`
+   * or `consent_at`, refused with `422` for any other object.
+   */
+  readonly consentPurposeId: string | null
   readonly fileName: string | null
   readonly csv: string
 }
@@ -460,6 +466,7 @@ export function createImportExportService(
       matchKey: requireMatchKey(job.object as ImportObject, job.matchKey),
       conflictMode: job.conflictMode as ImportConflictMode,
       onMissingCompany: job.onMissingCompany as OnMissingCompany,
+      consentPurposeId: job.consentPurposeId,
       lookups,
     }
   }
@@ -837,6 +844,24 @@ export function createImportExportService(
 
       requireUsableColumnMap(input.object, matchKey, columnMap, parsed.headers)
 
+      // Consent is a People-only feature. A purpose on any other object is
+      // refused up front; mapping the consent columns without one is refused
+      // too — the writer would have no purpose to grant against.
+      const mapsConsentColumn =
+        columnMap.consent_status !== null || columnMap.consent_at !== null
+      if (input.consentPurposeId !== null && input.object !== 'people') {
+        throw AppError.validationFailed(
+          'consent_purpose_id is only accepted on people imports',
+          [{ field: 'consent_purpose_id', message: 'People imports only' }],
+        )
+      }
+      if (input.object === 'people' && mapsConsentColumn && input.consentPurposeId === null) {
+        throw AppError.validationFailed(
+          'Mapping consent_status or consent_at needs a consent_purpose_id on the job',
+          [{ field: 'consent_purpose_id', message: 'Required when consent columns are mapped' }],
+        )
+      }
+
       const id = dependencies.createId('importJob')
       const now = dependencies.now()
 
@@ -853,6 +878,7 @@ export function createImportExportService(
         onMissingCompany: input.onMissingCompany,
         matchKey: matchKey.id,
         columnMap,
+        consentPurposeId: input.consentPurposeId,
         sourceHeaders: parsed.headers,
         counts: { ...EMPTY_COUNTS, total: parsed.rows.length },
         errors: [],
@@ -970,7 +996,7 @@ export function createImportExportService(
     },
 
     templateCsv(object) {
-      return csvLine(headersFor(object))
+      return csvLine(templateHeadersFor(object))
     },
   }
 }

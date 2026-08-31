@@ -7,8 +7,10 @@ import { PUBLIC_ROUTE_PREFIX, readJsonBody, requestOrigin } from '../../lib/http
 import { requireCapability } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
+import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import { findWorkspace } from '../workspace/repository.ts'
 import { embedContentSecurityPolicy, renderEmbedPage } from './embed.ts'
+import type { FormFieldRecord } from './repository.ts'
 import * as repository from './repository.ts'
 import type { FormSubmitService, SubmitOutcome } from './submission.ts'
 
@@ -34,6 +36,26 @@ export interface PublicFormRoutesDependencies {
   readonly submissions: FormSubmitService
   /** The embed of a form in a workspace that has turned the module off is refused. */
   readonly entitlements: EntitlementRegistry
+}
+
+/**
+ * The purpose labels every consent field on this form points at, keyed by id.
+ * Renders the embed with the display label beside each checkbox rather than
+ * an opaque id. A purpose that has since been removed drops out of the map;
+ * `renderField` falls back to the id when it does, so a stale field stays
+ * visible but obviously off.
+ */
+async function loadConsentPurposeLabels(
+  db: Database,
+  workspaceId: string,
+  fields: readonly FormFieldRecord[],
+): Promise<ReadonlyMap<string, string>> {
+  const ids = Array.from(
+    new Set(fields.flatMap((field) => (field.type === 'consent' ? field.consentPurposeIds : []))),
+  )
+  if (ids.length === 0) return new Map()
+  const rows = await consentPurposesRepository.listPurposesByIds(db, workspaceId, ids)
+  return new Map(rows.map((row) => [row.id, row.label]))
 }
 
 function submitResponse(outcome: SubmitOutcome): Record<string, unknown> {
@@ -95,9 +117,16 @@ export function mountPublicFormRoutes(
     const layout = context.req.query('view') === 'page' ? 'page' : 'embed'
 
     const nonce = generateNonce()
+    const fields = await repository.listFields(dependencies.db, form.id)
+    const consentPurposeLabels = await loadConsentPurposeLabels(
+      dependencies.db,
+      form.workspaceId,
+      fields,
+    )
     const page = renderEmbedPage({
       form,
-      fields: await repository.listFields(dependencies.db, form.id),
+      fields,
+      consentPurposeLabels,
       submitUrl: `${requestOrigin(context)}${PUBLIC_ROUTE_PREFIX}/forms/${publicKey}/submit`,
       nonce,
       workspaceName: workspace.name,

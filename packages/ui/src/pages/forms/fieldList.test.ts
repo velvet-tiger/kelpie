@@ -36,6 +36,8 @@ function field(overrides: Partial<EditableField> = {}): EditableField {
     mapTo: 'person.email',
     options: [],
     placeholder: null,
+    consentPurposeIds: [],
+    consentPurposeLabels: {},
     ...overrides,
   }
 }
@@ -65,6 +67,9 @@ function form(fields: readonly EditableField[]): Form {
         valueType: option.valueType ?? 'string',
       })),
       placeholder: entry.placeholder ?? null,
+      statement: null,
+      consentPurposeIds: [],
+    consentPurposeLabels: {},
       sortOrder: index,
     })),
     thankYouMessage: 'Thanks.',
@@ -250,10 +255,16 @@ describe('findProblems', () => {
 })
 
 describe('unusedCrmPresets', () => {
-  /** The menu must never lack a target the schema knows, or it becomes unreachable. */
+  /**
+   * The menu must never lack a target the schema knows, or it becomes
+   * unreachable. `person.consent` is offered through `SUBMISSION_FIELD_PRESETS`
+   * because it repeats per purpose rather than per form.
+   */
   it('covers every CRM target when the list is empty', () => {
     const offered = unusedCrmPresets([]).map((preset) => preset.mapTo)
-    const crmTargets = FORM_FIELD_MAP_TARGETS.filter((target) => target !== 'submission')
+    const crmTargets = FORM_FIELD_MAP_TARGETS.filter(
+      (target) => target !== 'submission' && target !== 'person.consent',
+    )
 
     expect([...offered].sort()).toEqual([...crmTargets].sort())
   })
@@ -265,11 +276,17 @@ describe('unusedCrmPresets', () => {
     expect(offered).toContain('person.name')
   })
 
-  /** A preset must be addable as-is: no per-field problem the moment it lands. */
+  /**
+   * A preset must be addable as-is: no per-field problem the moment it lands.
+   * The consent and notice presets are exempt — the purpose is picked in the
+   * settings panel after the field is added, and without a workspace to read
+   * purposes from there is nothing to auto-fill.
+   */
   it('offers only presets the server would accept', () => {
     const presets = [...CRM_FIELD_PRESETS, ...SUBMISSION_FIELD_PRESETS.map((entry) => entry.field)]
 
     for (const [index, preset] of presets.entries()) {
+      if (preset.type === 'consent' || preset.type === 'notice') continue
       const added = insertField([], field({ ...preset, id: `new-${String(index)}` }), null)
 
       expect(findProblems(added, false).byField.size).toBe(0)

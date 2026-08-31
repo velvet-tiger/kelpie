@@ -23,7 +23,9 @@ import * as opportunityRepository from '../opportunities/repository.ts'
 import '../opportunities/events.ts'
 import * as partnershipRepository from '../partnerships/repository.ts'
 import '../partnerships/events.ts'
+import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import '../people/events.ts'
+import { upsertPersonConsent } from '../people/personConsentWrites.ts'
 import * as peopleRepository from '../people/repository.ts'
 import type { PersonRecord } from '../people/repository.ts'
 import * as personLinks from '../personLinks.ts'
@@ -43,9 +45,10 @@ import {
   findAnswerProblems,
   mapAnswers,
   mergeTags,
+  readConsentGrants,
   readIntent,
 } from './mapping.ts'
-import type { Answers, SubmitIntent } from './mapping.ts'
+import type { Answers, ConsentGrant, SubmitIntent } from './mapping.ts'
 import * as repository from './repository.ts'
 import type { FormFieldRecord, FormRecord } from './repository.ts'
 
@@ -774,15 +777,81 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     return intent
   }
 
+  /**
+   * The purposes any grants name, keyed by id, so the submit transaction
+   * knows the slug and label without a per-grant round trip.
+   */
+  async function loadPurposesForGrants(
+    db: Database,
+    workspaceId: string,
+    grants: readonly ConsentGrant[],
+  ): Promise<ReadonlyMap<string, { readonly slug: string; readonly label: string }>> {
+    if (grants.length === 0) return new Map()
+    const ids = Array.from(new Set(grants.map((grant) => grant.purposeId)))
+    const rows = await consentPurposesRepository.listPurposesByIds(db, workspaceId, ids)
+    return new Map(rows.map((row) => [row.id, { slug: row.slug, label: row.label }]))
+  }
+
+  /**
+   * Writes each ticked grant as a `person_consents` row and appends an
+   * Activity to the person carrying the verbatim statement. A grant whose
+   * purpose has since been removed is silently skipped — the form's own
+   * consent field would have been left dangling anyway, and the submit
+   * cannot know that from the answer alone.
+   */
+  async function applyFormConsentGrants(
+    tx: Transaction,
+    workspaceId: string,
+    formId: string,
+    formName: string,
+    personId: string,
+    grants: readonly ConsentGrant[],
+    purposes: ReadonlyMap<string, { readonly slug: string; readonly label: string }>,
+    deps: SubmissionDependencies,
+  ): Promise<void> {
+    if (grants.length === 0) return
+    const now = deps.now()
+    const source = `form:${formId}`
+    for (const grant of grants) {
+      const purpose = purposes.get(grant.purposeId)
+      if (purpose === undefined) continue
+      await upsertPersonConsent(
+        tx,
+        workspaceId,
+        personId,
+        grant.purposeId,
+        purpose.slug,
+        purpose.label,
+        'granted',
+        source,
+        now,
+      )
+      // The exact text the visitor ticked — the field's per-purpose override
+      // when set, else the workspace purpose's label. Recorded as the
+      // Activity detail so the timeline shows what they actually saw.
+      const ticked = grant.customLabel.length > 0 ? grant.customLabel : purpose.label
+      const detail = grant.statement.length > 0 ? `${grant.statement} — ${ticked}` : ticked
+      await deps.recordActivity(tx, workspaceId, FORM_ACTOR, {
+        targetType: 'person',
+        targetId: personId,
+        kind: 'updated',
+        action: `granted ${purpose.label} consent via ${formName}`,
+        detail,
+      })
+    }
+  }
+
   return {
     async submit(publicKey, answers) {
       const form = await requireOpenForm(publicKey)
       const { workspaceId } = form
       const fields = await repository.listFields(dependencies.db, form.id)
       const intent = readAnswers(fields, answers)
-      const [formListRows, attachTargets] = await Promise.all([
+      const consentGrants = readConsentGrants(fields, answers)
+      const [formListRows, attachTargets, consentPurposesForGrants] = await Promise.all([
         repository.listFormLists(dependencies.db, form.id),
         repository.listAttachTargets(dependencies.db, form.id),
+        loadPurposesForGrants(dependencies.db, workspaceId, consentGrants),
       ])
 
       return dependencies.transaction(async ({ tx, events }) => {
@@ -800,6 +869,20 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
                 company.record.id,
                 intent.positionTitle,
               )
+
+        // Consent grants (from ticked `consent` fields) are core capture, not
+        // post-actions: they commit with the person, and an Activity records
+        // the exact statement text as it was shown to the visitor.
+        await applyFormConsentGrants(
+          tx,
+          workspaceId,
+          form.id,
+          form.name,
+          person.record.id,
+          consentGrants,
+          consentPurposesForGrants,
+          dependencies,
+        )
 
         const actionLog: FormSubmissionActionEntry[] = []
 
@@ -947,8 +1030,30 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
 
         // --- List memberships ---
 
+        // Every purpose named by a person list on this form, so consent
+        // capture below needs no per-row round trip.
+        const listConsentPurposeIds = Array.from(
+          new Set(
+            formListRows
+              .map((row) => row.consentPurposeId)
+              .filter((id): id is string => id !== null),
+          ),
+        )
+        const listConsentPurposes =
+          listConsentPurposeIds.length === 0
+            ? new Map<string, { readonly slug: string; readonly label: string }>()
+            : new Map(
+                (
+                  await consentPurposesRepository.listPurposesByIds(
+                    tx,
+                    workspaceId,
+                    listConsentPurposeIds,
+                  )
+                ).map((row) => [row.id, { slug: row.slug, label: row.label }]),
+              )
+
         for (const row of formListRows) {
-          await runAction<void>(
+          const inserted = await runAction<boolean>(
             tx,
             events,
             actionLog,
@@ -962,7 +1067,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
                     : undefined
 
               if (targetId === undefined) {
-                return { status: 'skipped', detail: 'no company resolved' }
+                return { status: 'skipped', detail: 'no company resolved', value: false }
               }
 
               try {
@@ -976,7 +1081,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
                 })
               } catch (error: unknown) {
                 if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
-                  return { status: 'ok', detail: 'already a member' }
+                  return { status: 'ok', detail: 'already a member', value: false }
                 }
 
                 throw error
@@ -988,9 +1093,52 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
                 { listId: row.listId },
               )
 
-              return { status: 'ok', detail: targetId }
+              return { status: 'ok', detail: targetId, value: true }
             },
           )
+
+          // Consent capture rides with the add — only on person lists, only
+          // when the list carries a purpose, and only when we actually added
+          // (or the person was already on it, since a returning submitter
+          // did the same thing again). A record already on the list has
+          // already been consented for its purpose; the upsert reflects
+          // that a fresh submit is fresh evidence.
+          if (
+            row.targetType === 'person' &&
+            row.consentPurposeId !== null &&
+            inserted !== null
+          ) {
+            const purpose = listConsentPurposes.get(row.consentPurposeId)
+            if (purpose !== undefined) {
+              await runAction<void>(
+                tx,
+                events,
+                actionLog,
+                `consent:${row.listId}`,
+                async (inner) => {
+                  await upsertPersonConsent(
+                    inner,
+                    workspaceId,
+                    person.record.id,
+                    row.consentPurposeId as string,
+                    purpose.slug,
+                    purpose.label,
+                    'granted',
+                    `list:${row.listId}`,
+                    dependencies.now(),
+                  )
+                  await dependencies.recordActivity(inner, workspaceId, FORM_ACTOR, {
+                    targetType: 'person',
+                    targetId: person.record.id,
+                    kind: 'updated',
+                    action: `granted ${purpose.label} consent via ${form.name}`,
+                    detail: `Added to list membership`,
+                  })
+                  return { status: 'ok', detail: purpose.slug }
+                },
+              )
+            }
+          }
         }
 
         // --- Attach the submitter to pre-existing pipeline records ---

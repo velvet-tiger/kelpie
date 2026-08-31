@@ -54,6 +54,9 @@ const fieldBody = z.strictObject({
   map_to: z.enum(FORM_FIELD_MAP_TARGETS),
   options: z.array(optionBody).default([]),
   placeholder: z.string().nullable().default(null),
+  statement: z.string().nullable().default(null),
+  consent_purpose_ids: z.array(z.string().min(1)).default([]),
+  consent_purpose_labels: z.record(z.string().min(1), z.string()).default({}),
 })
 
 const attachTargetBody = z.strictObject({
@@ -172,6 +175,9 @@ function toFieldDraft(field: z.infer<typeof fieldBody>): FieldDraft {
       valueType: option.value_type,
     })),
     placeholder: field.placeholder,
+    statement: field.statement,
+    consentPurposeIds: field.consent_purpose_ids,
+    consentPurposeLabels: field.consent_purpose_labels,
   }
 }
 
@@ -286,6 +292,9 @@ export function formResponse(form: FormView): Record<string, unknown> {
         value_type: option.valueType,
       })),
       placeholder: field.placeholder,
+      statement: field.statement,
+      consent_purpose_ids: field.consentPurposeIds,
+      consent_purpose_labels: field.consentPurposeLabels,
       sort_order: field.sortOrder,
     })),
     thank_you_message: form.thankYouMessage,

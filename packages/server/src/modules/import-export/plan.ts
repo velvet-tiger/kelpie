@@ -1,4 +1,5 @@
 import type {
+  ConsentStatus,
   ImportConflictMode,
   ImportCounts,
   ImportObject,
@@ -44,6 +45,8 @@ export interface PlanContext {
   readonly conflictMode: ImportConflictMode
   /** What a People row does with an absent company. Ignored by the other objects. */
   readonly onMissingCompany: OnMissingCompany
+  /** The consent purpose the job grants for each row's consent_status. Null when not set. */
+  readonly consentPurposeId: string | null
   readonly lookups: ImportLookups
 }
 
@@ -55,6 +58,14 @@ export type PlannedAffiliation =
   | { readonly kind: 'link'; readonly companyId: string; readonly title: string }
   | { readonly kind: 'create'; readonly company: CompanyDraft; readonly title: string }
 
+/** A consent write that rides with a People row when the job has a purpose. */
+export interface ImportConsentGrant {
+  readonly purposeId: string
+  readonly status: ConsentStatus
+  /** ISO date from the `consent_at` column; null when the column is unmapped or blank. */
+  readonly notedAt: string | null
+}
+
 /** The values a write applies, once every reference in the row has been resolved. */
 export type ImportWrite =
   | { readonly object: 'companies'; readonly draft: CompanyDraft }
@@ -63,6 +74,8 @@ export type ImportWrite =
       readonly draft: PersonDraft
       /** A position to upsert alongside the person, when the row named a company and a title. */
       readonly affiliation?: PlannedAffiliation
+      /** Consent to grant against the job's purpose. Absent when consent_status is blank. */
+      readonly consent?: ImportConsentGrant
     }
   | {
       readonly object: 'positions'
@@ -249,12 +262,44 @@ function resolveWrite(context: PlanContext, mapped: Readonly<Record<string, stri
   switch (context.object) {
     case 'companies':
       return { object: 'companies', draft: companyDraft(mapped) }
-    case 'people':
-      return { object: 'people', draft: personDraft(mapped) }
+    case 'people': {
+      const write: {
+        object: 'people'
+        draft: PersonDraft
+        consent?: ImportConsentGrant
+      } = { object: 'people', draft: personDraft(mapped) }
+      const consent = readConsentGrant(context, mapped)
+      if (consent !== undefined) {
+        write.consent = consent
+      }
+      return write
+    }
     case 'positions':
       return planPosition(context, mapped)
     case 'deals':
       return planDeal(context, mapped)
+  }
+}
+
+/**
+ * The consent grant a People row carries. Absent unless the job has a purpose
+ * set on it AND the row has a non-blank `consent_status`. `validateRow` has
+ * already refused an unknown status by the time this runs, so the coercion
+ * below is safe.
+ */
+function readConsentGrant(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+): ImportConsentGrant | undefined {
+  if (context.consentPurposeId === null) return undefined
+  const rawStatus = (mapped.consent_status ?? '').trim().toLowerCase()
+  if (rawStatus.length === 0) return undefined
+  if (rawStatus !== 'granted' && rawStatus !== 'withdrawn') return undefined
+  const rawAt = (mapped.consent_at ?? '').trim()
+  return {
+    purposeId: context.consentPurposeId,
+    status: rawStatus as ConsentStatus,
+    notedAt: rawAt.length === 0 ? null : rawAt,
   }
 }
 

@@ -54,18 +54,45 @@ export interface SubmitIntent {
   readonly enquiryName: string | undefined
 }
 
+/** True for a consent-field answer that means "ticked". */
+export function isConsentTicked(value: string | undefined): boolean {
+  if (value === undefined) return false
+  const trimmed = value.trim().toLowerCase()
+  return trimmed === 'true' || trimmed === 'on' || trimmed === '1' || trimmed === 'yes'
+}
+
+/** One consent grant read off the answers, for the submit transaction to apply. */
+export interface ConsentGrant {
+  readonly fieldId: string
+  readonly purposeId: string
+  /** The field-level intro sentence, shown above every checkbox in the field. */
+  readonly statement: string
+  /**
+   * The field's per-purpose text override for this purpose. Empty when the
+   * field defers to the workspace purpose's own label; the submit resolves
+   * that fallback with the purpose row it loads to record the activity.
+   */
+  readonly customLabel: string
+}
+
 /**
  * Reduces answers to one value per target.
  *
  * Blank answers are dropped, so a submitter who cleared a prefilled field does
  * not overwrite a stored value with nothing. Two fields sharing a target is
  * refused when the form is written, except for `submission`, which writes
- * nothing and so cannot collide.
+ * nothing and so cannot collide, and `person.consent`, which is read by
+ * {@link readConsentGrants} instead — a form may carry several consent boxes,
+ * each granting a different purpose.
  */
 export function mapAnswers(fields: readonly FormFieldRecord[], answers: Answers): MappedAnswers {
   const mapped: MappedAnswers = {}
 
   for (const field of fields) {
+    // `person.consent` (both `consent` and `notice` types) is read separately
+    // — a checkbox field by ticked ids, a notice implicitly by submission.
+    if (field.mapTo === 'person.consent') continue
+
     const value = answers[field.id]?.trim()
 
     if (value === undefined || value.length === 0) {
@@ -76,6 +103,67 @@ export function mapAnswers(fields: readonly FormFieldRecord[], answers: Answers)
   }
 
   return mapped
+}
+
+/**
+ * Every ticked purpose across every consent field on this form, in field
+ * order then purpose order. A consent field's answer is a comma-separated
+ * list of the purpose ids the visitor ticked; anything not on the field's
+ * configured list is dropped silently — the embed offers only what the field
+ * declares, so an unlisted id has to be an unusual client.
+ *
+ * The statement is the field's `statement` when set, else the field's label —
+ * the sentence shown above the checkboxes.
+ */
+export function readConsentGrants(
+  fields: readonly FormFieldRecord[],
+  answers: Answers,
+): readonly ConsentGrant[] {
+  const grants: ConsentGrant[] = []
+  for (const field of fields) {
+    if (field.consentPurposeIds.length === 0) continue
+    const statement = field.statement ?? field.label
+
+    // A `notice` field grants every configured purpose implicitly: the
+    // visitor's act of submitting the form is the consent, per the notice
+    // text they read. No answer to parse.
+    if (field.type === 'notice') {
+      for (const purposeId of field.consentPurposeIds) {
+        grants.push({
+          fieldId: field.id,
+          purposeId,
+          statement,
+          customLabel: '',
+        })
+      }
+      continue
+    }
+
+    if (field.type !== 'consent') continue
+    const ticked = parseConsentAnswer(answers[field.id])
+    if (ticked.length === 0) continue
+    const allowed = new Set(field.consentPurposeIds)
+    for (const purposeId of ticked) {
+      if (!allowed.has(purposeId)) continue
+      grants.push({
+        fieldId: field.id,
+        purposeId,
+        statement,
+        customLabel: field.consentPurposeLabels[purposeId] ?? '',
+      })
+    }
+  }
+  return grants
+}
+
+/** Splits a consent field's answer into the ticked purpose ids. */
+export function parseConsentAnswer(raw: string | undefined): readonly string[] {
+  if (raw === undefined) return []
+  const parts = raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+  return Array.from(new Set(parts))
 }
 
 /**
@@ -103,6 +191,28 @@ export function findAnswerProblems(
   }
 
   for (const field of fields) {
+    // A consent field's answer is a comma-separated list of ticked purpose
+    // ids. Required means at least one must be ticked; unrequired means the
+    // list may be empty. Ids not on the field's own list are silently
+    // ignored on submit — the embed offers only what the field configures.
+    if (field.type === 'consent') {
+      const ticked = parseConsentAnswer(answers[field.id])
+      if (field.required && ticked.length === 0) {
+        problems.push({
+          field: `answers.${field.id}`,
+          message: `${field.label} needs at least one choice`,
+        })
+      }
+      continue
+    }
+
+    // A notice field carries no answer — its consent is implicit in the
+    // submission. `required` is meaningless on it. An answer sent for it is
+    // silently ignored; the mapper never reads it either.
+    if (field.type === 'notice') {
+      continue
+    }
+
     const value = answers[field.id]?.trim() ?? ''
 
     if (value.length === 0) {

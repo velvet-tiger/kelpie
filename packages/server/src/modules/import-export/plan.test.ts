@@ -52,6 +52,7 @@ function contextFor(
     matchKey: keyFor(object, options.matchKeyId ?? defaultKey(object)),
     conflictMode: options.conflictMode ?? 'skip',
     onMissingCompany: options.onMissingCompany ?? 'skip',
+    consentPurposeId: null,
     lookups: { ...NO_LOOKUPS, ...options.lookups },
   }
 }

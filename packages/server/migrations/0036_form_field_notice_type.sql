@@ -1,0 +1,2 @@
+ALTER TABLE "form_fields" DROP CONSTRAINT "form_fields_type_check";--> statement-breakpoint
+ALTER TABLE "form_fields" ADD CONSTRAINT "form_fields_type_check" CHECK ("form_fields"."type" in ('text', 'email', 'textarea', 'select', 'consent', 'notice'));

@@ -324,9 +324,18 @@ export type FormStatus = (typeof FORM_STATUSES)[number]
  * uploads, multi-page forms and branching out of scope, and every type here is
  * one `<input>`, `<textarea>` or `<select>`.
  */
-export const FORM_FIELD_TYPES = ['text', 'email', 'textarea', 'select'] as const
+export const FORM_FIELD_TYPES = ['text', 'email', 'textarea', 'select', 'consent', 'notice'] as const
 
 export type FormFieldType = (typeof FORM_FIELD_TYPES)[number]
+
+/**
+ * The field types whose answer is stored as a boolean, not a string. A
+ * `consent` field renders as a checkbox whose label carries the consent
+ * statement; the answer records whether the visitor ticked it.
+ */
+export const FORM_BOOLEAN_FIELD_TYPES = ['consent'] as const
+
+export type FormBooleanFieldType = (typeof FORM_BOOLEAN_FIELD_TYPES)[number]
 
 /**
  * Where a field's answer lands on submit.
@@ -347,6 +356,7 @@ export const FORM_FIELD_MAP_TARGETS = [
   'person.first_name',
   'person.last_name',
   'person.email',
+  'person.consent',
   'company.name',
   'company.domain',
   'position.title',
@@ -364,6 +374,7 @@ export const FORM_FIELD_MAP_TARGET_LABELS: Readonly<Record<FormFieldMapTarget, s
   'person.first_name': 'Person · first name',
   'person.last_name': 'Person · last name',
   'person.email': 'Person · email',
+  'person.consent': 'Person · consent',
   'company.name': 'Company · name',
   'company.domain': 'Company · domain',
   'position.title': 'Position · title',
@@ -373,6 +384,9 @@ export const FORM_FIELD_MAP_TARGET_LABELS: Readonly<Record<FormFieldMapTarget, s
   'partnership.name': 'Partnership · name',
   submission: 'Submission only',
 }
+
+/** The map target for a consent field. Repeats per purpose, unlike `person.email`. */
+export const PERSON_CONSENT_TARGET: FormFieldMapTarget = 'person.consent'
 
 /** The one mapping a form cannot process without, and may carry at most once. */
 export const PERSON_EMAIL_TARGET: FormFieldMapTarget = 'person.email'
@@ -560,3 +574,39 @@ export const CUSTOM_FIELD_TYPE_LABELS: Readonly<Record<CustomFieldType, string>>
 export const CUSTOM_FIELD_TYPES_WITH_OPTIONS = ['select', 'multi_select'] as const
 
 export type CustomFieldTypeWithOptions = (typeof CUSTOM_FIELD_TYPES_WITH_OPTIONS)[number]
+
+/**
+ * The default a consent purpose starts with, and what a person without an
+ * explicit `person_consents` row inherits for that purpose. `unknown` is the
+ * safest default — silence about a person's wishes is not a grant.
+ */
+export const CONSENT_PURPOSE_STATUSES = ['unknown', 'granted', 'withdrawn'] as const
+
+export type ConsentPurposeStatus = (typeof CONSENT_PURPOSE_STATUSES)[number]
+
+export const CONSENT_PURPOSE_STATUS_LABELS: Readonly<Record<ConsentPurposeStatus, string>> = {
+  unknown: 'Unknown',
+  granted: 'Granted',
+  withdrawn: 'Withdrawn',
+}
+
+/**
+ * The explicit status on a `person_consents` row. `unknown` is deliberately
+ * absent: no row is the unknown, so a stored row always carries a decision.
+ */
+export const CONSENT_STATUSES = ['granted', 'withdrawn'] as const
+
+export type ConsentStatus = (typeof CONSENT_STATUSES)[number]
+
+export const CONSENT_STATUS_LABELS: Readonly<Record<ConsentStatus, string>> = {
+  granted: 'Granted',
+  withdrawn: 'Withdrawn',
+}
+
+/**
+ * Where a `person_consents` row came from. `form:<form_id>` and `list:<list_id>`
+ * are prefixed so the origin is inspectable; `import` and `manual` need no id.
+ */
+export const CONSENT_SOURCE_KINDS = ['form', 'list', 'import', 'manual'] as const
+
+export type ConsentSourceKind = (typeof CONSENT_SOURCE_KINDS)[number]

@@ -1,0 +1,1 @@
+ALTER TABLE "form_fields" DROP COLUMN "consent_purpose_id";

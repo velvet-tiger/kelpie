@@ -1,4 +1,4 @@
-import type { CustomFieldWireValue } from '@kelpie/schemas'
+import type { ConsentStatus, CustomFieldWireValue } from '@kelpie/schemas'
 
 import { changedKeys } from '../../lib/changes.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
@@ -29,6 +29,9 @@ import * as repository from './repository.ts'
 import { DEFAULT_PERSON_SORT, PERSON_SORTS } from './repository.ts'
 import type { PersonFilters, PersonRecord } from './repository.ts'
 import type { Influence, PreferredChannel, Relationship, SocialProfile } from './schema.ts'
+import { readConsentsFor, readConsentsForMany } from './consentHydration.ts'
+import type { EffectiveConsent } from './consentHydration.ts'
+import { applyManualConsentWrites, consentChangedPaths } from './personConsentWrites.ts'
 
 /**
  * People: who the workspace knows.
@@ -73,6 +76,7 @@ const PERSON_FIELD_LABELS: FieldLabels = {
   summary: 'Summary',
   tags: 'Tags',
   lastContactedAt: 'Last contacted',
+  doNotContact: 'Do not contact',
 }
 
 /**
@@ -81,7 +85,19 @@ const PERSON_FIELD_LABELS: FieldLabels = {
  * Deliberately an alias rather than a parallel interface. A hand-written copy of
  * fifteen fields drifts from the table the first time one is added.
  */
-export type PersonView = Omit<PersonRecord, 'workspaceId'>
+export type PersonView = Omit<PersonRecord, 'workspaceId'> & {
+  /**
+   * The effective consent status for every workspace purpose. An entry with
+   * `inherited: true` has no explicit `person_consents` row and carries the
+   * purpose's `default_status`; the rest have their own row.
+   */
+  readonly consents: readonly EffectiveConsent[]
+}
+
+export interface PersonConsentWriteInput {
+  readonly purposeSlug: string
+  readonly status: ConsentStatus | null
+}
 
 export interface CreatePersonInput {
   /** Already resolved. The route composes one from the parts when the caller sent none. */
@@ -101,6 +117,13 @@ export interface CreatePersonInput {
   readonly summary: string
   readonly tags: readonly string[]
   readonly lastContactedAt: Date | null
+  readonly doNotContact: boolean
+  /**
+   * Consent writes for named purposes. `status: null` deletes the row and
+   * inherits the purpose default; anything else upserts `source: manual`.
+   * Absent purposes are left alone.
+   */
+  readonly consents: readonly PersonConsentWriteInput[]
   /** Wire shape merge patch (undefined for a create without any): sent keys change, null clears. */
   readonly customFields: Readonly<Record<string, CustomFieldWireValue | null>> | undefined
 }
@@ -116,10 +139,10 @@ export interface PeopleService {
   remove(actor: Actor, id: string): Promise<void>
 }
 
-function toView(record: PersonRecord): PersonView {
+function toView(record: PersonRecord, consents: readonly EffectiveConsent[]): PersonView {
   const { workspaceId: _workspaceId, ...view } = record
 
-  return view
+  return { ...view, consents }
 }
 
 /**
@@ -145,6 +168,7 @@ function toStoredColumns(input: UpdatePersonInput): Partial<repository.PersonCol
     ...(input.summary === undefined ? {} : { summary: input.summary }),
     ...(input.tags === undefined ? {} : { tags: [...input.tags] }),
     ...(input.lastContactedAt === undefined ? {} : { lastContactedAt: input.lastContactedAt }),
+    ...(input.doNotContact === undefined ? {} : { doNotContact: input.doNotContact }),
   }
 }
 
@@ -172,12 +196,22 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
       const workspaceId = requireWorkspaceId(actor)
       const window = readListWindow(query, PERSON_SORTS, DEFAULT_PERSON_SORT)
       const rows = await repository.listPeople(dependencies.db, workspaceId, filters, window)
+      const consentsByPerson = await readConsentsForMany(
+        dependencies.db,
+        workspaceId,
+        rows.map((row) => row.id),
+      )
 
-      return mapPage(toPage(rows, window, (person) => person.id), toView)
+      return mapPage(toPage(rows, window, (person) => person.id), (record) =>
+        toView(record, consentsByPerson.get(record.id) ?? []),
+      )
     },
 
     async get(actor, id) {
-      return toView(await require(requireWorkspaceId(actor), id))
+      const workspaceId = requireWorkspaceId(actor)
+      const record = await require(workspaceId, id)
+      const consents = await readConsentsFor(dependencies.db, workspaceId, id)
+      return toView(record, consents)
     },
 
     async create(actor, input) {
@@ -214,6 +248,7 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
               summary: input.summary,
               tags: [...input.tags],
               lastContactedAt: input.lastContactedAt,
+              doNotContact: input.doNotContact,
               customFields,
             })
           } catch (error: unknown) {
@@ -222,6 +257,16 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
             }
 
             throw error
+          }
+
+          if (input.consents.length > 0) {
+            await applyManualConsentWrites(
+              tx,
+              workspaceId,
+              created.id,
+              input.consents,
+              dependencies.now(),
+            )
           }
 
           await dependencies.recordActivity(tx, workspaceId, actor, {
@@ -242,7 +287,8 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
             recordActivity: dependencies.recordActivity,
           })
 
-          return toView(created)
+          const consents = await readConsentsFor(tx, workspaceId, created.id)
+          return toView(created, consents)
         },
         { workspaceId, actor: toEventActor(actor) },
       )
@@ -253,6 +299,7 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
       const existing = await require(workspaceId, id)
       const columns = toStoredColumns(changes)
       const scalarChanged = changedKeys(existing, columns)
+      const consentWrites = changes.consents ?? []
 
       return dependencies.transaction(
         async ({ tx, events }) => {
@@ -265,40 +312,69 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
           )
           const customFieldsChanged = cf !== undefined && cf.changedPaths.length > 0
 
+          const consentChanges =
+            consentWrites.length > 0
+              ? await applyManualConsentWrites(
+                  tx,
+                  workspaceId,
+                  id,
+                  consentWrites,
+                  dependencies.now(),
+                )
+              : []
+          const consentPaths = consentChangedPaths(consentChanges)
+          const consentActuallyChanged = consentPaths.length > 0
+
           // A PATCH that changes nothing is not a write. Bumping `updated_at`
           // would make the record look freshly touched to everything that sorts
           // or filters by it.
-          if (scalarChanged.length === 0 && !customFieldsChanged) {
-            return toView(existing)
+          if (
+            scalarChanged.length === 0 &&
+            !customFieldsChanged &&
+            !consentActuallyChanged
+          ) {
+            const consents = await readConsentsFor(tx, workspaceId, id)
+            return toView(existing, consents)
           }
 
           let updated: PersonRecord | undefined
 
-          try {
-            updated = await repository.updatePerson(tx, workspaceId, id, {
-              ...columns,
-              ...(customFieldsChanged ? { customFields: cf.merged } : {}),
-              updatedAt: dependencies.now(),
-            })
-          } catch (error: unknown) {
-            if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
-              throw duplicateEmail()
+          if (scalarChanged.length > 0 || customFieldsChanged) {
+            try {
+              updated = await repository.updatePerson(tx, workspaceId, id, {
+                ...columns,
+                ...(customFieldsChanged ? { customFields: cf.merged } : {}),
+                updatedAt: dependencies.now(),
+              })
+            } catch (error: unknown) {
+              if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+                throw duplicateEmail()
+              }
+
+              throw error
             }
 
-            throw error
-          }
-
-          if (updated === undefined) {
-            throw AppError.notFound('Person not found')
+            if (updated === undefined) {
+              throw AppError.notFound('Person not found')
+            }
+          } else {
+            updated = existing
           }
 
           const customFieldPaths = cf?.changedPaths ?? []
-          const activityChanged = [...scalarChanged, ...customFieldPaths]
+          const activityChanged = [...scalarChanged, ...customFieldPaths, ...consentPaths]
 
           if (activityChanged.length > 0) {
             const labels: Record<string, string> = { ...PERSON_FIELD_LABELS, ...cf?.labels }
+            for (const change of consentChanges) {
+              labels[`consents.${change.purposeSlug}`] = `Consent · ${change.purposeLabel}`
+            }
             const before: Record<string, unknown> = { ...existing, ...cf?.flatBefore }
             const after: Record<string, unknown> = { ...columns, ...cf?.flatAfter }
+            for (const change of consentChanges) {
+              before[`consents.${change.purposeSlug}`] = change.previousStatus ?? 'inherits'
+              after[`consents.${change.purposeSlug}`] = change.status ?? 'inherits'
+            }
             await dependencies.recordActivity(tx, workspaceId, actor, {
               targetType: 'person',
               targetId: id,
@@ -310,7 +386,7 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
           events.emit(
             'people.person.updated',
             { type: 'person', id },
-            { changed: [...scalarChanged, ...customFieldPaths] },
+            { changed: activityChanged },
           )
 
           // Sync auto-link when the email moved. Same-transaction rationale as
@@ -323,7 +399,8 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
             })
           }
 
-          return toView(updated)
+          const consents = await readConsentsFor(tx, workspaceId, id)
+          return toView(updated, consents)
         },
         { workspaceId, actor: toEventActor(actor) },
       )

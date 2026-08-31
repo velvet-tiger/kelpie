@@ -5,6 +5,8 @@ import {
   customFieldValuesSchema,
 } from './customField.ts'
 import type { CustomFieldValue, CustomFieldValues } from './customField.ts'
+import { personConsentSchema, personConsentWriteBody } from './personConsent.ts'
+import type { PersonConsent, PersonConsentInput } from './personConsent.ts'
 import {
   INFLUENCE_LEVELS,
   PREFERRED_CHANNELS,
@@ -48,6 +50,14 @@ export interface Person extends RecordTimestamps {
   readonly summary: string
   readonly tags: readonly string[]
   readonly lastContactedAt: Date | null
+  /** The Article 21 objection. Global, independent of consent purposes. */
+  readonly doNotContact: boolean
+  /**
+   * One entry per workspace consent purpose, with the effective status
+   * (an explicit `person_consents` row if one exists, else the purpose's
+   * `default_status`). Ordered by the purpose's `sort_order`.
+   */
+  readonly consents: readonly PersonConsent[]
   /** Workspace-defined fields, keyed by definition key. Always present (default `{}`). */
   readonly customFields: CustomFieldValues
 }
@@ -76,6 +86,8 @@ export const personSchema: z.ZodType<Person, unknown> = z
     summary: z.string(),
     tags: z.array(z.string()),
     last_contacted_at: nullableTimestampSchema,
+    do_not_contact: z.boolean(),
+    consents: z.array(personConsentSchema),
     custom_fields: customFieldValuesSchema,
     ...recordTimestamps,
   })
@@ -98,6 +110,8 @@ export const personSchema: z.ZodType<Person, unknown> = z
       summary: wire.summary,
       tags: wire.tags,
       lastContactedAt: wire.last_contacted_at,
+      doNotContact: wire.do_not_contact,
+      consents: wire.consents,
       customFields: wire.custom_fields,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
@@ -127,6 +141,13 @@ export interface PersonInput {
   readonly summary?: string
   readonly tags?: readonly string[]
   readonly lastContactedAt?: Date | null
+  readonly doNotContact?: boolean
+  /**
+   * Manual override of one or more consent purposes. Each entry upserts a
+   * `person_consents` row (`source: manual`); `status: null` clears the row
+   * and inherits the purpose's default. Absent purposes are left alone.
+   */
+  readonly consents?: readonly PersonConsentInput[]
   /**
    * Partial merge patch: sent keys change, `null` clears a key, absent keys are
    * left alone. Unknown keys are rejected at `422`.
@@ -155,6 +176,8 @@ export function personBody(input: PersonInput): Record<string, unknown> {
       input.lastContactedAt === undefined || input.lastContactedAt === null
         ? input.lastContactedAt
         : input.lastContactedAt.toISOString(),
+    do_not_contact: input.doNotContact,
+    consents: input.consents?.map(personConsentWriteBody),
     custom_fields:
       input.customFields === undefined ? undefined : customFieldValuesBody(input.customFields),
   })

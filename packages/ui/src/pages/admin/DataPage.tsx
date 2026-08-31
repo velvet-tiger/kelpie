@@ -27,6 +27,7 @@ import type {
 import { useEffect, useState } from 'react'
 import type { ChangeEvent, DragEvent, FormEvent, ReactNode } from 'react'
 
+import { useConsentPurposes } from '../../api/resources/consentPurposes.ts'
 import { useRelinkEmailDomains } from '../../api/resources/emailDomainLinker.ts'
 import {
   saveCsv,
@@ -73,6 +74,7 @@ export function DataPage(): ReactNode {
   const [columnMap, setColumnMap] = useState<ImportColumnMap>({})
   const [conflictMode, setConflictMode] = useState<ImportConflictMode>('skip')
   const [onMissingCompany, setOnMissingCompany] = useState<OnMissingCompany>('skip')
+  const [consentPurposeId, setConsentPurposeId] = useState<string | null>(null)
   const [matchKeyId, setMatchKeyId] = useState<string>(() => defaultMatchKeyId('companies'))
   const [jobId, setJobId] = useState<string | undefined>(undefined)
   const [problem, setProblem] = useState<string | null>(null)
@@ -125,6 +127,7 @@ export function DataPage(): ReactNode {
     setColumnMap({})
     setConflictMode('skip')
     setOnMissingCompany('skip')
+    setConsentPurposeId(null)
     setMatchKeyId(defaultMatchKeyId(object))
     setJobId(undefined)
     setProblem(null)
@@ -145,6 +148,7 @@ export function DataPage(): ReactNode {
       conflictMode,
       onMissingCompany,
       matchKeyId,
+      consentPurposeId,
       ...(map === undefined ? {} : { columnMap: map }),
     })
 
@@ -428,11 +432,13 @@ export function DataPage(): ReactNode {
             columnMap={columnMap}
             conflictMode={conflictMode}
             onMissingCompany={onMissingCompany}
+            consentPurposeId={consentPurposeId}
             matchKeyId={matchKeyId}
             isPending={createJob.isPending}
             onColumnMapChange={setColumnMap}
             onConflictModeChange={setConflictMode}
             onMissingCompanyChange={setOnMissingCompany}
+            onConsentPurposeChange={setConsentPurposeId}
             onMatchKeyChange={setMatchKeyId}
             onSubmit={(event) => runStep(onRerun(event))}
             onBack={() => {
@@ -468,11 +474,13 @@ interface MappingFormProps {
   readonly columnMap: ImportColumnMap
   readonly conflictMode: ImportConflictMode
   readonly onMissingCompany: OnMissingCompany
+  readonly consentPurposeId: string | null
   readonly matchKeyId: string
   readonly isPending: boolean
   readonly onColumnMapChange: (map: ImportColumnMap) => void
   readonly onConflictModeChange: (mode: ImportConflictMode) => void
   readonly onMissingCompanyChange: (mode: OnMissingCompany) => void
+  readonly onConsentPurposeChange: (id: string | null) => void
   readonly onMatchKeyChange: (id: string) => void
   readonly onSubmit: (event: FormEvent) => void
   readonly onBack: () => void
@@ -534,6 +542,12 @@ function MappingForm(props: MappingFormProps): ReactNode {
               ))}
             </select>
           </Field>
+        ) : null}
+        {showMissingCompany ? (
+          <ConsentPurposeField
+            value={props.consentPurposeId}
+            onChange={props.onConsentPurposeChange}
+          />
         ) : null}
       </div>
       <p className="text-[12px] text-ink-muted">
@@ -951,6 +965,40 @@ function Field({
       <span className="mb-1.5 block text-[12px] font-medium text-ink">{label}</span>
       {children}
     </label>
+  )
+}
+
+/**
+ * People imports only. Required whenever the map names `consent_status` or
+ * `consent_at` — the server refuses the job otherwise, so the picker is next
+ * to the columns rather than tucked away.
+ */
+function ConsentPurposeField({
+  value,
+  onChange,
+}: {
+  readonly value: string | null
+  readonly onChange: (id: string | null) => void
+}): ReactNode {
+  const purposes = useConsentPurposes({ sort: 'sort_order', limit: 200 })
+
+  return (
+    <Field label="Consent purpose">
+      <select
+        value={value ?? ''}
+        onChange={(event) => {
+          onChange(event.target.value.length === 0 ? null : event.target.value)
+        }}
+        className="w-full rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent"
+      >
+        <option value="">— none —</option>
+        {purposes.records.map((purpose) => (
+          <option key={purpose.id} value={purpose.id}>
+            {purpose.label}
+          </option>
+        ))}
+      </select>
+    </Field>
   )
 }
 

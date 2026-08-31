@@ -27,6 +27,9 @@ function draft(overrides: DraftOverrides = {}): FieldDraft {
     mapTo: overrides.mapTo ?? 'person.email',
     options: overrides.options ?? [],
     placeholder: null,
+    statement: null,
+    consentPurposeIds: [],
+    consentPurposeLabels: {},
   }
 }
 

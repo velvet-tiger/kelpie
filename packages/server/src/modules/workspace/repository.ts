@@ -3,6 +3,7 @@ import { and, asc, count, eq, gt } from 'drizzle-orm'
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
 import { users } from '../auth/schema.ts'
+import { consentPurposes } from '../consent-purposes/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { decisions } from '../decisions/schema.ts'
 import { handbookPages } from '../handbook/schema.ts'
@@ -385,6 +386,17 @@ export async function insertPipelineStages(
   }
 
   await db.insert(pipelineStages).values([...values])
+}
+
+export async function insertConsentPurposes(
+  db: Queryable,
+  values: readonly (typeof consentPurposes.$inferInsert)[],
+): Promise<void> {
+  if (values.length === 0) {
+    return
+  }
+
+  await db.insert(consentPurposes).values([...values])
 }
 
 export type ModuleSettingRecord = typeof workspaceModuleSettings.$inferSelect

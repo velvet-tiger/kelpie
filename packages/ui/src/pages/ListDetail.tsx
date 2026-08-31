@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies } from '../api/resources/companies.ts'
+import { useConsentPurposes } from '../api/resources/consentPurposes.ts'
 import { useDeals } from '../api/resources/deals.ts'
 import { useDeleteList, useList, useUpdateList } from '../api/resources/lists.ts'
 import {
@@ -85,7 +86,53 @@ export function ListDetail(): React.JSX.Element {
 
       <ListDescription list={record} />
 
+      {record.targetType === 'person' && <ListConsentPurpose list={record} />}
+
       <ListMembers listId={record.id} targetType={record.targetType} />
+    </div>
+  )
+}
+
+function ListConsentPurpose({ list }: { readonly list: List }): React.JSX.Element {
+  const { patch, error } = useListPatch(list)
+  const purposes = useConsentPurposes({ sort: 'sort_order', limit: 200 })
+  const options = [
+    { value: '', label: '— none —' },
+    ...purposes.records.map((purpose) => ({ value: purpose.id, label: purpose.label })),
+  ]
+
+  return (
+    <div className="mb-6 rounded-md border border-border bg-surface-raised p-4 text-[13px]">
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <div className="text-[12px] font-medium text-ink">Consent purpose</div>
+          <p className="mt-0.5 text-[12px] text-ink-muted">
+            A form submit that adds a person to this list also grants this purpose. Manual and
+            API adds capture nothing.
+          </p>
+        </div>
+        <label className="shrink-0">
+          <select
+            value={list.consentPurposeId ?? ''}
+            onChange={(event) => {
+              const value = event.target.value
+              patch({ consentPurposeId: value.length === 0 ? null : value })
+            }}
+            className="rounded-md border border-border bg-transparent px-2 py-1 text-[12px] outline-none focus:border-accent"
+          >
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
     </div>
   )
 }

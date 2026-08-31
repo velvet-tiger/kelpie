@@ -1,5 +1,11 @@
-import { IN_PROCESS, PREFERRED_CHANNELS } from '@kelpie/schemas'
-import type { Candidate, Person, PersonInput, PreferredChannel } from '@kelpie/schemas'
+import { CONSENT_PURPOSE_STATUS_LABELS, IN_PROCESS, PREFERRED_CHANNELS } from '@kelpie/schemas'
+import type {
+  Candidate,
+  ConsentStatus,
+  Person,
+  PersonInput,
+  PreferredChannel,
+} from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -159,6 +165,7 @@ export function PersonDetail(): React.JSX.Element {
         <aside className="space-y-4 text-[12px] lg:sticky lg:top-6">
           <PersonNameParts person={record} />
           <PersonSidebar person={record} />
+          <PersonConsents person={record} />
           <PersonPositions person={record} />
         </aside>
       </div>
@@ -594,6 +601,76 @@ function PersonPositions({ person }: { readonly person: Person }): React.JSX.Ele
             </button>
           </div>
         </form>
+      )}
+    </section>
+  )
+}
+
+/**
+ * The person's effective consent for every workspace purpose, plus the
+ * global `do_not_contact` toggle.
+ *
+ * An `inherited: true` entry has no explicit `person_consents` row and reads
+ * the purpose's default; picking a status writes an override, and the
+ * "Inherit" choice clears the override again. Do-not-contact is the global
+ * Article 21 objection, independent of per-purpose consent.
+ */
+function PersonConsents({ person }: { readonly person: Person }): React.JSX.Element {
+  const { patch, error } = usePersonPatch(person)
+
+  function setConsent(purposeSlug: string, status: ConsentStatus | null): void {
+    patch({ consents: [{ purposeSlug, status }] })
+  }
+
+  return (
+    <section className="rounded-md border border-border p-3">
+      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+        Privacy and marketing
+      </h3>
+      {error !== null && (
+        <div className="mb-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
+      <label className="flex items-center gap-2 py-1 text-[12px] text-ink">
+        <input
+          type="checkbox"
+          checked={person.doNotContact}
+          onChange={(event) => {
+            patch({ doNotContact: event.target.checked })
+          }}
+        />
+        Do not contact
+      </label>
+      {person.consents.length === 0 ? (
+        <p className="mt-2 text-[11px] text-ink-muted">
+          No consent purposes yet. Define them on /admin/privacy.
+        </p>
+      ) : (
+        person.consents.map((consent) => (
+          <SidebarField key={consent.purposeSlug} label={consent.purposeLabel}>
+            <div className="flex items-center gap-2">
+              <select
+                value={consent.inherited ? '' : consent.status}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setConsent(
+                    consent.purposeSlug,
+                    value === '' ? null : (value as ConsentStatus),
+                  )
+                }}
+                className="rounded-md border border-border bg-transparent px-2 py-1 text-[12px] outline-none focus:border-accent"
+              >
+                <option value="">Inherit ({CONSENT_PURPOSE_STATUS_LABELS[consent.status]})</option>
+                <option value="granted">Granted</option>
+                <option value="withdrawn">Withdrawn</option>
+              </select>
+              {!consent.inherited && consent.source !== null && (
+                <span className="text-[10px] text-ink-faint">via {consent.source}</span>
+              )}
+            </div>
+          </SidebarField>
+        ))
       )}
     </section>
   )

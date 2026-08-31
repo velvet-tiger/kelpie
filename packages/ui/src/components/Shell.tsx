@@ -23,6 +23,7 @@ const CORE_ADMIN_NAV: readonly NavItem[] = [
   { id: 'workspace', label: 'Workspace', to: '/admin/workspace', order: 100 },
   { id: 'team', label: 'Team', to: '/admin/team', order: 200 },
   { id: 'fields', label: 'Fields', to: '/admin/fields', order: 250 },
+  { id: 'privacy', label: 'Privacy', to: '/admin/privacy', order: 275 },
   { id: 'data', label: 'Data', to: '/admin/data', order: 300 },
   { id: 'api-keys', label: 'API keys', to: '/admin/api-keys', order: 350 },
   { id: 'webhooks', label: 'Webhooks', to: '/admin/webhooks', order: 400 },

@@ -15,6 +15,7 @@ import type {
 import { index, integer, jsonb, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { consentPurposes } from '../consent-purposes/schema.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
@@ -78,6 +79,16 @@ export const importJobs = pgTable(
     onMissingCompany: text('on_missing_company').notNull().default('skip'),
     matchKey: text('match_key').notNull(),
     columnMap: jsonb('column_map').$type<ImportColumnMap>().notNull().default({}),
+    /**
+     * The consent purpose a People import grants for each row that carries a
+     * `consent_status`. Required whenever the map names `consent_status` or
+     * `consent_at`; null on every other object and on People jobs that skip
+     * consent columns. `set null` on delete so a purpose can be removed
+     * without invalidating an old job.
+     */
+    consentPurposeId: text('consent_purpose_id').references(() => consentPurposes.id, {
+      onDelete: 'set null',
+    }),
     sourceHeaders: jsonb('source_headers').$type<readonly string[]>().notNull().default([]),
     counts: jsonb('counts').$type<ImportCounts>().notNull(),
     /** The first `IMPORT_REPORTED_ERRORS` failing rows. `counts.error` is the true number. */

@@ -19,6 +19,8 @@ import type {
 } from '@kelpie/schemas'
 import { useEffect, useRef, useState } from 'react'
 
+import { useConsentPurposes } from '../../api/resources/consentPurposes.ts'
+import type { ConsentPurpose } from '@kelpie/schemas'
 import { useUpdateFormFields } from '../../api/resources/forms.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { AddFieldMenu } from './AddFieldMenu.tsx'
@@ -345,6 +347,14 @@ function PreviewControl({ field }: { readonly field: EditableField }): React.JSX
     )
   }
 
+  if (field.type === 'consent') {
+    return <ConsentPreview field={field} />
+  }
+
+  if (field.type === 'notice') {
+    return <NoticePreview field={field} />
+  }
+
   return (
     <input
       readOnly
@@ -353,6 +363,62 @@ function PreviewControl({ field }: { readonly field: EditableField }): React.JSX
       placeholder={field.placeholder ?? undefined}
       className={controlClass}
     />
+  )
+}
+
+/**
+ * The consent preview — matches what the visitor sees: a statement above,
+ * one checkbox per selected purpose below, each labelled by the purpose. The
+ * label above (in FieldRow) still shows the field heading.
+ */
+/**
+ * The notice preview — prose only, styled like the hosted embed. There is no
+ * checkbox because a notice is granted implicitly by submission.
+ */
+function NoticePreview({ field }: { readonly field: EditableField }): React.JSX.Element {
+  const statement = (field.statement ?? '').trim()
+  return (
+    <div>
+      {statement.length === 0 ? (
+        <p className="text-[11px] italic text-ink-faint">
+          Add a statement in the settings panel — the notice text the visitor reads.
+        </p>
+      ) : (
+        <p className="rounded-md border border-border bg-surface px-3 py-2 text-[12px] leading-snug text-ink-muted whitespace-pre-line">
+          {statement}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function ConsentPreview({ field }: { readonly field: EditableField }): React.JSX.Element {
+  const purposes = useConsentPurposes({ sort: 'sort_order', limit: 200 })
+  const labelById = new Map<string, string>(
+    purposes.records.map((purpose: ConsentPurpose) => [purpose.id, purpose.label]),
+  )
+  const statement = field.statement ?? field.label
+  const ids = field.consentPurposeIds ?? []
+  const overrides = field.consentPurposeLabels ?? {}
+
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[12px] text-ink-muted">{statement}</p>
+      {ids.length === 0 ? (
+        <p className="text-[11px] italic text-ink-faint">
+          Pick at least one purpose in the settings panel.
+        </p>
+      ) : (
+        ids.map((id) => (
+          <div key={id} className="flex items-start gap-2">
+            <input readOnly tabIndex={-1} type="checkbox" className="mt-0.5" />
+            <span className="text-[13px] text-ink">
+              {overrides[id] ?? labelById.get(id) ?? id}
+            </span>
+          </div>
+        ))
+      )}
+    </div>
   )
 }
 
@@ -465,6 +531,40 @@ function FieldSettings({
           />
         )}
 
+        {(field.type === 'consent' || field.type === 'notice') && (
+          <>
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-medium text-ink-faint">
+                {field.type === 'notice'
+                  ? 'Notice (the text the visitor reads)'
+                  : 'Statement (intro sentence above the checkboxes)'}
+              </span>
+              <textarea
+                className={inputClass}
+                rows={field.type === 'notice' ? 5 : 3}
+                value={field.statement ?? ''}
+                onChange={(event) => {
+                  const value = event.target.value
+                  onChange({ statement: value.length === 0 ? null : value })
+                }}
+                placeholder={
+                  field.type === 'notice'
+                    ? 'By submitting this form you agree to us storing your information and using it to contact you about your enquiry.'
+                    : 'Please tell us how we can contact you.'
+                }
+              />
+            </label>
+            <ConsentPurposePicker
+              mode={field.type === 'notice' ? 'notice' : 'checkbox'}
+              value={field.consentPurposeIds ?? []}
+              labels={field.consentPurposeLabels ?? {}}
+              onChange={(consentPurposeIds, consentPurposeLabels) => {
+                onChange({ consentPurposeIds, consentPurposeLabels })
+              }}
+            />
+          </>
+        )}
+
         {problem !== undefined && <p className="text-[12px] text-danger">{problem}</p>}
 
         <button
@@ -568,5 +668,119 @@ function OptionsEditor({
         + Add option
       </button>
     </div>
+  )
+}
+
+/**
+ * Picks the workspace consent purposes this field offers, with a text input
+ * beside each selected purpose so the admin can override the checkbox text.
+ * The override is bound to the same purpose the checkbox grants — the wording
+ * changes, the mapping never does. An empty override falls back to the
+ * workspace purpose's own label at render time.
+ */
+function ConsentPurposePicker({
+  mode,
+  value,
+  labels,
+  onChange,
+}: {
+  /**
+   * `checkbox` shows a text override per selected purpose (each purpose has
+   * its own checkbox in the embed). `notice` hides the overrides — the
+   * consent is granted implicitly, without a per-purpose checkbox.
+   */
+  readonly mode: 'checkbox' | 'notice'
+  readonly value: readonly string[]
+  readonly labels: Readonly<Record<string, string>>
+  readonly onChange: (
+    ids: readonly string[],
+    labels: Readonly<Record<string, string>>,
+  ) => void
+}): React.JSX.Element {
+  const purposes = useConsentPurposes({ sort: 'sort_order', limit: 200 })
+
+  if (purposes.isLoading) {
+    return <p className="text-[12px] text-ink-muted">Loading consent purposes…</p>
+  }
+
+  if (purposes.records.length === 0) {
+    return (
+      <p className="text-[12px] text-ink-muted">
+        No consent purposes yet. Add one on the Privacy admin page, then pick it here.
+      </p>
+    )
+  }
+
+  const chosen = new Set(value)
+
+  function toggle(id: string, checked: boolean): void {
+    // Preserve the workspace's purpose order so the visitor sees the checkboxes
+    // in a consistent order regardless of which one the admin ticked first.
+    const order = purposes.records.map((purpose) => purpose.id)
+    const nextIds = order.filter((purposeId) =>
+      purposeId === id ? checked : chosen.has(purposeId),
+    )
+    // A deselected purpose drops its override too — silent orphan overrides
+    // would resurface if the admin ticked it again later.
+    const nextLabels: Record<string, string> = {}
+    for (const [key, val] of Object.entries(labels)) {
+      if (nextIds.includes(key)) nextLabels[key] = val
+    }
+    onChange(nextIds, nextLabels)
+  }
+
+  function setLabel(id: string, text: string): void {
+    const nextLabels: Record<string, string> = { ...labels }
+    if (text.length === 0) {
+      delete nextLabels[id]
+    } else {
+      nextLabels[id] = text
+    }
+    onChange(value, nextLabels)
+  }
+
+  const legend =
+    mode === 'notice'
+      ? 'Purposes granted when the visitor submits (implicit consent)'
+      : 'Consent purposes (each selected one becomes a checkbox)'
+
+  return (
+    <fieldset className="block">
+      <legend className="mb-1 block text-[11px] font-medium text-ink-faint">{legend}</legend>
+      <div className="flex flex-col gap-2">
+        {purposes.records.map((purpose) => {
+          const isChosen = chosen.has(purpose.id)
+          return (
+            <div key={purpose.id} className="rounded-md border border-border p-2">
+              <label className="flex items-center gap-2 text-[13px] text-ink">
+                <input
+                  type="checkbox"
+                  checked={isChosen}
+                  onChange={(event) => {
+                    toggle(purpose.id, event.target.checked)
+                  }}
+                />
+                {purpose.label}
+              </label>
+              {isChosen && mode === 'checkbox' && (
+                <label className="mt-1.5 block">
+                  <span className="mb-1 block text-[11px] font-medium text-ink-faint">
+                    Checkbox text (defaults to the purpose label)
+                  </span>
+                  <input
+                    className={inputClass}
+                    value={labels[purpose.id] ?? ''}
+                    onChange={(event) => {
+                      setLabel(purpose.id, event.target.value)
+                    }}
+                    placeholder={purpose.label}
+                  />
+                </label>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </fieldset>
   )
 }

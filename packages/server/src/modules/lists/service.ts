@@ -9,6 +9,7 @@ import type { TransactionScope } from '../../runtime/transaction.ts'
 import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
+import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import { missingTargets, resolveTargetNames, targetKey } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import './events.ts'
@@ -43,8 +44,14 @@ export interface ListsDependencies {
   readonly now: () => Date
 }
 
-/** A list as the API returns one: the stored row minus the tenancy column. */
-export type ListView = Omit<ListWithCount, 'workspaceId'>
+/**
+ * A list as the API returns one: the stored row minus the tenancy column,
+ * plus the denormalised slug of the consent purpose (when set) so a reader
+ * needs no second call.
+ */
+export type ListView = Omit<ListWithCount, 'workspaceId'> & {
+  readonly consentPurposeSlug: string | null
+}
 
 /** A membership plus the list it points at, as `/v1/list-memberships` returns one. */
 export interface ListMembershipView {
@@ -71,12 +78,18 @@ export interface CreateListInput {
   readonly name: string
   readonly targetType: RecordTargetType
   readonly description: string | null
+  /**
+   * Optional consent purpose captured on form-driven adds. Person lists only.
+   * A non-null value on any other target type is refused at 422.
+   */
+  readonly consentPurposeId: string | null
 }
 
 /** PATCH semantics: an absent field is left alone. The type never moves. */
 export interface UpdateListInput {
   readonly name?: string | undefined
   readonly description?: string | null | undefined
+  readonly consentPurposeId?: string | null | undefined
 }
 
 export interface AddListMemberInput {
@@ -104,10 +117,10 @@ export interface ListsService {
   ): Promise<readonly ListMembershipView[]>
 }
 
-function toView(record: ListWithCount): ListView {
+function toView(record: ListWithCount, consentPurposeSlug: string | null): ListView {
   const { workspaceId: _workspaceId, ...view } = record
 
-  return view
+  return { ...view, consentPurposeSlug }
 }
 
 function toMembershipView(row: MembershipWithList): ListMembershipView {
@@ -157,6 +170,13 @@ function alreadyMember(): AppError {
   ])
 }
 
+function purposeNotPersonList(): AppError {
+  return AppError.validationFailed(
+    'Only person lists capture consent — remove consent_purpose_id or change the list type',
+    [{ field: 'consent_purpose_id', message: 'Person lists only' }],
+  )
+}
+
 export function createListsService(dependencies: ListsDependencies): ListsService {
   async function require(workspaceId: string, id: string): Promise<ListWithCount> {
     const list = await repository.findList(dependencies.db, workspaceId, id)
@@ -180,22 +200,76 @@ export function createListsService(dependencies: ListsDependencies): ListsServic
     }
   }
 
+  async function resolveConsentPurposeSlug(
+    workspaceId: string,
+    purposeId: string | null,
+  ): Promise<string | null> {
+    if (purposeId === null) return null
+    const [row] = await consentPurposesRepository.listPurposesByIds(
+      dependencies.db,
+      workspaceId,
+      [purposeId],
+    )
+    return row?.slug ?? null
+  }
+
+  async function requireConsentPurposeExists(
+    workspaceId: string,
+    purposeId: string,
+  ): Promise<void> {
+    const rows = await consentPurposesRepository.listPurposesByIds(
+      dependencies.db,
+      workspaceId,
+      [purposeId],
+    )
+    if (rows.length === 0) {
+      throw AppError.validationFailed('That consent purpose was not found', [
+        { field: 'consent_purpose_id', message: `No purpose ${purposeId} here` },
+      ])
+    }
+  }
+
   return {
     async list(actor, filters, query) {
       const workspaceId = requireWorkspaceId(actor)
       const window = readListWindow(query, LIST_SORTS, DEFAULT_LIST_SORT)
       const rows = await repository.listLists(dependencies.db, workspaceId, filters, window)
+      const purposeIds = Array.from(
+        new Set(
+          rows
+            .map((row) => row.consentPurposeId)
+            .filter((id): id is string => id !== null),
+        ),
+      )
+      const purposes = await consentPurposesRepository.listPurposesByIds(
+        dependencies.db,
+        workspaceId,
+        purposeIds,
+      )
+      const slugByPurpose = new Map(purposes.map((purpose) => [purpose.id, purpose.slug]))
 
-      return mapPage(toPage(rows, window, (row) => row.id), toView)
+      return mapPage(toPage(rows, window, (row) => row.id), (row) =>
+        toView(row, row.consentPurposeId === null ? null : (slugByPurpose.get(row.consentPurposeId) ?? null)),
+      )
     },
 
     async get(actor, id) {
-      return toView(await require(requireWorkspaceId(actor), id))
+      const workspaceId = requireWorkspaceId(actor)
+      const record = await require(workspaceId, id)
+      const slug = await resolveConsentPurposeSlug(workspaceId, record.consentPurposeId)
+      return toView(record, slug)
     },
 
     async create(actor, input) {
       const workspaceId = requireWorkspaceId(actor)
       const id = dependencies.createId('list')
+
+      if (input.consentPurposeId !== null) {
+        if (input.targetType !== 'person') {
+          throw purposeNotPersonList()
+        }
+        await requireConsentPurposeExists(workspaceId, input.consentPurposeId)
+      }
 
       return dependencies.transaction(
         async ({ tx, events }) => {
@@ -207,6 +281,7 @@ export function createListsService(dependencies: ListsDependencies): ListsServic
               name: input.name,
               description: input.description,
               targetType: input.targetType,
+              consentPurposeId: input.consentPurposeId,
             })
           } catch (error: unknown) {
             if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
@@ -218,7 +293,12 @@ export function createListsService(dependencies: ListsDependencies): ListsServic
 
           events.emit('lists.list.created', { type: 'list', id: created.id }, {})
 
-          return toView({ ...created, memberCount: 0 })
+          const slug = await resolveConsentPurposeSlug(
+            workspaceId,
+            created.consentPurposeId,
+          )
+
+          return toView({ ...created, memberCount: 0 }, slug)
         },
         { workspaceId, actor: toEventActor(actor) },
       )
@@ -227,14 +307,33 @@ export function createListsService(dependencies: ListsDependencies): ListsServic
     async update(actor, id, changes) {
       const workspaceId = requireWorkspaceId(actor)
       const existing = await require(workspaceId, id)
+
+      if (
+        changes.consentPurposeId !== undefined &&
+        changes.consentPurposeId !== null &&
+        existing.targetType !== 'person'
+      ) {
+        throw purposeNotPersonList()
+      }
+      if (
+        changes.consentPurposeId !== undefined &&
+        changes.consentPurposeId !== null
+      ) {
+        await requireConsentPurposeExists(workspaceId, changes.consentPurposeId)
+      }
+
       const columns: Partial<repository.ListColumns> = {
         ...(changes.name === undefined ? {} : { name: changes.name }),
         ...(changes.description === undefined ? {} : { description: changes.description }),
+        ...(changes.consentPurposeId === undefined
+          ? {}
+          : { consentPurposeId: changes.consentPurposeId }),
       }
       const changed = changedKeys(existing, columns)
 
       if (changed.length === 0) {
-        return toView(existing)
+        const slug = await resolveConsentPurposeSlug(workspaceId, existing.consentPurposeId)
+        return toView(existing, slug)
       }
 
       return dependencies.transaction(
@@ -259,7 +358,9 @@ export function createListsService(dependencies: ListsDependencies): ListsServic
 
           events.emit('lists.list.updated', { type: 'list', id }, { changed })
 
-          return toView({ ...updated, memberCount: existing.memberCount })
+          const slug = await resolveConsentPurposeSlug(workspaceId, updated.consentPurposeId)
+
+          return toView({ ...updated, memberCount: existing.memberCount }, slug)
         },
         { workspaceId, actor: toEventActor(actor) },
       )

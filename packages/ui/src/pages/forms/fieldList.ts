@@ -1,6 +1,7 @@
 import {
   FORM_FIELD_MAP_TARGETS,
   FORM_FIELD_TYPES,
+  PERSON_CONSENT_TARGET,
   PERSON_EMAIL_TARGET,
 } from '@kelpie/schemas'
 import type { Form, FormFieldInput, FormFieldMapTarget, FormFieldType } from '@kelpie/schemas'
@@ -42,6 +43,9 @@ export function toEditableFields(form: Form): EditableField[] {
     mapTo: field.mapTo,
     options: field.options.map((option) => ({ ...option })),
     placeholder: field.placeholder,
+    statement: field.statement,
+    consentPurposeIds: [...field.consentPurposeIds],
+    consentPurposeLabels: { ...field.consentPurposeLabels },
   }))
 }
 
@@ -84,15 +88,31 @@ export function editField(
   return fields.map((field) => {
     if (field.id !== id) {
       // Only one field may carry a CRM target, so taking one releases it
-      // wherever it was. `submission` is the target that may repeat.
+      // wherever it was. `submission` and `person.consent` are the targets
+      // that may repeat — consent's uniqueness is per purpose, not per
+      // target, and is enforced when the purpose is picked.
       return change.mapTo !== undefined &&
         change.mapTo !== 'submission' &&
+        change.mapTo !== PERSON_CONSENT_TARGET &&
         field.mapTo === change.mapTo
         ? { ...field, mapTo: 'submission' }
         : field
     }
 
     const next: EditableField = { ...field, ...change }
+
+    // A consent or notice field must map to person.consent; anything else
+    // clears any lingering purpose list.
+    const isConsentLike = next.type === 'consent' || next.type === 'notice'
+    if (isConsentLike && next.mapTo !== PERSON_CONSENT_TARGET) {
+      return { ...withoutOptions(next), mapTo: PERSON_CONSENT_TARGET }
+    }
+    if (next.mapTo === PERSON_CONSENT_TARGET && !isConsentLike) {
+      return { ...withoutOptions(next), type: 'consent' }
+    }
+    if (!isConsentLike && (next.consentPurposeIds ?? []).length > 0) {
+      return withoutOptions({ ...next, consentPurposeIds: [] })
+    }
 
     if (next.type !== 'select') {
       return withoutOptions(next)
@@ -166,6 +186,7 @@ export function findProblems(
   const list: string[] = []
   const byField = new Map<string, string>()
   const seen = new Set<FormFieldMapTarget>()
+  const usedConsentPurposes = new Set<string>()
 
   if (!fields.some((field) => field.mapTo === PERSON_EMAIL_TARGET)) {
     list.push(`One field must map to ${PERSON_EMAIL_TARGET}, or no submission can be processed.`)
@@ -176,7 +197,34 @@ export function findProblems(
   }
 
   for (const field of fields) {
-    if (field.mapTo !== 'submission') {
+    if (field.mapTo === PERSON_CONSENT_TARGET) {
+      const purposes = field.consentPurposeIds ?? []
+      if (field.type === 'notice' && (field.statement ?? '').trim().length === 0) {
+        byField.set(field.id, 'A notice field needs a statement.')
+      }
+      if (purposes.length === 0) {
+        byField.set(
+          field.id,
+          field.type === 'notice'
+            ? 'Pick at least one purpose this notice grants implicitly.'
+            : 'Pick at least one consent purpose this field offers.',
+        )
+      } else {
+        const localSeen = new Set<string>()
+        for (const purposeId of purposes) {
+          if (localSeen.has(purposeId)) {
+            byField.set(field.id, 'This field lists a purpose twice.')
+            break
+          }
+          localSeen.add(purposeId)
+          if (usedConsentPurposes.has(purposeId)) {
+            byField.set(field.id, 'Another consent field already offers this purpose.')
+          } else {
+            usedConsentPurposes.add(purposeId)
+          }
+        }
+      }
+    } else if (field.mapTo !== 'submission') {
       if (seen.has(field.mapTo)) {
         byField.set(field.id, `Another field already maps to ${field.mapTo}.`)
       }
@@ -203,9 +251,13 @@ export function isUsable(problems: FieldListProblems): boolean {
   return problems.list.length === 0 && problems.byField.size === 0
 }
 
-/** The types a mapping can sensibly render as. Choosing `person.email` implies an email input. */
+/** The types a mapping can sensibly render as. */
 export function typeForTarget(target: FormFieldMapTarget, current: FormFieldType): FormFieldType {
-  return target === PERSON_EMAIL_TARGET ? 'email' : current
+  if (target === PERSON_EMAIL_TARGET) return 'email'
+  if (target === PERSON_CONSENT_TARGET) {
+    return current === 'notice' ? 'notice' : 'consent'
+  }
+  return current === 'consent' || current === 'notice' ? 'text' : current
 }
 
 /**

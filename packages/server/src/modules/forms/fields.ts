@@ -3,6 +3,9 @@ import type { StoredFormFieldOption } from './schema.ts'
 import { PERSON_EMAIL_TARGET } from './schema.ts'
 import type { FormFieldMapTarget, FormFieldType, FormOptionValueType } from './schema.ts'
 
+/** The map target for a consent field. Repeatable, unique per purpose_id. */
+const PERSON_CONSENT_TARGET = 'person.consent'
+
 /**
  * What a form's field list has to satisfy before it is stored.
  *
@@ -20,6 +23,12 @@ export interface FieldDraft {
   readonly mapTo: FormFieldMapTarget
   readonly options: readonly OptionDraft[]
   readonly placeholder: string | null
+  /** The intro sentence for a `consent` field. Ignored for every other type. */
+  readonly statement: string | null
+  /** Non-empty for `consent` fields; one checkbox per id in display order. */
+  readonly consentPurposeIds: readonly string[]
+  /** Per-purpose override for the checkbox text. Falls back to the workspace label. */
+  readonly consentPurposeLabels: Readonly<Record<string, string>>
 }
 
 export interface OptionDraft {
@@ -64,6 +73,7 @@ export function findFieldProblems(
 ): readonly ErrorDetail[] {
   const problems: ErrorDetail[] = []
   const seenTargets = new Set<string>()
+  const usedConsentPurposes = new Set<string>()
 
   if (!fields.some((field) => field.mapTo === PERSON_EMAIL_TARGET)) {
     problems.push({
@@ -91,7 +101,59 @@ export function findFieldProblems(
   for (const [index, field] of fields.entries()) {
     const at = `fields.${String(index)}`
 
-    if (!REPEATABLE_TARGETS.has(field.mapTo)) {
+    // `person.consent` is repeatable — a form may carry more than one consent
+    // (checkbox) or notice (implicit) field, each offering its own list of
+    // purposes — but no purpose may appear on two fields, whether as the
+    // same field's duplicate or on two fields at once. Everything else
+    // non-`submission` is unique per form.
+    if (field.mapTo === PERSON_CONSENT_TARGET) {
+      if (field.type !== 'consent' && field.type !== 'notice') {
+        problems.push({
+          field: `${at}.type`,
+          message: 'A person.consent field must be of type "consent" or "notice"',
+        })
+      }
+      if (field.type === 'notice' && (field.statement ?? '').trim().length === 0) {
+        problems.push({
+          field: `${at}.statement`,
+          message: 'A notice field needs a statement',
+        })
+      }
+      if (field.consentPurposeIds.length === 0) {
+        problems.push({
+          field: `${at}.consent_purpose_ids`,
+          message:
+            field.type === 'notice'
+              ? 'A notice field needs at least one purpose it grants implicitly'
+              : 'A consent field needs at least one purpose',
+        })
+      } else {
+        const seenLocal = new Set<string>()
+        for (const purposeId of field.consentPurposeIds) {
+          if (seenLocal.has(purposeId)) {
+            problems.push({
+              field: `${at}.consent_purpose_ids`,
+              message: 'A consent field lists each purpose only once',
+            })
+            break
+          }
+          seenLocal.add(purposeId)
+          if (usedConsentPurposes.has(purposeId)) {
+            problems.push({
+              field: `${at}.consent_purpose_ids`,
+              message: 'Another consent field on this form already names this purpose',
+            })
+          } else {
+            usedConsentPurposes.add(purposeId)
+          }
+        }
+      }
+    } else if (field.type === 'consent' || field.type === 'notice') {
+      problems.push({
+        field: `${at}.map_to`,
+        message: 'A consent or notice field must map to person.consent',
+      })
+    } else if (!REPEATABLE_TARGETS.has(field.mapTo)) {
       if (seenTargets.has(field.mapTo)) {
         problems.push({ field: `${at}.map_to`, message: `Another field already maps to ${field.mapTo}` })
       }
@@ -164,6 +226,9 @@ export interface FieldShape {
   readonly mapTo: string
   readonly options: readonly StoredFormFieldOption[]
   readonly placeholder: string | null
+  readonly statement: string | null
+  readonly consentPurposeIds: readonly string[]
+  readonly consentPurposeLabels: Readonly<Record<string, string>>
 }
 
 /**
@@ -194,9 +259,30 @@ export function fieldsDiffer(
       field.required !== draft.required ||
       field.mapTo !== draft.mapTo ||
       field.placeholder !== draft.placeholder ||
+      field.statement !== draft.statement ||
+      stringListDiffer(field.consentPurposeIds, draft.consentPurposeIds) ||
+      labelMapDiffer(field.consentPurposeLabels, draft.consentPurposeLabels) ||
       optionsDiffer(field.options, draft.options)
     )
   })
+}
+
+function labelMapDiffer(
+  stored: Readonly<Record<string, string>>,
+  drafts: Readonly<Record<string, string>>,
+): boolean {
+  const storedKeys = Object.keys(stored)
+  const draftKeys = Object.keys(drafts)
+  if (storedKeys.length !== draftKeys.length) return true
+  return storedKeys.some((key) => stored[key] !== drafts[key])
+}
+
+function stringListDiffer(
+  stored: readonly string[],
+  drafts: readonly string[],
+): boolean {
+  if (stored.length !== drafts.length) return true
+  return stored.some((value, index) => value !== drafts[index])
 }
 
 function optionsDiffer(

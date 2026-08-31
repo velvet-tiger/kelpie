@@ -115,12 +115,22 @@ export interface CsvColumn {
   /**
    * A column an import may map but an export never writes.
    *
-   * The People affiliation columns are the only ones: a person can hold many
-   * positions, so a single company and title on the person row would be lossy on
-   * the way out. They map on the way in to drive a Position, and the export and
-   * template leave them out. See `headersFor`.
+   * The People affiliation columns are the original example: a person can hold
+   * many positions, so a single company and title on the person row would be
+   * lossy on the way out. They map on the way in to drive a Position, and the
+   * export and template leave them out. The consent grant columns follow the
+   * same rule — a person's consent state is exported serialised in `consents`,
+   * not row-by-row per purpose. See `headersFor`.
    */
   readonly importOnly?: boolean
+  /**
+   * A column an export writes but an import never maps. `do_not_contact` and
+   * the serialised `consents` list are exported for readability; consent
+   * round-trips through `consent_status` / `consent_at` plus the job's
+   * `consent_purpose_id`, and `do_not_contact` is a Person patch, not part of
+   * an import job.
+   */
+  readonly exportOnly?: boolean
 }
 
 /**
@@ -172,9 +182,18 @@ export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>
     { key: 'summary', label: 'Summary', required: false },
     { key: 'tags', label: 'Tags', required: false },
     { key: 'phones', label: 'Phones', required: false },
+    { key: 'do_not_contact', label: 'Do not contact', required: false, exportOnly: true },
+    { key: 'consents', label: 'Consents', required: false, exportOnly: true },
     { key: 'company_domain', label: 'Company domain', required: false, importOnly: true },
     { key: 'company_name', label: 'Company name', required: false, importOnly: true },
     { key: 'title', label: 'Title', required: false, importOnly: true },
+    /**
+     * Consent grant to write for the job's purpose. `granted` or `withdrawn`.
+     * Mapping either column with no `consent_purpose_id` set on the job is a
+     * `422` — the writer would not know which purpose the row is for.
+     */
+    { key: 'consent_status', label: 'Consent status', required: false, importOnly: true },
+    { key: 'consent_at', label: 'Consent at', required: false, importOnly: true },
   ],
   positions: [
     { key: 'person_email', label: 'Person email', required: true },
@@ -310,6 +329,12 @@ export interface ImportJob extends RecordTimestamps {
   readonly onMissingCompany: OnMissingCompany
   readonly matchKey: string
   readonly columnMap: ImportColumnMap
+  /**
+   * The consent purpose a People import grants (or withdraws) for each row
+   * that carries a `consent_status`. Required whenever the map names
+   * `consent_status` or `consent_at`. Null for every other object.
+   */
+  readonly consentPurposeId: string | null
   /** The headers as they appeared in the uploaded file, in file order. */
   readonly sourceHeaders: readonly string[]
   readonly fileName: string | null
@@ -360,6 +385,7 @@ export const importJobSchema: z.ZodType<ImportJob, unknown> = z
     on_missing_company: z.enum(ON_MISSING_COMPANY),
     match_key: z.string(),
     column_map: z.record(z.string(), z.string().nullable()),
+    consent_purpose_id: idSchema.nullable(),
     source_headers: z.array(z.string()),
     file_name: z.string().nullable(),
     counts: countsSchema,
@@ -378,6 +404,7 @@ export const importJobSchema: z.ZodType<ImportJob, unknown> = z
       onMissingCompany: wire.on_missing_company,
       matchKey: wire.match_key,
       columnMap: wire.column_map,
+      consentPurposeId: wire.consent_purpose_id,
       sourceHeaders: wire.source_headers,
       fileName: wire.file_name,
       counts: wire.counts,

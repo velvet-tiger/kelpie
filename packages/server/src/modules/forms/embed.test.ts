@@ -36,6 +36,9 @@ function field(overrides: FieldOverrides = {}): FormFieldRecord {
     mapTo: overrides.mapTo ?? 'person.email',
     options: overrides.options ?? [],
     placeholder: overrides.placeholder ?? null,
+    statement: null,
+    consentPurposeIds: [],
+    consentPurposeLabels: {},
     sortOrder: 0,
     createdAt: stamp,
     updatedAt: stamp,
@@ -88,6 +91,7 @@ function render(
   return renderEmbedPage({
     form: form(overrides),
     fields,
+    consentPurposeLabels: new Map(),
     submitUrl,
     nonce: 'n0nce',
     workspaceName: 'Acme Ventures',
@@ -250,6 +254,7 @@ describe('renderEmbedPage', () => {
     const page = renderEmbedPage({
       form: form({ title: '<img src=x onerror=alert(1)>' }),
       fields: [field()],
+      consentPurposeLabels: new Map(),
       submitUrl,
       nonce: 'n0nce',
       workspaceName: '<b>Acme</b>',

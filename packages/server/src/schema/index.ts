@@ -9,6 +9,7 @@
 export * from '../modules/auth/schema.ts'
 export * from '../modules/workspace/schema.ts'
 export * from '../modules/api-keys/schema.ts'
+export * from '../modules/consent-purposes/schema.ts'
 export * from '../modules/people/schema.ts'
 export * from '../modules/companies/schema.ts'
 export * from '../modules/positions/schema.ts'

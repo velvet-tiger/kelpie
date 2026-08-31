@@ -218,6 +218,48 @@
       "when": 1788089808149,
       "tag": "0030_enquiries",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788128702292,
+      "tag": "0031_consent",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1788133056653,
+      "tag": "0032_form_field_statement",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788134204561,
+      "tag": "0033_form_field_consent_purpose_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1788134239537,
+      "tag": "0034_drop_form_field_consent_purpose_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1788146179776,
+      "tag": "0035_form_field_consent_purpose_labels",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788146891073,
+      "tag": "0036_form_field_notice_type",
+      "breakpoints": true
     }
   ]
 }

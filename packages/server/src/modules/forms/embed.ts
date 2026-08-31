@@ -79,8 +79,55 @@ function renderControl(field: FormFieldRecord): string {
   return `<input ${shared} type="${field.type === 'email' ? 'email' : 'text'}">`
 }
 
-function renderField(field: FormFieldRecord): string {
+function renderField(
+  field: FormFieldRecord,
+  consentPurposeLabels: ReadonlyMap<string, string>,
+): string {
   const required = field.required ? '<span class="req" aria-hidden="true">*</span>' : ''
+
+  if (field.type === 'notice') {
+    // Text-only: prose the visitor reads before submitting. Submission is the
+    // consent (see readConsentGrants), so no input is rendered. `label` is
+    // the heading; `statement` is the prose.
+    const statement = field.statement ?? ''
+    return [
+      '<div class="field notice">',
+      `<div class="field-label">${escapeHtml(field.label)}</div>`,
+      `<p class="notice-body">${escapeHtml(statement)}</p>`,
+      '</div>',
+    ].join('')
+  }
+
+  if (field.type === 'consent') {
+    // Layout: the field label above (heading, e.g. "Consent"), the intro
+    // statement, then one checkbox per configured purpose. The submit reads
+    // the ticked checkboxes' values (purpose ids) from EMBED_SCRIPT and
+    // sends them as a comma-separated string under the field id.
+    const statement = field.statement ?? field.label
+    const rows = field.consentPurposeIds
+      .map((purposeId, index) => {
+        const boxId = `${field.id}__${String(index)}`
+        // Field-level override wins over the workspace's default label. Falls
+        // back to the workspace label, then the raw id — the id only shows up
+        // when a purpose has been deleted and its label was never overridden.
+        const override = field.consentPurposeLabels[purposeId]
+        const label = override ?? consentPurposeLabels.get(purposeId) ?? purposeId
+        return [
+          '<div class="consent-row">',
+          `<input type="checkbox" id="${escapeHtml(boxId)}" data-consent-field="${escapeHtml(field.id)}" value="${escapeHtml(purposeId)}">`,
+          `<label for="${escapeHtml(boxId)}">${escapeHtml(label)}</label>`,
+          '</div>',
+        ].join('')
+      })
+      .join('')
+    return [
+      '<div class="field consent">',
+      `<div class="field-label">${escapeHtml(field.label)}${required}</div>`,
+      `<p class="consent-statement">${escapeHtml(statement)}</p>`,
+      rows,
+      '</div>',
+    ].join('')
+  }
 
   return [
     '<div class="field">',
@@ -192,6 +239,52 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 textarea { resize: vertical; min-height: 6.5rem; }
+/* Consent field: label above (heading), a statement, then a checkbox per purpose. */
+.field.consent { gap: 0.35rem; }
+.field.consent .field-label {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--ink);
+}
+.field.consent .consent-statement {
+  margin: 0 0 0.35rem;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.field.consent .consent-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+}
+.field.consent input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.2rem;
+  padding: 0;
+  background: var(--surface);
+}
+.field.consent .consent-row label {
+  font-weight: 400;
+  color: var(--ink);
+}
+.field.notice { gap: 0.35rem; }
+.field.notice .field-label {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--ink);
+}
+.field.notice .notice-body {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 12px;
+  color: var(--ink-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-line;
+}
 button[type="submit"] {
   width: 100%;
   padding: 0.625rem 0.875rem;
@@ -261,6 +354,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline-offset: 1px;
 }
 textarea { resize: vertical; min-height: 6rem; }
+.field.consent { gap: 5px; }
+.field.consent .field-label { font-weight: 600; font-size: 0.875rem; color: CanvasText; }
+.field.consent .consent-statement { margin: 0 0 5px; font-size: 0.8125rem; color: #5c6570; }
+.field.consent .consent-row { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 8px; padding: 2px 0; }
+.field.consent input[type="checkbox"] { width: 1rem; height: 1rem; margin-top: 3px; padding: 0; background: Field; }
+.field.consent .consent-row label { font-weight: 400; }
+.field.notice { gap: 5px; }
+.field.notice .field-label { font-weight: 600; font-size: 0.875rem; color: CanvasText; }
+.field.notice .notice-body { margin: 0; padding: 9px 10px; font-size: 0.8125rem; color: CanvasText; background: Field; border: 1px solid #b9bfc9; border-radius: 6px; white-space: pre-line; }
 button[type="submit"] {
   width: 100%;
   padding: 10px 16px;
@@ -307,8 +409,28 @@ const EMBED_SCRIPT = `
     button.disabled = true;
 
     var answers = {};
+    // Consent fields render a checkbox per purpose, each tagged with
+    // data-consent-field=<field_id> and value=<purpose_id>. Collect the
+    // ticked ones into a comma-separated list under the field id — the
+    // server parses that back into a set of ticked purpose ids.
+    var consentBoxes = form.querySelectorAll('input[type="checkbox"][data-consent-field]');
+    var consentByField = {};
+    for (var i = 0; i < consentBoxes.length; i += 1) {
+      var box = consentBoxes[i];
+      var fieldId = box.getAttribute('data-consent-field');
+      if (!consentByField[fieldId]) { consentByField[fieldId] = []; }
+      if (box.checked) { consentByField[fieldId].push(box.value); }
+    }
+    for (var fieldId in consentByField) {
+      if (consentByField[fieldId].length > 0) {
+        answers[fieldId] = consentByField[fieldId].join(',');
+      }
+    }
     config.fieldIds.forEach(function (id) {
-      var value = form.elements[id].value.trim();
+      if (consentByField[id] !== undefined) { return; }
+      var element = form.elements[id];
+      if (!element) { return; }
+      var value = element.value.trim();
       if (value) { answers[id] = value; }
     });
 
@@ -342,6 +464,8 @@ export type EmbedLayout = 'page' | 'embed'
 export interface EmbedPageOptions {
   readonly form: FormRecord
   readonly fields: readonly FormFieldRecord[]
+  /** Labels for the consent purposes the fields refer to, keyed by purpose id. */
+  readonly consentPurposeLabels: ReadonlyMap<string, string>
   /** Absolute URL of the public submit endpoint this page posts to. */
   readonly submitUrl: string
   /** Per-response value tying the inline style and script to the CSP header. */
@@ -368,6 +492,7 @@ function displayTitle(form: FormRecord): string {
 function renderFormBody(
   form: FormRecord,
   fields: readonly FormFieldRecord[],
+  consentPurposeLabels: ReadonlyMap<string, string>,
   config: string,
   nonce: string,
 ): string {
@@ -377,7 +502,7 @@ function renderFormBody(
 
   return [
     '<form id="kelpie-form" novalidate>',
-    fields.map(renderField).join(''),
+    fields.map((field) => renderField(field, consentPurposeLabels)).join(''),
     '<div><button id="kelpie-submit" type="submit">Submit</button></div>',
     '<p id="kelpie-status" class="note" role="status" aria-live="polite"></p>',
     '</form>',
@@ -394,7 +519,7 @@ function renderFormBody(
  * form whose submit answers 409.
  */
 export function renderEmbedPage(options: EmbedPageOptions): string {
-  const { form, fields, submitUrl, nonce, workspaceName, layout } = options
+  const { form, fields, consentPurposeLabels, submitUrl, nonce, workspaceName, layout } = options
   const heading = displayTitle(form)
   const config = escapeScriptJson({
     formId: form.id,
@@ -402,7 +527,7 @@ export function renderEmbedPage(options: EmbedPageOptions): string {
     thankYou: form.thankYouMessage,
     fieldIds: fields.map((field) => field.id),
   })
-  const formBody = renderFormBody(form, fields, config, nonce)
+  const formBody = renderFormBody(form, fields, consentPurposeLabels, config, nonce)
 
   const styles = layout === 'page' ? HOSTED_STYLES : IFRAME_STYLES
   const shell =

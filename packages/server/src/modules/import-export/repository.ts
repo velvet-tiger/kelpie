@@ -3,8 +3,9 @@ import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { users } from '../auth/schema.ts'
 import { companies } from '../companies/schema.ts'
+import { consentPurposes } from '../consent-purposes/schema.ts'
 import { deals } from '../deals/schema.ts'
-import { people, personLinks } from '../people/schema.ts'
+import { people, personConsents, personLinks } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { positions } from '../positions/schema.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
@@ -500,14 +501,20 @@ export interface ExportPersonRow {
   readonly summary: string
   readonly tags: readonly string[]
   readonly phones: readonly string[]
+  readonly doNotContact: boolean
+  /**
+   * `<purpose_slug>:<status>` pairs joined with '; ', in purpose sort order.
+   * Purposes at their default (no explicit `person_consents` row) are omitted.
+   */
+  readonly consents: string
 }
 
-export function readPeople(
+export async function readPeople(
   db: Queryable,
   workspaceId: string,
   after: string,
 ): Promise<ExportPersonRow[]> {
-  return db
+  const rows = await db
     .select({
       id: people.id,
       name: people.name,
@@ -524,11 +531,54 @@ export function readPeople(
       summary: people.summary,
       tags: people.tags,
       phones: people.phones,
+      doNotContact: people.doNotContact,
     })
     .from(people)
     .where(and(eq(people.workspaceId, workspaceId), gt(people.id, after)))
     .orderBy(asc(people.id))
     .limit(EXPORT_PAGE)
+
+  if (rows.length === 0) return []
+  const consentsByPerson = await readConsentsForExport(
+    db,
+    workspaceId,
+    rows.map((row) => row.id),
+  )
+  return rows.map((row) => ({
+    ...row,
+    consents: consentsByPerson.get(row.id) ?? '',
+  }))
+}
+
+async function readConsentsForExport(
+  db: Queryable,
+  workspaceId: string,
+  personIds: readonly string[],
+): Promise<ReadonlyMap<string, string>> {
+  const rows = await db
+    .select({
+      personId: personConsents.personId,
+      slug: consentPurposes.slug,
+      status: personConsents.status,
+      sortOrder: consentPurposes.sortOrder,
+    })
+    .from(personConsents)
+    .innerJoin(consentPurposes, eq(consentPurposes.id, personConsents.purposeId))
+    .where(
+      and(
+        eq(personConsents.workspaceId, workspaceId),
+        inArray(personConsents.personId, [...personIds]),
+      ),
+    )
+    .orderBy(asc(consentPurposes.sortOrder), asc(consentPurposes.slug))
+
+  const out = new Map<string, string[]>()
+  for (const row of rows) {
+    const list = out.get(row.personId) ?? []
+    list.push(`${row.slug}:${row.status}`)
+    out.set(row.personId, list)
+  }
+  return new Map(Array.from(out, ([personId, list]) => [personId, list.join('; ')]))
 }
 
 export interface ExportPositionRow {
