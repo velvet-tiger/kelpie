@@ -165,3 +165,9 @@ export { resolveActor, resolveActorFrom } from './modules/auth/credentials.ts'
 export type { CredentialDependencies } from './modules/auth/credentials.ts'
 export { MEMBER_ROLES, INVITABLE_ROLES, parseMemberRole, roleAllows } from './modules/workspace/roles.ts'
 export type { InvitableRole, MemberRole } from './modules/workspace/roles.ts'
+
+export { removeListMemberByTarget } from './modules/lists/index.ts'
+export type {
+  RemoveListMemberByTargetDependencies,
+  RemoveListMemberByTargetInput,
+} from './modules/lists/index.ts'

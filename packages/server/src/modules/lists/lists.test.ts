@@ -9,6 +9,7 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
+import { removeListMemberByTarget } from './index.ts'
 
 /** `/v1/lists` against real Postgres. A list holds records of one type only. */
 
@@ -341,6 +342,50 @@ describe.skipIf(connectionString === undefined)('lists', () => {
         ).json(),
       )
       expect(members).toEqual([])
+    })
+  })
+
+  describe('removeListMemberByTarget (helper for integration modules)', () => {
+    it('removes the target from the list and returns true', async () => {
+      const listId = await createListWith({ name: 'People', target_type: 'person' })
+      await addMember(listId, { target_type: 'person', target_id: personId })
+
+      const removed = await removeListMemberByTarget(
+        { db: harness.services.db, transaction: harness.services.transaction },
+        {
+          workspaceId: acme.workspaceId,
+          listId,
+          targetType: 'person',
+          targetId: personId,
+          actor: { kind: 'system' },
+        },
+      )
+
+      expect(removed).toBe(true)
+
+      const members = readList(
+        await (
+          await client.send('GET', `/v1/lists/${listId}/members`, { cookie: acme.cookie })
+        ).json(),
+      )
+      expect(members).toEqual([])
+    })
+
+    it('returns false when the target was not on the list', async () => {
+      const listId = await createListWith({ name: 'People', target_type: 'person' })
+
+      const removed = await removeListMemberByTarget(
+        { db: harness.services.db, transaction: harness.services.transaction },
+        {
+          workspaceId: acme.workspaceId,
+          listId,
+          targetType: 'person',
+          targetId: personId,
+          actor: { kind: 'system' },
+        },
+      )
+
+      expect(removed).toBe(false)
     })
   })
 })

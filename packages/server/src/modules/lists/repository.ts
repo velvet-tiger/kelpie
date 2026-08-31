@@ -270,6 +270,40 @@ export async function deleteListMember(
   return deleted.length
 }
 
+/**
+ * Removes the membership that points at a given target, if one is on the list.
+ *
+ * The addressed-by-target counterpart to `deleteListMember`, which addresses a
+ * row by its own id. An inbound integration webhook (Resend unsubscribe, for
+ * example) knows the person, not the list_member row that ties them to a list,
+ * and reading the row just to delete it is a round trip that adds nothing.
+ *
+ * @returns The removed row's id, or undefined if no member of that list points
+ *   at that target — the same shape a caller wanting to decide whether to emit
+ *   `lists.member.removed` needs.
+ */
+export async function deleteListMemberByTarget(
+  db: Queryable,
+  workspaceId: string,
+  listId: string,
+  targetType: string,
+  targetId: string,
+): Promise<{ id: string } | undefined> {
+  const [deleted] = await db
+    .delete(listMembers)
+    .where(
+      and(
+        eq(listMembers.workspaceId, workspaceId),
+        eq(listMembers.listId, listId),
+        eq(listMembers.targetType, targetType),
+        eq(listMembers.targetId, targetId),
+      ),
+    )
+    .returning({ id: listMembers.id })
+
+  return deleted
+}
+
 /** A membership row enriched with the list it points at. */
 export interface MembershipWithList {
   readonly id: string
