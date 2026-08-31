@@ -1,6 +1,6 @@
 {
   "name": "@kelpie/app",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -17,8 +17,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.12",
-    "@kelpie/server": "^0.9.0",
-    "@kelpie/ui": "^0.9.0",
+    "@kelpie/server": "^0.10.0",
+    "@kelpie/ui": "^0.10.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
