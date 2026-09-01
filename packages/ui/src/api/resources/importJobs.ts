@@ -1,5 +1,6 @@
 import { importJobSchema, isImportJobSettled } from '@kelpie/schemas'
 import type {
+  ExportObject,
   ImportColumnMap,
   ImportConflictMode,
   ImportJob,
@@ -205,7 +206,7 @@ export interface CsvDownload {
  * a failure is an `ApiError` the page can show beside the button.
  */
 export function useExportCsv(): MutationResult<
-  { object: ImportObject; template: boolean },
+  { object: ExportObject; template: boolean },
   CsvDownload
 > {
   const client = useApiClient()
@@ -216,7 +217,7 @@ export function useExportCsv(): MutationResult<
         object,
         template,
       }: {
-        object: ImportObject
+        object: ExportObject
         template: boolean
       }): Promise<CsvDownload> => {
         const path = template ? `/export/templates/${object}.csv` : `/export/${object}.csv`

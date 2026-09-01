@@ -2,6 +2,8 @@ import {
   ACCOUNT_TYPES,
   COMPANY_STAGES,
   CONSENT_STATUSES,
+  CUSTOM_FIELD_OBJECT_TYPES,
+  CUSTOM_FIELD_TYPES,
   ICP_FITS,
   INFLUENCE_LEVELS,
   PREFERRED_CHANNELS,
@@ -12,6 +14,8 @@ import {
 import type { ImportObject, MatchKeyOption } from '@kelpie/schemas'
 
 import { isoDateSchema } from '../../lib/dates.ts'
+import type { CustomFieldDefinitionRecord } from '../custom-fields/repository.ts'
+import { parseCustomFieldWireValue } from './customFieldImport.ts'
 import type { StoredRowError } from './schema.ts'
 import { moneyToCents } from './mapping.ts'
 
@@ -143,6 +147,10 @@ function checkDeal(errors: StoredRowError[], mapped: Readonly<Record<string, str
     errors.push({ field: 'value', message: `"${mapped.value ?? ''}" is not a number` })
   }
 
+  checkPipelineCommon(errors, mapped)
+}
+
+function checkPipelineCommon(errors: StoredRowError[], mapped: Readonly<Record<string, string>>): void {
   const close = (mapped.expected_close ?? '').trim()
 
   if (close.length > 0 && !isoDateSchema.safeParse(close).success) {
@@ -156,11 +164,112 @@ function checkDeal(errors: StoredRowError[], mapped: Readonly<Record<string, str
   }
 }
 
+function checkOpportunity(errors: StoredRowError[], mapped: Readonly<Record<string, string>>): void {
+  checkPipelineCommon(errors, mapped)
+}
+
+function checkEnquiry(errors: StoredRowError[], mapped: Readonly<Record<string, string>>): void {
+  checkPipelineCommon(errors, mapped)
+}
+
+function checkPartnership(errors: StoredRowError[], mapped: Readonly<Record<string, string>>): void {
+  const touchpoint = (mapped.next_touchpoint ?? '').trim()
+
+  if (touchpoint.length > 0 && !isoDateSchema.safeParse(touchpoint).success) {
+    errors.push({
+      field: 'next_touchpoint',
+      message: `"${touchpoint}" is not a date. Use YYYY-MM-DD`,
+    })
+  }
+
+  checkPipelineCommon(errors, mapped)
+}
+
+function checkRaise(errors: StoredRowError[], mapped: Readonly<Record<string, string>>): void {
+  const checkSize = (mapped.check_size ?? '').trim()
+
+  if (checkSize.length > 0 && moneyToCents(mapped.check_size) === undefined) {
+    errors.push({ field: 'check_size', message: `"${checkSize}" is not a number` })
+  }
+
+  const currency = (mapped.currency ?? '').trim()
+
+  if (currency.length > 0 && !/^[A-Z]{3}$/u.test(currency)) {
+    errors.push({ field: 'currency', message: `"${currency}" is not a 3-letter currency code` })
+  }
+
+  checkPipelineCommon(errors, mapped)
+}
+
+function checkCustomFieldDefinition(
+  errors: StoredRowError[],
+  mapped: Readonly<Record<string, string>>,
+): void {
+  const objectType = (mapped.object_type ?? '').trim()
+
+  if (
+    objectType.length > 0 &&
+    !CUSTOM_FIELD_OBJECT_TYPES.includes(objectType as (typeof CUSTOM_FIELD_OBJECT_TYPES)[number])
+  ) {
+    errors.push({
+      field: 'object_type',
+      message: `Unknown object type "${objectType}". Use one of: ${CUSTOM_FIELD_OBJECT_TYPES.join(', ')}`,
+    })
+  }
+
+  const type = (mapped.type ?? '').trim()
+
+  if (type.length > 0 && !CUSTOM_FIELD_TYPES.includes(type as (typeof CUSTOM_FIELD_TYPES)[number])) {
+    errors.push({
+      field: 'type',
+      message: `Unknown type "${type}". Use one of: ${CUSTOM_FIELD_TYPES.join(', ')}`,
+    })
+  }
+
+  const sortOrder = (mapped.sort_order ?? '').trim()
+
+  if (sortOrder.length > 0 && !/^\d+$/u.test(sortOrder)) {
+    errors.push({ field: 'sort_order', message: `"${sortOrder}" is not a whole number` })
+  }
+}
+
+function checkCustomFieldCells(
+  errors: StoredRowError[],
+  mapped: Readonly<Record<string, string>>,
+  baseKeys: ReadonlySet<string>,
+  definitions: readonly CustomFieldDefinitionRecord[],
+): void {
+  const byKey = new Map(definitions.map((definition) => [definition.key, definition]))
+
+  for (const [key, value] of Object.entries(mapped)) {
+    if (baseKeys.has(key) || value.trim().length === 0) {
+      continue
+    }
+
+    const definition = byKey.get(key)
+
+    if (definition === undefined) {
+      errors.push({ field: key, message: `No custom field definition called "${key}"` })
+      continue
+    }
+
+    const parsed = parseCustomFieldWireValue(definition, value)
+
+    if (parsed === undefined) {
+      errors.push({ field: key, message: `"${value}" is not a valid value for ${definition.label}` })
+    }
+  }
+}
+
 /** @returns Every shape problem with the row, or an empty array when it is usable. */
 export function validateRow(
   object: ImportObject,
   matchKey: MatchKeyOption,
   mapped: Readonly<Record<string, string>>,
+  options: {
+    readonly baseColumnKeys: ReadonlySet<string>
+    readonly customFieldDefinitions: readonly CustomFieldDefinitionRecord[]
+  } = { baseColumnKeys: new Set(), customFieldDefinitions: [] },
 ): readonly StoredRowError[] {
   const errors: StoredRowError[] = []
 
@@ -185,6 +294,25 @@ export function validateRow(
     case 'deals':
       checkDeal(errors, mapped)
       break
+    case 'opportunities':
+      checkOpportunity(errors, mapped)
+      break
+    case 'enquiries':
+      checkEnquiry(errors, mapped)
+      break
+    case 'partnerships':
+      checkPartnership(errors, mapped)
+      break
+    case 'raises':
+      checkRaise(errors, mapped)
+      break
+    case 'custom_fields':
+      checkCustomFieldDefinition(errors, mapped)
+      break
+  }
+
+  if (options.customFieldDefinitions.length > 0) {
+    checkCustomFieldCells(errors, mapped, options.baseColumnKeys, options.customFieldDefinitions)
   }
 
   return errors

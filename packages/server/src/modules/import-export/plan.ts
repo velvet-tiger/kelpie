@@ -5,11 +5,37 @@ import type {
   ImportObject,
   MatchKeyOption,
   OnMissingCompany,
+  PipelineKind,
 } from '@kelpie/schemas'
+import { pipelineKindForImport } from '@kelpie/schemas'
 
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
-import { affiliationCompanyDraft, companyDraft, dealFieldsDraft, personDraft } from './drafts.ts'
-import type { CompanyDraft, DealFieldsDraft, PersonDraft } from './drafts.ts'
+import type { CustomFieldDefinitionRecord } from '../custom-fields/repository.ts'
+import {
+  customFieldWireValues,
+  extractCustomFieldRaw,
+} from './customFieldImport.ts'
+import {
+  affiliationCompanyDraft,
+  companyDraft,
+  customFieldDefinitionDraft,
+  dealFieldsDraft,
+  enquiryFieldsDraft,
+  opportunityFieldsDraft,
+  partnershipFieldsDraft,
+  personDraft,
+  raiseFieldsDraft,
+} from './drafts.ts'
+import type {
+  CompanyDraft,
+  CustomFieldDefinitionDraft,
+  DealFieldsDraft,
+  EnquiryFieldsDraft,
+  OpportunityFieldsDraft,
+  PartnershipFieldsDraft,
+  PersonDraft,
+  RaiseFieldsDraft,
+} from './drafts.ts'
 import { buildMatchKey, splitList } from './mapping.ts'
 import { aliasedStageSlug } from './presets.ts'
 import type { StoredRowError } from './schema.ts'
@@ -35,8 +61,8 @@ export interface ImportLookups {
   readonly companyIdByName: ReadonlyMap<string, string>
   /** Workspace member id by the address of the user behind it. */
   readonly memberIdByEmail: ReadonlyMap<string, string>
-  /** Deal stage id, keyed by both its slug and its folded label. */
-  readonly dealStageIdByName: ReadonlyMap<string, string>
+  /** Pipeline stage id, keyed by both its slug and its folded label. */
+  readonly stageIdByName: ReadonlyMap<string, string>
 }
 
 export interface PlanContext {
@@ -48,6 +74,9 @@ export interface PlanContext {
   /** The consent purpose the job grants for each row's consent_status. Null when not set. */
   readonly consentPurposeId: string | null
   readonly lookups: ImportLookups
+  /** Workspace custom field definitions when the object carries custom field values. */
+  readonly customFieldDefinitions: readonly CustomFieldDefinitionRecord[]
+  readonly baseColumnKeys: ReadonlySet<string>
 }
 
 /**
@@ -90,16 +119,45 @@ export type ImportWrite =
       readonly stageId: string
       readonly ownerId: string | null
       readonly personIds: readonly string[]
-      /**
-       * Whether the row said anything about the deal's contacts.
-       *
-       * An empty `personIds` means two different things — the column was not
-       * mapped, or it was mapped and left blank — and only a filled-in cell is
-       * the file stating the list. Without this an update would clear the
-       * contacts of every deal in a file that never carried the column.
-       */
       readonly setsPeople: boolean
     }
+  | {
+      readonly object: 'opportunities'
+      readonly draft: OpportunityFieldsDraft
+      readonly companyId: string | null
+      readonly stageId: string
+      readonly ownerId: string | null
+      readonly personIds: readonly string[]
+      readonly setsPeople: boolean
+    }
+  | {
+      readonly object: 'enquiries'
+      readonly draft: EnquiryFieldsDraft
+      readonly companyId: string | null
+      readonly stageId: string
+      readonly ownerId: string | null
+      readonly personIds: readonly string[]
+      readonly setsPeople: boolean
+    }
+  | {
+      readonly object: 'partnerships'
+      readonly draft: PartnershipFieldsDraft
+      readonly companyId: string
+      readonly stageId: string
+      readonly ownerId: string | null
+      readonly personIds: readonly string[]
+      readonly setsPeople: boolean
+    }
+  | {
+      readonly object: 'raises'
+      readonly draft: RaiseFieldsDraft
+      readonly companyId: string
+      readonly stageId: string
+      readonly ownerId: string | null
+      readonly personIds: readonly string[]
+      readonly setsPeople: boolean
+    }
+  | { readonly object: 'custom_fields'; readonly draft: CustomFieldDefinitionDraft }
 
 export type RowPlan =
   | { readonly action: 'error'; readonly errors: readonly StoredRowError[] }
@@ -139,24 +197,131 @@ function error(...errors: readonly StoredRowError[]): RowPlan {
   return { action: 'error', errors }
 }
 
+function customFieldsForRow(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+): Readonly<Record<string, import('@kelpie/schemas').CustomFieldWireValue>> {
+  const raw = extractCustomFieldRaw(mapped, context.baseColumnKeys)
+
+  return customFieldWireValues(raw, context.customFieldDefinitions)
+}
+
+const PIPELINE_LABEL: Readonly<Record<PipelineKind, string>> = {
+  deal: 'deal',
+  opportunity: 'opportunity',
+  enquiry: 'enquiry',
+  partnership: 'partnership',
+  raise: 'fundraising',
+}
+
 /**
- * The stage a deal row names, as a stage of this workspace.
+ * The stage a pipeline row names, as a stage of this workspace.
  *
- * Its own slug first, then its label, then the vendor alias table. Slug before
- * label because a rename leaves the slug alone, which is the whole reason an
- * import addresses stages by slug (`pipeline_stages` in `schema.md`).
+ * Its own slug first, then its label, then the vendor alias table for deals.
  */
-function resolveStageId(lookups: ImportLookups, raw: string): string | undefined {
+function resolveStageId(context: PlanContext, raw: string): string | undefined {
   const folded = raw.trim().toLowerCase()
-  const direct = lookups.dealStageIdByName.get(folded)
+  const direct = context.lookups.stageIdByName.get(folded)
 
   if (direct !== undefined) {
     return direct
   }
 
-  const aliased = aliasedStageSlug(raw)
+  const kind = pipelineKindForImport(context.object)
 
-  return aliased === undefined ? undefined : lookups.dealStageIdByName.get(aliased)
+  if (kind === 'deal') {
+    const aliased = aliasedStageSlug(raw)
+
+    return aliased === undefined ? undefined : context.lookups.stageIdByName.get(aliased)
+  }
+
+  return undefined
+}
+
+function pipelineStageError(context: PlanContext, raw: string): StoredRowError {
+  const kind = pipelineKindForImport(context.object)
+  const label = kind === null ? 'pipeline' : PIPELINE_LABEL[kind]
+
+  return {
+    field: 'stage',
+    message: `"${raw.trim()}" is not a stage of this workspace's ${label} pipeline`,
+  }
+}
+
+interface ResolvedPeople {
+  readonly ownerId: string | null
+  readonly personIds: readonly string[]
+  readonly setsPeople: boolean
+  readonly problems: readonly StoredRowError[]
+}
+
+function resolveOwnerAndPeople(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+): ResolvedPeople {
+  const problems: StoredRowError[] = []
+  const ownerEmail = normaliseEmail(mapped.owner_email ?? '')
+  const ownerId = ownerEmail === null ? null : (context.lookups.memberIdByEmail.get(ownerEmail) ?? null)
+
+  if (ownerEmail !== null && ownerId === null) {
+    problems.push({
+      field: 'owner_email',
+      message: `Nobody in this workspace is ${ownerEmail}. Leave the column unmapped to import without owners`,
+    })
+  }
+
+  const personIds: string[] = []
+
+  for (const raw of splitList(mapped.person_emails)) {
+    const address = normaliseEmail(raw)
+    const personId = address === null ? undefined : context.lookups.personIdByEmail.get(address)
+
+    if (personId === undefined) {
+      problems.push({ field: 'person_emails', message: `No person here has the address ${raw}` })
+      continue
+    }
+
+    personIds.push(personId)
+  }
+
+  return {
+    ownerId,
+    personIds: [...new Set(personIds)],
+    setsPeople: (mapped.person_emails ?? '').trim().length > 0,
+    problems,
+  }
+}
+
+function resolveCompanyId(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+  required: boolean,
+): { readonly companyId: string | null; readonly problems: readonly StoredRowError[] } {
+  const problems: StoredRowError[] = []
+  const domainRaw = (mapped.company_domain ?? '').trim()
+
+  if (domainRaw.length === 0) {
+    if (required) {
+      problems.push({
+        field: 'company_domain',
+        message: 'No company here has that domain. Import companies first',
+      })
+    }
+
+    return { companyId: null, problems }
+  }
+
+  const domain = normaliseDomain(domainRaw)
+  const companyId = domain === null ? undefined : context.lookups.companyIdByDomain.get(domain)
+
+  if (companyId === undefined) {
+    problems.push({
+      field: 'company_domain',
+      message: 'No company here has that domain. Import companies first',
+    })
+  }
+
+  return { companyId: companyId ?? null, problems }
 }
 
 function planPosition(context: PlanContext, mapped: Readonly<Record<string, string>>): ImportWrite | RowPlan {
@@ -184,73 +349,147 @@ function planPosition(context: PlanContext, mapped: Readonly<Record<string, stri
   return { object: 'positions', personId, companyId, title: (mapped.title ?? '').trim() }
 }
 
-/**
- * A deal's company, stage, owner and contacts.
- *
- * A missing company fails the row rather than creating a stub, per
- * `import-export.md`. An `owner_email` that names nobody in the workspace also
- * fails it: the mockup silently resolves that to the importer, and quietly
- * moving another person's deals onto whoever ran the import is worse data than a
- * refused row. Unmapping the column is the way to import without owners.
- */
 function planDeal(context: PlanContext, mapped: Readonly<Record<string, string>>): ImportWrite | RowPlan {
-  const problems: StoredRowError[] = []
-  const domain = normaliseDomain(mapped.company_domain ?? '')
-  const companyId = domain === null ? undefined : context.lookups.companyIdByDomain.get(domain)
-
-  if (companyId === undefined) {
-    problems.push({
-      field: 'company_domain',
-      message: 'No company here has that domain. Import companies first',
-    })
-  }
-
-  const stageId = resolveStageId(context.lookups, mapped.stage ?? '')
+  const customFields = customFieldsForRow(context, mapped)
+  const { companyId, problems: companyProblems } = resolveCompanyId(context, mapped, true)
+  const stageId = resolveStageId(context, mapped.stage ?? '')
+  const people = resolveOwnerAndPeople(context, mapped)
+  const problems = [...companyProblems, ...people.problems]
 
   if (stageId === undefined) {
-    problems.push({
-      field: 'stage',
-      message: `"${(mapped.stage ?? '').trim()}" is not a stage of this workspace's deal pipeline`,
-    })
+    problems.push(pipelineStageError(context, mapped.stage ?? ''))
   }
 
-  const ownerEmail = normaliseEmail(mapped.owner_email ?? '')
-  const ownerId = ownerEmail === null ? null : (context.lookups.memberIdByEmail.get(ownerEmail) ?? null)
-
-  if (ownerEmail !== null && ownerId === null) {
-    problems.push({
-      field: 'owner_email',
-      message: `Nobody in this workspace is ${ownerEmail}. Leave the column unmapped to import without owners`,
-    })
-  }
-
-  const personIds: string[] = []
-
-  for (const raw of splitList(mapped.person_emails)) {
-    const address = normaliseEmail(raw)
-    const personId = address === null ? undefined : context.lookups.personIdByEmail.get(address)
-
-    if (personId === undefined) {
-      problems.push({ field: 'person_emails', message: `No person here has the address ${raw}` })
-      continue
-    }
-
-    personIds.push(personId)
-  }
-
-  if (problems.length > 0 || companyId === undefined || stageId === undefined) {
+  if (problems.length > 0 || companyId === null || stageId === undefined) {
     return error(...problems)
   }
 
   return {
     object: 'deals',
-    draft: dealFieldsDraft(mapped),
+    draft: dealFieldsDraft(mapped, customFields),
     companyId,
     stageId,
-    ownerId,
-    personIds: [...new Set(personIds)],
-    setsPeople: (mapped.person_emails ?? '').trim().length > 0,
+    ownerId: people.ownerId,
+    personIds: people.personIds,
+    setsPeople: people.setsPeople,
   }
+}
+
+function planOpportunity(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+): ImportWrite | RowPlan {
+  const customFields = customFieldsForRow(context, mapped)
+  const { companyId, problems: companyProblems } = resolveCompanyId(context, mapped, false)
+  const stageId = resolveStageId(context, mapped.stage ?? '')
+  const people = resolveOwnerAndPeople(context, mapped)
+  const problems = [...companyProblems, ...people.problems]
+
+  if (stageId === undefined) {
+    problems.push(pipelineStageError(context, mapped.stage ?? ''))
+  }
+
+  if (problems.length > 0 || stageId === undefined) {
+    return error(...problems)
+  }
+
+  return {
+    object: 'opportunities',
+    draft: opportunityFieldsDraft(mapped, customFields),
+    companyId,
+    stageId,
+    ownerId: people.ownerId,
+    personIds: people.personIds,
+    setsPeople: people.setsPeople,
+  }
+}
+
+function planEnquiry(context: PlanContext, mapped: Readonly<Record<string, string>>): ImportWrite | RowPlan {
+  const customFields = customFieldsForRow(context, mapped)
+  const { companyId, problems: companyProblems } = resolveCompanyId(context, mapped, false)
+  const stageId = resolveStageId(context, mapped.stage ?? '')
+  const people = resolveOwnerAndPeople(context, mapped)
+  const problems = [...companyProblems, ...people.problems]
+
+  if (stageId === undefined) {
+    problems.push(pipelineStageError(context, mapped.stage ?? ''))
+  }
+
+  if (problems.length > 0 || stageId === undefined) {
+    return error(...problems)
+  }
+
+  return {
+    object: 'enquiries',
+    draft: enquiryFieldsDraft(mapped, customFields),
+    companyId,
+    stageId,
+    ownerId: people.ownerId,
+    personIds: people.personIds,
+    setsPeople: people.setsPeople,
+  }
+}
+
+function planPartnership(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+): ImportWrite | RowPlan {
+  const customFields = customFieldsForRow(context, mapped)
+  const { companyId, problems: companyProblems } = resolveCompanyId(context, mapped, true)
+  const stageId = resolveStageId(context, mapped.stage ?? '')
+  const people = resolveOwnerAndPeople(context, mapped)
+  const problems = [...companyProblems, ...people.problems]
+
+  if (stageId === undefined) {
+    problems.push(pipelineStageError(context, mapped.stage ?? ''))
+  }
+
+  if (problems.length > 0 || companyId === null || stageId === undefined) {
+    return error(...problems)
+  }
+
+  return {
+    object: 'partnerships',
+    draft: partnershipFieldsDraft(mapped, customFields),
+    companyId,
+    stageId,
+    ownerId: people.ownerId,
+    personIds: people.personIds,
+    setsPeople: people.setsPeople,
+  }
+}
+
+function planRaise(context: PlanContext, mapped: Readonly<Record<string, string>>): ImportWrite | RowPlan {
+  const customFields = customFieldsForRow(context, mapped)
+  const { companyId, problems: companyProblems } = resolveCompanyId(context, mapped, true)
+  const stageId = resolveStageId(context, mapped.stage ?? '')
+  const people = resolveOwnerAndPeople(context, mapped)
+  const problems = [...companyProblems, ...people.problems]
+
+  if (stageId === undefined) {
+    problems.push(pipelineStageError(context, mapped.stage ?? ''))
+  }
+
+  if (problems.length > 0 || companyId === null || stageId === undefined) {
+    return error(...problems)
+  }
+
+  return {
+    object: 'raises',
+    draft: raiseFieldsDraft(mapped, customFields),
+    companyId,
+    stageId,
+    ownerId: people.ownerId,
+    personIds: people.personIds,
+    setsPeople: people.setsPeople,
+  }
+}
+
+function planCustomFieldDefinition(
+  _context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+): ImportWrite {
+  return { object: 'custom_fields', draft: customFieldDefinitionDraft(mapped) }
 }
 
 function isRowPlan(value: ImportWrite | RowPlan): value is RowPlan {
@@ -259,15 +498,17 @@ function isRowPlan(value: ImportWrite | RowPlan): value is RowPlan {
 
 /** Resolves every reference the row names into the write it would perform. */
 function resolveWrite(context: PlanContext, mapped: Readonly<Record<string, string>>): ImportWrite | RowPlan {
+  const customFields = customFieldsForRow(context, mapped)
+
   switch (context.object) {
     case 'companies':
-      return { object: 'companies', draft: companyDraft(mapped) }
+      return { object: 'companies', draft: companyDraft(mapped, customFields) }
     case 'people': {
       const write: {
         object: 'people'
         draft: PersonDraft
         consent?: ImportConsentGrant
-      } = { object: 'people', draft: personDraft(mapped) }
+      } = { object: 'people', draft: personDraft(mapped, customFields) }
       const consent = readConsentGrant(context, mapped)
       if (consent !== undefined) {
         write.consent = consent
@@ -278,6 +519,16 @@ function resolveWrite(context: PlanContext, mapped: Readonly<Record<string, stri
       return planPosition(context, mapped)
     case 'deals':
       return planDeal(context, mapped)
+    case 'opportunities':
+      return planOpportunity(context, mapped)
+    case 'enquiries':
+      return planEnquiry(context, mapped)
+    case 'partnerships':
+      return planPartnership(context, mapped)
+    case 'raises':
+      return planRaise(context, mapped)
+    case 'custom_fields':
+      return planCustomFieldDefinition(context, mapped)
   }
 }
 
@@ -383,7 +634,10 @@ function withAffiliation(
  *   otherwise the job's conflict mode decides between `skip` and `update`.
  */
 export function planRow(context: PlanContext, mapped: Readonly<Record<string, string>>): RowPlan {
-  const invalid = validateRow(context.object, context.matchKey, mapped)
+  const invalid = validateRow(context.object, context.matchKey, mapped, {
+    baseColumnKeys: context.baseColumnKeys,
+    customFieldDefinitions: context.customFieldDefinitions,
+  })
 
   if (invalid.length > 0) {
     return error(...invalid)

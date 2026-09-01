@@ -1,13 +1,20 @@
 import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm'
 
+import type { CustomFieldValue } from '@kelpie/schemas'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { users } from '../auth/schema.ts'
 import { companies } from '../companies/schema.ts'
 import { consentPurposes } from '../consent-purposes/schema.ts'
+import { customFieldDefinitions } from '../custom-fields/schema.ts'
+import type { CustomFieldDefinitionRecord } from '../custom-fields/repository.ts'
 import { deals } from '../deals/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
+import { opportunities } from '../opportunities/schema.ts'
+import { partnerships } from '../partnerships/schema.ts'
 import { people, personConsents, personLinks } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { positions } from '../positions/schema.ts'
+import { raises } from '../raises/schema.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
 import type { MatchKeyParts } from './mapping.ts'
 import { importJobRows, importJobs } from './schema.ts'
@@ -364,6 +371,150 @@ export function findDealKeysByCompany(
   )
 }
 
+export function findOpportunityKeysByName(
+  db: Queryable,
+  workspaceId: string,
+  names: readonly string[],
+): Promise<KeyedRecord[]> {
+  return overChunks(names, (chunk) =>
+    db
+      .select({ id: opportunities.id, name: opportunities.name })
+      .from(opportunities)
+      .where(
+        and(
+          eq(opportunities.workspaceId, workspaceId),
+          inArray(sql<string>`lower(${opportunities.name})`, [...chunk]),
+        ),
+      ),
+  ).then((rows) => rows.map((row) => ({ id: row.id, parts: { name: row.name } })))
+}
+
+export function findOpportunityKeysByCompany(
+  db: Queryable,
+  workspaceId: string,
+  domains: readonly string[],
+): Promise<KeyedRecord[]> {
+  return overChunks(domains, (chunk) =>
+    db
+      .select({ id: opportunities.id, name: opportunities.name, companyDomain: companies.domain })
+      .from(opportunities)
+      .leftJoin(companies, eq(companies.id, opportunities.companyId))
+      .where(and(eq(opportunities.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
+  ).then((rows) =>
+    rows.map((row) => ({
+      id: row.id,
+      parts: { name: row.name, company_domain: row.companyDomain },
+    })),
+  )
+}
+
+export function findEnquiryKeysByName(
+  db: Queryable,
+  workspaceId: string,
+  names: readonly string[],
+): Promise<KeyedRecord[]> {
+  return overChunks(names, (chunk) =>
+    db
+      .select({ id: enquiries.id, name: enquiries.name })
+      .from(enquiries)
+      .where(
+        and(
+          eq(enquiries.workspaceId, workspaceId),
+          inArray(sql<string>`lower(${enquiries.name})`, [...chunk]),
+        ),
+      ),
+  ).then((rows) => rows.map((row) => ({ id: row.id, parts: { name: row.name } })))
+}
+
+export function findEnquiryKeysByCompany(
+  db: Queryable,
+  workspaceId: string,
+  domains: readonly string[],
+): Promise<KeyedRecord[]> {
+  return overChunks(domains, (chunk) =>
+    db
+      .select({ id: enquiries.id, name: enquiries.name, companyDomain: companies.domain })
+      .from(enquiries)
+      .leftJoin(companies, eq(companies.id, enquiries.companyId))
+      .where(and(eq(enquiries.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
+  ).then((rows) =>
+    rows.map((row) => ({
+      id: row.id,
+      parts: { name: row.name, company_domain: row.companyDomain },
+    })),
+  )
+}
+
+export function findPartnershipKeysByCompany(
+  db: Queryable,
+  workspaceId: string,
+  domains: readonly string[],
+): Promise<KeyedRecord[]> {
+  return overChunks(domains, (chunk) =>
+    db
+      .select({ id: partnerships.id, name: partnerships.name, companyDomain: companies.domain })
+      .from(partnerships)
+      .innerJoin(companies, eq(companies.id, partnerships.companyId))
+      .where(and(eq(partnerships.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
+  ).then((rows) =>
+    rows.map((row) => ({
+      id: row.id,
+      parts: { name: row.name, company_domain: row.companyDomain },
+    })),
+  )
+}
+
+export function findRaiseKeysByCompany(
+  db: Queryable,
+  workspaceId: string,
+  domains: readonly string[],
+): Promise<KeyedRecord[]> {
+  return overChunks(domains, (chunk) =>
+    db
+      .select({ id: raises.id, name: raises.name, companyDomain: companies.domain })
+      .from(raises)
+      .innerJoin(companies, eq(companies.id, raises.companyId))
+      .where(and(eq(raises.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
+  ).then((rows) =>
+    rows.map((row) => ({
+      id: row.id,
+      parts: { name: row.name, company_domain: row.companyDomain },
+    })),
+  )
+}
+
+export function findCustomFieldDefinitionKeys(
+  db: Queryable,
+  workspaceId: string,
+  objectTypes: readonly string[],
+  keys: readonly string[],
+): Promise<KeyedRecord[]> {
+  if (objectTypes.length === 0 || keys.length === 0) {
+    return Promise.resolve([])
+  }
+
+  return db
+    .select({
+      id: customFieldDefinitions.id,
+      objectType: customFieldDefinitions.objectType,
+      key: customFieldDefinitions.key,
+    })
+    .from(customFieldDefinitions)
+    .where(
+      and(
+        eq(customFieldDefinitions.workspaceId, workspaceId),
+        inArray(customFieldDefinitions.objectType, [...objectTypes]),
+        inArray(customFieldDefinitions.key, [...keys]),
+      ),
+    )
+    .then((rows) =>
+      rows.map((row) => ({
+        id: row.id,
+        parts: { object_type: row.objectType, key: row.key },
+      })),
+    )
+}
+
 export function findPersonIdsByEmail(
   db: Queryable,
   workspaceId: string,
@@ -428,16 +579,25 @@ export function listMemberEmails(
     .where(eq(workspaceMembers.workspaceId, workspaceId))
 }
 
-/** The deal pipeline's stages, for resolving a stage name in a row. */
-export function listDealStages(
+/** A pipeline's stages, for resolving a stage name in a row. */
+export function listPipelineStages(
   db: Queryable,
   workspaceId: string,
+  kind: import('../pipelines/schema.ts').PipelineKind,
 ): Promise<{ id: string; slug: string; label: string }[]> {
   return db
     .select({ id: pipelineStages.id, slug: pipelineStages.slug, label: pipelineStages.label })
     .from(pipelineStages)
-    .where(and(eq(pipelineStages.workspaceId, workspaceId), eq(pipelineStages.kind, 'deal')))
+    .where(and(eq(pipelineStages.workspaceId, workspaceId), eq(pipelineStages.kind, kind)))
     .orderBy(asc(pipelineStages.sortOrder), asc(pipelineStages.id))
+}
+
+/** @deprecated Use `listPipelineStages` with kind `deal`. */
+export function listDealStages(
+  db: Queryable,
+  workspaceId: string,
+): Promise<{ id: string; slug: string; label: string }[]> {
+  return listPipelineStages(db, workspaceId, 'deal')
 }
 
 /* Export readers. Keyset by id, which is a ULID and therefore creation order. */
@@ -456,6 +616,7 @@ export interface ExportCompanyRow {
   readonly tags: readonly string[]
   readonly website: string | null
   readonly hq: string | null
+  readonly customFields: Readonly<Record<string, CustomFieldValue>>
 }
 
 export function readCompanies(
@@ -478,6 +639,7 @@ export function readCompanies(
       tags: companies.tags,
       website: companies.website,
       hq: companies.hq,
+      customFields: companies.customFields,
     })
     .from(companies)
     .where(and(eq(companies.workspaceId, workspaceId), gt(companies.id, after)))
@@ -507,6 +669,7 @@ export interface ExportPersonRow {
    * Purposes at their default (no explicit `person_consents` row) are omitted.
    */
   readonly consents: string
+  readonly customFields: Readonly<Record<string, CustomFieldValue>>
 }
 
 export async function readPeople(
@@ -532,6 +695,7 @@ export async function readPeople(
       tags: people.tags,
       phones: people.phones,
       doNotContact: people.doNotContact,
+      customFields: people.customFields,
     })
     .from(people)
     .where(and(eq(people.workspaceId, workspaceId), gt(people.id, after)))
@@ -622,6 +786,7 @@ export interface ExportDealRow {
   readonly summary: string
   readonly tags: readonly string[]
   readonly externalId: string | null
+  readonly customFields: Readonly<Record<string, CustomFieldValue>>
 }
 
 /**
@@ -648,6 +813,7 @@ export function readDeals(
       summary: deals.summary,
       tags: deals.tags,
       externalId: deals.externalId,
+      customFields: deals.customFields,
     })
     .from(deals)
     .innerJoin(companies, eq(companies.id, deals.companyId))
@@ -659,44 +825,220 @@ export function readDeals(
     .limit(EXPORT_PAGE)
 }
 
-/** The addresses of the people on each of a page of deals, in one query. */
-export async function readDealPersonEmails(
+/** The addresses of the people linked to each of a page of pipeline records. */
+export async function readLinkedPersonEmails(
   db: Queryable,
   workspaceId: string,
-  dealIds: readonly string[],
+  targetType: string,
+  targetIds: readonly string[],
 ): Promise<ReadonlyMap<string, readonly string[]>> {
-  if (dealIds.length === 0) {
+  if (targetIds.length === 0) {
     return new Map()
   }
 
   const rows = await db
-    .select({ dealId: personLinks.targetId, email: people.email })
+    .select({ targetId: personLinks.targetId, email: people.email })
     .from(personLinks)
     .innerJoin(people, eq(people.id, personLinks.personId))
     .where(
       and(
         eq(personLinks.workspaceId, workspaceId),
-        eq(personLinks.targetType, 'deal'),
-        inArray(personLinks.targetId, [...dealIds]),
+        eq(personLinks.targetType, targetType),
+        inArray(personLinks.targetId, [...targetIds]),
       ),
     )
     .orderBy(asc(people.email))
 
-  const byDeal = new Map<string, string[]>()
+  const byTarget = new Map<string, string[]>()
 
   for (const row of rows) {
     if (row.email === null) {
       continue
     }
 
-    const existing = byDeal.get(row.dealId)
+    const existing = byTarget.get(row.targetId)
 
     if (existing === undefined) {
-      byDeal.set(row.dealId, [row.email])
+      byTarget.set(row.targetId, [row.email])
     } else {
       existing.push(row.email)
     }
   }
 
-  return byDeal
+  return byTarget
+}
+
+/** @deprecated Use {@link readLinkedPersonEmails} with `targetType: 'deal'`. */
+export async function readDealPersonEmails(
+  db: Queryable,
+  workspaceId: string,
+  dealIds: readonly string[],
+): Promise<ReadonlyMap<string, readonly string[]>> {
+  return readLinkedPersonEmails(db, workspaceId, 'deal', dealIds)
+}
+
+interface PipelineExportRow {
+  readonly id: string
+  readonly name: string
+  readonly companyDomain: string | null
+  readonly stageSlug: string
+  readonly ownerEmail: string | null
+  readonly summary: string
+  readonly tags: readonly string[]
+  readonly customFields: Readonly<Record<string, CustomFieldValue>>
+}
+
+export interface ExportOpportunityRow extends PipelineExportRow {
+  readonly kind: string
+  readonly expectedClose: string | null
+}
+
+export function readOpportunities(
+  db: Queryable,
+  workspaceId: string,
+  after: string,
+): Promise<ExportOpportunityRow[]> {
+  return db
+    .select({
+      id: opportunities.id,
+      name: opportunities.name,
+      kind: opportunities.kind,
+      companyDomain: companies.domain,
+      stageSlug: pipelineStages.slug,
+      ownerEmail: users.email,
+      expectedClose: opportunities.expectedClose,
+      summary: opportunities.summary,
+      tags: opportunities.tags,
+      customFields: opportunities.customFields,
+    })
+    .from(opportunities)
+    .leftJoin(companies, eq(companies.id, opportunities.companyId))
+    .innerJoin(pipelineStages, eq(pipelineStages.id, opportunities.stageId))
+    .leftJoin(workspaceMembers, eq(workspaceMembers.id, opportunities.ownerId))
+    .leftJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(and(eq(opportunities.workspaceId, workspaceId), gt(opportunities.id, after)))
+    .orderBy(asc(opportunities.id))
+    .limit(EXPORT_PAGE)
+}
+
+export interface ExportEnquiryRow extends PipelineExportRow {
+  readonly source: string
+}
+
+export function readEnquiries(
+  db: Queryable,
+  workspaceId: string,
+  after: string,
+): Promise<ExportEnquiryRow[]> {
+  return db
+    .select({
+      id: enquiries.id,
+      name: enquiries.name,
+      source: enquiries.source,
+      companyDomain: companies.domain,
+      stageSlug: pipelineStages.slug,
+      ownerEmail: users.email,
+      summary: enquiries.summary,
+      tags: enquiries.tags,
+      customFields: enquiries.customFields,
+    })
+    .from(enquiries)
+    .leftJoin(companies, eq(companies.id, enquiries.companyId))
+    .innerJoin(pipelineStages, eq(pipelineStages.id, enquiries.stageId))
+    .leftJoin(workspaceMembers, eq(workspaceMembers.id, enquiries.ownerId))
+    .leftJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(and(eq(enquiries.workspaceId, workspaceId), gt(enquiries.id, after)))
+    .orderBy(asc(enquiries.id))
+    .limit(EXPORT_PAGE)
+}
+
+export interface ExportPartnershipRow extends PipelineExportRow {
+  readonly kind: string
+  readonly nextTouchpoint: string | null
+  readonly goals: string
+  readonly successLooksLike: string
+}
+
+export function readPartnerships(
+  db: Queryable,
+  workspaceId: string,
+  after: string,
+): Promise<ExportPartnershipRow[]> {
+  return db
+    .select({
+      id: partnerships.id,
+      name: partnerships.name,
+      companyDomain: companies.domain,
+      stageSlug: pipelineStages.slug,
+      kind: partnerships.kind,
+      nextTouchpoint: partnerships.nextTouchpoint,
+      ownerEmail: users.email,
+      goals: partnerships.goals,
+      successLooksLike: partnerships.successLooksLike,
+      summary: partnerships.summary,
+      tags: partnerships.tags,
+      customFields: partnerships.customFields,
+    })
+    .from(partnerships)
+    .innerJoin(companies, eq(companies.id, partnerships.companyId))
+    .innerJoin(pipelineStages, eq(pipelineStages.id, partnerships.stageId))
+    .leftJoin(workspaceMembers, eq(workspaceMembers.id, partnerships.ownerId))
+    .leftJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(and(eq(partnerships.workspaceId, workspaceId), gt(partnerships.id, after)))
+    .orderBy(asc(partnerships.id))
+    .limit(EXPORT_PAGE)
+}
+
+export interface ExportRaiseRow extends PipelineExportRow {
+  readonly checkSizeCents: number | null
+  readonly currency: string | null
+  readonly thesisFit: string
+  readonly passReason: string | null
+  readonly expectedClose: string | null
+}
+
+export function readRaises(
+  db: Queryable,
+  workspaceId: string,
+  after: string,
+): Promise<ExportRaiseRow[]> {
+  return db
+    .select({
+      id: raises.id,
+      name: raises.name,
+      companyDomain: companies.domain,
+      stageSlug: pipelineStages.slug,
+      checkSizeCents: raises.checkSizeCents,
+      currency: raises.currency,
+      thesisFit: raises.thesisFit,
+      passReason: raises.passReason,
+      ownerEmail: users.email,
+      expectedClose: raises.expectedClose,
+      summary: raises.summary,
+      tags: raises.tags,
+      customFields: raises.customFields,
+    })
+    .from(raises)
+    .innerJoin(companies, eq(companies.id, raises.companyId))
+    .innerJoin(pipelineStages, eq(pipelineStages.id, raises.stageId))
+    .leftJoin(workspaceMembers, eq(workspaceMembers.id, raises.ownerId))
+    .leftJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(and(eq(raises.workspaceId, workspaceId), gt(raises.id, after)))
+    .orderBy(asc(raises.id))
+    .limit(EXPORT_PAGE)
+}
+
+export function readCustomFieldDefinitions(
+  db: Queryable,
+  workspaceId: string,
+  after: string,
+): Promise<CustomFieldDefinitionRecord[]> {
+  return db
+    .select()
+    .from(customFieldDefinitions)
+    .where(
+      and(eq(customFieldDefinitions.workspaceId, workspaceId), gt(customFieldDefinitions.id, after)),
+    )
+    .orderBy(asc(customFieldDefinitions.id))
+    .limit(EXPORT_PAGE)
 }

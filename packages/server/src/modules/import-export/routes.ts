@@ -1,4 +1,5 @@
 import {
+  EXPORT_OBJECTS,
   IMPORT_CONFLICT_MODES,
   IMPORT_OBJECTS,
   IMPORT_SOURCES,
@@ -6,7 +7,7 @@ import {
   ON_MISSING_COMPANY,
   defaultMatchKeyId,
 } from '@kelpie/schemas'
-import type { ImportColumnMap, ImportObject } from '@kelpie/schemas'
+import type { ExportObject, ImportColumnMap } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { stream } from 'hono/streaming'
 import { z } from 'zod'
@@ -29,7 +30,7 @@ import type { ImportExportService, ImportJobView } from './service.ts'
 /** The file name a download is offered under. */
 const DOWNLOAD_PREFIX = 'kelpie'
 
-const objectFile = z.enum(IMPORT_OBJECTS.map((object) => `${object}.csv`) as [string, ...string[]])
+const objectFile = z.enum(EXPORT_OBJECTS.map((object) => `${object}.csv`) as [string, ...string[]])
 
 /**
  * `column_map` arrives as a JSON string inside the form, since a multipart field
@@ -78,16 +79,16 @@ export function importJobResponse(job: ImportJobView): Record<string, unknown> {
 }
 
 /** `people.csv` → `people`. The route's own param, so an unknown one is a 404. */
-function readObjectFile(context: Context): ImportObject {
+function readObjectFile(context: Context): ExportObject {
   const parsed = objectFile.safeParse(context.req.param('file'))
 
   if (!parsed.success) {
     throw AppError.notFound(
-      `Export ${IMPORT_OBJECTS.map((object) => `${object}.csv`).join(', ')}`,
+      `Export ${EXPORT_OBJECTS.map((object) => `${object}.csv`).join(', ')}`,
     )
   }
 
-  return parsed.data.replace(/\.csv$/u, '') as ImportObject
+  return parsed.data.replace(/\.csv$/u, '') as ExportObject
 }
 
 function csvHeaders(fileName: string): Record<string, string> {
@@ -198,11 +199,10 @@ export function mountImportExportRoutes(
 
   router.get('/export/templates/:file', async (context) => {
     const object = readObjectFile(context)
-
-    await requireActor(context)
+    const actor = await requireActor(context)
 
     return context.body(
-      dependencies.service.templateCsv(object),
+      await dependencies.service.templateCsv(actor, object),
       200,
       csvHeaders(`${DOWNLOAD_PREFIX}-${object}-template.csv`),
     )

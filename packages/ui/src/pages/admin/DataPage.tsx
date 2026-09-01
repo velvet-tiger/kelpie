@@ -1,5 +1,7 @@
 import {
   CONFLICT_MODE_LABELS,
+  EXPORT_OBJECT_LABELS,
+  EXPORT_OBJECTS,
   IMPORT_OBJECTS,
   IMPORT_SOURCES,
   MATCH_KEYS,
@@ -13,6 +15,7 @@ import {
   requiredColumns,
 } from '@kelpie/schemas'
 import type {
+  ExportObject,
   ImportColumnMap,
   ImportConflictMode,
   ImportJob,
@@ -65,7 +68,7 @@ const STEPS: readonly { readonly id: WizardStep; readonly label: string }[] = [
 ]
 
 export function DataPage(): ReactNode {
-  const [exportObject, setExportObject] = useState<ImportObject>('companies')
+  const [exportObject, setExportObject] = useState<ExportObject>('companies')
 
   const [step, setStep] = useState<WizardStep>('source')
   const [source, setSource] = useState<ImportSource>('custom')
@@ -133,7 +136,7 @@ export function DataPage(): ReactNode {
     setProblem(null)
   }
 
-  async function onDownload(target: ImportObject, template: boolean): Promise<void> {
+  async function onDownload(target: ExportObject, template: boolean): Promise<void> {
     setProblem(null)
     saveCsv(await exportCsv.runAsync({ object: target, template }))
   }
@@ -255,7 +258,7 @@ export function DataPage(): ReactNode {
     <div className="animate-slide-in space-y-10">
       <PageHeader
         title="Import & export"
-        description="CSV for People, Companies, Positions, and Deals. Custom files or HubSpot / Salesforce packs."
+        description="CSV for People, Companies, Positions, Deals, and other CRM objects. Custom field values export with each record; definitions export separately."
       />
 
       {failure === null ? null : (
@@ -272,20 +275,20 @@ export function DataPage(): ReactNode {
         <div>
           <h2 className="text-[15px] font-semibold text-ink">Export</h2>
           <p className="mt-1 text-[13px] text-ink-muted">
-            Download this workspace as CSV. A Kelpie export reads straight back in with no column
-            mapping.
+            Download this workspace as CSV. Importable objects round-trip through the wizard; other
+            objects and custom field definitions export for backup and analysis.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Object">
             <select
               value={exportObject}
-              onChange={(event) => setExportObject(event.target.value as ImportObject)}
+              onChange={(event) => setExportObject(event.target.value as ExportObject)}
               className="w-48 rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent"
             >
-              {IMPORT_OBJECTS.map((item) => (
+              {EXPORT_OBJECTS.map((item) => (
                 <option key={item} value={item}>
-                  {OBJECT_LABELS[item]}
+                  {EXPORT_OBJECT_LABELS[item]}
                 </option>
               ))}
             </select>
@@ -377,7 +380,9 @@ export function DataPage(): ReactNode {
               </button>
             </div>
             <p className="text-[12px] text-ink-muted">
-              Import order for linked data: Companies → People → Positions → Deals.
+              Import order for linked data: Companies → People → Positions → pipeline records (Deals,
+              Opportunities, Enquiries, Partnerships, Fundraising). Custom field definitions can be
+              imported before the records that use them.
             </p>
             <button
               type="submit"

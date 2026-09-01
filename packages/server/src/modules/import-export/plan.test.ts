@@ -1,4 +1,4 @@
-import { findMatchKey } from '@kelpie/schemas'
+import { OBJECT_COLUMNS, findMatchKey } from '@kelpie/schemas'
 import type {
   ImportConflictMode,
   ImportObject,
@@ -7,6 +7,7 @@ import type {
 } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
+import { baseColumnKeySet } from './customFieldImport.ts'
 import { countPlans, planRow, planRows } from './plan.ts'
 import type { ImportLookups, MappedRow, PlanContext } from './plan.ts'
 
@@ -25,7 +26,7 @@ const NO_LOOKUPS: ImportLookups = {
   companyIdByDomain: new Map(),
   companyIdByName: new Map(),
   memberIdByEmail: new Map(),
-  dealStageIdByName: new Map(),
+  stageIdByName: new Map(),
 }
 
 function keyFor(object: ImportObject, id: string): MatchKeyOption {
@@ -54,11 +55,23 @@ function contextFor(
     onMissingCompany: options.onMissingCompany ?? 'skip',
     consentPurposeId: null,
     lookups: { ...NO_LOOKUPS, ...options.lookups },
+    customFieldDefinitions: [],
+    baseColumnKeys: baseColumnKeySet(OBJECT_COLUMNS[object]),
   }
 }
 
 function defaultKey(object: ImportObject): string {
-  return { companies: 'domain', people: 'email', positions: 'person_email|company_domain|title', deals: 'external_id' }[object]
+  return {
+    companies: 'domain',
+    people: 'email',
+    positions: 'person_email|company_domain|title',
+    deals: 'external_id',
+    opportunities: 'name|company_domain',
+    enquiries: 'name|company_domain',
+    partnerships: 'name|company_domain',
+    raises: 'name|company_domain',
+    custom_fields: 'object_type|key',
+  }[object]
 }
 
 describe('planRow', () => {
@@ -292,7 +305,7 @@ describe('planRow', () => {
       companyIdByDomain: new Map([['acme.com', 'com_1']]),
       personIdByEmail: new Map([['ada@acme.com', 'per_1']]),
       memberIdByEmail: new Map([['sam@kelpie.test', 'mem_1']]),
-      dealStageIdByName: new Map([
+      stageIdByName: new Map([
         ['qualifying', 'stage_1'],
         ['proposal', 'stage_2'],
         ['in discussion', 'stage_2'],

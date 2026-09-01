@@ -4,7 +4,10 @@ import {
   MAX_IMPORT_ROWS,
   OBJECT_COLUMNS,
   SYNC_IMPORT_ROWS,
+  customFieldObjectTypeForExport,
   findMatchKey,
+  knownImportColumnKeys,
+  pipelineKindForImport,
   requiredColumns,
 } from '@kelpie/schemas'
 import type {
@@ -13,6 +16,7 @@ import type {
   ImportCounts,
   ImportJobStatus,
   ImportObject,
+  ExportObject,
   ImportPreviewRow,
   ImportRowError,
   ImportSource,
@@ -27,14 +31,20 @@ import type { Logger } from '../../lib/logger.ts'
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
 import type { BufferedEvents, Queryable, TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
+import { definitionsForObject } from '../custom-fields/repository.ts'
+import { baseColumnKeySet } from './customFieldImport.ts'
 import { toEventActor } from '../../lib/actor.ts'
-import type { RecordObjectType } from '../../runtime/events.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import '../companies/events.ts'
 import '../deals/events.ts'
+import '../enquiries/events.ts'
+import '../opportunities/events.ts'
+import '../partnerships/events.ts'
 import '../people/events.ts'
 import '../positions/events.ts'
+import '../raises/events.ts'
+import '../custom-fields/events.ts'
 import './events.ts'
 
 /**
@@ -44,8 +54,10 @@ import './events.ts'
  */
 function emitImportedRecordCreated(
   events: BufferedEvents,
-  objectType: RecordObjectType,
+  objectType: import('./writes.ts').ImportWrittenObjectType,
   recordId: string,
+  writeObject?: ImportObject,
+  draft?: { readonly objectType?: string; readonly key?: string },
 ): void {
   switch (objectType) {
     case 'person':
@@ -60,7 +72,27 @@ function emitImportedRecordCreated(
     case 'deal':
       events.emit('deals.deal.created', { type: 'deal', id: recordId }, {})
       return
-    // The remaining `RecordObjectType` values are not produced by an import.
+    case 'opportunity':
+      events.emit('opportunities.opportunity.created', { type: 'opportunity', id: recordId }, {})
+      return
+    case 'enquiry':
+      events.emit('enquiries.enquiry.created', { type: 'enquiry', id: recordId }, {})
+      return
+    case 'partnership':
+      events.emit('partnerships.partnership.created', { type: 'partnership', id: recordId }, {})
+      return
+    case 'raise':
+      events.emit('raises.raise.created', { type: 'raise', id: recordId }, {})
+      return
+    case 'custom_field':
+      if (writeObject === 'custom_fields' && draft?.objectType !== undefined && draft.key !== undefined) {
+        events.emit(
+          'custom_fields.field.created',
+          { type: 'custom_field', id: recordId },
+          { objectType: draft.objectType, key: draft.key },
+        )
+      }
+      return
     default:
       throw new Error(`import produced an unexpected object type: ${objectType}`)
   }
@@ -68,9 +100,10 @@ function emitImportedRecordCreated(
 
 function emitImportedRecordUpdated(
   events: BufferedEvents,
-  objectType: RecordObjectType,
+  objectType: import('./writes.ts').ImportWrittenObjectType,
   recordId: string,
   changed: readonly string[],
+  draft?: { readonly objectType?: string; readonly key?: string },
 ): void {
   switch (objectType) {
     case 'person':
@@ -92,6 +125,27 @@ function emitImportedRecordUpdated(
       return
     case 'deal':
       events.emit('deals.deal.updated', { type: 'deal', id: recordId }, { changed })
+      return
+    case 'opportunity':
+      events.emit('opportunities.opportunity.updated', { type: 'opportunity', id: recordId }, { changed })
+      return
+    case 'enquiry':
+      events.emit('enquiries.enquiry.updated', { type: 'enquiry', id: recordId }, { changed })
+      return
+    case 'partnership':
+      events.emit('partnerships.partnership.updated', { type: 'partnership', id: recordId }, { changed })
+      return
+    case 'raise':
+      events.emit('raises.raise.updated', { type: 'raise', id: recordId }, { changed })
+      return
+    case 'custom_field':
+      if (draft?.objectType !== undefined && draft.key !== undefined) {
+        events.emit(
+          'custom_fields.field.updated',
+          { type: 'custom_field', id: recordId },
+          { objectType: draft.objectType, key: draft.key, changed },
+        )
+      }
       return
     default:
       throw new Error(`import produced an unexpected object type: ${objectType}`)
@@ -184,8 +238,8 @@ export interface ImportExportService {
   commit(actor: Actor, id: string, csv: string): Promise<ImportJobView>
   deleteJob(actor: Actor, id: string): Promise<void>
   /** CSV lines for a whole object, a page of records at a time. */
-  exportCsv(actor: Actor, object: ImportObject): AsyncGenerator<string>
-  templateCsv(object: ImportObject): string
+  exportCsv(actor: Actor, object: ExportObject): AsyncGenerator<string>
+  templateCsv(actor: Actor, object: ExportObject): Promise<string>
 }
 
 const EMPTY_COUNTS: ImportCounts = { total: 0, create: 0, update: 0, skip: 0, error: 0 }
@@ -271,8 +325,9 @@ export function createImportExportService(
     matchKey: MatchKeyOption,
     columnMap: ImportColumnMap,
     headers: readonly string[],
+    customFieldKeys: readonly string[] = [],
   ): void {
-    const known = new Set(OBJECT_COLUMNS[object].map((column) => column.key))
+    const known = new Set(knownImportColumnKeys(object, customFieldKeys))
     const present = new Set(headers)
     const problems = [
       ...Object.keys(columnMap)
@@ -340,6 +395,33 @@ export function createImportExportService(
           return matchKey.id === 'external_id'
             ? repository.findDealKeysByExternalId(db, workspaceId, column('external_id'))
             : repository.findDealKeysByCompany(db, workspaceId, domains)
+        case 'opportunities':
+          return matchKey.id === 'name'
+            ? repository.findOpportunityKeysByName(
+                db,
+                workspaceId,
+                column('name').map((name) => name.toLowerCase()),
+              )
+            : repository.findOpportunityKeysByCompany(db, workspaceId, domains)
+        case 'enquiries':
+          return matchKey.id === 'name'
+            ? repository.findEnquiryKeysByName(
+                db,
+                workspaceId,
+                column('name').map((name) => name.toLowerCase()),
+              )
+            : repository.findEnquiryKeysByCompany(db, workspaceId, domains)
+        case 'partnerships':
+          return repository.findPartnershipKeysByCompany(db, workspaceId, domains)
+        case 'raises':
+          return repository.findRaiseKeysByCompany(db, workspaceId, domains)
+        case 'custom_fields':
+          return repository.findCustomFieldDefinitionKeys(
+            db,
+            workspaceId,
+            column('object_type'),
+            column('key'),
+          )
       }
     })()
 
@@ -369,14 +451,14 @@ export function createImportExportService(
   ): Promise<ImportLookups> {
     const existing = await findExistingKeys(db, workspaceId, object, matchKey, rows)
 
-    if (object === 'companies') {
+    if (object === 'companies' || object === 'custom_fields') {
       return {
         existing,
         personIdByEmail: new Map(),
         companyIdByDomain: new Map(),
         companyIdByName: new Map(),
         memberIdByEmail: new Map(),
-        dealStageIdByName: new Map(),
+        stageIdByName: new Map(),
       }
     }
 
@@ -401,10 +483,11 @@ export function createImportExportService(
         ),
         companyIdByName: new Map(byName.map((row) => [row.name.toLowerCase(), row.id] as const)),
         memberIdByEmail: new Map(),
-        dealStageIdByName: new Map(),
+        stageIdByName: new Map(),
       }
     }
 
+    const pipelineKind = pipelineKindForImport(object)
     const emails = distinct([
       ...rows.map((row) => normaliseEmail(row.mapped.person_email ?? '')),
       ...rows.flatMap((row) =>
@@ -428,46 +511,96 @@ export function createImportExportService(
         ),
         companyIdByName: new Map(),
         memberIdByEmail: new Map(),
-        dealStageIdByName: new Map(),
+        stageIdByName: new Map(),
       }
     }
 
-    const [members, stages] = await Promise.all([
-      repository.listMemberEmails(db, workspaceId),
-      repository.listDealStages(db, workspaceId),
-    ])
+    if (pipelineKind !== null) {
+      const [members, stages] = await Promise.all([
+        repository.listMemberEmails(db, workspaceId),
+        repository.listPipelineStages(db, workspaceId, pipelineKind),
+      ])
+      const stagesByName = new Map<string, string>()
 
-    // A stage answers to its slug and to its label. The slug is the stable one
-    // an export writes; the label is what a person typed into the spreadsheet.
-    const stagesByName = new Map<string, string>()
+      for (const stage of stages) {
+        stagesByName.set(stage.slug.toLowerCase(), stage.id)
+        stagesByName.set(stage.label.toLowerCase(), stage.id)
+      }
 
-    for (const stage of stages) {
-      stagesByName.set(stage.slug.toLowerCase(), stage.id)
-      stagesByName.set(stage.label.toLowerCase(), stage.id)
+      return {
+        existing,
+        personIdByEmail: new Map(
+          peopleRows.flatMap((row) => (row.email === null ? [] : [[row.email, row.id] as const])),
+        ),
+        companyIdByDomain: new Map(
+          companyRows.flatMap((row) => (row.domain === null ? [] : [[row.domain, row.id] as const])),
+        ),
+        companyIdByName: new Map(),
+        memberIdByEmail: new Map(members.map((member) => [member.email.toLowerCase(), member.id])),
+        stageIdByName: stagesByName,
+      }
     }
 
-    return {
-      existing,
-      personIdByEmail: new Map(
-        peopleRows.flatMap((row) => (row.email === null ? [] : [[row.email, row.id] as const])),
-      ),
-      companyIdByDomain: new Map(
-        companyRows.flatMap((row) => (row.domain === null ? [] : [[row.domain, row.id] as const])),
-      ),
-      companyIdByName: new Map(),
-      memberIdByEmail: new Map(members.map((member) => [member.email.toLowerCase(), member.id])),
-      dealStageIdByName: stagesByName,
-    }
+    throw new Error(`No lookup builder for import object ${object}`)
   }
 
-  function contextFor(job: ImportJobRecord, lookups: ImportLookups): PlanContext {
+  async function customFieldContext(
+    workspaceId: string,
+    object: ImportObject,
+  ): Promise<{
+    readonly definitions: Awaited<ReturnType<typeof definitionsForObject>>
+    readonly keys: readonly string[]
+  }> {
+    const objectType = customFieldObjectTypeForExport(object)
+
+    if (objectType === null) {
+      return { definitions: [], keys: [] }
+    }
+
+    const definitions = await definitionsForObject(dependencies.db, workspaceId, objectType)
+
+    return { definitions, keys: definitions.map((definition) => definition.key) }
+  }
+
+  function augmentColumnMap(
+    _object: ImportObject,
+    headers: readonly string[],
+    columnMap: ImportColumnMap,
+    customFieldKeys: readonly string[],
+  ): ImportColumnMap {
+    const map = { ...columnMap }
+
+    for (const key of customFieldKeys) {
+      if (map[key] !== undefined) {
+        continue
+      }
+
+      const match = headers.find((header) => header.toLowerCase() === key.toLowerCase())
+
+      if (match !== undefined) {
+        map[key] = match
+      }
+    }
+
+    return map
+  }
+
+  function contextFor(
+    job: ImportJobRecord,
+    lookups: ImportLookups,
+    customFieldDefinitions: Awaited<ReturnType<typeof definitionsForObject>>,
+  ): PlanContext {
+    const object = job.object as ImportObject
+
     return {
-      object: job.object as ImportObject,
-      matchKey: requireMatchKey(job.object as ImportObject, job.matchKey),
+      object,
+      matchKey: requireMatchKey(object, job.matchKey),
       conflictMode: job.conflictMode as ImportConflictMode,
       onMissingCompany: job.onMissingCompany as OnMissingCompany,
       consentPurposeId: job.consentPurposeId,
       lookups,
+      customFieldDefinitions,
+      baseColumnKeys: baseColumnKeySet(OBJECT_COLUMNS[object]),
     }
   }
 
@@ -581,14 +714,16 @@ export function createImportExportService(
   async function runDryRun(workspaceId: string, jobId: string, parsed: ParsedCsv): Promise<void> {
     const job = await requireJob(workspaceId, jobId)
     const { rows } = readFile(job, parsed)
+    const object = job.object as ImportObject
+    const { definitions } = await customFieldContext(workspaceId, object)
     const lookups = await buildLookups(
       dependencies.db,
       workspaceId,
-      job.object as ImportObject,
-      requireMatchKey(job.object as ImportObject, job.matchKey),
+      object,
+      requireMatchKey(object, job.matchKey),
       rows,
     )
-    const planned = planRows(contextFor(job, lookups), rows)
+    const planned = planRows(contextFor(job, lookups, definitions), rows)
 
     await repository.updateJob(dependencies.db, workspaceId, jobId, {
       status: 'ready',
@@ -652,8 +787,9 @@ export function createImportExportService(
       // Resolved inside the transaction, against the rows this commit has
       // already written. That is what makes a file listing one company twice
       // create it once, and what lets an interrupted commit be re-run.
+      const { definitions } = await customFieldContext(workspaceId, object)
       const lookups = await buildLookups(tx, workspaceId, object, matchKey, [row])
-      const plan = planRow(contextFor(job, lookups), mapped)
+      const plan = planRow(contextFor(job, lookups, definitions), mapped)
 
       const outcome: repository.RowOutcome = {
         rowNumber: line.number,
@@ -678,7 +814,13 @@ export function createImportExportService(
         )
 
         if (plan.action === 'create') {
-          emitImportedRecordCreated(events, written.objectType, written.recordId)
+          emitImportedRecordCreated(
+            events,
+            written.objectType,
+            written.recordId,
+            object,
+            plan.write.object === 'custom_fields' ? plan.write.draft : undefined,
+          )
         } else if (written.changedFields.length > 0) {
           // An update that moved nothing publishes nothing. Re-running the same
           // file must not wake every consumer watching for a change.
@@ -687,6 +829,7 @@ export function createImportExportService(
             written.objectType,
             written.recordId,
             written.changedFields,
+            plan.write.object === 'custom_fields' ? plan.write.draft : undefined,
           )
         }
 
@@ -839,10 +982,21 @@ export function createImportExportService(
       }
 
       const matchKey = requireMatchKey(input.object, input.matchKeyId)
-      const columnMap =
-        input.columnMap ?? defaultColumnMap(input.source, input.object, parsed.headers)
+      const { keys: customFieldKeys } = await customFieldContext(workspaceId, input.object)
+      let columnMap =
+        input.columnMap ??
+        augmentColumnMap(
+          input.object,
+          parsed.headers,
+          defaultColumnMap(input.source, input.object, parsed.headers),
+          customFieldKeys,
+        )
 
-      requireUsableColumnMap(input.object, matchKey, columnMap, parsed.headers)
+      if (input.columnMap !== undefined) {
+        columnMap = augmentColumnMap(input.object, parsed.headers, columnMap, customFieldKeys)
+      }
+
+      requireUsableColumnMap(input.object, matchKey, columnMap, parsed.headers, customFieldKeys)
 
       // Consent is a People-only feature. A purpose on any other object is
       // refused up front; mapping the consent columns without one is refused
@@ -995,8 +1149,17 @@ export function createImportExportService(
       return streamExport(dependencies.db, requireWorkspaceId(actor), object)
     },
 
-    templateCsv(object) {
-      return csvLine(templateHeadersFor(object))
+    templateCsv(actor, object) {
+      const workspaceId = requireWorkspaceId(actor)
+      const objectType = customFieldObjectTypeForExport(object)
+
+      if (objectType === null) {
+        return Promise.resolve(csvLine(templateHeadersFor(object)))
+      }
+
+      return definitionsForObject(dependencies.db, workspaceId, objectType).then((definitions) =>
+        csvLine(templateHeadersFor(object, definitions)),
+      )
     },
   }
 }

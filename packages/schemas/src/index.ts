@@ -287,6 +287,8 @@ export type {
 
 export {
   CONFLICT_MODE_LABELS,
+  EXPORT_OBJECT_LABELS,
+  EXPORT_OBJECTS,
   IMPORT_CONFLICT_MODES,
   IMPORT_JOB_STATUSES,
   IMPORT_OBJECTS,
@@ -304,14 +306,19 @@ export {
   ON_MISSING_COMPANY_LABELS,
   SOURCE_LABELS,
   SYNC_IMPORT_ROWS,
+  customFieldObjectTypeForExport,
   defaultMatchKeyId,
   findMatchKey,
   importJobSchema,
   isImportJobSettled,
+  isImportObject,
+  knownImportColumnKeys,
+  pipelineKindForImport,
   requiredColumns,
 } from './importExport.ts'
 export type {
   CsvColumn,
+  ExportObject,
   ImportColumnMap,
   ImportConflictMode,
   ImportCounts,

@@ -1,4 +1,5 @@
 import {
+  EXPORT_OBJECTS,
   IMPORT_CONFLICT_MODES,
   IMPORT_OBJECTS,
   IMPORT_SOURCES,
@@ -34,9 +35,13 @@ import type { ImportExportService } from './service.ts'
  */
 export const MAX_INLINE_EXPORT_BYTES = 256 * 1024
 
-const objectArg = z
+const exportObjectArg = z
+  .enum(EXPORT_OBJECTS)
+  .describe(`Which object to export. One of: ${EXPORT_OBJECTS.join(', ')}.`)
+
+const importObjectArg = z
   .enum(IMPORT_OBJECTS)
-  .describe(`Which object to move. One of: ${IMPORT_OBJECTS.join(', ')}.`)
+  .describe(`Which object to import. One of: ${IMPORT_OBJECTS.join(', ')}.`)
 
 /** `column_map` is a real object here. The multipart route takes it as a JSON string. */
 const columnMapArg = z
@@ -54,7 +59,7 @@ const csvArg = z
 
 const previewArgs = z.strictObject({
   source: z.enum(IMPORT_SOURCES).describe('Which export the file came out of.'),
-  object: objectArg,
+  object: importObjectArg,
   csv: csvArg,
   conflict_mode: z
     .enum(IMPORT_CONFLICT_MODES)
@@ -112,7 +117,7 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
     description:
       'Export every record of one object as CSV text. Refuses an export too large to sit in ' +
       'a tool result, and names the download to use instead. Mirrors GET /v1/export/{object}.csv.',
-    inputSchema: z.strictObject({ object: objectArg }),
+    inputSchema: z.strictObject({ object: exportObjectArg }),
     invoke: async ({ object }, actor) => ({
       object,
       csv: await collectCsv(service.exportCsv(actor, object)),
@@ -124,8 +129,11 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
     description:
       'The header row Kelpie expects for one object, with no records in it. Start a hand-built ' +
       'import from this. Mirrors GET /v1/export/templates/{object}.csv.',
-    inputSchema: z.strictObject({ object: objectArg }),
-    invoke: ({ object }) => Promise.resolve({ object, csv: service.templateCsv(object) }),
+    inputSchema: z.strictObject({ object: exportObjectArg }),
+    invoke: async ({ object }, actor) => ({
+      object,
+      csv: await service.templateCsv(actor, object),
+    }),
   })
 
   mcp.tool({

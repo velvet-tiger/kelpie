@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import type { CustomFieldObjectType, PipelineKind } from './values.ts'
 import { idSchema, recordTimestamps } from './wire.ts'
 import type { RecordTimestamps } from './wire.ts'
 
@@ -14,7 +15,17 @@ import type { RecordTimestamps } from './wire.ts'
  */
 
 export const IMPORT_SOURCES = ['custom', 'hubspot', 'salesforce', 'attio'] as const
-export const IMPORT_OBJECTS = ['companies', 'people', 'positions', 'deals'] as const
+export const IMPORT_OBJECTS = [
+  'companies',
+  'people',
+  'positions',
+  'deals',
+  'opportunities',
+  'enquiries',
+  'partnerships',
+  'raises',
+  'custom_fields',
+] as const
 export const IMPORT_CONFLICT_MODES = ['skip', 'update'] as const
 
 /**
@@ -88,6 +99,11 @@ export const OBJECT_LABELS: Readonly<Record<ImportObject, string>> = {
   people: 'People',
   positions: 'Positions',
   deals: 'Deals',
+  opportunities: 'Opportunities',
+  enquiries: 'Enquiries',
+  partnerships: 'Partnerships',
+  raises: 'Fundraising',
+  custom_fields: 'Custom fields',
 }
 
 export const SOURCE_LABELS: Readonly<Record<ImportSource, string>> = {
@@ -215,6 +231,125 @@ export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>
     { key: 'tags', label: 'Tags', required: false },
     { key: 'external_id', label: 'External id', required: false },
   ],
+  opportunities: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'kind', label: 'Kind', required: true },
+    { key: 'company_domain', label: 'Company domain', required: false },
+    { key: 'stage', label: 'Stage', required: true },
+    { key: 'owner_email', label: 'Owner email', required: false },
+    { key: 'expected_close', label: 'Expected close', required: false },
+    { key: 'person_emails', label: 'Person emails', required: false },
+    { key: 'summary', label: 'Summary', required: false },
+    { key: 'tags', label: 'Tags', required: false },
+  ],
+  enquiries: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'source', label: 'Source', required: false },
+    { key: 'company_domain', label: 'Company domain', required: false },
+    { key: 'stage', label: 'Stage', required: true },
+    { key: 'owner_email', label: 'Owner email', required: false },
+    { key: 'person_emails', label: 'Person emails', required: false },
+    { key: 'summary', label: 'Summary', required: false },
+    { key: 'tags', label: 'Tags', required: false },
+  ],
+  partnerships: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'company_domain', label: 'Company domain', required: true },
+    { key: 'stage', label: 'Stage', required: true },
+    { key: 'kind', label: 'Kind', required: true },
+    { key: 'next_touchpoint', label: 'Next touchpoint', required: false },
+    { key: 'owner_email', label: 'Owner email', required: false },
+    { key: 'goals', label: 'Goals', required: false },
+    { key: 'success_looks_like', label: 'Success looks like', required: false },
+    { key: 'person_emails', label: 'Person emails', required: false },
+    { key: 'summary', label: 'Summary', required: false },
+    { key: 'tags', label: 'Tags', required: false },
+  ],
+  raises: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'company_domain', label: 'Company domain', required: true },
+    { key: 'stage', label: 'Stage', required: true },
+    { key: 'check_size', label: 'Check size', required: false },
+    { key: 'currency', label: 'Currency', required: false },
+    { key: 'thesis_fit', label: 'Thesis fit', required: false },
+    { key: 'pass_reason', label: 'Pass reason', required: false },
+    { key: 'owner_email', label: 'Owner email', required: false },
+    { key: 'expected_close', label: 'Expected close', required: false },
+    { key: 'person_emails', label: 'Person emails', required: false },
+    { key: 'summary', label: 'Summary', required: false },
+    { key: 'tags', label: 'Tags', required: false },
+  ],
+  custom_fields: [
+    { key: 'object_type', label: 'Object type', required: true },
+    { key: 'key', label: 'Key', required: true },
+    { key: 'label', label: 'Label', required: true },
+    { key: 'type', label: 'Type', required: true },
+    { key: 'options', label: 'Options', required: false },
+    { key: 'description', label: 'Description', required: false },
+    { key: 'sort_order', label: 'Sort order', required: true },
+  ],
+}
+
+/** Every object `GET /v1/export/{object}.csv` and the import wizard accept. */
+export const EXPORT_OBJECTS = IMPORT_OBJECTS
+
+export type ExportObject = ImportObject
+
+export function isImportObject(object: string): object is ImportObject {
+  return (IMPORT_OBJECTS as readonly string[]).includes(object)
+}
+
+/** @deprecated Use `OBJECT_LABELS`. Kept for callers that still import this name. */
+export const EXPORT_OBJECT_LABELS: Readonly<Record<ExportObject, string>> = OBJECT_LABELS
+
+/** Record exports that carry workspace custom field values as extra columns. */
+export function customFieldObjectTypeForExport(object: ExportObject): CustomFieldObjectType | null {
+  switch (object) {
+    case 'companies':
+      return 'company'
+    case 'people':
+      return 'person'
+    case 'deals':
+      return 'deal'
+    case 'opportunities':
+      return 'opportunity'
+    case 'enquiries':
+      return 'enquiry'
+    case 'partnerships':
+      return 'partnership'
+    case 'raises':
+      return 'raise'
+    default:
+      return null
+  }
+}
+
+/** The pipeline kind whose stages a row's `stage` column resolves against. */
+export function pipelineKindForImport(object: ImportObject): PipelineKind | null {
+  switch (object) {
+    case 'deals':
+      return 'deal'
+    case 'opportunities':
+      return 'opportunity'
+    case 'enquiries':
+      return 'enquiry'
+    case 'partnerships':
+      return 'partnership'
+    case 'raises':
+      return 'raise'
+    default:
+      return null
+  }
+}
+
+/** Kelpie column keys a job may map, including workspace custom field definition keys. */
+export function knownImportColumnKeys(
+  object: ImportObject,
+  customFieldKeys: readonly string[] = [],
+): readonly string[] {
+  const base = OBJECT_COLUMNS[object].map((column) => column.key)
+
+  return [...new Set([...base, ...customFieldKeys])]
 }
 
 /** Columns whose value is a pipe-separated list (`a|b|c`), per `import-export.md`. */
@@ -224,6 +359,7 @@ export const LIST_COLUMNS: ReadonlySet<string> = new Set([
   'competitors',
   'person_emails',
   'tech_stack',
+  'options',
 ])
 
 export interface MatchKeyOption {
@@ -259,6 +395,43 @@ export const MATCH_KEYS: Readonly<Record<ImportObject, readonly MatchKeyOption[]
       id: 'name|company_domain',
       label: 'name + company_domain',
       columns: ['name', 'company_domain'],
+    },
+  ],
+  opportunities: [
+    {
+      id: 'name|company_domain',
+      label: 'name + company_domain',
+      columns: ['name', 'company_domain'],
+    },
+    { id: 'name', label: 'name', columns: ['name'] },
+  ],
+  enquiries: [
+    {
+      id: 'name|company_domain',
+      label: 'name + company_domain',
+      columns: ['name', 'company_domain'],
+    },
+    { id: 'name', label: 'name', columns: ['name'] },
+  ],
+  partnerships: [
+    {
+      id: 'name|company_domain',
+      label: 'name + company_domain',
+      columns: ['name', 'company_domain'],
+    },
+  ],
+  raises: [
+    {
+      id: 'name|company_domain',
+      label: 'name + company_domain',
+      columns: ['name', 'company_domain'],
+    },
+  ],
+  custom_fields: [
+    {
+      id: 'object_type|key',
+      label: 'object_type + key',
+      columns: ['object_type', 'key'],
     },
   ],
 }

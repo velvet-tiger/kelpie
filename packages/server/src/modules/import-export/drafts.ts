@@ -9,6 +9,8 @@ import {
   composeName,
 } from '@kelpie/schemas'
 
+import type { CustomFieldWireValue } from '@kelpie/schemas'
+
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
 import { moneyToCents, splitList } from './mapping.ts'
 import { canonicalEnum } from './validation.ts'
@@ -40,6 +42,7 @@ export interface CompanyDraft {
   readonly icpFit?: string
   readonly summary?: string
   readonly tags?: readonly string[]
+  readonly customFields?: Readonly<Record<string, CustomFieldWireValue>>
 }
 
 export interface PersonDraft {
@@ -57,6 +60,7 @@ export interface PersonDraft {
   readonly relationship?: string
   readonly summary?: string
   readonly tags?: readonly string[]
+  readonly customFields?: Readonly<Record<string, CustomFieldWireValue>>
 }
 
 /** The deal columns a row carries directly. Company, stage, owner and people are resolved. */
@@ -70,6 +74,57 @@ export interface DealFieldsDraft {
   readonly summary?: string
   readonly tags?: readonly string[]
   readonly externalId?: string
+  readonly customFields?: Readonly<Record<string, CustomFieldWireValue>>
+}
+
+export interface OpportunityFieldsDraft {
+  readonly name?: string
+  readonly kind?: string
+  readonly expectedClose?: string
+  readonly summary?: string
+  readonly tags?: readonly string[]
+  readonly customFields?: Readonly<Record<string, CustomFieldWireValue>>
+}
+
+export interface EnquiryFieldsDraft {
+  readonly name?: string
+  readonly source?: string
+  readonly summary?: string
+  readonly tags?: readonly string[]
+  readonly customFields?: Readonly<Record<string, CustomFieldWireValue>>
+}
+
+export interface PartnershipFieldsDraft {
+  readonly name?: string
+  readonly kind?: string
+  readonly nextTouchpoint?: string
+  readonly goals?: string
+  readonly successLooksLike?: string
+  readonly summary?: string
+  readonly tags?: readonly string[]
+  readonly customFields?: Readonly<Record<string, CustomFieldWireValue>>
+}
+
+export interface RaiseFieldsDraft {
+  readonly name?: string
+  readonly checkSizeCents?: number | null
+  readonly currency?: string
+  readonly thesisFit?: string
+  readonly passReason?: string
+  readonly expectedClose?: string
+  readonly summary?: string
+  readonly tags?: readonly string[]
+  readonly customFields?: Readonly<Record<string, CustomFieldWireValue>>
+}
+
+export interface CustomFieldDefinitionDraft {
+  readonly objectType?: string
+  readonly key?: string
+  readonly label?: string
+  readonly type?: string
+  readonly options?: readonly string[]
+  readonly description?: string
+  readonly sortOrder?: number
 }
 
 /**
@@ -143,7 +198,10 @@ function present<T extends object>(draft: Supplied<T>): T {
   return Object.fromEntries(Object.entries(draft).filter(([, value]) => value !== undefined)) as T
 }
 
-export function companyDraft(mapped: Readonly<Record<string, string>>): CompanyDraft {
+export function companyDraft(
+  mapped: Readonly<Record<string, string>>,
+  customFields: Readonly<Record<string, CustomFieldWireValue>> = {},
+): CompanyDraft {
   const domain = text(mapped, 'domain')
 
   return present<CompanyDraft>({
@@ -159,6 +217,7 @@ export function companyDraft(mapped: Readonly<Record<string, string>>): CompanyD
     icpFit: enumeration(mapped, 'icp_fit', ICP_FITS),
     summary: text(mapped, 'summary'),
     tags: list(mapped, 'tags'),
+    customFields: Object.keys(customFields).length === 0 ? undefined : customFields,
   })
 }
 
@@ -168,7 +227,10 @@ export function companyDraft(mapped: Readonly<Record<string, string>>): CompanyD
  * blank, and never the other way round: a `name` cell is never split to fill
  * `first_name`, since a guessed part is stored exactly like one somebody typed.
  */
-export function personDraft(mapped: Readonly<Record<string, string>>): PersonDraft {
+export function personDraft(
+  mapped: Readonly<Record<string, string>>,
+  customFields: Readonly<Record<string, CustomFieldWireValue>> = {},
+): PersonDraft {
   const email = text(mapped, 'email')
   const firstName = text(mapped, 'first_name')
   const lastName = text(mapped, 'last_name')
@@ -190,6 +252,7 @@ export function personDraft(mapped: Readonly<Record<string, string>>): PersonDra
     relationship: enumeration(mapped, 'relationship', RELATIONSHIP_LEVELS),
     summary: text(mapped, 'summary'),
     tags: list(mapped, 'tags'),
+    customFields: Object.keys(customFields).length === 0 ? undefined : customFields,
   })
 }
 
@@ -217,6 +280,7 @@ export function affiliationCompanyDraft(mapped: Readonly<Record<string, string>>
     icpFit: undefined,
     summary: undefined,
     tags: undefined,
+    customFields: undefined,
   })
 }
 
@@ -224,7 +288,10 @@ export function affiliationCompanyDraft(mapped: Readonly<Record<string, string>>
  * `value` is required, so `moneyToCents` has already been checked by
  * `validateRow` and cannot be undefined here.
  */
-export function dealFieldsDraft(mapped: Readonly<Record<string, string>>): DealFieldsDraft {
+export function dealFieldsDraft(
+  mapped: Readonly<Record<string, string>>,
+  customFields: Readonly<Record<string, CustomFieldWireValue>> = {},
+): DealFieldsDraft {
   const cents = moneyToCents(mapped.value)
 
   return present<DealFieldsDraft>({
@@ -237,5 +304,86 @@ export function dealFieldsDraft(mapped: Readonly<Record<string, string>>): DealF
     summary: text(mapped, 'summary'),
     tags: list(mapped, 'tags'),
     externalId: text(mapped, 'external_id'),
+    customFields: Object.keys(customFields).length === 0 ? undefined : customFields,
+  })
+}
+
+export function opportunityFieldsDraft(
+  mapped: Readonly<Record<string, string>>,
+  customFields: Readonly<Record<string, CustomFieldWireValue>> = {},
+): OpportunityFieldsDraft {
+  return present<OpportunityFieldsDraft>({
+    name: text(mapped, 'name'),
+    kind: text(mapped, 'kind'),
+    expectedClose: text(mapped, 'expected_close'),
+    summary: text(mapped, 'summary'),
+    tags: list(mapped, 'tags'),
+    customFields: Object.keys(customFields).length === 0 ? undefined : customFields,
+  })
+}
+
+export function enquiryFieldsDraft(
+  mapped: Readonly<Record<string, string>>,
+  customFields: Readonly<Record<string, CustomFieldWireValue>> = {},
+): EnquiryFieldsDraft {
+  return present<EnquiryFieldsDraft>({
+    name: text(mapped, 'name'),
+    source: text(mapped, 'source'),
+    summary: text(mapped, 'summary'),
+    tags: list(mapped, 'tags'),
+    customFields: Object.keys(customFields).length === 0 ? undefined : customFields,
+  })
+}
+
+export function partnershipFieldsDraft(
+  mapped: Readonly<Record<string, string>>,
+  customFields: Readonly<Record<string, CustomFieldWireValue>> = {},
+): PartnershipFieldsDraft {
+  return present<PartnershipFieldsDraft>({
+    name: text(mapped, 'name'),
+    kind: text(mapped, 'kind'),
+    nextTouchpoint: text(mapped, 'next_touchpoint'),
+    goals: text(mapped, 'goals'),
+    successLooksLike: text(mapped, 'success_looks_like'),
+    summary: text(mapped, 'summary'),
+    tags: list(mapped, 'tags'),
+    customFields: Object.keys(customFields).length === 0 ? undefined : customFields,
+  })
+}
+
+export function raiseFieldsDraft(
+  mapped: Readonly<Record<string, string>>,
+  customFields: Readonly<Record<string, CustomFieldWireValue>> = {},
+): RaiseFieldsDraft {
+  const cents = moneyToCents(mapped.check_size)
+
+  return present<RaiseFieldsDraft>({
+    name: text(mapped, 'name'),
+    checkSizeCents: cents === undefined ? undefined : cents,
+    currency: text(mapped, 'currency'),
+    thesisFit: text(mapped, 'thesis_fit'),
+    passReason: text(mapped, 'pass_reason'),
+    expectedClose: text(mapped, 'expected_close'),
+    summary: text(mapped, 'summary'),
+    tags: list(mapped, 'tags'),
+    customFields: Object.keys(customFields).length === 0 ? undefined : customFields,
+  })
+}
+
+export function customFieldDefinitionDraft(
+  mapped: Readonly<Record<string, string>>,
+): CustomFieldDefinitionDraft {
+  const sortOrderRaw = text(mapped, 'sort_order')
+  const sortOrder =
+    sortOrderRaw === undefined ? undefined : Number.parseInt(sortOrderRaw, 10)
+
+  return present<CustomFieldDefinitionDraft>({
+    objectType: text(mapped, 'object_type'),
+    key: text(mapped, 'key'),
+    label: text(mapped, 'label'),
+    type: text(mapped, 'type'),
+    options: list(mapped, 'options'),
+    description: text(mapped, 'description'),
+    sortOrder: sortOrder !== undefined && Number.isInteger(sortOrder) ? sortOrder : undefined,
   })
 }
