@@ -14,8 +14,6 @@ export const workspaces = pgTable('workspaces', {
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
   timezone: text('timezone').notNull(),
-  tagline: text('tagline'),
-  oneLiner: text('one_liner'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 })

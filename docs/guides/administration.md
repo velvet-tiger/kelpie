@@ -29,8 +29,6 @@ Two edges worth knowing: **webhooks are admin-only even to read**, because a web
 
 Name, slug (a duplicate is refused), and timezone — which defines "today" for every overdue calculation in the workspace.
 
-Two fields exist purely for agents: **tagline**, the short line an agent loads first, and **one-liner**, what the company does. Clearing either leaves it genuinely empty rather than storing an empty string. Fill both in; they are cheap context every agent task benefits from.
-
 ## Modules
 
 **Admin → Modules** switches optional parts of Kelpie on or off for this workspace — hiring, fundraising, forms, webhooks, and the rest. The essential modules (people, companies, search, and so on) are always on and do not appear as switches.

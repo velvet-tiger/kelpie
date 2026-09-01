@@ -56,8 +56,6 @@ export interface WorkspaceView {
   readonly name: string
   readonly slug: string
   readonly timezone: string
-  readonly tagline: string | null
-  readonly oneLiner: string | null
 }
 
 export interface MemberView {
@@ -105,8 +103,6 @@ export interface UpdateWorkspaceInput {
   readonly name?: string | undefined
   readonly slug?: string | undefined
   readonly timezone?: string | undefined
-  readonly tagline?: string | null | undefined
-  readonly oneLiner?: string | null | undefined
 }
 
 export interface WorkspaceService {
@@ -146,8 +142,6 @@ function toWorkspaceView(record: repository.WorkspaceRecord): WorkspaceView {
     name: record.name,
     slug: record.slug,
     timezone: record.timezone,
-    tagline: record.tagline,
-    oneLiner: record.oneLiner,
   }
 }
 

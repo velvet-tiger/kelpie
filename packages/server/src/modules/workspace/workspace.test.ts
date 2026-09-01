@@ -401,14 +401,13 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const response = await send(
         'PATCH',
         `/v1/workspaces/${workspaceId}`,
-        { name: 'Acme Corporation', one_liner: 'We make anvils.' },
+        { name: 'Acme Corporation' },
         cookie,
       )
 
       expect(response.status).toBe(200)
       const body = await response.json()
       expect(readString(body, 'name')).toBe('Acme Corporation')
-      expect(readString(body, 'one_liner')).toBe('We make anvils.')
       expect(readString(body, 'slug')).toBe('acme')
     })
 
@@ -463,17 +462,6 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       expect(response.status).toBe(422)
       expect(readErrorFields(await response.json())).toEqual(['timezone'])
-    })
-
-    it('clears the agent identity strings when they are sent as null', async () => {
-      const cookie = await signUp('ada@example.com')
-      const workspaceId = await createWorkspace(cookie)
-      await send('PATCH', `/v1/workspaces/${workspaceId}`, { tagline: 'Anvils that land' }, cookie)
-
-      const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { tagline: null }, cookie)
-
-      expect(response.status).toBe(200)
-      expect(await response.json()).toMatchObject({ tagline: null })
     })
 
     it('refuses a member changing the settings', async () => {

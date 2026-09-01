@@ -26,8 +26,6 @@ export const updateBody = z
     name: z.string().min(1),
     slug: z.string().min(1).max(63).regex(slugPattern, 'Use lowercase letters, digits, and hyphens'),
     timezone: timezoneSchema,
-    tagline: z.string().nullable(),
-    one_liner: z.string().nullable(),
   })
   .partial()
 
@@ -65,8 +63,6 @@ export function workspaceResponse(workspace: WorkspaceView): Record<string, unkn
     name: workspace.name,
     slug: workspace.slug,
     timezone: workspace.timezone,
-    tagline: workspace.tagline,
-    one_liner: workspace.oneLiner,
   }
 }
 
@@ -122,8 +118,6 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
       ...(body.name === undefined ? {} : { name: body.name }),
       ...(body.slug === undefined ? {} : { slug: body.slug }),
       ...(body.timezone === undefined ? {} : { timezone: body.timezone }),
-      ...(body.tagline === undefined ? {} : { tagline: body.tagline }),
-      ...(body.one_liner === undefined ? {} : { oneLiner: body.one_liner }),
     })
 
     return context.json(workspaceResponse(workspace))

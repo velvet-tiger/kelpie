@@ -28,8 +28,6 @@ const WORKSPACE = {
   name: 'Acme Labs',
   slug: 'acme-labs',
   timezone: 'Australia/Sydney',
-  tagline: null,
-  one_liner: null,
 }
 
 function invite(email: string, role: string): Record<string, unknown> {

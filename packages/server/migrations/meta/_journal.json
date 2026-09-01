@@ -295,6 +295,13 @@
       "when": 1788500000000,
       "tag": "0041_api_key_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1788600000000,
+      "tag": "0042_drop_workspace_identity",
+      "breakpoints": true
     }
   ]
 }

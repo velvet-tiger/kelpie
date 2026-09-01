@@ -74,8 +74,6 @@ function WorkspaceSettingsForm({
   const [name, setName] = useState(workspace.name)
   const [slug, setSlug] = useState(workspace.slug)
   const [timezone, setTimezone] = useState(workspace.timezone)
-  const [tagline, setTagline] = useState(workspace.tagline ?? '')
-  const [oneLiner, setOneLiner] = useState(workspace.oneLiner ?? '')
   const [saved, setSaved] = useState(false)
 
   const canEdit = session?.role === 'owner' || session?.role === 'admin'
@@ -92,10 +90,6 @@ function WorkspaceSettingsForm({
         name: name.trim(),
         slug: slug.trim(),
         timezone,
-        // Empty is not blank text, it is no tagline. `null` clears the column;
-        // an empty string would store one and hand agents an empty identity.
-        tagline: tagline.trim().length === 0 ? null : tagline.trim(),
-        oneLiner: oneLiner.trim().length === 0 ? null : oneLiner.trim(),
       })
       .then(() => {
         setSaved(true)
@@ -107,7 +101,7 @@ function WorkspaceSettingsForm({
     <div className="animate-slide-in mx-auto max-w-4xl space-y-8">
       <PageHeader
         title="Workspace"
-        description="Name, address, timezone, and how the company introduces itself to an agent."
+        description="Name, address, and timezone."
       />
 
       <form onSubmit={save} className="space-y-4">
@@ -132,30 +126,6 @@ function WorkspaceSettingsForm({
             required
             disabled={!canEdit}
             className="w-full max-w-md rounded-md border border-border bg-surface-raised px-3 py-2 font-mono text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
-          />
-        </Field>
-
-        <Field label="Tagline" hint="The short identity an agent loads first.">
-          <input
-            value={tagline}
-            onChange={(event) => {
-              setTagline(event.target.value)
-            }}
-            placeholder="CRM and company brain for agent-native startups"
-            disabled={!canEdit}
-            className="w-full max-w-xl rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
-          />
-        </Field>
-
-        <Field label="One-liner" hint="What the company does, in a sentence.">
-          <textarea
-            value={oneLiner}
-            onChange={(event) => {
-              setOneLiner(event.target.value)
-            }}
-            rows={2}
-            disabled={!canEdit}
-            className="w-full max-w-xl rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
           />
         </Field>
 

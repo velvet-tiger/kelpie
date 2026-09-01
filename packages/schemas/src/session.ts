@@ -68,8 +68,6 @@ export interface Workspace {
   readonly name: string
   readonly slug: string
   readonly timezone: string
-  readonly tagline: string | null
-  readonly oneLiner: string | null
 }
 
 export const workspaceSchema: z.ZodType<Workspace, unknown> = z
@@ -78,8 +76,6 @@ export const workspaceSchema: z.ZodType<Workspace, unknown> = z
     name: z.string(),
     slug: z.string(),
     timezone: z.string(),
-    tagline: z.string().nullable(),
-    one_liner: z.string().nullable(),
   })
   .transform(
     (wire): Workspace => ({
@@ -87,8 +83,6 @@ export const workspaceSchema: z.ZodType<Workspace, unknown> = z
       name: wire.name,
       slug: wire.slug,
       timezone: wire.timezone,
-      tagline: wire.tagline,
-      oneLiner: wire.one_liner,
     }),
   )
 
@@ -102,19 +96,11 @@ export function createWorkspaceBody(input: CreateWorkspaceInput): Record<string,
   return { name: input.name, slug: input.slug, timezone: input.timezone }
 }
 
-/**
- * Settings a workspace admin can change.
- *
- * `tagline` and `oneLiner` are the two strings an agent reads to say who this
- * company is, so `null` clears them and `undefined` leaves them alone, per
- * `api.md`. `definedFields` is what keeps those two apart on the wire.
- */
+/** Settings a workspace admin can change. */
 export interface UpdateWorkspaceInput {
   readonly name?: string
   readonly slug?: string
   readonly timezone?: string
-  readonly tagline?: string | null
-  readonly oneLiner?: string | null
 }
 
 export function updateWorkspaceBody(input: UpdateWorkspaceInput): Record<string, unknown> {
@@ -122,8 +108,6 @@ export function updateWorkspaceBody(input: UpdateWorkspaceInput): Record<string,
     name: input.name,
     slug: input.slug,
     timezone: input.timezone,
-    tagline: input.tagline,
-    one_liner: input.oneLiner,
   })
 }
 

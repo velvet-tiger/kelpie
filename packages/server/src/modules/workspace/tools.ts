@@ -27,7 +27,7 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
   mcp.tool({
     name: 'workspace_get',
     description:
-      'This workspace\'s name, slug, timezone, tagline and one-liner. Mirrors GET /v1/workspaces/{id}.',
+      'This workspace\'s name, slug, and timezone. Mirrors GET /v1/workspaces/{id}.',
     inputSchema: noArgs,
     invoke: async (_args, actor) =>
       workspaceResponse(await service.get(actor, requireWorkspaceId(actor))),
