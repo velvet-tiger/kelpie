@@ -139,7 +139,7 @@ function EmptyState({ onAdd, onSeedStarters, isSeeding }: EmptyStateProps): Reac
           type="button"
           onClick={onSeedStarters}
           disabled={isSeeding}
-          className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+          className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
         >
           {isSeeding ? 'Adding…' : 'Add Contact & Marketing'}
         </button>
@@ -268,7 +268,7 @@ function AddPurposeForm({ onDone }: AddPurposeFormProps): React.JSX.Element {
         <button
           type="submit"
           disabled={create.isPending}
-          className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+          className="rounded-md bg-accent px-3 py-1 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
         >
           {create.isPending ? 'Adding…' : 'Add purpose'}
         </button>
@@ -389,7 +389,7 @@ function PurposeRow({ purpose }: PurposeRowProps): React.JSX.Element {
             <button
               type="submit"
               disabled={update.isPending}
-              className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+              className="rounded-md bg-accent px-3 py-1 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
             >
               {update.isPending ? 'Saving…' : 'Save'}
             </button>
