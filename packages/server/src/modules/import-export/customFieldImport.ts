@@ -1,4 +1,4 @@
-import type { CustomFieldDefinitionRef, CustomFieldType, CustomFieldWireValue } from '@kelpie/schemas'
+import type { CustomFieldDefinitionRef, CustomFieldObjectType, CustomFieldType, CustomFieldWireValue } from '@kelpie/schemas'
 
 import { parseCustomFieldAnswer } from '../forms/applyMappedFields.ts'
 import type { CustomFieldDefinitionRecord } from '../custom-fields/repository.ts'
@@ -71,7 +71,7 @@ export function parseCustomFieldWireValue(
   }
 
   const ref: CustomFieldDefinitionRef = {
-    objectType: definition.objectType,
+    objectType: definition.objectType as CustomFieldObjectType,
     key: definition.key,
     label: definition.label,
     type: definition.type as CustomFieldType,
