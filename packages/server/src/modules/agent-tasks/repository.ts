@@ -150,3 +150,27 @@ export async function updateRun(
 ): Promise<void> {
   await db.update(agentRuns).set(changes).where(eq(agentRuns.id, id))
 }
+
+/** Moves every agent run from one target to another inside a conversion transaction. */
+export async function repointForTarget(
+  db: Queryable,
+  workspaceId: string,
+  fromType: string,
+  fromId: string,
+  toType: string,
+  toId: string,
+): Promise<number> {
+  const updated = await db
+    .update(agentRuns)
+    .set({ targetType: toType, targetId: toId })
+    .where(
+      and(
+        eq(agentRuns.workspaceId, workspaceId),
+        eq(agentRuns.targetType, fromType),
+        eq(agentRuns.targetId, fromId),
+      ),
+    )
+    .returning({ id: agentRuns.id })
+
+  return updated.length
+}

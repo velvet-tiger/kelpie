@@ -1,7 +1,9 @@
+import { sql } from 'drizzle-orm'
+import { check, index, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
+import { PIPELINE_KINDS } from '@kelpie/schemas'
 import type { CustomFieldValue } from '@kelpie/schemas'
-import { index, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import { createdAt, oneOf, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
 import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
@@ -17,7 +19,8 @@ import { workspaceMembers, workspaces } from '../workspace/schema.ts'
  * enquiry may arrive before a company is on file. `converted_deal_id` becomes
  * non-null when the enquiry is converted via
  * `POST /v1/enquiries/:id/convert`; deleting the deal nulls it back so a
- * fresh conversion is possible.
+ * fresh conversion is possible. `converted_target_*` generalises that pointer
+ * to any pipeline type.
  */
 export const enquiries = pgTable(
   'enquiries',
@@ -34,6 +37,8 @@ export const enquiries = pgTable(
     companyId: text('company_id').references(() => companies.id, { onDelete: 'restrict' }),
     ownerId: text('owner_id').references(() => workspaceMembers.id, { onDelete: 'restrict' }),
     convertedDealId: text('converted_deal_id').references(() => deals.id, { onDelete: 'set null' }),
+    convertedTargetType: text('converted_target_type'),
+    convertedTargetId: text('converted_target_id'),
     summary: text('summary').notNull().default(''),
     tags: text('tags').array().notNull().default([]),
     // Workspace-defined fields, keyed by definition key. See people/schema.ts.
@@ -55,5 +60,9 @@ export const enquiries = pgTable(
     index('enquiries_stage_idx').on(table.stageId),
     index('enquiries_converted_deal_idx').on(table.convertedDealId),
     index('enquiries_search_idx').using('gin', table.searchVector),
+    check(
+      'enquiries_converted_target_type_check',
+      sql`${table.convertedTargetType} is null or ${oneOf('enquiries_converted_target_type_check', table.convertedTargetType, PIPELINE_KINDS)}`,
+    ),
   ],
 )

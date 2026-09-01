@@ -18,7 +18,11 @@ export const enquiriesEvents = {
    * outside Kelpie subscribe to `record.created` on the deal instead. Kept for
    * internal listeners that want the semantic signal.
    */
-  'enquiries.enquiry.converted': z.object({ dealId: z.string() }),
+  'enquiries.enquiry.converted': z.object({
+    dealId: z.string().optional(),
+    targetType: z.string(),
+    targetId: z.string(),
+  }),
 } satisfies ModuleEventCatalog
 
 export type EnquiryCreatedData = Record<string, never>
@@ -31,7 +35,9 @@ export interface EnquiryStageChangedData {
   readonly toStageId: string
 }
 export interface EnquiryConvertedData {
-  readonly dealId: string
+  readonly dealId?: string | undefined
+  readonly targetType: string
+  readonly targetId: string
 }
 
 declare module '../../runtime/events.ts' {

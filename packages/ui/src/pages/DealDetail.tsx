@@ -6,6 +6,10 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
+import {
+  detailPathForPipelineKind,
+  useConvertPipelineRecord,
+} from '../api/resources/conversions.ts'
 import { useDeal, useDeleteDeal, useUpdateDeal } from '../api/resources/deals.ts'
 import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
@@ -16,6 +20,7 @@ import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.t
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { ConvertRecordAction, ConvertRecordButton } from '../components/ConvertRecordDialog.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
@@ -56,10 +61,12 @@ export function DealDetail(): React.JSX.Element {
   const { id } = useParams()
   const navigate = useNavigate()
   const { record, isLoading, isNotFound, error } = useDeal(id)
+  const convertRecord = useConvertPipelineRecord('deal')
   const deleteDeal = useDeleteDeal()
   const moduleTabs = inSlotOrder(useRecordTabs('deal'))
   const hasCustomFields = useHasCustomFields('deal')
   const [activeTab, setActiveTab] = useState('overview')
+  const [showConvert, setShowConvert] = useState(false)
   const formSubmissions = useFormSubmissionsForRecord('deal', id)
 
   if (isNotFound) {
@@ -89,6 +96,7 @@ export function DealDetail(): React.JSX.Element {
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
   const moduleTab = moduleTabs.find((tab) => tab.id === active)
+  const convertedTo = record.convertedTo
 
   return (
     <div className="animate-fade-in mx-auto max-w-6xl">
@@ -104,6 +112,13 @@ export function DealDetail(): React.JSX.Element {
           <DealHeading deal={record} />
 
           <div className="flex justify-end gap-2">
+            <ConvertRecordButton
+              convertedTo={convertedTo}
+              convert={convertRecord}
+              onOpenDialog={() => {
+                setShowConvert(true)
+              }}
+            />
             <AgentTasks targetType="deal" targetId={record.id} targetLabel={record.name} />
             <DeleteRecord
               recordLabel="Deal"
@@ -118,6 +133,26 @@ export function DealDetail(): React.JSX.Element {
               }}
             />
           </div>
+
+          {convertRecord.error !== null && <ErrorPanel error={convertRecord.error} />}
+          <ConvertRecordAction
+            sourceKind="deal"
+            recordId={record.id}
+            recordName={record.name}
+            companyId={record.companyId}
+            convertedTo={convertedTo}
+            convert={convertRecord}
+            showDialog={showConvert}
+            onOpenDialog={() => {
+              setShowConvert(true)
+            }}
+            onCloseDialog={() => {
+              setShowConvert(false)
+            }}
+            onConverted={(created, targetType) => {
+              navigate(detailPathForPipelineKind(targetType, created.id))
+            }}
+          />
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Deal sections">
             {active === 'overview' && <DealOverview deal={record} />}

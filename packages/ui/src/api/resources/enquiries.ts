@@ -1,11 +1,7 @@
-import { dealSchema, enquiryBody, enquirySchema } from '@kelpie/schemas'
-import type { Deal, Enquiry, EnquiryInput } from '@kelpie/schemas'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-
-import type { QueryParameters } from '../client.ts'
-import { useApiClient } from '../context.ts'
-import { toError } from '../errors.ts'
+import { enquiryBody, enquirySchema } from '@kelpie/schemas'
+import type { Enquiry, EnquiryInput } from '@kelpie/schemas'
 import { createResourceHooks } from '../resource.ts'
+import type { QueryParameters } from '../client.ts'
 import type {
   ListOptions,
   MutationResult,
@@ -88,31 +84,9 @@ export function useDeleteEnquiry(): MutationResult<string, void> {
   return enquiries.useRemove()
 }
 
-/**
- * `POST /v1/enquiries/:id/convert`. Returns the freshly created deal, so the
- * caller can navigate straight to it. 409 if the enquiry has already been
- * converted; 422 if it has no linked company yet.
- */
-export function useConvertEnquiry(): MutationResult<string, Deal> {
-  const client = useApiClient()
-  const queryClient = useQueryClient()
-  const mutation = useMutation({
-    mutationFn: (id: string) =>
-      client.post(`/enquiries/${id}/convert`, {}, dealSchema.parse),
-    onSuccess: () => {
-      // The enquiry, deals list, activities on both sides are all stale.
-      void queryClient.invalidateQueries({ queryKey: ['enquiries'] })
-      void queryClient.invalidateQueries({ queryKey: ['deals'] })
-      void queryClient.invalidateQueries({ queryKey: ['activities'] })
-    },
-  })
-
-  return {
-    run: (input) => {
-      mutation.mutate(input)
-    },
-    runAsync: (input) => mutation.mutateAsync(input),
-    isPending: mutation.isPending,
-    error: toError(mutation.error),
-  }
-}
+export {
+  useConvertEnquiry,
+  useConvertPipelineRecord,
+  detailPathForPipelineKind,
+  convertedTargetPath,
+} from './conversions.ts'

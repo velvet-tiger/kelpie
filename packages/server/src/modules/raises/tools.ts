@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import type { McpToolRegistry } from '../../runtime/module.ts'
 import { idArg, idSetArg, listWindowShape, registerCrudTools, termArg, toSet } from '../crudTools.ts'
+import type { ConversionsService } from '../conversions/index.ts'
+import { registerPipelineConvertTool } from '../conversions/mcp.ts'
 import { createBody, raiseResponse, toCreateInput, toUpdateInput, updateBody } from './routes.ts'
 import type { RaisesService } from './service.ts'
 
@@ -15,7 +17,11 @@ const listArgs = z.strictObject({
   person_id: idSetArg.optional().describe('Only raises one of these people is key on.'),
 })
 
-export function registerRaisesTools(mcp: McpToolRegistry, service: RaisesService): void {
+export function registerRaisesTools(
+  mcp: McpToolRegistry,
+  service: RaisesService,
+  conversions: ConversionsService,
+): void {
   registerCrudTools(mcp, {
     resource: 'raises',
     subject: 'raise',
@@ -36,4 +42,6 @@ export function registerRaisesTools(mcp: McpToolRegistry, service: RaisesService
     updateArgs: updateBody.extend({ id: idArg }),
     toUpdateInput,
   })
+
+  registerPipelineConvertTool(mcp, conversions, 'raise')
 }

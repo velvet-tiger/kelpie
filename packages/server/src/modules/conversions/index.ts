@@ -1,0 +1,6 @@
+export { createConversionsFromContext } from './factory.ts'
+export { createConversionsService, createSharedConversionsService } from './service.ts'
+export type { ConversionsDependencies, ConversionsService, ConvertPipelineRecordResult } from './service.ts'
+export { repointRecordsAttachedTo } from './repoint.ts'
+export { clearConversionPointersToTarget } from './clearPointers.ts'
+export { objectLabelFor } from './fieldMap.ts'

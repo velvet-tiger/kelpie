@@ -6,6 +6,10 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
+import {
+  detailPathForPipelineKind,
+  useConvertPipelineRecord,
+} from '../api/resources/conversions.ts'
 import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
 import {
@@ -20,6 +24,7 @@ import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.t
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { ConvertRecordAction, ConvertRecordButton } from '../components/ConvertRecordDialog.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
@@ -61,10 +66,12 @@ export function OpportunityDetail(): React.JSX.Element {
   const { id } = useParams()
   const navigate = useNavigate()
   const { record, isLoading, isNotFound, error } = useOpportunity(id)
+  const convertRecord = useConvertPipelineRecord('opportunity')
   const deleteOpportunity = useDeleteOpportunity()
   const moduleTabs = inSlotOrder(useRecordTabs('opportunity'))
   const hasCustomFields = useHasCustomFields('opportunity')
   const [activeTab, setActiveTab] = useState('overview')
+  const [showConvert, setShowConvert] = useState(false)
   const formSubmissions = useFormSubmissionsForRecord('opportunity', id)
 
   if (isNotFound) {
@@ -94,6 +101,7 @@ export function OpportunityDetail(): React.JSX.Element {
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
   const moduleTab = moduleTabs.find((tab) => tab.id === active)
+  const convertedTo = record.convertedTo
 
   return (
     <div className="animate-fade-in mx-auto max-w-6xl">
@@ -109,6 +117,13 @@ export function OpportunityDetail(): React.JSX.Element {
           <OpportunityHeading opportunity={record} />
 
           <div className="flex justify-end gap-2">
+            <ConvertRecordButton
+              convertedTo={convertedTo}
+              convert={convertRecord}
+              onOpenDialog={() => {
+                setShowConvert(true)
+              }}
+            />
             <AgentTasks targetType="opportunity" targetId={record.id} targetLabel={record.name} />
             <DeleteRecord
               recordLabel="Opportunity"
@@ -123,6 +138,26 @@ export function OpportunityDetail(): React.JSX.Element {
               }}
             />
           </div>
+
+          {convertRecord.error !== null && <ErrorPanel error={convertRecord.error} />}
+          <ConvertRecordAction
+            sourceKind="opportunity"
+            recordId={record.id}
+            recordName={record.name}
+            companyId={record.companyId}
+            convertedTo={convertedTo}
+            convert={convertRecord}
+            showDialog={showConvert}
+            onOpenDialog={() => {
+              setShowConvert(true)
+            }}
+            onCloseDialog={() => {
+              setShowConvert(false)
+            }}
+            onConverted={(created, targetType) => {
+              navigate(detailPathForPipelineKind(targetType, created.id))
+            }}
+          />
 
           <RecordTabs
             tabs={tabs}

@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import type { McpToolRegistry } from '../../runtime/module.ts'
 import { idArg, idSetArg, listWindowShape, registerCrudTools, termArg, toSet } from '../crudTools.ts'
+import type { ConversionsService } from '../conversions/index.ts'
+import { registerPipelineConvertTool } from '../conversions/mcp.ts'
 import { createBody, partnershipResponse, toCreateInput, toUpdateInput, updateBody } from './routes.ts'
 import type { PartnershipsService } from './service.ts'
 
@@ -16,7 +18,11 @@ const listArgs = z.strictObject({
   person_id: idSetArg.optional().describe('Only partnerships one of these people is a contact on.'),
 })
 
-export function registerPartnershipsTools(mcp: McpToolRegistry, service: PartnershipsService): void {
+export function registerPartnershipsTools(
+  mcp: McpToolRegistry,
+  service: PartnershipsService,
+  conversions: ConversionsService,
+): void {
   registerCrudTools(mcp, {
     resource: 'partnerships',
     subject: 'partnership',
@@ -38,4 +44,6 @@ export function registerPartnershipsTools(mcp: McpToolRegistry, service: Partner
     updateArgs: updateBody.extend({ id: idArg }),
     toUpdateInput,
   })
+
+  registerPipelineConvertTool(mcp, conversions, 'partnership')
 }

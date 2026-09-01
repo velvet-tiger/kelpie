@@ -1,4 +1,4 @@
-import { customFieldsPatchShape } from '@kelpie/schemas'
+import { convertPipelineRecordBody, convertedToResponse, customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -8,6 +8,8 @@ import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
+import { mountPipelineConvertRoute } from '../conversions/routes.ts'
+import type { ConversionsService } from '../conversions/index.ts'
 import type { CreateDealInput, DealView, DealsService, UpdateDealInput } from './service.ts'
 
 /** Wire shapes for `/v1/deals`. Bodies are strict; an unknown field is a 422, per `api.md`. */
@@ -58,6 +60,7 @@ export const updateBody = z.strictObject(dealShape).partial()
 
 export interface DealsRoutesDependencies extends CredentialDependencies {
   readonly service: DealsService
+  readonly conversions: ConversionsService
 }
 
 export function toCreateInput(body: z.infer<typeof createBody>): CreateDealInput {
@@ -117,6 +120,7 @@ export function dealResponse(deal: DealView): Record<string, unknown> {
     summary: deal.summary,
     tags: deal.tags,
     external_id: deal.externalId,
+    converted_to: convertedToResponse(deal.convertedTargetType, deal.convertedTargetId),
     custom_fields: renderCustomFieldsForWire(deal.customFields),
     created_at: deal.createdAt.toISOString(),
     updated_at: deal.updatedAt.toISOString(),
@@ -169,5 +173,11 @@ export function mountDealsRoutes(router: Hono, dependencies: DealsRoutesDependen
     await dependencies.service.remove(await requireActor(context), context.req.param('id'))
 
     return context.body(null, 204)
+  })
+
+  mountPipelineConvertRoute(router, '/deals/:id/convert', {
+    ...dependencies,
+    sourceKind: 'deal',
+    bodySchema: convertPipelineRecordBody,
   })
 }

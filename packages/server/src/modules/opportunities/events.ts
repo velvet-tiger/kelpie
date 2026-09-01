@@ -12,6 +12,10 @@ export const opportunitiesEvents = {
     fromStageId: z.string().nullable(),
     toStageId: z.string(),
   }),
+  'opportunities.opportunity.converted': z.object({
+    targetType: z.string(),
+    targetId: z.string(),
+  }),
 } satisfies ModuleEventCatalog
 
 export type OpportunityCreatedData = Record<string, never>
@@ -23,6 +27,10 @@ export interface OpportunityStageChangedData {
   readonly fromStageId: string | null
   readonly toStageId: string
 }
+export interface OpportunityConvertedData {
+  readonly targetType: string
+  readonly targetId: string
+}
 
 declare module '../../runtime/events.ts' {
   interface KelpieEventMap {
@@ -30,5 +38,6 @@ declare module '../../runtime/events.ts' {
     'opportunities.opportunity.updated': OpportunityUpdatedData
     'opportunities.opportunity.deleted': OpportunityDeletedData
     'opportunities.opportunity.stage_changed': OpportunityStageChangedData
+    'opportunities.opportunity.converted': OpportunityConvertedData
   }
 }

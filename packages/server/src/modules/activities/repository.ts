@@ -193,3 +193,27 @@ export async function deleteForTarget(
 
   return deleted.length
 }
+
+/** Moves every activity from one target to another inside a conversion transaction. */
+export async function repointForTarget(
+  db: Queryable,
+  workspaceId: string,
+  fromType: string,
+  fromId: string,
+  toType: string,
+  toId: string,
+): Promise<number> {
+  const updated = await db
+    .update(activities)
+    .set({ targetType: toType, targetId: toId })
+    .where(
+      and(
+        eq(activities.workspaceId, workspaceId),
+        eq(activities.targetType, fromType),
+        eq(activities.targetId, fromId),
+      ),
+    )
+    .returning({ id: activities.id })
+
+  return updated.length
+}

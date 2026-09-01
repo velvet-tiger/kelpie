@@ -173,6 +173,17 @@ export type { Company, CompanyInput } from './company.ts'
 export { createPositionBody, positionSchema, updatePositionBody } from './position.ts'
 export type { CreatePositionInput, Position } from './position.ts'
 
+export {
+  convertEnquiryBody,
+  convertPipelineRecordBody,
+  convertPipelineRecordRequest,
+  convertedToForWire,
+  convertedToResponse,
+  convertedToSchema,
+  convertedToWireSchema,
+} from './conversion.ts'
+export type { ConvertedTo, ConvertPipelineRecordInput } from './conversion.ts'
+
 export { dealBody, dealSchema } from './deal.ts'
 export type { Deal, DealInput } from './deal.ts'
 

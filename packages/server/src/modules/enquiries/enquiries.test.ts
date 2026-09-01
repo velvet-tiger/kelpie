@@ -98,6 +98,25 @@ describe.skipIf(connectionString === undefined)('enquiries', () => {
     return readList(await response.json())
   }
 
+  async function createNote(targetType: string, targetId: string, body: string): Promise<void> {
+    const response = await client.send('POST', '/v1/notes', {
+      body: { target_type: targetType, target_id: targetId, body },
+      cookie: acme.cookie,
+    })
+
+    expect(response.status).toBe(201)
+  }
+
+  async function notesFor(targetType: string, targetId: string): Promise<Record<string, unknown>[]> {
+    const response = await client.send(
+      'GET',
+      `/v1/notes?target_type=${targetType}&target_id=${targetId}`,
+      { cookie: acme.cookie },
+    )
+
+    return readList(await response.json())
+  }
+
   describe('creating', () => {
     it('creates an enquiry from a name alone, with honest defaults', async () => {
       const enquiry = await createEnquiry()
@@ -219,6 +238,45 @@ describe.skipIf(connectionString === undefined)('enquiries', () => {
       ).toBe(true)
     })
 
+    it('repoints notes and plan items to the new deal', async () => {
+      const companyId = await createCompany('Contoso')
+      const enquiry = await createEnquiry({ company_id: companyId })
+      const enquiryId = readString(enquiry, 'id')
+
+      await createNote('enquiry', enquiryId, 'Asked about enterprise pricing.')
+
+      const planResponse = await client.send('POST', '/v1/plan_items', {
+        body: {
+          target_type: 'enquiry',
+          target_id: enquiryId,
+          title: 'Send proposal',
+          date: '2026-09-15',
+        },
+        cookie: acme.cookie,
+      })
+      expect(planResponse.status).toBe(201)
+
+      const convert = await client.send('POST', `/v1/enquiries/${enquiryId}/convert`, {
+        body: {},
+        cookie: acme.cookie,
+      })
+      expect(convert.status).toBe(201)
+      const deal = readRecord(await convert.json())
+      const dealId = readString(deal, 'id')
+
+      const notesOnDeal = await notesFor('deal', dealId)
+      expect(notesOnDeal).toHaveLength(1)
+      expect(notesOnDeal[0]?.body).toBe('Asked about enterprise pricing.')
+      expect(await notesFor('enquiry', enquiryId)).toHaveLength(0)
+
+      const planResponseAfter = await client.send(
+        'GET',
+        `/v1/plan_items?target_type=deal&target_id=${dealId}`,
+        { cookie: acme.cookie },
+      )
+      expect(readList(await planResponseAfter.json())).toHaveLength(1)
+    })
+
     it('refuses a convert without a linked company with 422', async () => {
       const enquiry = await createEnquiry()
       const response = await client.send(
@@ -268,7 +326,9 @@ describe.skipIf(connectionString === undefined)('enquiries', () => {
       const readBack = await client.send('GET', `/v1/enquiries/${enquiryId}`, {
         cookie: acme.cookie,
       })
-      expect(readRecord(await readBack.json()).converted_deal_id).toBeNull()
+      const updated = readRecord(await readBack.json())
+      expect(updated.converted_deal_id).toBeNull()
+      expect(updated.converted_to).toBeNull()
 
       const again = await client.send('POST', `/v1/enquiries/${enquiryId}/convert`, {
         body: {},

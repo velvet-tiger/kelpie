@@ -158,6 +158,30 @@ export async function deleteForTarget(
   return deleted.length
 }
 
+/** Moves every plan item from one target to another inside a conversion transaction. */
+export async function repointForTarget(
+  db: Queryable,
+  workspaceId: string,
+  fromType: string,
+  fromId: string,
+  toType: string,
+  toId: string,
+): Promise<number> {
+  const updated = await db
+    .update(planItems)
+    .set({ targetType: toType, targetId: toId })
+    .where(
+      and(
+        eq(planItems.workspaceId, workspaceId),
+        eq(planItems.targetType, fromType),
+        eq(planItems.targetId, fromId),
+      ),
+    )
+    .returning({ id: planItems.id })
+
+  return updated.length
+}
+
 /** Whether a member belongs to this workspace, for validating `owner_id`. */
 export async function memberExists(
   db: Queryable,

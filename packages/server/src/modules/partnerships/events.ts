@@ -12,6 +12,10 @@ export const partnershipsEvents = {
     fromStageId: z.string().nullable(),
     toStageId: z.string(),
   }),
+  'partnerships.partnership.converted': z.object({
+    targetType: z.string(),
+    targetId: z.string(),
+  }),
 } satisfies ModuleEventCatalog
 
 export type PartnershipCreatedData = Record<string, never>
@@ -23,6 +27,10 @@ export interface PartnershipStageChangedData {
   readonly fromStageId: string | null
   readonly toStageId: string
 }
+export interface PartnershipConvertedData {
+  readonly targetType: string
+  readonly targetId: string
+}
 
 declare module '../../runtime/events.ts' {
   interface KelpieEventMap {
@@ -30,5 +38,6 @@ declare module '../../runtime/events.ts' {
     'partnerships.partnership.updated': PartnershipUpdatedData
     'partnerships.partnership.deleted': PartnershipDeletedData
     'partnerships.partnership.stage_changed': PartnershipStageChangedData
+    'partnerships.partnership.converted': PartnershipConvertedData
   }
 }

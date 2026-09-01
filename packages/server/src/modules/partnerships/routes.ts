@@ -1,4 +1,4 @@
-import { customFieldsPatchShape } from '@kelpie/schemas'
+import { convertPipelineRecordBody, convertedToResponse, customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -8,6 +8,8 @@ import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
+import { mountPipelineConvertRoute } from '../conversions/routes.ts'
+import type { ConversionsService } from '../conversions/index.ts'
 import type {
   CreatePartnershipInput,
   PartnershipView,
@@ -59,6 +61,7 @@ export const updateBody = z.strictObject(partnershipShape).partial()
 
 export interface PartnershipsRoutesDependencies extends CredentialDependencies {
   readonly service: PartnershipsService
+  readonly conversions: ConversionsService
 }
 
 export function toCreateInput(body: z.infer<typeof createBody>): CreatePartnershipInput {
@@ -111,6 +114,7 @@ export function partnershipResponse(partnership: PartnershipView): Record<string
     person_ids: partnership.personIds,
     summary: partnership.summary,
     tags: partnership.tags,
+    converted_to: convertedToResponse(partnership.convertedTargetType, partnership.convertedTargetId),
     custom_fields: renderCustomFieldsForWire(partnership.customFields),
     created_at: partnership.createdAt.toISOString(),
     updated_at: partnership.updatedAt.toISOString(),
@@ -173,5 +177,11 @@ export function mountPartnershipsRoutes(
     await dependencies.service.remove(await requireActor(context), context.req.param('id'))
 
     return context.body(null, 204)
+  })
+
+  mountPipelineConvertRoute(router, '/partnerships/:id/convert', {
+    ...dependencies,
+    sourceKind: 'partnership',
+    bodySchema: convertPipelineRecordBody,
   })
 }

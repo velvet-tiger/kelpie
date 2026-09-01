@@ -12,6 +12,10 @@ export const dealsEvents = {
     fromStageId: z.string().nullable(),
     toStageId: z.string(),
   }),
+  'deals.deal.converted': z.object({
+    targetType: z.string(),
+    targetId: z.string(),
+  }),
 } satisfies ModuleEventCatalog
 
 export type DealCreatedData = Record<string, never>
@@ -23,6 +27,10 @@ export interface DealStageChangedData {
   readonly fromStageId: string | null
   readonly toStageId: string
 }
+export interface DealConvertedData {
+  readonly targetType: string
+  readonly targetId: string
+}
 
 declare module '../../runtime/events.ts' {
   interface KelpieEventMap {
@@ -30,5 +38,6 @@ declare module '../../runtime/events.ts' {
     'deals.deal.updated': DealUpdatedData
     'deals.deal.deleted': DealDeletedData
     'deals.deal.stage_changed': DealStageChangedData
+    'deals.deal.converted': DealConvertedData
   }
 }

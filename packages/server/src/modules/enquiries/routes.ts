@@ -1,4 +1,4 @@
-import { customFieldsPatchShape } from '@kelpie/schemas'
+import { convertEnquiryBody, convertedToResponse, customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -7,7 +7,8 @@ import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
-import { dealResponse } from '../deals/routes.ts'
+import { mountPipelineConvertRoute } from '../conversions/routes.ts'
+import type { ConversionsService } from '../conversions/index.ts'
 import type { CreateEnquiryInput, EnquiriesService, EnquiryView, UpdateEnquiryInput } from './service.ts'
 
 /** Wire shapes for `/v1/enquiries`. Bodies are strict; an unknown field is a 422, per `api.md`. */
@@ -52,6 +53,7 @@ export const updateBody = z.strictObject(enquiryShape).partial()
 
 export interface EnquiriesRoutesDependencies extends CredentialDependencies {
   readonly service: EnquiriesService
+  readonly conversions: ConversionsService
 }
 
 export function toCreateInput(body: z.infer<typeof createBody>): CreateEnquiryInput {
@@ -91,6 +93,7 @@ export function enquiryResponse(enquiry: EnquiryView): Record<string, unknown> {
     company_id: enquiry.companyId,
     owner_id: enquiry.ownerId,
     converted_deal_id: enquiry.convertedDealId,
+    converted_to: convertedToResponse(enquiry.convertedTargetType, enquiry.convertedTargetId),
     person_ids: enquiry.personIds,
     summary: enquiry.summary,
     tags: enquiry.tags,
@@ -156,17 +159,12 @@ export function mountEnquiriesRoutes(
   })
 
   /**
-   * Convert an enquiry to a deal. Idempotent-ish: a second call 409s and
-   * carries the existing deal id in `details`. Returns the freshly created
-   * deal, wire-shaped, so the caller can navigate straight to it.
+   * Convert an enquiry to another pipeline record type. An empty body defaults
+   * the target to a deal for backward compatibility.
    */
-  router.post('/enquiries/:id/convert', async (context) => {
-    const { deal, personIds } = await dependencies.service.convertToDeal(
-      await requireActor(context),
-      context.req.param('id'),
-    )
-    const { workspaceId: _workspaceId, ...dealView } = deal
-
-    return context.json(dealResponse({ ...dealView, personIds }), 201)
+  mountPipelineConvertRoute(router, '/enquiries/:id/convert', {
+    ...dependencies,
+    sourceKind: 'enquiry',
+    bodySchema: convertEnquiryBody,
   })
 }

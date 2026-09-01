@@ -128,3 +128,27 @@ export async function deleteForTarget(
 
   return deleted.length
 }
+
+/** Moves every note from one target to another inside a conversion transaction. */
+export async function repointForTarget(
+  db: Queryable,
+  workspaceId: string,
+  fromType: string,
+  fromId: string,
+  toType: string,
+  toId: string,
+): Promise<number> {
+  const updated = await db
+    .update(notes)
+    .set({ targetType: toType, targetId: toId })
+    .where(
+      and(
+        eq(notes.workspaceId, workspaceId),
+        eq(notes.targetType, fromType),
+        eq(notes.targetId, fromId),
+      ),
+    )
+    .returning({ id: notes.id })
+
+  return updated.length
+}

@@ -6,6 +6,10 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
+import {
+  detailPathForPipelineKind,
+  useConvertPipelineRecord,
+} from '../api/resources/conversions.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
@@ -15,6 +19,7 @@ import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.t
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { ConvertRecordAction, ConvertRecordButton } from '../components/ConvertRecordDialog.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
@@ -60,10 +65,12 @@ export function RaiseDetail(): React.JSX.Element {
   const { id } = useParams()
   const navigate = useNavigate()
   const { record, isLoading, isNotFound, error } = useRaise(id)
+  const convertRecord = useConvertPipelineRecord('raise')
   const deleteRaise = useDeleteRaise()
   const moduleTabs = inSlotOrder(useRecordTabs('raise'))
   const hasCustomFields = useHasCustomFields('raise')
   const [activeTab, setActiveTab] = useState('overview')
+  const [showConvert, setShowConvert] = useState(false)
 
   if (isNotFound) {
     return <NotFoundPanel label="Raise" backTo="/fundraising" />
@@ -89,6 +96,7 @@ export function RaiseDetail(): React.JSX.Element {
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
   const moduleTab = moduleTabs.find((tab) => tab.id === active)
+  const convertedTo = record.convertedTo
 
   return (
     <div className="animate-fade-in mx-auto max-w-6xl">
@@ -104,6 +112,13 @@ export function RaiseDetail(): React.JSX.Element {
           <RaiseHeading raise={record} />
 
           <div className="flex justify-end gap-2">
+            <ConvertRecordButton
+              convertedTo={convertedTo}
+              convert={convertRecord}
+              onOpenDialog={() => {
+                setShowConvert(true)
+              }}
+            />
             <AgentTasks targetType="raise" targetId={record.id} targetLabel={record.name} />
             <DeleteRecord
               recordLabel="Raise"
@@ -118,6 +133,26 @@ export function RaiseDetail(): React.JSX.Element {
               }}
             />
           </div>
+
+          {convertRecord.error !== null && <ErrorPanel error={convertRecord.error} />}
+          <ConvertRecordAction
+            sourceKind="raise"
+            recordId={record.id}
+            recordName={record.name}
+            companyId={record.companyId}
+            convertedTo={convertedTo}
+            convert={convertRecord}
+            showDialog={showConvert}
+            onOpenDialog={() => {
+              setShowConvert(true)
+            }}
+            onCloseDialog={() => {
+              setShowConvert(false)
+            }}
+            onConverted={(created, targetType) => {
+              navigate(detailPathForPipelineKind(targetType, created.id))
+            }}
+          />
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Raise sections">
             {active === 'overview' && <RaiseOverview raise={record} />}

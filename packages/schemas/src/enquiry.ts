@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { convertedToWireSchema } from './conversion.ts'
+import type { ConvertedTo } from './conversion.ts'
 import { customFieldValuesBody, customFieldValuesSchema } from './customField.ts'
 import type { CustomFieldValue, CustomFieldValues } from './customField.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
@@ -18,6 +20,8 @@ export interface Enquiry extends RecordTimestamps {
   readonly ownerId: string | null
   /** Non-null once the enquiry has been converted to a Deal; nulled if that deal is deleted. */
   readonly convertedDealId: string | null
+  /** Non-null once this record has been converted to another pipeline type. */
+  readonly convertedTo: ConvertedTo | null
   readonly personIds: readonly string[]
   readonly summary: string
   readonly tags: readonly string[]
@@ -34,6 +38,7 @@ export const enquirySchema: z.ZodType<Enquiry, unknown> = z
     company_id: idSchema.nullable(),
     owner_id: idSchema.nullable(),
     converted_deal_id: idSchema.nullable(),
+    converted_to: convertedToWireSchema,
     person_ids: z.array(idSchema),
     summary: z.string(),
     tags: z.array(z.string()),
@@ -49,6 +54,10 @@ export const enquirySchema: z.ZodType<Enquiry, unknown> = z
       companyId: wire.company_id,
       ownerId: wire.owner_id,
       convertedDealId: wire.converted_deal_id,
+      convertedTo:
+        wire.converted_to === null
+          ? null
+          : { targetType: wire.converted_to.target_type, targetId: wire.converted_to.target_id },
       personIds: wire.person_ids,
       summary: wire.summary,
       tags: wire.tags,

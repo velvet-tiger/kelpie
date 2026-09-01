@@ -1,7 +1,9 @@
+import { sql } from 'drizzle-orm'
+import { check, bigint, date, index, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
+import { PIPELINE_KINDS } from '@kelpie/schemas'
 import type { CustomFieldValue } from '@kelpie/schemas'
-import { bigint, date, index, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import { createdAt, oneOf, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
 import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
@@ -34,6 +36,8 @@ export const raises = pgTable(
     expectedClose: date('expected_close'),
     summary: text('summary').notNull().default(''),
     tags: text('tags').array().notNull().default([]),
+    convertedTargetType: text('converted_target_type'),
+    convertedTargetId: text('converted_target_id'),
     // Workspace-defined fields, keyed by definition key. See people/schema.ts.
     customFields: jsonb('custom_fields')
       .$type<Readonly<Record<string, CustomFieldValue>>>()
@@ -54,6 +58,10 @@ export const raises = pgTable(
     index('raises_company_idx').on(table.companyId),
     index('raises_stage_idx').on(table.stageId),
     index('raises_search_idx').using('gin', table.searchVector),
+    check(
+      'raises_converted_target_type_check',
+      sql`${table.convertedTargetType} is null or ${oneOf('raises_converted_target_type_check', table.convertedTargetType, PIPELINE_KINDS)}`,
+    ),
   ],
 )
 

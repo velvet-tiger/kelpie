@@ -9,7 +9,8 @@ import {
   termArg,
   toSet,
 } from '../crudTools.ts'
-import { dealResponse } from '../deals/routes.ts'
+import type { ConversionsService } from '../conversions/index.ts'
+import { registerEnquiryConvertToDealTool, registerPipelineConvertTool } from '../conversions/mcp.ts'
 import { createBody, enquiryResponse, toCreateInput, toUpdateInput, updateBody } from './routes.ts'
 import type { EnquiriesService } from './service.ts'
 
@@ -24,7 +25,11 @@ const listArgs = z.strictObject({
   person_id: idSetArg.optional().describe('Only enquiries any of these people are on.'),
 })
 
-export function registerEnquiriesTools(mcp: McpToolRegistry, service: EnquiriesService): void {
+export function registerEnquiriesTools(
+  mcp: McpToolRegistry,
+  service: EnquiriesService,
+  conversions: ConversionsService,
+): void {
   registerCrudTools(mcp, {
     resource: 'enquiries',
     subject: 'enquiry',
@@ -47,20 +52,6 @@ export function registerEnquiriesTools(mcp: McpToolRegistry, service: EnquiriesS
     toUpdateInput,
   })
 
-  mcp.tool({
-    name: 'enquiries_convert_to_deal',
-    description:
-      'Convert an enquiry to a Deal. Copies name, company, owner and linked ' +
-      'people to a new deal in the first open deal stage, moves the enquiry ' +
-      'to its first closed stage, and records the link on the enquiry. 409 if ' +
-      'the enquiry has already been converted; 422 if it has no company. ' +
-      'Mirrors POST /v1/enquiries/{id}/convert.',
-    inputSchema: z.strictObject({ id: idArg }),
-    invoke: async ({ id }, actor) => {
-      const { deal, personIds } = await service.convertToDeal(actor, id)
-      const { workspaceId: _workspaceId, ...dealView } = deal
-
-      return dealResponse({ ...dealView, personIds })
-    },
-  })
+  registerPipelineConvertTool(mcp, conversions, 'enquiry')
+  registerEnquiryConvertToDealTool(mcp, conversions)
 }

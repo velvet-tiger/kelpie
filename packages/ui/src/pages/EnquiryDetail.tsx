@@ -7,11 +7,14 @@ import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies, useCompany } from '../api/resources/companies.ts'
 import {
-  useConvertEnquiry,
   useDeleteEnquiry,
   useEnquiry,
   useUpdateEnquiry,
 } from '../api/resources/enquiries.ts'
+import {
+  detailPathForPipelineKind,
+  useConvertPipelineRecord,
+} from '../api/resources/conversions.ts'
 import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { usePeople } from '../api/resources/people.ts'
@@ -21,6 +24,7 @@ import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.t
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
+import { ConvertRecordAction, ConvertRecordButton } from '../components/ConvertRecordDialog.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
@@ -60,8 +64,8 @@ export function EnquiryDetail(): React.JSX.Element {
   const { id } = useParams()
   const navigate = useNavigate()
   const { record, isLoading, isNotFound, error } = useEnquiry(id)
+  const convertRecord = useConvertPipelineRecord('enquiry')
   const deleteEnquiry = useDeleteEnquiry()
-  const convertEnquiry = useConvertEnquiry()
   const moduleTabs = inSlotOrder(useRecordTabs('enquiry'))
   const hasCustomFields = useHasCustomFields('enquiry')
   const [activeTab, setActiveTab] = useState('overview')
@@ -96,12 +100,11 @@ export function EnquiryDetail(): React.JSX.Element {
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
   const moduleTab = moduleTabs.find((tab) => tab.id === active)
 
-  const convertBlockedReason =
-    record.convertedDealId !== null
-      ? null
-      : record.companyId === null
-        ? 'Link a company first'
-        : null
+  const convertedTo =
+    record.convertedTo ??
+    (record.convertedDealId !== null
+      ? { targetType: 'deal' as const, targetId: record.convertedDealId }
+      : null)
 
   return (
     <div className="animate-fade-in mx-auto max-w-6xl">
@@ -117,28 +120,13 @@ export function EnquiryDetail(): React.JSX.Element {
           <EnquiryHeading enquiry={record} />
 
           <div className="flex justify-end gap-2">
-            {record.convertedDealId === null ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (convertBlockedReason === null) {
-                    setShowConvert(true)
-                  }
-                }}
-                disabled={convertBlockedReason !== null || convertEnquiry.isPending}
-                title={convertBlockedReason ?? undefined}
-                className="rounded-md border border-border px-2.5 py-1 text-[12px] font-medium text-ink-muted transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:text-ink-muted"
-              >
-                Convert to deal
-              </button>
-            ) : (
-              <Link
-                to={`/deals/${record.convertedDealId}`}
-                className="rounded-md border border-border px-2.5 py-1 text-[12px] font-medium text-accent transition hover:border-accent hover:underline"
-              >
-                Converted — view deal
-              </Link>
-            )}
+            <ConvertRecordButton
+              convertedTo={convertedTo}
+              convert={convertRecord}
+              onOpenDialog={() => {
+                setShowConvert(true)
+              }}
+            />
             <AgentTasks targetType="enquiry" targetId={record.id} targetLabel={record.name} />
             <DeleteRecord
               recordLabel="Enquiry"
@@ -154,26 +142,25 @@ export function EnquiryDetail(): React.JSX.Element {
             />
           </div>
 
-          {convertEnquiry.error !== null && <ErrorPanel error={convertEnquiry.error} />}
-          {showConvert && (
-            <ConvertConfirm
-              enquiry={record}
-              isPending={convertEnquiry.isPending}
-              onCancel={() => {
-                setShowConvert(false)
-              }}
-              onConfirm={() => {
-                convertEnquiry
-                  .runAsync(record.id)
-                  .then((deal) => {
-                    setShowConvert(false)
-
-                    return navigate(`/deals/${deal.id}`)
-                  })
-                  .catch(() => undefined)
-              }}
-            />
-          )}
+          {convertRecord.error !== null && <ErrorPanel error={convertRecord.error} />}
+          <ConvertRecordAction
+            sourceKind="enquiry"
+            recordId={record.id}
+            recordName={record.name}
+            companyId={record.companyId}
+            convertedTo={convertedTo}
+            convert={convertRecord}
+            showDialog={showConvert}
+            onOpenDialog={() => {
+              setShowConvert(true)
+            }}
+            onCloseDialog={() => {
+              setShowConvert(false)
+            }}
+            onConverted={(created, targetType) => {
+              navigate(detailPathForPipelineKind(targetType, created.id))
+            }}
+          />
 
           <RecordTabs
             tabs={tabs}
@@ -510,45 +497,5 @@ function EnquiryContacts({ enquiry }: { readonly enquiry: Enquiry }): React.JSX.
         </form>
       )}
     </section>
-  )
-}
-
-function ConvertConfirm({
-  enquiry,
-  isPending,
-  onCancel,
-  onConfirm,
-}: {
-  readonly enquiry: Enquiry
-  readonly isPending: boolean
-  readonly onCancel: () => void
-  readonly onConfirm: () => void
-}): React.JSX.Element {
-  return (
-    <div className="rounded-md border border-border bg-surface-raised p-4">
-      <p className="text-[13px] text-ink">
-        Convert <span className="font-semibold">{enquiry.name}</span> to a Deal. This creates a new
-        deal (name, company, owner and linked people carry over) and moves this enquiry to the
-        first closed stage.
-      </p>
-      <div className="mt-3 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isPending}
-          className="rounded-md px-2.5 py-1 text-[12px] font-medium text-ink-muted hover:text-ink disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={isPending}
-          className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
-        >
-          {isPending ? 'Converting…' : 'Convert'}
-        </button>
-      </div>
-    </div>
   )
 }

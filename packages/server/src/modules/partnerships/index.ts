@@ -1,5 +1,6 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { createConversionsFromContext } from '../conversions/index.ts'
 import { createCustomFieldValues } from '../custom-fields/index.ts'
 import { partnershipsEvents } from './events.ts'
 import { mountPartnershipsRoutes } from './routes.ts'
@@ -22,6 +23,7 @@ export function createPartnershipsModule(migrationsDirectory: string): KelpieMod
     events: partnershipsEvents,
 
     register(context) {
+      const conversions = createConversionsFromContext(context)
       const service = createPartnershipsService({
         db: context.db,
         transaction: context.transaction,
@@ -37,10 +39,10 @@ export function createPartnershipsModule(migrationsDirectory: string): KelpieMod
       context.schema(schema, migrationsDirectory)
 
       context.routes((router) => {
-        mountPartnershipsRoutes(router, { db: context.db, now: context.now, service })
+        mountPartnershipsRoutes(router, { db: context.db, now: context.now, service, conversions })
       })
 
-      registerPartnershipsTools(context.mcp, service)
+      registerPartnershipsTools(context.mcp, service, conversions)
 
       return Promise.resolve()
     },

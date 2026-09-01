@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { convertedToWireSchema } from './conversion.ts'
+import type { ConvertedTo } from './conversion.ts'
 import { customFieldValuesBody, customFieldValuesSchema } from './customField.ts'
 import type { CustomFieldValue, CustomFieldValues } from './customField.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
@@ -24,6 +26,8 @@ export interface Deal extends RecordTimestamps {
   readonly summary: string
   readonly tags: readonly string[]
   readonly externalId: string | null
+  /** Non-null once this record has been converted to another pipeline type. */
+  readonly convertedTo: ConvertedTo | null
   /** Workspace-defined fields, keyed by definition key. Always present (default `{}`). */
   readonly customFields: CustomFieldValues
 }
@@ -45,6 +49,7 @@ export const dealSchema: z.ZodType<Deal, unknown> = z
     summary: z.string(),
     tags: z.array(z.string()),
     external_id: z.string().nullable(),
+    converted_to: convertedToWireSchema,
     custom_fields: customFieldValuesSchema,
     ...recordTimestamps,
   })
@@ -65,6 +70,10 @@ export const dealSchema: z.ZodType<Deal, unknown> = z
       summary: wire.summary,
       tags: wire.tags,
       externalId: wire.external_id,
+      convertedTo:
+        wire.converted_to === null
+          ? null
+          : { targetType: wire.converted_to.target_type, targetId: wire.converted_to.target_id },
       customFields: wire.custom_fields,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,

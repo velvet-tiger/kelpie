@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import type { McpToolRegistry } from '../../runtime/module.ts'
 import { idArg, idSetArg, listWindowShape, registerCrudTools, termArg, toSet } from '../crudTools.ts'
+import type { ConversionsService } from '../conversions/index.ts'
+import { registerPipelineConvertTool } from '../conversions/mcp.ts'
 import { createBody, opportunityResponse, toCreateInput, toUpdateInput, updateBody } from './routes.ts'
 import type { OpportunitiesService } from './service.ts'
 
@@ -16,7 +18,11 @@ const listArgs = z.strictObject({
   person_id: idSetArg.optional().describe('Only opportunities any of these people are on.'),
 })
 
-export function registerOpportunitiesTools(mcp: McpToolRegistry, service: OpportunitiesService): void {
+export function registerOpportunitiesTools(
+  mcp: McpToolRegistry,
+  service: OpportunitiesService,
+  conversions: ConversionsService,
+): void {
   registerCrudTools(mcp, {
     resource: 'opportunities',
     subject: 'opportunity',
@@ -38,4 +44,6 @@ export function registerOpportunitiesTools(mcp: McpToolRegistry, service: Opport
     updateArgs: updateBody.extend({ id: idArg }),
     toUpdateInput,
   })
+
+  registerPipelineConvertTool(mcp, conversions, 'opportunity')
 }

@@ -191,7 +191,29 @@ export async function deleteForTarget(
   return deleted.length
 }
 
-/** Whether a member belongs to this workspace, for validating `owner_id`. */
+/** Moves every decision from one target to another inside a conversion transaction. */
+export async function repointForTarget(
+  db: Queryable,
+  workspaceId: string,
+  fromType: string,
+  fromId: string,
+  toType: string,
+  toId: string,
+): Promise<number> {
+  const updated = await db
+    .update(decisions)
+    .set({ targetType: toType, targetId: toId })
+    .where(
+      and(
+        eq(decisions.workspaceId, workspaceId),
+        eq(decisions.targetType, fromType),
+        eq(decisions.targetId, fromId),
+      ),
+    )
+    .returning({ id: decisions.id })
+
+  return updated.length
+}
 export async function memberExists(
   db: Queryable,
   workspaceId: string,

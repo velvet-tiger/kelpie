@@ -1,4 +1,4 @@
-import { customFieldsPatchShape } from '@kelpie/schemas'
+import { convertPipelineRecordBody, convertedToResponse, customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -8,6 +8,8 @@ import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
+import { mountPipelineConvertRoute } from '../conversions/routes.ts'
+import type { ConversionsService } from '../conversions/index.ts'
 import type { CreateRaiseInput, RaiseView, RaisesService, UpdateRaiseInput } from './service.ts'
 
 /** Wire shapes for `/v1/raises`. Bodies are strict; an unknown field is a 422, per `api.md`. */
@@ -58,6 +60,7 @@ export const updateBody = z.strictObject(raiseShape).partial()
 
 export interface RaisesRoutesDependencies extends CredentialDependencies {
   readonly service: RaisesService
+  readonly conversions: ConversionsService
 }
 
 export function toCreateInput(body: z.infer<typeof createBody>): CreateRaiseInput {
@@ -111,6 +114,7 @@ export function raiseResponse(raise: RaiseView): Record<string, unknown> {
     person_ids: raise.personIds,
     summary: raise.summary,
     tags: raise.tags,
+    converted_to: convertedToResponse(raise.convertedTargetType, raise.convertedTargetId),
     custom_fields: renderCustomFieldsForWire(raise.customFields),
     created_at: raise.createdAt.toISOString(),
     updated_at: raise.updatedAt.toISOString(),
@@ -163,5 +167,11 @@ export function mountRaisesRoutes(router: Hono, dependencies: RaisesRoutesDepend
     await dependencies.service.remove(await requireActor(context), context.req.param('id'))
 
     return context.body(null, 204)
+  })
+
+  mountPipelineConvertRoute(router, '/raises/:id/convert', {
+    ...dependencies,
+    sourceKind: 'raise',
+    bodySchema: convertPipelineRecordBody,
   })
 }

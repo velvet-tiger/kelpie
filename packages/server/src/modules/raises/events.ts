@@ -12,6 +12,10 @@ export const raisesEvents = {
     fromStageId: z.string().nullable(),
     toStageId: z.string(),
   }),
+  'raises.raise.converted': z.object({
+    targetType: z.string(),
+    targetId: z.string(),
+  }),
 } satisfies ModuleEventCatalog
 
 export type RaiseCreatedData = Record<string, never>
@@ -23,6 +27,10 @@ export interface RaiseStageChangedData {
   readonly fromStageId: string | null
   readonly toStageId: string
 }
+export interface RaiseConvertedData {
+  readonly targetType: string
+  readonly targetId: string
+}
 
 declare module '../../runtime/events.ts' {
   interface KelpieEventMap {
@@ -30,5 +38,6 @@ declare module '../../runtime/events.ts' {
     'raises.raise.updated': RaiseUpdatedData
     'raises.raise.deleted': RaiseDeletedData
     'raises.raise.stage_changed': RaiseStageChangedData
+    'raises.raise.converted': RaiseConvertedData
   }
 }

@@ -27,11 +27,11 @@ Every endpoint here has integration tests against a real Postgres.
 | People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
 | Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |
 | Positions | `GET`, `POST /v1/positions`, `GET`, `PATCH`, `DELETE /v1/positions/:id`. Filters `?person_id=` and `?company_id=` |
-| Deals | `GET`, `POST /v1/deals`, `GET`, `PATCH`, `DELETE /v1/deals/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
+| Deals | `GET`, `POST /v1/deals`, `GET`, `PATCH`, `DELETE /v1/deals/:id`, `POST /v1/deals/:id/convert`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
 | Enquiries | `GET`, `POST /v1/enquiries`, `GET`, `PATCH`, `DELETE /v1/enquiries/:id`, `POST /v1/enquiries/:id/convert`. Filters `?q=`, `?source=`, `?company_id=`, `?stage_id=` and `?person_id=` |
-| Opportunities | `GET`, `POST /v1/opportunities`, `GET`, `PATCH`, `DELETE /v1/opportunities/:id`. Filters `?q=`, `?kind=`, `?company_id=` and `?stage_id=` |
-| Partnerships | `GET`, `POST /v1/partnerships`, `GET`, `PATCH`, `DELETE /v1/partnerships/:id`. Filters `?q=`, `?kind=`, `?company_id=`, `?stage_id=` and `?person_id=` |
-| Raises | `GET`, `POST /v1/raises`, `GET`, `PATCH`, `DELETE /v1/raises/:id`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
+| Opportunities | `GET`, `POST /v1/opportunities`, `GET`, `PATCH`, `DELETE /v1/opportunities/:id`, `POST /v1/opportunities/:id/convert`. Filters `?q=`, `?kind=`, `?company_id=` and `?stage_id=` |
+| Partnerships | `GET`, `POST /v1/partnerships`, `GET`, `PATCH`, `DELETE /v1/partnerships/:id`, `POST /v1/partnerships/:id/convert`. Filters `?q=`, `?kind=`, `?company_id=`, `?stage_id=` and `?person_id=` |
+| Raises | `GET`, `POST /v1/raises`, `GET`, `PATCH`, `DELETE /v1/raises/:id`, `POST /v1/raises/:id/convert`. Filters `?q=`, `?company_id=`, `?stage_id=` and `?person_id=` |
 | Pipeline stages | `GET`, `POST /v1/pipeline_stages`, `GET`, `PATCH`, `DELETE /v1/pipeline_stages/:id?move_to=`. Filter `?kind=` |
 | Roles | `GET`, `POST /v1/roles`, `GET`, `PATCH`, `DELETE /v1/roles/:id`. Filters `?q=` and `?status=` |
 | Candidates | `GET`, `POST /v1/candidates`, `GET`, `PATCH`, `DELETE /v1/candidates/:id`. Filters `?role_id=`, `?person_id=` and `?status=` |
@@ -113,6 +113,8 @@ Three REST operations have no tool. Creating a workspace and accepting an invita
 `export_csv` inlines the file and refuses over 256 KB, naming `GET /v1/export/{object}.csv` instead. A truncated CSV looks exactly like a whole one, and an agent would draw conclusions from the rows that were not there.
 
 **Lists are typed collections, and the type is load-bearing.** A list's `target_type` is fixed at creation; a member of another type is `422`, and a composite foreign key enforces the same rule underneath the service. Member rows carry `target_name` resolved, like dashboard rows, and `GET /v1/list-memberships` answers `404` for a record that does not exist rather than an empty set. Spec: `lists.md` beside this repository.
+
+**Pipeline conversion creates a new record and keeps the source.** `POST /v1/{enquiries|deals|opportunities|raises|partnerships}/:id/convert` takes `{ target_type, stage_id?, company_id?, kind?, name? }` and answers **201** with the full target record. Notes, activities, decisions, plan items, form attach targets, and agent runs repoint to the target; person links copy (the source keeps its own). Custom fields intersect by definition key on the target type; list memberships drop when the type changes. The source gets `converted_to: { target_type, target_id }` and moves to the first closed stage of its kind. A second convert on the same record is **409**. Enquiries still accept an empty body and default to deal; `converted_deal_id` remains when the target is a deal.
 
 **Sample data is a one-shot install, idempotent by refusal.** `POST /v1/workspaces/:id/sample-data` writes the whole fixture in one transaction and answers the counts; a workspace already holding companies or people gets `409`, because an "install once" button must not double the fixture. The onboarding workspace step offers it as a checkbox and Admin → Data carries the same button.
 

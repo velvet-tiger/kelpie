@@ -21,6 +21,7 @@ import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
+import { clearConversionPointersToTarget } from '../conversions/clearPointers.ts'
 import * as companyRepository from '../companies/repository.ts'
 import type { CustomFieldValuesValidator } from '../custom-fields/values.ts'
 import * as personLinks from '../personLinks.ts'
@@ -498,6 +499,8 @@ export function createPartnershipsService(
 
       await dependencies.transaction(async ({ tx, events }) => {
         await require(workspaceId, id)
+
+        await clearConversionPointersToTarget(tx, workspaceId, 'partnership', id)
 
         // Notes, activities, decisions, plan items, and person_links have no
         // key back to the partnership, so they are removed here, in the same

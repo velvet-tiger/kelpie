@@ -1,5 +1,6 @@
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { createConversionsFromContext } from '../conversions/index.ts'
 import { createCustomFieldValues } from '../custom-fields/index.ts'
 import { dealsEvents } from './events.ts'
 import { mountDealsRoutes } from './routes.ts'
@@ -23,6 +24,7 @@ export function createDealsModule(migrationsDirectory: string): KelpieModule {
     events: dealsEvents,
 
     register(context) {
+      const conversions = createConversionsFromContext(context)
       const service = createDealsService({
         db: context.db,
         transaction: context.transaction,
@@ -38,10 +40,10 @@ export function createDealsModule(migrationsDirectory: string): KelpieModule {
       context.schema(schema, migrationsDirectory)
 
       context.routes((router) => {
-        mountDealsRoutes(router, { db: context.db, now: context.now, service })
+        mountDealsRoutes(router, { db: context.db, now: context.now, service, conversions })
       })
 
-      registerDealsTools(context.mcp, service)
+      registerDealsTools(context.mcp, service, conversions)
 
       return Promise.resolve()
     },

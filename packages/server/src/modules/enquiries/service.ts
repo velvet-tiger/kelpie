@@ -9,9 +9,7 @@ import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import {
-  describeConversion,
   describeCreation,
-  describeCreationFrom,
   describeLink,
   describeStageChange,
   describeUnlink,
@@ -22,12 +20,10 @@ import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
-import '../deals/events.ts'
 import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
+import { clearConversionPointersToTarget } from '../conversions/clearPointers.ts'
 import * as companyRepository from '../companies/repository.ts'
 import type { CustomFieldValuesValidator } from '../custom-fields/values.ts'
-import * as dealRepository from '../deals/repository.ts'
-import type { DealRecord } from '../deals/repository.ts'
 import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import type { PipelineStageRecord } from '../pipelines/repository.ts'
@@ -108,12 +104,6 @@ export interface UpdateEnquiryInput {
   readonly customFields?: Readonly<Record<string, CustomFieldWireValue | null>> | undefined
 }
 
-/** What `convertToDeal` returns: the freshly created deal, plus its people. */
-export interface ConvertedDealView {
-  readonly deal: DealRecord
-  readonly personIds: readonly string[]
-}
-
 export interface EnquiriesService {
   list(
     actor: Actor,
@@ -124,7 +114,6 @@ export interface EnquiriesService {
   create(actor: Actor, input: CreateEnquiryInput): Promise<EnquiryView>
   update(actor: Actor, id: string, changes: UpdateEnquiryInput): Promise<EnquiryView>
   remove(actor: Actor, id: string): Promise<void>
-  convertToDeal(actor: Actor, id: string): Promise<ConvertedDealView>
 }
 
 function toView(record: EnquiryRecord, personIds: readonly string[]): EnquiryView {
@@ -492,6 +481,8 @@ export function createEnquiriesService(dependencies: EnquiriesDependencies): Enq
       await dependencies.transaction(async ({ tx, events }) => {
         await require(workspaceId, id)
 
+        await clearConversionPointersToTarget(tx, workspaceId, 'enquiry', id)
+
         // Notes, activities, decisions, plan items, person_links, list
         // memberships and form_attach_targets rows are removed here in the
         // same transaction. `form_submissions.enquiry_id` is a set-null FK, so
@@ -500,144 +491,6 @@ export function createEnquiriesService(dependencies: EnquiriesDependencies): Enq
         await repository.deleteEnquiry(tx, workspaceId, id)
 
         events.emit('enquiries.enquiry.deleted', { type: 'enquiry', id }, {})
-      }, { workspaceId, actor: toEventActor(actor) })
-    },
-
-    async convertToDeal(actor, id) {
-      const workspaceId = requireWorkspaceId(actor)
-      const existing = await require(workspaceId, id)
-
-      if (existing.convertedDealId !== null) {
-        throw new AppError(
-          'conflict',
-          'This enquiry has already been converted to a deal',
-          [{ field: 'converted_deal_id', message: `Deal ${existing.convertedDealId}` }],
-        )
-      }
-
-      if (existing.companyId === null) {
-        throw AppError.validationFailed('An enquiry needs a company before it can become a deal', [
-          { field: 'company_id', message: 'Link a company to the enquiry first' },
-        ])
-      }
-
-      const dealStages = await pipelineRepository.listStagesOfKind(
-        dependencies.db,
-        workspaceId,
-        'deal',
-      )
-      const openDealStage = dealStages.find((row) => row.open) ?? dealStages[0]
-
-      if (openDealStage === undefined) {
-        // Unreachable through the API: workspaces seed stages and the last
-        // deal stage cannot be removed.
-        throw AppError.conflict('This workspace has no deal stages')
-      }
-
-      const enquiryStages = await pipelineRepository.listStagesOfKind(
-        dependencies.db,
-        workspaceId,
-        'enquiry',
-      )
-      // A closed enquiry stage is where a converted enquiry lands. If the
-      // workspace has deleted every closed stage we leave the enquiry where it
-      // is rather than refuse the conversion over board cosmetics.
-      const closedEnquiryStage = enquiryStages.find((row) => !row.open)
-
-      const personIds = await personLinks.listPersonIds(dependencies.db, workspaceId, {
-        targetType: 'enquiry',
-        targetId: id,
-      })
-      const dealId = dependencies.createId('deal')
-      const now = dependencies.now()
-
-      return dependencies.transaction(async ({ tx, events }) => {
-        const deal = await dealRepository.insertDeal(tx, {
-          id: dealId,
-          workspaceId,
-          name: existing.name,
-          companyId: existing.companyId as string,
-          stageId: openDealStage.id,
-          valueCents: null,
-          currency: null,
-          ownerId: existing.ownerId,
-          expectedClose: null,
-          competitors: [],
-          risks: '',
-          whyWin: '',
-          summary: existing.summary,
-          tags: [...existing.tags],
-          externalId: null,
-          customFields: {},
-        })
-
-        await personLinks.linkPeople(
-          tx,
-          dependencies.createId,
-          workspaceId,
-          { targetType: 'deal', targetId: dealId },
-          personIds,
-        )
-
-        const stageChanged =
-          closedEnquiryStage !== undefined && closedEnquiryStage.id !== existing.stageId
-        const currentEnquiryStage = enquiryStages.find((row) => row.id === existing.stageId)
-
-        const updatedEnquiry = await repository.updateEnquiry(tx, workspaceId, id, {
-          convertedDealId: dealId,
-          ...(stageChanged ? { stageId: closedEnquiryStage.id } : {}),
-          updatedAt: now,
-        })
-
-        if (updatedEnquiry === undefined) {
-          throw AppError.notFound('Enquiry not found')
-        }
-
-        await dependencies.recordActivity(tx, workspaceId, actor, {
-          targetType: 'deal',
-          targetId: dealId,
-          kind: 'created',
-          ...describeCreationFrom('Deal', 'Enquiry', existing.name),
-        })
-
-        await dependencies.recordActivity(tx, workspaceId, actor, {
-          targetType: 'enquiry',
-          targetId: id,
-          kind: 'updated',
-          ...describeConversion('Deal', deal.name),
-        })
-
-        if (stageChanged && currentEnquiryStage !== undefined) {
-          await dependencies.recordActivity(tx, workspaceId, actor, {
-            targetType: 'enquiry',
-            targetId: id,
-            kind: 'stage_changed',
-            ...describeStageChange(currentEnquiryStage.label, closedEnquiryStage.label),
-          })
-        }
-
-        events.emit('deals.deal.created', { type: 'deal', id: dealId }, {})
-        events.emit(
-          'enquiries.enquiry.updated',
-          { type: 'enquiry', id },
-          {
-            changed: stageChanged
-              ? ['convertedDealId', 'stageId']
-              : ['convertedDealId'],
-          },
-        )
-
-        if (stageChanged && currentEnquiryStage !== undefined) {
-          events.emit(
-            'enquiries.enquiry.stage_changed',
-            { type: 'enquiry', id },
-            { fromStageId: currentEnquiryStage.id, toStageId: closedEnquiryStage.id },
-          )
-        }
-
-        events.emit('enquiries.enquiry.converted', { type: 'enquiry', id }, { dealId })
-
-        return { deal, personIds }
       }, { workspaceId, actor: toEventActor(actor) })
     },
   }

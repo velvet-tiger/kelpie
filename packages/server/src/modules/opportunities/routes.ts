@@ -1,4 +1,4 @@
-import { customFieldsPatchShape } from '@kelpie/schemas'
+import { convertPipelineRecordBody, convertedToResponse, customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -8,6 +8,8 @@ import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
+import { mountPipelineConvertRoute } from '../conversions/routes.ts'
+import type { ConversionsService } from '../conversions/index.ts'
 import type {
   CreateOpportunityInput,
   OpportunitiesService,
@@ -55,6 +57,7 @@ export const updateBody = z.strictObject(opportunityShape).partial()
 
 export interface OpportunitiesRoutesDependencies extends CredentialDependencies {
   readonly service: OpportunitiesService
+  readonly conversions: ConversionsService
 }
 
 export function toCreateInput(body: z.infer<typeof createBody>): CreateOpportunityInput {
@@ -99,6 +102,7 @@ export function opportunityResponse(opportunity: OpportunityView): Record<string
     person_ids: opportunity.personIds,
     summary: opportunity.summary,
     tags: opportunity.tags,
+    converted_to: convertedToResponse(opportunity.convertedTargetType, opportunity.convertedTargetId),
     custom_fields: renderCustomFieldsForWire(opportunity.customFields),
     created_at: opportunity.createdAt.toISOString(),
     updated_at: opportunity.updatedAt.toISOString(),
@@ -161,5 +165,11 @@ export function mountOpportunitiesRoutes(
     await dependencies.service.remove(await requireActor(context), context.req.param('id'))
 
     return context.body(null, 204)
+  })
+
+  mountPipelineConvertRoute(router, '/opportunities/:id/convert', {
+    ...dependencies,
+    sourceKind: 'opportunity',
+    bodySchema: convertPipelineRecordBody,
   })
 }
