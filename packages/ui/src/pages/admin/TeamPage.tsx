@@ -114,8 +114,7 @@ function InviteForm(): React.JSX.Element {
       </div>
       {sendInvite.error !== null && <ErrorPanel error={sendInvite.error} />}
       <p className="text-[11px] text-ink-faint">
-        The invitation is emailed and lasts seven days. Ownership is not invited; it is given to a
-        member who has already joined.
+        The invitation is emailed and lasts seven days.
       </p>
     </form>
   )
