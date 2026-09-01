@@ -14,6 +14,7 @@ import { securityHeadersMiddleware } from './lib/securityHeaders.ts'
 import type { CredentialDependencies } from './modules/auth/credentials.ts'
 import { MCP_INSTRUCTIONS, MCP_ROUTE_PREFIX, MCP_SERVER_INFO } from './modules/mcp/index.ts'
 import { createMcpEndpoint } from './modules/mcp/router.ts'
+import { createApiKeyScopeMiddleware } from './modules/api-keys/scopeMiddleware.ts'
 import {
   createAuthAndApiRateLimitMiddleware,
   createFormSubmitRateLimitMiddleware,
@@ -144,6 +145,8 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   })
 
   app.use('/v1/*', workspaceAccessMiddleware)
+
+  app.use('/v1/*', createApiKeyScopeMiddleware(dependencies.credentials))
 
   // Every module's `POST` gets this the same way, decided once here rather than
   // per route (`api.md`). It skips `/v1/public/*` itself — a public request has

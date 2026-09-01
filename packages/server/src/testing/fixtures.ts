@@ -65,6 +65,7 @@ export function workspaceKeyActor(workspaceId: string): ApiKeyActor {
     userId: null,
     workspaceId,
     role: 'admin',
+    scopes: [],
     memberId: null,
   }
 }

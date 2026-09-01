@@ -1,3 +1,5 @@
+import type { ApiKeyScope } from '@kelpie/schemas'
+import { API_KEY_SCOPES } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -13,6 +15,7 @@ import type { ApiKeyService, ApiKeyView, MintedApiKey } from './service.ts'
 const createBody = z.object({
   name: z.string().min(1),
   kind: z.enum(KEY_KINDS),
+  scopes: z.array(z.enum(API_KEY_SCOPES)).optional(),
 })
 
 const listQuery = z.object({ kind: z.enum(KEY_KINDS) })
@@ -39,6 +42,7 @@ function keyResponse(key: ApiKeyView): Record<string, unknown> {
     id: key.id,
     name: key.name,
     kind: key.kind,
+    scopes: key.scopes,
     display_prefix: key.displayPrefix,
     last_used_at: key.lastUsedAt === null ? null : key.lastUsedAt.toISOString(),
     created_at: key.createdAt.toISOString(),
@@ -55,6 +59,7 @@ export function mountApiKeyRoutes(router: Hono, dependencies: ApiKeyRoutesDepend
       await requireActor(context),
       body.name,
       body.kind,
+      body.scopes as ApiKeyScope[] | undefined,
     )
 
     return context.json({ ...keyResponse(minted), secret: minted.secret }, 201)

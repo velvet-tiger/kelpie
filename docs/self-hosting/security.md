@@ -12,7 +12,7 @@ Every workspace-owned row carries a workspace id, every query is scoped to it se
 | --- | --- |
 | Account passwords | argon2id hashes. Minimum length 12. |
 | Session, invitation, password-reset, and email-verification tokens | SHA-256 hashes. Only ever compared, never read back. |
-| API key secrets | SHA-256 hashes; the key is shown once at creation, and the UI keeps only a display prefix and the last four characters. |
+| API key secrets | SHA-256 hashes; the key is shown once at creation, and the UI keeps only a display prefix and the last four characters. Optional scopes limit what each key can reach; empty scopes mean full access. Prefer preset bundles (`read:objects`, `write:objects`, `admin:objects`, `admin`) for integrations rather than minting unrestricted keys. |
 | Webhook signing secrets and agent auth headers | Encrypted (AES-256-GCM) under `SECRET_ENCRYPTION_KEY`, because the service must read them back to sign deliveries and authorise dispatches. |
 
 The rule behind the table: a value the service only checks is hashed; a value it must use again is encrypted. Rotating the encryption key is a supported, four-step procedure — see [Production](production.md#rotating-the-encryption-key).

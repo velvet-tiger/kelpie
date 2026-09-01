@@ -1,4 +1,4 @@
-import type { EventActor, MemberRole } from '@kelpie/schemas'
+import type { ApiKeyScope, EventActor, MemberRole } from '@kelpie/schemas'
 
 import { AppError } from './errors.ts'
 
@@ -39,6 +39,8 @@ export interface ApiKeyActor {
   readonly userId: string | null
   readonly workspaceId: string
   readonly role: MemberRole
+  /** Empty means full access. Presets and granular tokens may be mixed. */
+  readonly scopes: readonly ApiKeyScope[]
   /** Null for a workspace key: it belongs to the workspace, not to a member. */
   readonly memberId: string | null
 }

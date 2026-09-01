@@ -1,5 +1,13 @@
-import type { ApiKey, ApiKeyKind, CreatedApiKey } from '@kelpie/schemas'
-import { useState } from 'react'
+import type { ApiKey, ApiKeyGranularScope, ApiKeyKind, ApiKeyScope, CreatedApiKey } from '@kelpie/schemas'
+import {
+  API_KEY_PRESET_SCOPES,
+  API_KEY_SCOPE_GROUPS,
+  API_KEY_SCOPE_LABELS,
+  expandApiKeyScopes,
+  isApiKeyGranularScope,
+  isApiKeyPresetScope,
+} from '@kelpie/schemas'
+import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useTimezone } from '../api/resources/account.ts'
@@ -11,21 +19,16 @@ import { ErrorPanel, LoadingPanel } from './QueryState.tsx'
 /**
  * The create/list/revoke flow shared by workspace keys (`/admin/api-keys`) and
  * personal keys (`/account/api-keys`).
- *
- * `kind` and the three strings below are the only difference between the two
- * pages, the same way `KanbanBoard` takes a `kind` for Deals versus
- * Opportunities. Who may reach this component at all — the admin gate on the
- * workspace page, none on the personal page — is the caller's decision; the API
- * enforces its own half regardless.
  */
 
 export interface ApiKeysPanelProps {
   readonly kind: ApiKeyKind
-  /** Shown in the create form's name field, e.g. "CI pipeline" or "Laptop Claude". */
   readonly namePlaceholder: string
   readonly createTitle: string
   readonly emptyMessage: string
 }
+
+const PRESET_OPTIONS = API_KEY_PRESET_SCOPES.filter((scope) => scope !== 'write:all')
 
 export function ApiKeysPanel({
   kind,
@@ -96,6 +99,8 @@ export function ApiKeysPanel({
   )
 }
 
+type AccessMode = 'full' | 'presets' | 'custom'
+
 function CreateKeyModal({
   kind,
   title,
@@ -111,18 +116,78 @@ function CreateKeyModal({
 }): React.JSX.Element {
   const createApiKey = useCreateApiKey()
   const [name, setName] = useState('')
+  const [accessMode, setAccessMode] = useState<AccessMode>('full')
+  const [selectedPresets, setSelectedPresets] = useState<readonly ApiKeyScope[]>([])
+  const [selectedCustom, setSelectedCustom] = useState<readonly ApiKeyScope[]>([])
+  const [showCustom, setShowCustom] = useState(false)
+
+  const presetExpandedScopes = useMemo(
+    () => expandApiKeyScopes(selectedPresets),
+    [selectedPresets],
+  )
+
+  const showScopeGrid =
+    (accessMode === 'custom' && showCustom) ||
+    (accessMode === 'presets' && selectedPresets.length > 0)
+
+  function scopesForCreate(): readonly ApiKeyScope[] | undefined {
+    if (accessMode === 'full') {
+      return undefined
+    }
+
+    if (accessMode === 'presets') {
+      return selectedPresets.length === 0 ? undefined : selectedPresets
+    }
+
+    return selectedCustom.length === 0 ? undefined : selectedCustom
+  }
 
   function submit(event: FormEvent): void {
     event.preventDefault()
+    const scopes = scopesForCreate()
+
     createApiKey
-      .runAsync({ name: name.trim(), kind })
+      .runAsync({
+        name: name.trim(),
+        kind,
+        ...(scopes === undefined ? {} : { scopes }),
+      })
       .then(onCreated)
       .catch(() => undefined)
   }
 
+  function togglePreset(scope: ApiKeyScope): void {
+    setAccessMode('presets')
+    setSelectedCustom([])
+    setShowCustom(false)
+    setSelectedPresets((current) =>
+      current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope],
+    )
+  }
+
+  function toggleCustom(scope: ApiKeyScope): void {
+    setAccessMode('custom')
+    setSelectedPresets([])
+    setSelectedCustom((current) =>
+      current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope],
+    )
+  }
+
+  function isScopeChecked(scope: ApiKeyGranularScope): boolean {
+    if (accessMode === 'custom') {
+      return selectedCustom.includes(scope)
+    }
+
+    if (accessMode === 'presets') {
+      return presetExpandedScopes.has(scope)
+    }
+
+    return false
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-      <div className="animate-slide-in w-full max-w-md rounded-md border border-border bg-surface-raised p-5">
+      <div className="animate-slide-in max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-md border border-border bg-surface-raised p-5">
         <form onSubmit={submit}>
           <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
           <label className="mt-4 block">
@@ -138,6 +203,113 @@ function CreateKeyModal({
               className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
             />
           </label>
+
+          <fieldset className="mt-4">
+            <legend className="mb-2 text-[12px] font-medium text-ink">Access</legend>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-[13px] text-ink">
+                <input
+                  type="radio"
+                  name="access"
+                  checked={accessMode === 'full'}
+                  onChange={() => {
+                    setAccessMode('full')
+                    setSelectedPresets([])
+                    setSelectedCustom([])
+                    setShowCustom(false)
+                  }}
+                />
+                Full access
+              </label>
+              <div className="rounded-md border border-border p-3">
+                <p className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                  Presets
+                </p>
+                <div className="space-y-1.5">
+                  {PRESET_OPTIONS.map((scope) => (
+                    <label key={scope} className="flex items-center gap-2 text-[13px] text-ink">
+                      <input
+                        type="checkbox"
+                        checked={accessMode === 'presets' && selectedPresets.includes(scope)}
+                        onChange={() => {
+                          togglePreset(scope)
+                        }}
+                      />
+                      {API_KEY_SCOPE_LABELS[scope]}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {accessMode !== 'presets' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCustom((open) => !open)
+                    if (!showCustom) {
+                      setAccessMode('custom')
+                      setSelectedPresets([])
+                    }
+                  }}
+                  className="text-[12px] font-medium text-accent hover:underline"
+                >
+                  {showCustom ? 'Hide custom scopes' : 'Custom scopes…'}
+                </button>
+              )}
+              {showScopeGrid && (
+                <div className="space-y-3 rounded-md border border-border p-3">
+                  {accessMode === 'presets' && (
+                    <p className="text-[11px] text-ink-muted">
+                      Included in the selected preset{selectedPresets.length === 1 ? '' : 's'}.
+                    </p>
+                  )}
+                  {API_KEY_SCOPE_GROUPS.map((group) => (
+                    <div key={group.label}>
+                      <p className="mb-1.5 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                        {group.label}
+                      </p>
+                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                        {group.scopes.map((scope) => (
+                          <label
+                            key={scope}
+                            className={`flex items-center gap-2 text-[12px] ${
+                              accessMode === 'presets' ? 'text-ink-muted' : 'text-ink'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isScopeChecked(scope)}
+                              disabled={accessMode === 'presets'}
+                              onChange={() => {
+                                toggleCustom(scope)
+                              }}
+                            />
+                            {API_KEY_SCOPE_LABELS[scope]}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {accessMode === 'presets' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccessMode('custom')
+                        setSelectedPresets([])
+                        setSelectedCustom([...presetExpandedScopes])
+                        setShowCustom(true)
+                      }}
+                      className="text-[12px] font-medium text-accent hover:underline"
+                    >
+                      Switch to custom scopes…
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            <p className="mt-2 text-[11px] text-ink-faint">
+              Write includes read for the same resource. Presets cover many scopes at once.
+            </p>
+          </fieldset>
 
           {createApiKey.error !== null && (
             <div className="mt-3">
@@ -167,12 +339,6 @@ function CreateKeyModal({
   )
 }
 
-/**
- * The secret, shown once.
- *
- * Nothing can retrieve it afterwards, so this panel says so plainly instead of
- * leaving a reader to discover it by coming back for the value later.
- */
 function SecretOnce({
   apiKey,
   onDismiss,
@@ -202,6 +368,27 @@ function SecretOnce({
   )
 }
 
+function formatScopeSummary(scopes: readonly ApiKeyScope[]): string {
+  if (scopes.length === 0) {
+    return 'Full access'
+  }
+
+  const presets = scopes.filter(isApiKeyPresetScope)
+  const granular = scopes.filter(isApiKeyGranularScope)
+
+  if (granular.length === 0) {
+    return presets.map((scope) => API_KEY_SCOPE_LABELS[scope]).join(', ')
+  }
+
+  if (presets.length === 0) {
+    return `Custom (${String(scopes.length)} scopes)`
+  }
+
+  return [...presets.map((scope) => API_KEY_SCOPE_LABELS[scope]), `Custom (${String(granular.length)})`].join(
+    ', ',
+  )
+}
+
 function ApiKeyTable({
   keys,
   emptyMessage,
@@ -227,6 +414,7 @@ function ApiKeyTable({
         <thead>
           <tr className="border-b border-border bg-surface text-[11px] font-semibold tracking-wide text-ink-muted uppercase">
             <th className="px-4 py-2.5">Name</th>
+            <th className="px-4 py-2.5">Scopes</th>
             <th className="px-4 py-2.5">Prefix</th>
             <th className="px-4 py-2.5">Created</th>
             <th className="px-4 py-2.5">Last used</th>
@@ -243,10 +431,6 @@ function ApiKeyTable({
   )
 }
 
-/**
- * Revoking a key takes effect at once and cannot be undone, so this asks first,
- * the same two-step confirm `WebhooksPage` uses for removing a registration.
- */
 function ApiKeyRow({
   apiKey,
   onRevoke,
@@ -262,6 +446,7 @@ function ApiKeyRow({
   return (
     <tr className="border-b border-border last:border-0">
       <td className="px-4 py-3 font-medium">{apiKey.name}</td>
+      <td className="px-4 py-3 text-ink-muted">{formatScopeSummary(apiKey.scopes)}</td>
       <td className="px-4 py-3 font-mono text-[12px] text-ink-muted">{apiKey.displayPrefix}</td>
       <td className="px-4 py-3 text-ink-muted">{formatDate(apiKey.createdAt, timezone)}</td>
       <td className="px-4 py-3 text-ink-muted">

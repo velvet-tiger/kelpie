@@ -20,6 +20,8 @@ export const apiKeys = pgTable(
     name: text('name').notNull(),
     secretHash: text('secret_hash').notNull().unique(),
     displayPrefix: text('display_prefix').notNull(),
+    /** Empty array means full access. Presets and granular tokens may be mixed. */
+    scopes: text('scopes').array().notNull().default([]),
     lastUsedAt: moment('last_used_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

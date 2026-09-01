@@ -1,6 +1,8 @@
 import { getCookie } from 'hono/cookie'
 import type { Context } from 'hono'
 
+import type { ApiKeyScope } from '@kelpie/schemas'
+
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import { hashToken } from '../../lib/tokens.ts'
@@ -100,6 +102,7 @@ async function resolveApiKeyActor(
       userId: null,
       workspaceId: record.workspaceId,
       role: WORKSPACE_KEY_ROLE,
+      scopes: record.scopes as ApiKeyScope[],
       memberId: null,
     }
   }
@@ -118,6 +121,7 @@ async function resolveApiKeyActor(
     userId: record.userId,
     workspaceId: record.workspaceId,
     role: roleFromMembership(membership.role),
+    scopes: record.scopes as ApiKeyScope[],
     memberId: membership.id,
   }
 }

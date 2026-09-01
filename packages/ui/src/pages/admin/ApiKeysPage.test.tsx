@@ -23,6 +23,7 @@ const WORKSPACE_KEY = {
   id: 'key_1',
   name: 'CI pipeline',
   kind: 'workspace',
+  scopes: [],
   display_prefix: 'kp_live_…9f2c',
   last_used_at: null,
   created_at: '2026-08-01T00:00:00.000Z',
@@ -132,6 +133,7 @@ describe('ApiKeysPage', () => {
           id: 'key_2',
           name: (body as { name: string }).name,
           kind: 'workspace',
+          scopes: [],
           display_prefix: 'kp_live_…ab12',
           last_used_at: null,
           created_at: '2026-08-12T00:00:00.000Z',
@@ -192,6 +194,27 @@ describe('ApiKeysPage', () => {
     await waitFor(() => {
       expect(screen.queryByText('CI pipeline')).toBeNull()
     })
+  })
+
+  it('shows included granular scopes when a preset is selected', async () => {
+    renderPage({ keys: [] })
+
+    await act(async () => {
+      ;(await screen.findByRole('button', { name: 'Create key' })).click()
+    })
+
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'Read objects' }).click()
+    })
+
+    expect(await screen.findByText(/Included in the selected preset/u)).toBeTruthy()
+
+    const peopleRead = screen.getByRole('checkbox', { name: 'People (read)' }) as HTMLInputElement
+    const peopleWrite = screen.getByRole('checkbox', { name: 'People (write)' }) as HTMLInputElement
+
+    expect(peopleRead.checked).toBe(true)
+    expect(peopleWrite.checked).toBe(false)
+    expect(peopleRead.disabled).toBe(true)
   })
 
   it('says why the list could not be read', async () => {

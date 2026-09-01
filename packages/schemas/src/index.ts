@@ -365,6 +365,23 @@ export type {
 
 export { apiKeySchema, createApiKeyBody, createdApiKeySchema } from './apiKey.ts'
 export type { ApiKey, CreateApiKeyInput, CreatedApiKey } from './apiKey.ts'
+export {
+  API_KEY_ADMIN_RESOURCES,
+  API_KEY_GRANULAR_SCOPES,
+  API_KEY_OBJECT_CONFIG_RESOURCES,
+  API_KEY_OBJECT_DATA_RESOURCES,
+  API_KEY_OBJECT_READ_ONLY_RESOURCES,
+  API_KEY_PRESET_SCOPES,
+  API_KEY_SCOPE_GROUPS,
+  API_KEY_SCOPE_LABELS,
+  API_KEY_SCOPES,
+  dedupeApiKeyScopes,
+  expandApiKeyScopes,
+  isApiKeyGranularScope,
+  isApiKeyPresetScope,
+  satisfiesApiKeyScope,
+} from './apiKeyScopes.ts'
+export type { ApiKeyGranularScope, ApiKeyPresetScope, ApiKeyScope } from './apiKeyScopes.ts'
 
 export {
   agentRunSchema,

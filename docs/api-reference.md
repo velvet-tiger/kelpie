@@ -22,7 +22,7 @@ Every endpoint here has integration tests against a real Postgres.
 | Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `DELETE /v1/workspaces/:id?slug=` |
 | Membership | `GET`, `PATCH` and `DELETE /v1/workspaces/:id/members[/:member_id]` |
 | Invites | `POST` and `GET /v1/workspaces/:id/invites`, `POST .../invites/:invite_id/resend`, `DELETE .../invites/:invite_id`, `POST /v1/invites/accept` |
-| API keys | `POST /v1/api-keys`, `GET /v1/api-keys?kind=`, `DELETE /v1/api-keys/:id` |
+| API keys | `POST /v1/api-keys`, `GET /v1/api-keys?kind=`, `DELETE /v1/api-keys/:id`. Create accepts optional `scopes` (preset bundles like `read:objects` or granular `people:read`); empty means full access. List and create responses include `scopes`. |
 | Modules | `GET /v1/workspaces/:id/modules`, `PATCH .../modules/:module_id`. Toggleable modules only; a disabled one answers `entitlement_required` on REST and MCP alike |
 | People | `GET`, `POST /v1/people`, `GET`, `PATCH`, `DELETE /v1/people/:id`. Filters `?q=` and `?company_id=` |
 | Companies | `GET`, `POST /v1/companies`, `GET`, `PATCH`, `DELETE /v1/companies/:id`. Filters `?q=` and `?person_id=` |

@@ -26,6 +26,22 @@ const response = await fetch('https://example.com/v1/people/per_01J.../', {
 const person = personSchema.parse(await response.json())
 ```
 
+API keys accept optional scopes on create:
+
+```ts
+import { createApiKeyBody } from '@kelpie/schemas'
+
+await fetch('https://example.com/v1/api-keys', {
+  method: 'POST',
+  headers: { authorization: `Bearer ${adminKey}`, 'content-type': 'application/json' },
+  body: JSON.stringify(createApiKeyBody({
+    name: 'Reporting bot',
+    kind: 'workspace',
+    scopes: ['read:objects'],
+  })),
+})
+```
+
 `parse` throws on a response that does not match, which is the point. A field the service renamed becomes an error where it happens rather than `undefined` three layers away.
 
 ## Licence

@@ -1,5 +1,9 @@
+import type { ApiKeyScope } from '@kelpie/schemas'
+import { API_KEY_SCOPES, dedupeApiKeyScopes } from '@kelpie/schemas'
+
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
+import { hasApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Actor } from '../auth/actor.ts'
 import { roleAllows } from '../workspace/roles.ts'
@@ -27,6 +31,7 @@ export interface ApiKeyView {
   readonly id: string
   readonly name: string
   readonly kind: KeyKind
+  readonly scopes: readonly ApiKeyScope[]
   readonly displayPrefix: string
   readonly lastUsedAt: Date | null
   readonly createdAt: Date
@@ -38,7 +43,7 @@ export interface MintedApiKey extends ApiKeyView {
 }
 
 export interface ApiKeyService {
-  create(actor: Actor, name: string, kind: KeyKind): Promise<MintedApiKey>
+  create(actor: Actor, name: string, kind: KeyKind, scopes?: readonly ApiKeyScope[]): Promise<MintedApiKey>
   list(actor: Actor, kind: KeyKind): Promise<readonly ApiKeyView[]>
   revoke(actor: Actor, id: string): Promise<void>
 }
@@ -48,10 +53,29 @@ function toView(record: repository.ApiKeyRecord): ApiKeyView {
     id: record.id,
     name: record.name,
     kind: record.userId === null ? 'workspace' : 'personal',
+    scopes: record.scopes as ApiKeyScope[],
     displayPrefix: record.displayPrefix,
     lastUsedAt: record.lastUsedAt,
     createdAt: record.createdAt,
   }
+}
+
+function parseScopes(scopes: readonly ApiKeyScope[] | undefined): ApiKeyScope[] {
+  if (scopes === undefined || scopes.length === 0) {
+    return []
+  }
+
+  const deduped = dedupeApiKeyScopes(scopes)
+  const allowed = new Set<string>(API_KEY_SCOPES)
+  const invalid = deduped.filter((scope) => !allowed.has(scope))
+
+  if (invalid.length > 0) {
+    throw AppError.validationFailed('One or more scopes are not valid', [
+      { field: 'scopes', message: `Unknown scopes: ${invalid.join(', ')}` },
+    ])
+  }
+
+  return deduped
 }
 
 export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeyService {
@@ -92,12 +116,17 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
   }
 
   return {
-    async create(actor, name, kind) {
+    async create(actor, name, kind, scopes) {
       const workspaceId = requireWorkspace(actor)
       const userId = kind === 'workspace' ? null : requireUser(actor)
+      const storedScopes = parseScopes(scopes)
 
       if (kind === 'workspace') {
         requireAdmin(actor)
+      }
+
+      if (actor.kind === 'api_key' && !hasApiKeyScope(actor, 'api_keys:write')) {
+        throw new AppError('forbidden', 'This API key does not have the api_keys:write scope')
       }
 
       const minted = mintKey(kind, dependencies.newToken)
@@ -108,6 +137,7 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
         name,
         secretHash: minted.secretHash,
         displayPrefix: minted.displayPrefix,
+        scopes: storedScopes,
       })
 
       // The only time the secret leaves this process. Nothing stores it.
@@ -144,6 +174,10 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
         // An admin can see a colleague's personal key exists but cannot revoke it;
         // removing their membership is how you cut off their access.
         throw AppError.notFound('API key not found')
+      }
+
+      if (actor.kind === 'api_key' && !hasApiKeyScope(actor, 'api_keys:write')) {
+        throw new AppError('forbidden', 'This API key does not have the api_keys:write scope')
       }
 
       await repository.deleteApiKey(dependencies.db, workspaceId, id)

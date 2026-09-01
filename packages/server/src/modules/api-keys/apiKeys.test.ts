@@ -112,8 +112,16 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
     return { cookie, workspaceId: readString(await created.json(), 'id') }
   }
 
-  async function mint(cookie: string, kind: string, name = 'CI'): Promise<string> {
-    const response = await send('POST', '/v1/api-keys', { body: { name, kind }, cookie })
+  async function mint(
+    cookie: string,
+    kind: string,
+    name = 'CI',
+    scopes?: readonly string[],
+  ): Promise<string> {
+    const response = await send('POST', '/v1/api-keys', {
+      body: { name, kind, ...(scopes === undefined ? {} : { scopes }) },
+      cookie,
+    })
     expect(response.status).toBe(201)
 
     return readString(await response.json(), 'secret')
@@ -436,6 +444,75 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
       const { cookie } = await owner()
 
       expect((await send('GET', '/v1/api-keys', { cookie })).status).toBe(422)
+    })
+  })
+
+  describe('scopes', () => {
+    it('returns scopes on create and list', async () => {
+      const { cookie } = await owner()
+
+      const created = await send('POST', '/v1/api-keys', {
+        body: { name: 'Read only', kind: 'workspace', scopes: ['read:objects'] },
+        cookie,
+      })
+      expect(created.status).toBe(201)
+
+      const body = await created.json()
+      expect(readString(body, 'secret')).toMatch(/^kp_live_/u)
+
+      const listed = readList(await (await send('GET', '/v1/api-keys?kind=workspace', { cookie })).json())
+      expect(listed[0]?.scopes).toEqual(['read:objects'])
+    })
+
+    it('lets read:objects reach CRM reads but not writes', async () => {
+      const { cookie, workspaceId } = await owner()
+      const secret = await mint(cookie, 'workspace', 'Reader', ['read:objects'])
+
+      expect((await send('GET', '/v1/people', { bearer: secret })).status).toBe(200)
+      expect((await send('POST', '/v1/people', { bearer: secret, body: { name: 'Alex' } })).status).toBe(
+        403,
+      )
+      expect((await send('GET', `/v1/workspaces/${workspaceId}`, { bearer: secret })).status).toBe(403)
+    })
+
+    it('lets write:objects satisfy GET on CRM resources', async () => {
+      const { cookie } = await owner()
+      const secret = await mint(cookie, 'workspace', 'Writer', ['write:objects'])
+
+      expect((await send('GET', '/v1/deals', { bearer: secret })).status).toBe(200)
+    })
+
+    it('blocks webhooks for read:objects', async () => {
+      const { cookie } = await owner()
+      const secret = await mint(cookie, 'workspace', 'Reader', ['read:objects'])
+
+      expect((await send('GET', '/v1/webhooks', { bearer: secret })).status).toBe(403)
+    })
+
+    it('lets admin preset reach webhooks for an admin workspace key', async () => {
+      const { cookie } = await owner()
+      const secret = await mint(cookie, 'workspace', 'Admin bot', ['admin'])
+
+      expect((await send('GET', '/v1/webhooks', { bearer: secret })).status).toBe(200)
+    })
+
+    it('blocks minting keys without api_keys:write scope', async () => {
+      const { cookie } = await owner()
+      const secret = await mint(cookie, 'workspace', 'Reader', ['read:objects'])
+
+      const response = await send('POST', '/v1/api-keys', {
+        body: { name: 'Second', kind: 'workspace' },
+        bearer: secret,
+      })
+
+      expect(response.status).toBe(403)
+    })
+
+    it('keeps empty scopes as full access', async () => {
+      const { cookie, workspaceId } = await owner()
+      const secret = await mint(cookie, 'workspace')
+
+      expect((await send('GET', `/v1/workspaces/${workspaceId}`, { bearer: secret })).status).toBe(200)
     })
   })
 })
