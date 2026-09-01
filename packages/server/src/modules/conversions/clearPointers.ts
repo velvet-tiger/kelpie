@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import type { PipelineKind } from '@kelpie/schemas'
 
-import type { Queryable } from '../../lib/database.ts'
+import type { Queryable } from '../../runtime/transaction.ts'
 import { deals } from '../deals/schema.ts'
 import { enquiries } from '../enquiries/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'

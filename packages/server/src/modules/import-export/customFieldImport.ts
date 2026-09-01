@@ -1,4 +1,4 @@
-import type { CustomFieldWireValue } from '@kelpie/schemas'
+import type { CustomFieldDefinitionRef, CustomFieldType, CustomFieldWireValue } from '@kelpie/schemas'
 
 import { parseCustomFieldAnswer } from '../forms/applyMappedFields.ts'
 import type { CustomFieldDefinitionRecord } from '../custom-fields/repository.ts'
@@ -70,10 +70,13 @@ export function parseCustomFieldWireValue(
     return parseCurrency(raw)
   }
 
-  const parsed = parseCustomFieldAnswer(
-    { ...definition, objectType: definition.objectType as import('../custom-fields/schema.ts').CustomFieldObjectType },
-    raw,
-  )
+  const ref: CustomFieldDefinitionRef = {
+    objectType: definition.objectType,
+    key: definition.key,
+    label: definition.label,
+    type: definition.type as CustomFieldType,
+  }
+  const parsed = parseCustomFieldAnswer(ref, raw)
 
   if (typeof parsed === 'string' && parsed.trim().length === 0) {
     return undefined
