@@ -46,6 +46,12 @@ Two kinds, managed in two places:
 
 Either kind is shown once at creation and stored hashed; copy it then or make a new one. Every key is bound to one workspace — access to another workspace means another key. What to pick when connecting an agent: [Connect an agent](../agents/connect-an-agent.md).
 
+## Registered agents and Run
+
+**Admin → MCP** also lists **registered agents** — HTTP endpoints Kelpie POSTs to when someone clicks **Run** on a record page. This is the opposite direction from MCP connection: Kelpie sends a resolved task **to** your server, and your server calls Kelpie back over the API or MCP with its own key.
+
+Registering is admin work. Running is open to every member. Copy prompt works without a registered agent; Run needs one. Full contract and what works as a receiver: [Agent tasks](../agents/agent-tasks.md).
+
 ## Webhooks
 
 **Admin → Webhooks** registers endpoints that receive record events, pauses them, rotates their signing secrets, and shows the delivery log. The integrator's half — verifying signatures, retry semantics — lives in [API and webhooks](../agents/api-and-webhooks.md).

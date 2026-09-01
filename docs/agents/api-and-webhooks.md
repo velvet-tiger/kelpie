@@ -85,3 +85,28 @@ Rotate from the Webhooks admin page (or the API). You choose: an immediate rotat
 ## Limits to design around
 
 Deliveries and their retries live in the server process — there is no durable queue. A crash mid-retry loses that delivery. Treat webhooks as a fast signal, not a ledger: anything you cannot afford to miss, reconcile by polling the API.
+
+## Agent task dispatches
+
+Separate from webhooks and from MCP connection. When someone clicks **Run** on a record page, Kelpie POSTs a resolved task to a **registered agent** — an HTTP endpoint you register on Admin → MCP. Your receiver then calls Kelpie back over the API or MCP with its own key.
+
+Kelpie does not ship a receiver and does not integrate with named AI products directly. Any server that accepts the POST works. MCP clients (Claude, Cursor, …) connect **to** Kelpie; Run dispatches **from** Kelpie **to** your endpoint.
+
+A dispatch is a POST with `Content-Type: application/json` and an optional `Authorization` header (the stored auth header from registration). Body:
+
+```json
+{
+  "run_id": "run_01J8ZQ3R9V6X",
+  "workspace_id": "ws_01J8ZQ3R9V6X",
+  "task_id": "company.enrich",
+  "target_type": "company",
+  "target_id": "com_01J8ZQ3R9V6X",
+  "prompt": "…framed markdown prompt…",
+  "base_prompt": "…same body, unframed…",
+  "context": { "…" }
+}
+```
+
+Answer **2xx within 10 seconds**. Kelpie records the dispatch, not your agent's work. **One attempt, no retries** — dedupe on `run_id`. Redirects are not followed. There is no completion callback.
+
+Full contract, what works as a receiver, and the REST endpoints: [Agent tasks](agent-tasks.md). Wire rules: [`agent-tasks.md`](../../../docs/agent-tasks.md) and [`api.md`](../../../docs/api.md) beside this repository.

@@ -79,6 +79,20 @@ The client machine must reach the deployment — an agent on your laptop cannot 
 
 Ask the client to list tools; the same catalog is on Admin → MCP, and `GET /v1/mcp/tools` returns it over ordinary credentials. Then ask the agent something real: "list the people in my CRM".
 
+## Agent tasks and Run
+
+MCP connection and **Run** are different paths:
+
+| | MCP connection | Registered agent (Run) |
+| --- | --- | --- |
+| **Direction** | Agent → Kelpie | Kelpie → your endpoint |
+| **Setup** | API key + MCP config (above) | Register an HTTP endpoint on Admin → MCP |
+| **Use** | Open-ended CRM work | One-click task dispatch from record pages |
+
+Connecting over MCP does not register the client for Run. To dispatch tasks from the UI without building a receiver, use **Copy prompt** on the record page and paste the resolved prompt into your connected agent.
+
+To build or register a receiver — what works, the dispatch contract, and the REST endpoints — see [Agent tasks](agent-tasks.md).
+
 ## Troubleshooting
 
 | Symptom | Cause |
