@@ -60,7 +60,6 @@ const TARGET_ROUTES: Readonly<Partial<Record<RecordTargetType, string>>> = {
 
 interface TargetDirectory {
   nameFor(decision: Decision): string | undefined
-  readonly isComplete: boolean
 }
 
 function useTargetDirectory(): TargetDirectory {
@@ -95,13 +94,6 @@ function useTargetDirectory(): TargetDirectory {
 
   return {
     nameFor: (decision) => nameById.get(decision.targetId),
-    isComplete:
-      !people.hasNext &&
-      !companies.hasNext &&
-      !deals.hasNext &&
-      !opportunities.hasNext &&
-      !raises.hasNext &&
-      !partnerships.hasNext,
   }
 }
 
@@ -258,12 +250,6 @@ export function DecisionsPage(): React.JSX.Element {
             onSortChange={setSort}
             visibleColumnKeys={listView.visibleKeys}
           />
-          {!directory.isComplete && (
-            <p className="mt-2 text-[11px] text-ink-faint">
-              The workspace holds more records than one page returns, so some rows name only their
-              record type.
-            </p>
-          )}
           <Paginator list={decisions} />
         </>
       )}
