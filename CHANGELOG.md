@@ -10,6 +10,68 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-01
+
+### Added
+
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Bidirectional pipeline
+  conversion** across all five record types (Enquiry, Deal, Opportunity,
+  Partnership, Raise). `POST /v1/{kind}/:id/convert` takes
+  `{ target_type, stage_id?, company_id?, kind?, name? }`, creates the target
+  record, repoints notes / activities / decisions / plan items / form attach
+  targets / agent runs, copies person links (the source keeps its own),
+  intersects custom fields by definition key, drops list memberships when the
+  type changes, and sets `converted_to: { target_type, target_id }` on the
+  source while moving it to the first closed stage. A second convert is **409**.
+  Enquiries still accept an empty body and default to deal; `converted_deal_id`
+  remains when the target is a deal. UI convert actions, MCP tools, migration
+  0038, and tests included.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **API key scope
+  bundles**. Keys may carry preset bundles (`read:all`, `write:objects`,
+  `admin:objects`, …) or fine-grained per-resource scopes; an empty list means
+  full access. REST and MCP enforce scopes on every route and tool. The create
+  dialog previews included granular scopes when a preset is selected.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Import / export
+  expansion**. CSV import and export now cover Opportunities, Enquiries,
+  Partnerships, Raises, and custom field definitions, with custom field values
+  on record round-trips.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Open form map
+  targets**. The fixed `map_to` enum is replaced by a searchable catalog of every
+  writable standard field plus workspace custom fields. Save validates against
+  the catalog; submit applies mapped values generically. Migration 0039. New
+  target `person.phones` so contact submits can fill an empty Person phone
+  list.
+- **`@kelpie/server`** — **Starter forms on workspace create**. Contact and
+  Newsletter forms and a Newsletter person list are seeded in the workspace
+  create transaction.
+- **`@kelpie/ui`** — **Sidebar reorganisation**. People and Companies sit in an
+  unheaded directory group; pipeline objects stay under CRM. Lists and Forms move
+  into a Tools section below pipeline objects. On `/admin/*` routes the sidebar
+  swaps to admin items with a Back link instead of a flat admin list.
+- **`@kelpie/ui`** — **Latest activity** on overview tabs now shows the last
+  five events (was one). `useActivities` accepts optional query params.
+
+### Changed
+
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Lists are membership
+  only**. Consent is captured through form fields, imports, and manual person
+  consent — not by joining a list. Migration 0037 drops
+  `lists.consent_purpose_id`; list detail UI drops ListConsentPurpose; form
+  submit no longer auto-grants consent when adding someone to a list.
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Workspace settings
+  slimmed**. Drop agent identity columns (`tagline`, `one_liner`) from
+  workspaces, the public API, settings UI, and MCP tools. Settings are name,
+  slug, and timezone only.
+
+### Fixed
+
+- **`@kelpie/ui`** — Privacy page accent buttons use `text-accent-fg`,
+  `font-semibold`, and transition instead of `text-white` / `font-medium`.
+- **`@kelpie/ui`** — Team invite helper text shortened; the seven-day expiry is
+  enough context on that screen.
+- **`@kelpie/ui`** — Decisions page drops the incomplete directory pagination
+  footnote and unused `isComplete` flag.
+
 ## [0.10.0] - 2026-08-31
 
 ### Added
