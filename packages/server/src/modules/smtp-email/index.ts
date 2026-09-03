@@ -15,6 +15,12 @@ import type { KelpieModule } from '../../runtime/module.ts'
  * or another provider module's name). Reads `EMAIL_FROM` and `SMTP_*` from the
  * environment; missing or malformed values fail boot.
  *
+ * `SMTP_USER` and `SMTP_PASSWORD` are optional and go together. Set both to
+ * authenticate against the relay. Omit both to connect without SMTP AUTH,
+ * which is how local catch-alls (maildev, MailHog, smtp4dev) work. Setting
+ * exactly one fails boot: a half-configured credential pair is a bug, not a
+ * mode.
+ *
  * A commercial email integration (Resend, Postmark) belongs in its own module
  * following the same shape, registered under a different name.
  */
@@ -27,14 +33,26 @@ export const SMTP_EMAIL_PROVIDER = 'smtp'
 
 export type { EmailMessage } from '../../lib/email.ts'
 
-const smtpEmailConfigSchema = z.object({
-  EMAIL_FROM: z.string().min(1),
-  SMTP_HOST: z.string().min(1),
-  SMTP_PORT: z.coerce.number().int().positive().max(65535),
-  SMTP_SECURE: z.enum(['true', 'false']).transform((value) => value === 'true'),
-  SMTP_USER: z.string().min(1),
-  SMTP_PASSWORD: z.string().min(1),
-})
+export const smtpEmailConfigSchema = z
+  .object({
+    EMAIL_FROM: z.string().min(1),
+    SMTP_HOST: z.string().min(1),
+    SMTP_PORT: z.coerce.number().int().positive().max(65535),
+    SMTP_SECURE: z.enum(['true', 'false']).transform((value) => value === 'true'),
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASSWORD: z.string().min(1).optional(),
+  })
+  .superRefine((config, ctx) => {
+    // A half-set pair is a misconfiguration, not a mode. Report both keys so
+    // the operator sees which side of the pair is missing without having to
+    // guess.
+    if ((config.SMTP_USER === undefined) !== (config.SMTP_PASSWORD === undefined)) {
+      const message = 'SMTP_USER and SMTP_PASSWORD must be set together, or both omitted for an unauthenticated relay'
+
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ['SMTP_USER'] })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ['SMTP_PASSWORD'] })
+    }
+  })
 
 export type SmtpEmailConfig = z.infer<typeof smtpEmailConfigSchema>
 
@@ -54,11 +72,13 @@ export interface SmtpTransport {
 }
 
 function createNodemailerTransport(config: SmtpEmailConfig): SmtpTransport {
+  const authenticated = config.SMTP_USER !== undefined && config.SMTP_PASSWORD !== undefined
+
   return nodemailer.createTransport({
     host: config.SMTP_HOST,
     port: config.SMTP_PORT,
     secure: config.SMTP_SECURE,
-    auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD },
+    ...(authenticated ? { auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD } } : {}),
   })
 }
 
@@ -100,7 +120,9 @@ export interface SmtpEmailModuleOptions {
  * The built-in SMTP module. Registers a factory under `SMTP_EMAIL_PROVIDER`;
  * the factory reads the SMTP environment and builds the nodemailer sender, but
  * only if the assembly's `email.provider` picks this module. Boot fails loudly
- * if any SMTP variable is missing or malformed at that point.
+ * on a missing or malformed required variable, or on a half-set
+ * `SMTP_USER` / `SMTP_PASSWORD` pair. Omitting both credentials is valid and
+ * makes the module connect without SMTP AUTH.
  *
  * The module stays in `coreModules` unconditionally: on any other provider
  * (e.g. `EMAIL_PROVIDER=log`) the factory never runs, so the SMTP environment

@@ -8,6 +8,18 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
+## [Unreleased]
+
+### Changed
+
+- **`@kelpie/server`** — the built-in `smtp-email` module accepts a config
+  with no `SMTP_USER` / `SMTP_PASSWORD` and connects to the relay without
+  SMTP AUTH in that case. Local catch-alls (maildev, MailHog, smtp4dev) that
+  do not require authentication become a supported setup instead of the "put
+  a placeholder in and hope the catch-all accepts it" workaround. Setting
+  both keeps working; setting exactly one still fails at boot with an error
+  naming both keys.
+
 ## [0.12.0] - 2026-09-03
 
 ### Added

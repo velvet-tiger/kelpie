@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
 
 import type { EmailMessage, SmtpEmailConfig, SmtpTransport } from './index.ts'
-import { SMTP_EMAIL_PROVIDER, createSmtpEmailModule, createSmtpEmailSender } from './index.ts'
+import { SMTP_EMAIL_PROVIDER, createSmtpEmailModule, createSmtpEmailSender, smtpEmailConfigSchema } from './index.ts'
 
 const fixedTime = (): Date => new Date('2026-08-12T00:00:00.000Z')
 
@@ -113,6 +113,84 @@ describe('createSmtpEmailSender', () => {
 
     expect(thrown).toBeInstanceOf(Error)
     expect((thrown as Error).cause).toBe(original)
+  })
+
+  it('sends over a transport built from a config with no SMTP credentials, for an unauthenticated local relay', async () => {
+    const { transport, calls } = fakeTransport()
+    const { logger } = capture()
+    const unauthenticatedConfig: SmtpEmailConfig = {
+      EMAIL_FROM: smtpConfig.EMAIL_FROM,
+      SMTP_HOST: smtpConfig.SMTP_HOST,
+      SMTP_PORT: smtpConfig.SMTP_PORT,
+      SMTP_SECURE: smtpConfig.SMTP_SECURE,
+    }
+    const sender = createSmtpEmailSender(unauthenticatedConfig, logger, transport)
+
+    await sender.send(message)
+
+    expect(calls).toEqual([
+      {
+        from: unauthenticatedConfig.EMAIL_FROM,
+        to: message.to,
+        subject: message.subject,
+        text: message.body,
+      },
+    ])
+  })
+})
+
+describe('smtpEmailConfigSchema', () => {
+  const baseEnv = {
+    EMAIL_FROM: 'kelpie@example.com',
+    SMTP_HOST: 'smtp.example.com',
+    SMTP_PORT: '587',
+    SMTP_SECURE: 'false',
+  } as const
+
+  it('accepts a config with both SMTP_USER and SMTP_PASSWORD set', () => {
+    const parsed = smtpEmailConfigSchema.parse({
+      ...baseEnv,
+      SMTP_USER: 'kelpie',
+      SMTP_PASSWORD: 'a-real-password',
+    })
+
+    expect(parsed.SMTP_USER).toBe('kelpie')
+    expect(parsed.SMTP_PASSWORD).toBe('a-real-password')
+  })
+
+  it('accepts a config with neither SMTP_USER nor SMTP_PASSWORD, for an unauthenticated relay', () => {
+    const parsed = smtpEmailConfigSchema.parse(baseEnv)
+
+    expect(parsed.SMTP_USER).toBeUndefined()
+    expect(parsed.SMTP_PASSWORD).toBeUndefined()
+  })
+
+  it('rejects a config that sets SMTP_USER without SMTP_PASSWORD, naming both keys', () => {
+    const result = smtpEmailConfigSchema.safeParse({ ...baseEnv, SMTP_USER: 'kelpie' })
+
+    expect(result.success).toBe(false)
+
+    if (result.success) {
+      throw new Error('expected the parse to fail')
+    }
+
+    const keys = result.error.issues.map((issue) => issue.path[0])
+    expect(keys).toContain('SMTP_USER')
+    expect(keys).toContain('SMTP_PASSWORD')
+  })
+
+  it('rejects a config that sets SMTP_PASSWORD without SMTP_USER, naming both keys', () => {
+    const result = smtpEmailConfigSchema.safeParse({ ...baseEnv, SMTP_PASSWORD: 'a-real-password' })
+
+    expect(result.success).toBe(false)
+
+    if (result.success) {
+      throw new Error('expected the parse to fail')
+    }
+
+    const keys = result.error.issues.map((issue) => issue.path[0])
+    expect(keys).toContain('SMTP_USER')
+    expect(keys).toContain('SMTP_PASSWORD')
   })
 })
 

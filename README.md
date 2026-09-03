@@ -61,7 +61,7 @@ make test     # run every suite
 
 ### Email
 
-Set `EMAIL_PROVIDER=log` for local development. Invite and password-reset links print to the API log. For SMTP, set `EMAIL_PROVIDER=smtp` and fill in `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` in `.env.local`.
+Set `EMAIL_PROVIDER=log` for local development. Invite and password-reset links print to the API log. For SMTP, set `EMAIL_PROVIDER=smtp` and fill in `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE` in `.env.local`. `SMTP_USER` and `SMTP_PASSWORD` are optional and paired: set both to authenticate against the relay, or omit both to connect without SMTP AUTH — for local catch-alls like maildev, MailHog, or smtp4dev.
 
 ### Configuration
 

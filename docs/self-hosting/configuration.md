@@ -31,8 +31,9 @@ A scaffolded project reads one file: `.env`, loaded by every script through `--e
 | --- | --- | --- |
 | `EMAIL_PROVIDER` | yes | Which transactional-mail sender to use. `log` (built in) writes messages to the API log instead of sending — copy invitation and reset links from there during development. `smtp` sends through the built-in `smtp-email` module. A third-party provider module registers its own name. |
 | `EMAIL_FROM` | yes | The from address for all transactional mail. |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | when `smtp` | The mail server and its credentials. |
+| `SMTP_HOST`, `SMTP_PORT` | when `smtp` | The mail server to connect to. |
 | `SMTP_SECURE` | when `smtp` | `true` connects over TLS from the start (typically port 465). `false` upgrades with STARTTLS (typically 587 or 25). |
+| `SMTP_USER`, `SMTP_PASSWORD` | when the relay requires SMTP AUTH | The credentials. Optional and paired: set both to authenticate, or omit both to connect without SMTP AUTH (for local catch-alls like maildev, MailHog, smtp4dev). Setting exactly one fails at boot. |
 
 ## Secrets
 
