@@ -100,13 +100,10 @@ describe('serveWebBundle', () => {
 
   /**
    * The same rule with modules registered, which is the shape a real assembly
-   * runs in and the one `createTestApp()` with no modules cannot show.
-   *
-   * A toggleable module's router carries a `/v1/*` gate that resolves the caller
-   * before any of its own routes run, so an unauthenticated request to an
-   * unknown `/v1` path is answered `401` by the gate and never reaches routing
-   * at all. That predates this file. What matters here is that it stays a JSON
-   * error rather than becoming the app shell.
+   * runs in and the one `createTestApp()` with no modules cannot show. An
+   * unknown `/v1` path passes every module's per-route gate and lands on
+   * core's `/v1` not-found handler; what matters here is that the fallback
+   * stays a JSON error and does not become the app shell.
    */
   it('does not override what the API chain already answered for /v1', async () => {
     const gated: KelpieModule = {
@@ -129,9 +126,9 @@ describe('serveWebBundle', () => {
 
     const response = await built.app.request('/v1/no-such-endpoint')
 
-    expect(response.status).toBe(401)
+    expect(response.status).toBe(404)
     expect(response.headers.get('Content-Type')).toContain('application/json')
-    expect(await response.json()).toMatchObject({ error: { code: 'unauthorized' } })
+    expect(await response.json()).toMatchObject({ error: { code: 'not_found' } })
   })
 
   /**

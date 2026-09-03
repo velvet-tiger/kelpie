@@ -1,3 +1,4 @@
+import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -882,6 +883,193 @@ describe('module toggling', () => {
         moduleConfig: { 'structural-thing': false },
       }),
     ).rejects.toThrow(/module config names "structural-thing", which is structural and cannot be disabled/)
+  })
+})
+
+/**
+ * Two independent gated modules mounted at `/v1`. Hono flattens each module's
+ * router onto the parent prefix, so a naive `router.use('*', gate)` would
+ * attach at `/v1/*` on the app and fire for every module's routes, not just
+ * the one that declared it. The assertions below hold both directions of that
+ * leak: neither module's gate may fire on the other's route, whichever loads
+ * first.
+ */
+describe('module gate isolation', () => {
+  const gatedAModule: KelpieModule = {
+    id: 'gated-a',
+    register(context) {
+      context.routes((router) => {
+        router.get('/gated-a/thing', (requestContext) => requestContext.json({ a: true }))
+      })
+      return Promise.resolve()
+    },
+  }
+
+  const gatedBModule: KelpieModule = {
+    id: 'gated-b',
+    register(context) {
+      context.routes((router) => {
+        router.get('/gated-b/thing', (requestContext) => requestContext.json({ b: true }))
+      })
+      return Promise.resolve()
+    },
+  }
+
+  it("does not run an earlier disabled module's gate on a later module's route", async () => {
+    const { app } = await createTestApp({
+      modules: [gatedAModule, gatedBModule],
+      moduleConfig: { 'gated-a': false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    const response = await app.request('/v1/gated-b/thing')
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ b: true })
+  })
+
+  it("does not run a later disabled module's gate on an earlier module's route", async () => {
+    const { app } = await createTestApp({
+      modules: [gatedAModule, gatedBModule],
+      moduleConfig: { 'gated-b': false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    const response = await app.request('/v1/gated-a/thing')
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ a: true })
+  })
+
+  it("still gates the disabled module's own route", async () => {
+    const { app } = await createTestApp({
+      modules: [gatedAModule, gatedBModule],
+      moduleConfig: { 'gated-a': false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    const response = await app.request('/v1/gated-a/thing')
+
+    expect(response.status).toBe(403)
+    expect((await response.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: 'entitlement_required' },
+    })
+  })
+
+  it('gates a middleware attached at a specific module path', async () => {
+    const middlewareModule: KelpieModule = {
+      id: 'middleware-thing',
+      register(context) {
+        context.routes((router) => {
+          router.use('/middleware-thing/*', async (_requestContext, next) => next())
+          router.get('/middleware-thing/inner', (requestContext) => requestContext.json({ inner: true }))
+        })
+        return Promise.resolve()
+      },
+    }
+
+    const { app } = await createTestApp({
+      modules: [middlewareModule],
+      moduleConfig: { 'middleware-thing': false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    expect((await app.request('/v1/middleware-thing/inner')).status).toBe(403)
+  })
+
+  it('gates a nested sub-router the module mounts through router.route', async () => {
+    const nestedModule: KelpieModule = {
+      id: 'nested',
+      register(context) {
+        context.routes((router) => {
+          const inner = new Hono()
+          inner.get('/deep', (requestContext) => requestContext.json({ deep: true }))
+          router.route('/nested', inner)
+        })
+        return Promise.resolve()
+      },
+    }
+
+    const { app } = await createTestApp({
+      modules: [nestedModule],
+      moduleConfig: { nested: false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    expect((await app.request('/v1/nested/deep')).status).toBe(403)
+  })
+
+  it.each([
+    ['*', '"\\*"'],
+    ['/*', '"/\\*"'],
+    ['/', '"/"'],
+  ])('refuses an app-wide router.use(%s) at boot, naming the module', async (pattern, quoted) => {
+    const spanning: KelpieModule = {
+      id: 'spanning',
+      register(context) {
+        context.routes((router) => {
+          router.use(pattern, async (_requestContext, next) => next())
+        })
+        return Promise.resolve()
+      },
+    }
+
+    await expect(
+      registerModules({
+        modules: [spanning],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
+        resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+      }),
+    ).rejects.toThrow(new RegExp(`module "spanning".*app-wide pattern \\(${quoted}\\)`))
+  })
+
+  it('refuses router.notFound at boot, naming the module', async () => {
+    const catcher: KelpieModule = {
+      id: 'catcher',
+      register(context) {
+        context.routes((router) => {
+          router.notFound((requestContext) => requestContext.json({ nope: true }, 404))
+        })
+        return Promise.resolve()
+      },
+    }
+
+    await expect(
+      registerModules({
+        modules: [catcher],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
+        resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+      }),
+    ).rejects.toThrow(/module "catcher" called router\.notFound\(\)/)
+  })
+
+  it('refuses router.onError at boot, naming the module', async () => {
+    const shielded: KelpieModule = {
+      id: 'shielded',
+      register(context) {
+        context.routes((router) => {
+          router.onError((_error, requestContext) => requestContext.json({ oops: true }, 500))
+        })
+        return Promise.resolve()
+      },
+    }
+
+    await expect(
+      registerModules({
+        modules: [shielded],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
+        resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+      }),
+    ).rejects.toThrow(/module "shielded" called router\.onError\(\)/)
   })
 })
 

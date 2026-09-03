@@ -87,6 +87,117 @@ function assertMountablePath(moduleId: string, kind: string, path: string): void
   }
 }
 
+/** Verb methods a module can call on the router — full Hono set. */
+const ROUTER_VERB_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'all'] as const
+type RouterVerbMethod = (typeof ROUTER_VERB_METHODS)[number]
+
+function isRouterVerbMethod(name: string): name is RouterVerbMethod {
+  return (ROUTER_VERB_METHODS as readonly string[]).includes(name)
+}
+
+/**
+ * Wraps a Hono router so every route the module registers runs `gate` first,
+ * and only that module's own routes. The straightforward alternative —
+ * `router.use('*', gate)` — attaches at `/v1/*` on the app once the router is
+ * mounted (Hono flattens sub-routers onto the parent prefix), so the gate
+ * fires for every module's routes, not just this module's. Prepending the gate
+ * to each declared route keeps the check local.
+ *
+ * The full router surface is covered so a future contributor cannot silently
+ * reintroduce the leak by reaching for a method that was not wrapped:
+ *
+ * - HTTP verbs and `on`: prepend `gate`, then the module's handlers.
+ * - `use(pattern, ...)` at a specific path: prepend `gate`, then the mw.
+ * - `route(subPath, subApp)`: recursively wrap `subApp` before mounting, so
+ *   every route it contributes still runs the gate first.
+ *
+ * And the calls that cannot be made module-local through wrapping fail at
+ * boot with a message naming the module, rather than shipping a subtle leak:
+ *
+ * - `use()` with no path, `use('*')`, `use('/*')`, `use('/')`: any of these
+ *   register a middleware at `/v1/*` on the parent app once the router is
+ *   mounted — the exact bug this wrapper prevents. A module that wants to
+ *   share middleware across many of its routes must name a specific path
+ *   (`/things/*`) or attach the middleware per route.
+ * - `notFound` / `onError`: fire for every unmatched or failing `/v1`
+ *   request once the router is flattened, so a module's handler would run
+ *   for other modules' traffic. Handle failures inside the module's own
+ *   route handlers instead.
+ */
+function gateRouter(router: Hono, moduleId: string, gate: MiddlewareHandler): Hono {
+  const proxy: Hono = new Proxy(router, {
+    get(target, property, receiver) {
+      if (typeof property !== 'string') {
+        return Reflect.get(target, property, receiver)
+      }
+
+      if (isRouterVerbMethod(property)) {
+        return (path: string, ...handlers: Handler[]): Hono => {
+          const method = target[property] as (path: string, ...handlers: Handler[]) => Hono
+          method.call(target, path, gate, ...handlers)
+          return proxy
+        }
+      }
+
+      if (property === 'on') {
+        return (
+          method: string | string[],
+          path: string | string[],
+          ...handlers: Handler[]
+        ): Hono => {
+          target.on(method as never, path as never, gate, ...handlers)
+          return proxy
+        }
+      }
+
+      if (property === 'use') {
+        return (...args: unknown[]): Hono => {
+          const first = args[0]
+          const isAppWide =
+            typeof first !== 'string' || first === '*' || first === '/*' || first === '/'
+
+          if (isAppWide) {
+            throw new ModuleBootError([
+              `module "${moduleId}" called router.use() with an app-wide pattern (${
+                typeof first === 'string' ? `"${first}"` : 'no path'
+              }). Hono flattens the module router onto "/v1", so this would fire for every module's routes. Name a specific path ("/things/*") or attach middleware per route.`,
+            ])
+          }
+
+          const [pattern, ...handlers] = args as [string, ...MiddlewareHandler[]]
+          target.use(pattern, gate, ...handlers)
+          return proxy
+        }
+      }
+
+      if (property === 'route') {
+        return (path: string, subApp: Hono): Hono => {
+          // The sub-app's routes were registered on it before this call, so a
+          // proxy over `subApp` cannot retroactively prepend the gate to them.
+          // Instead attach the gate as middleware scoped to the sub-router's
+          // mount prefix on this router — once flattened onto `/v1`, the
+          // middleware covers exactly `/v1${path}/*`, which is the module's
+          // own routes. `use` must land before `route` so composition order
+          // runs the gate first.
+          target.use(`${path.replace(/\/+$/, '')}/*`, gate)
+          target.route(path, subApp)
+          return proxy
+        }
+      }
+
+      if (property === 'notFound' || property === 'onError') {
+        throw new ModuleBootError([
+          `module "${moduleId}" called router.${property}(). A module router's ${property} fires for every unmatched or failing "/v1" request once the router is mounted; handle failures inside the module's own route handlers instead.`,
+        ])
+      }
+
+      return Reflect.get(target, property, receiver)
+    },
+  }) as Hono
+
+  return proxy
+}
+
 /**
  * What `registerModules` needs.
  *
@@ -282,22 +393,25 @@ function createModuleContext(
     routes(mount) {
       const router = new Hono()
 
-      // Gate first, so it runs before anything `mount` adds: Hono composes a
-      // path's handlers in the order they were registered on this router,
-      // middleware included, and registering after the routes it should guard
-      // would run it too late to block them.
+      // Gate must run before anything `mount` adds. A `router.use('*', gate)`
+      // here would attach at `/v1/*` on the app after mounting (Hono flattens
+      // the sub-router onto the parent prefix), which would fire the gate for
+      // every module's routes, not just this one's. So the gate is prepended
+      // to each individual route through `gateRouter` instead.
       if (module.structural !== true && options.resolveActor !== undefined) {
         const { resolveActor } = options
-
-        router.use('*', async (context, next) => {
+        const gate: MiddlewareHandler = async (context, next) => {
           const actor = await resolveActor(context)
 
           await requireCapability(entitlements, requireWorkspaceId(actor), moduleCapabilityName(module.id))
           await next()
-        })
+        }
+
+        mount(gateRouter(router, module.id, gate))
+      } else {
+        mount(router)
       }
 
-      mount(router)
       accumulator.routers.push({ moduleId: module.id, router })
     },
 
