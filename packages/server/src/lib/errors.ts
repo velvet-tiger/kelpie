@@ -89,25 +89,32 @@ export class AppError extends Error {
  * A reason rather than a message, so a provider module can branch on it (to
  * redirect somewhere useful, say) without matching on English text.
  */
-export type ExternalSignInRefusal = 'email_unverified' | 'unknown_identity'
+export type ExternalSignInRefusal = 'email_unverified' | 'unknown_identity' | 'signups_closed'
+
+const EXTERNAL_SIGN_IN_CODE: Record<ExternalSignInRefusal, ErrorCode> = {
+  email_unverified: 'unauthorized',
+  unknown_identity: 'forbidden',
+  signups_closed: 'forbidden',
+}
+
+const EXTERNAL_SIGN_IN_MESSAGE: Record<ExternalSignInRefusal, string> = {
+  email_unverified: 'The identity provider did not verify this email address',
+  unknown_identity: 'No account exists for this identity',
+  signups_closed: 'Signups are closed on this instance',
+}
 
 /**
  * An external sign-in core would not complete.
  *
  * An `AppError`, so an uncaught one still renders as the `api.md` body. No new
- * `ErrorCode`: refusing an unverified identity is an ordinary `401`, and
- * refusing to provision is an ordinary `403`.
+ * `ErrorCode`: refusing an unverified identity is an ordinary `401`, and both
+ * refusing to provision and signups being closed are an ordinary `403`.
  */
 export class ExternalSignInError extends AppError {
   readonly reason: ExternalSignInRefusal
 
   constructor(reason: ExternalSignInRefusal) {
-    super(
-      reason === 'email_unverified' ? 'unauthorized' : 'forbidden',
-      reason === 'email_unverified'
-        ? 'The identity provider did not verify this email address'
-        : 'No account exists for this identity',
-    )
+    super(EXTERNAL_SIGN_IN_CODE[reason], EXTERNAL_SIGN_IN_MESSAGE[reason])
     this.name = 'ExternalSignInError'
     this.reason = reason
   }

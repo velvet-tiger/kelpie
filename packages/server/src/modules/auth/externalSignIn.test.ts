@@ -375,4 +375,51 @@ describe.skipIf(connectionString === undefined)('external sign-in', () => {
       expect(first?.signed_in_via).toBeNull()
     })
   })
+
+  describe('signups closed', () => {
+    beforeEach(async () => {
+      // A fresh `services`, not the outer `beforeEach`'s: registering the same
+      // modules a second time on an event bus that already carries their
+      // catalogs fails boot with a duplicate-event error.
+      services = createTestServices({ db: database.db })
+      harness = await createTestApp({
+        modules: [...coreModules, identityModule],
+        environment: TEST_ENVIRONMENT,
+        services,
+        signupsEnabled: false,
+      })
+    })
+
+    it('refuses to provision an address core has never seen', async () => {
+      const response = await signIn()
+
+      expect(response.status).toBe(403)
+      expect(response.headers.get('Set-Cookie')).toBeNull()
+
+      const [row] = await database.db.select().from(users).where(eq(users.email, 'ada@example.com'))
+      expect(row).toBeUndefined()
+    })
+
+    it('still signs in an address that already has an account', async () => {
+      // Password signup is closed too, so the account has to come from a
+      // harness where it isn't — the row it leaves behind is what this test
+      // exercises, not the request that created it.
+      const openHarness = await createTestApp({
+        modules: [...coreModules, identityModule],
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db }),
+      })
+      const signedUp = await openHarness.app.request('/v1/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: IDENTITY.email, name: IDENTITY.name, password: PASSWORD }),
+      })
+      expect(signedUp.status).toBe(201)
+
+      const response = await signIn()
+
+      expect(response.status).toBe(200)
+      expect((await readBody(response)).created).toBe(false)
+    })
+  })
 })

@@ -65,6 +65,12 @@ export interface AppDependencies {
    * name itself".
    */
   readonly siteName?: string | undefined
+  /**
+   * Reported through `GET /v1/public/config` so the sign-up page can show a
+   * "signups are closed" message instead of the form. Defaults to `true`
+   * (open), matching the config layer's own default.
+   */
+  readonly signupsEnabled?: boolean
 }
 
 /** Per-request values the middleware chain sets and handlers read. */
@@ -185,9 +191,13 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   // exists to be visible; nothing here is sensitive.
   const runtimeMode: RuntimeMode = dependencies.runtimeMode ?? 'production'
   const siteName = dependencies.siteName ?? null
+  const signupsEnabled = dependencies.signupsEnabled ?? true
 
   app.get(`${PUBLIC_ROUTE_PREFIX}/config`, (context) =>
-    context.json({ runtime_mode: runtimeMode, site_name: siteName }, 200),
+    context.json(
+      { runtime_mode: runtimeMode, site_name: siteName, signups_enabled: signupsEnabled },
+      200,
+    ),
   )
 
   for (const { router } of dependencies.contributions.routers) {

@@ -63,6 +63,12 @@ export default defineKelpieConfig({
   siteName: fromEnv<string | undefined>('KELPIE_SITE_NAME', z.string().min(1).optional(), undefined),
   trustedProxyHopCount: fromEnv('TRUSTED_PROXY_HOP_COUNT', nonNegativeInt, 0),
 
+  // `closed` refuses a brand-new account, through either `POST
+  // /v1/auth/signup` or external-sign-in provisioning. Joining an existing
+  // workspace via invite, and workspace creation by an already-verified
+  // account, are unaffected either way.
+  signups: fromEnv('SIGNUPS', z.enum(['open', 'closed']), 'open'),
+
   // The deployment's base URL. Every emailed link (invite, password reset,
   // email verification) is built from it.
   appBaseUrl: fromEnv('APP_BASE_URL', appUrlConfigSchema.shape.APP_BASE_URL),

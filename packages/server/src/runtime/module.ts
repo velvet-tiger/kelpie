@@ -133,6 +133,14 @@ export interface ModuleServices {
    * `secretEncryption`. Same fallback pattern as `appBaseUrl`.
    */
   readonly secretEncryption?: SecretEncryptionConfig | undefined
+  /**
+   * Whether the instance accepts a brand-new account, from `kelpie.config.ts`'s
+   * `signups` (or `SIGNUPS`). Undefined defaults to `true` (open), the same
+   * default `loadConfig` and `resolveKelpieConfig` use, so a caller that has
+   * not thought about it — a test, an older assembly — sees no change in
+   * behaviour.
+   */
+  readonly signupsEnabled?: boolean
 }
 
 export interface ModuleContext extends ModuleServices {

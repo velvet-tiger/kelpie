@@ -37,6 +37,7 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
         createId: context.createId,
         now: context.now,
         appBaseUrl,
+        signupsEnabled: context.signupsEnabled ?? true,
       })
 
       // `Secure` everywhere except development. A test host reaches the API

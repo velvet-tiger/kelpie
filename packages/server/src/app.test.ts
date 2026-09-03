@@ -58,16 +58,36 @@ describe('GET /v1/public/config', () => {
     const response = await app.request('/v1/public/config')
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ runtime_mode: 'development', site_name: 'dev' })
+    expect(await response.json()).toEqual({
+      runtime_mode: 'development',
+      site_name: 'dev',
+      signups_enabled: true,
+    })
   })
 
-  it('defaults to production and a null site name when nothing was passed', async () => {
+  it('defaults to production, a null site name, and open signups when nothing was passed', async () => {
     const { app } = await createTestApp()
 
     const response = await app.request('/v1/public/config')
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ runtime_mode: 'production', site_name: null })
+    expect(await response.json()).toEqual({
+      runtime_mode: 'production',
+      site_name: null,
+      signups_enabled: true,
+    })
+  })
+
+  it('reports signups as closed when the assembly closed them', async () => {
+    const { app } = await createTestApp({ signupsEnabled: false })
+
+    const response = await app.request('/v1/public/config')
+
+    expect(await response.json()).toEqual({
+      runtime_mode: 'production',
+      site_name: null,
+      signups_enabled: false,
+    })
   })
 })
 

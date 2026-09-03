@@ -24,6 +24,9 @@ export type RuntimeMode = 'development' | 'test' | 'production'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
+/** Whether `POST /v1/auth/signup` and external-sign-in provisioning accept a brand-new account. */
+export type SignupsMode = 'open' | 'closed'
+
 /**
  * Everything the logger needs to boot: the minimum severity to emit, and the
  * ordered list of destinations each line is written to. Stdout is one such
@@ -96,6 +99,14 @@ export interface KelpieConfig {
    * it, so both webhooks and agent-tasks receive it through `services`.
    */
   readonly secretEncryption: SecretEncryptionConfig | undefined
+  /**
+   * Whether the instance accepts a brand-new account, through password signup
+   * or external-sign-in provisioning. Defaults to `'open'`, so a self-hoster
+   * who never sets `SIGNUPS` sees no change in behaviour. Joining an existing
+   * workspace via invite, and workspace creation by an already-verified
+   * account, are unaffected either way.
+   */
+  readonly signups: SignupsMode
 }
 
 /** Thrown at boot when the environment cannot produce a valid configuration. */
@@ -129,6 +140,7 @@ const environmentSchema = z.object({
   KELPIE_SITE_NAME: z.string().min(1).optional(),
   WEB_BUNDLE_DIR: z.string().min(1).optional(),
   TRUSTED_PROXY_HOP_COUNT: z.coerce.number().int().nonnegative().default(0),
+  SIGNUPS: z.enum(['open', 'closed']).default('open'),
   ...rateLimitConfigSchema.shape,
 })
 
@@ -171,5 +183,6 @@ export function loadConfig(environment: Environment): KelpieConfig {
     env: environment,
     appBaseUrl: undefined,
     secretEncryption: undefined,
+    signups: environmentResult.data.SIGNUPS,
   }
 }

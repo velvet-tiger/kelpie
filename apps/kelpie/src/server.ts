@@ -53,6 +53,7 @@ async function start(): Promise<void> {
     rateLimit: config.rateLimit,
     runtimeMode: config.runtimeMode,
     siteName: config.siteName,
+    signupsEnabled: config.signups === 'open',
     // The socket address, then `X-Forwarded-For` only as far as the configured
     // number of trusted proxies allows. `getConnInfo` needs `@hono/node-server`'s
     // own request context, which is why this is resolved here rather than

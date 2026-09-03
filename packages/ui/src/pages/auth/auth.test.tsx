@@ -44,11 +44,21 @@ interface Calls {
 interface Stubs {
   /** Thrown by the next write, to stand in for the service refusing it. */
   readonly writeFails?: ApiError
+  /** What `/public/config` reports. Defaults to open, matching the server's own default. */
+  readonly signupsEnabled?: boolean
 }
 
 function authClient(calls: Calls, stubs: Stubs = {}): ApiClient {
   return stubClient({
     get: (path) => {
+      if (path === '/public/config') {
+        return {
+          runtime_mode: 'production',
+          site_name: null,
+          signups_enabled: stubs.signupsEnabled ?? true,
+        }
+      }
+
       if (path !== '/auth/me') {
         throw new Error(`Unexpected get ${path}`)
       }
@@ -190,6 +200,34 @@ describe('SignUpPage', () => {
 
     expect(await screen.findByText('That email address is already registered')).toBeTruthy()
     expect(screen.queryByText('onboarding step 1')).toBeNull()
+  })
+
+  it('shows a closed message instead of the form when signups are closed', async () => {
+    const calls = noCalls()
+
+    renderAt('/signup', <SignUpPage />, calls, { signupsEnabled: false })
+
+    expect(await screen.findByText('Signups are closed')).toBeTruthy()
+    expect(screen.queryByLabelText(/^Email/u)).toBeNull()
+    expect(calls.posted).toEqual([])
+  })
+})
+
+describe('SignInPage', () => {
+  it('hides the sign-up link when signups are closed', async () => {
+    renderAt('/login', <SignInPage />, noCalls(), { signupsEnabled: false })
+
+    expect(await screen.findByText('Forgot password?')).toBeTruthy()
+    // The link renders until the `/public/config` query settles, so wait for it.
+    await waitFor(() => {
+      expect(screen.queryByText('Sign up')).toBeNull()
+    })
+  })
+
+  it('shows the sign-up link by default', async () => {
+    renderAt('/login', <SignInPage />, noCalls())
+
+    expect(await screen.findByText('Sign up')).toBeTruthy()
   })
 })
 

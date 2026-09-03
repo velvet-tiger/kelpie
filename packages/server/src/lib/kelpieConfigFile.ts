@@ -1,5 +1,12 @@
 import type { KelpieModule } from '../runtime/module.ts'
-import { ConfigurationError, type Environment, type KelpieConfig, type LogLevel, type RuntimeMode } from './config.ts'
+import {
+  ConfigurationError,
+  type Environment,
+  type KelpieConfig,
+  type LogLevel,
+  type RuntimeMode,
+  type SignupsMode,
+} from './config.ts'
 import type { EmailConfig } from './email.ts'
 import { type ConfigValue, resolveMarkers } from './fromEnv.ts'
 import type { LoggingDestination } from './logger.ts'
@@ -35,6 +42,12 @@ export interface KelpieConfigInput {
   readonly siteName?: ConfigValue<string | undefined>
   /** Optional; defaults to 0 (no proxy in front). */
   readonly trustedProxyHopCount?: ConfigValue<number>
+  /**
+   * Whether the instance accepts a brand-new account. Optional; defaults to
+   * `'open'`, matching `loadConfig`'s default, so an assembly that never sets
+   * this sees no change in behaviour.
+   */
+  readonly signups?: ConfigValue<SignupsMode>
   /**
    * The deployment's base URL. Every emailed link (password reset, email
    * verification, invite) is built from it. Required by the workspace and auth
@@ -186,6 +199,7 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
     env,
     appBaseUrl: resolved.appBaseUrl,
     secretEncryption,
+    signups: resolved.signups ?? 'open',
   }
 }
 
@@ -217,6 +231,7 @@ interface ResolvedInput {
   readonly moduleConfigPath?: string | undefined
   readonly siteName?: string | undefined
   readonly trustedProxyHopCount?: number
+  readonly signups?: SignupsMode
   readonly appBaseUrl?: string
   readonly secretEncryption?: ResolvedSecretEncryption
   readonly email: ResolvedEmail

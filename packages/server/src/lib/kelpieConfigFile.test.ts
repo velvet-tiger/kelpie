@@ -59,6 +59,7 @@ describe('resolveKelpieConfig', () => {
         api: { limit: 600, windowMs: 60_000 },
       },
       trustedProxyHopCount: 0,
+      signups: 'open',
       env: {},
       appBaseUrl: undefined,
       secretEncryption: undefined,
@@ -198,6 +199,24 @@ describe('resolveKelpieConfig', () => {
 
   it('uses the trustedProxyHopCount default of 0 when unset', () => {
     expect(resolveKelpieConfig(baseInput(), {}).trustedProxyHopCount).toBe(0)
+  })
+
+  describe('signups', () => {
+    it('defaults to open when the input omits it', () => {
+      expect(resolveKelpieConfig(baseInput(), {}).signups).toBe('open')
+    })
+
+    it('resolves a literal', () => {
+      const input = baseInput({ signups: 'closed' })
+
+      expect(resolveKelpieConfig(input, {}).signups).toBe('closed')
+    })
+
+    it('resolves a fromEnv marker', () => {
+      const input = baseInput({ signups: fromEnv('SIGNUPS', z.enum(['open', 'closed']), 'open') })
+
+      expect(resolveKelpieConfig(input, { SIGNUPS: 'closed' }).signups).toBe('closed')
+    })
   })
 
   describe('env merge', () => {

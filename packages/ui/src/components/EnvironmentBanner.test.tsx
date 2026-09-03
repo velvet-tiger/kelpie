@@ -8,7 +8,7 @@ import { EnvironmentBanner } from './EnvironmentBanner.tsx'
 
 afterEach(cleanup)
 
-function renderWith(wire: { runtime_mode: string; site_name: string | null }): void {
+function renderWith(wire: { runtime_mode: string; site_name: string | null; signups_enabled: boolean }): void {
   const client = stubClient({
     get: (path) => {
       if (path === '/public/config') {
@@ -30,19 +30,19 @@ function renderWith(wire: { runtime_mode: string; site_name: string | null }): v
 
 describe('EnvironmentBanner', () => {
   it('names the site when the mode is not production', async () => {
-    renderWith({ runtime_mode: 'development', site_name: 'dev' })
+    renderWith({ runtime_mode: 'development', site_name: 'dev', signups_enabled: true })
 
     expect((await screen.findByText('dev')).textContent).toBe('dev')
   })
 
   it('falls back to the runtime mode when no site name is set', async () => {
-    renderWith({ runtime_mode: 'development', site_name: null })
+    renderWith({ runtime_mode: 'development', site_name: null, signups_enabled: true })
 
     expect((await screen.findByText('development')).textContent).toBe('development')
   })
 
   it('renders nothing on production', async () => {
-    renderWith({ runtime_mode: 'production', site_name: 'kelpie-cloud' })
+    renderWith({ runtime_mode: 'production', site_name: 'kelpie-cloud', signups_enabled: true })
 
     // A tick for React Query to settle, then confirm no strip is on screen.
     await waitFor(() => {

@@ -187,6 +187,35 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     })
   })
 
+  describe('signups closed', () => {
+    beforeEach(async () => {
+      harness = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db }),
+        signupsEnabled: false,
+      })
+    })
+
+    it('refuses a new account with a clear error', async () => {
+      const response = await post('/v1/auth/signup', SIGNUP)
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toMatchObject({
+        error: { code: 'forbidden', message: 'Signups are closed on this instance' },
+      })
+    })
+
+    it('creates no account and sets no cookie', async () => {
+      const response = await post('/v1/auth/signup', SIGNUP)
+
+      expect(response.headers.get('Set-Cookie')).toBeNull()
+
+      const [user] = await database.db.select().from(users).where(eq(users.email, 'ada@example.com'))
+      expect(user).toBeUndefined()
+    })
+  })
+
   describe('login', () => {
     beforeEach(async () => {
       await post('/v1/auth/signup', SIGNUP)

@@ -61,6 +61,11 @@ export interface TestAppOptions {
   readonly runtimeMode?: RuntimeMode
   /** Reported through `GET /v1/public/config`. Defaults to unset. */
   readonly siteName?: string
+  /**
+   * Reported through `GET /v1/public/config` and consulted by the `auth`
+   * module's `signUp` and `completeExternalSignIn`. Defaults to `true` (open).
+   */
+  readonly signupsEnabled?: boolean
 }
 
 export interface TestApp {
@@ -94,7 +99,10 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     ...(options.entitlements === undefined ? {} : { entitlements: options.entitlements }),
     ...(options.moduleConfig === undefined ? {} : { moduleConfig: options.moduleConfig }),
     ...(options.resolveActor === undefined ? {} : { resolveActor: options.resolveActor }),
-    services,
+    services: {
+      ...services,
+      ...(options.signupsEnabled === undefined ? {} : { signupsEnabled: options.signupsEnabled }),
+    },
   })
 
   const app = createApp({
@@ -108,6 +116,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     resolveClientIp: options.resolveClientIp ?? testClientIp,
     ...(options.runtimeMode === undefined ? {} : { runtimeMode: options.runtimeMode }),
     ...(options.siteName === undefined ? {} : { siteName: options.siteName }),
+    ...(options.signupsEnabled === undefined ? {} : { signupsEnabled: options.signupsEnabled }),
   })
 
   return { app, contributions, logLines, services }

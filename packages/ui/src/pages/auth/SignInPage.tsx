@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 
+import { usePublicConfig } from '../../api/resources/publicConfig.ts'
 import { useLogIn } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SubmitButton, TextField } from './AuthForm.tsx'
@@ -21,6 +22,7 @@ export function SignInPage(): React.JSX.Element {
   const navigate = useNavigate()
   const [searchParameters] = useSearchParams()
   const logIn = useLogIn()
+  const { config } = usePublicConfig()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
@@ -43,12 +45,14 @@ export function SignInPage(): React.JSX.Element {
           <Link to="/forgot-password" className="font-medium text-accent hover:underline">
             Forgot password?
           </Link>
-          <span className="text-ink-muted">
-            No account?{' '}
-            <Link to="/signup" className="font-medium text-accent hover:underline">
-              Sign up
-            </Link>
-          </span>
+          {config?.signupsEnabled !== false && (
+            <span className="text-ink-muted">
+              No account?{' '}
+              <Link to="/signup" className="font-medium text-accent hover:underline">
+                Sign up
+              </Link>
+            </span>
+          )}
         </div>
       }
     >

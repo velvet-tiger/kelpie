@@ -29,6 +29,7 @@ describe('loadConfig', () => {
         api: { limit: 600, windowMs: 60_000 },
       },
       trustedProxyHopCount: 0,
+      signups: 'open',
       env: validEnvironment,
       appBaseUrl: undefined,
       secretEncryption: undefined,
@@ -36,6 +37,18 @@ describe('loadConfig', () => {
       siteName: undefined,
       webBundleDirectory: undefined,
     })
+  })
+
+  it('defaults signups to open when SIGNUPS is unset', () => {
+    expect(loadConfig(validEnvironment).signups).toBe('open')
+  })
+
+  it('parses SIGNUPS=closed', () => {
+    expect(loadConfig({ ...validEnvironment, SIGNUPS: 'closed' }).signups).toBe('closed')
+  })
+
+  it('rejects an unknown SIGNUPS value rather than falling back', () => {
+    expect(() => loadConfig({ ...validEnvironment, SIGNUPS: 'invite' })).toThrow(ConfigurationError)
   })
 
   it('reports every missing variable at once', () => {

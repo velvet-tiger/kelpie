@@ -77,6 +77,7 @@ export async function bootAssembly(
       now: () => new Date(),
       appBaseUrl: config.appBaseUrl,
       secretEncryption: config.secretEncryption,
+      signupsEnabled: config.signups === 'open',
     },
     // `provider` picks a named sender from the runtime's registry. `'log'` is
     // built in; `'smtp'` is registered by the built-in `smtp-email` core

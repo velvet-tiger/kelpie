@@ -10,6 +10,19 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **A `SIGNUPS`
+  config flag to close new-account creation.** `kelpie.config.ts` gains a
+  `signups` field (`'open' | 'closed'`, default `'open'`), overridable with
+  `SIGNUPS`. When closed, `POST /v1/auth/signup` and external-sign-in
+  provisioning both answer `403`; joining an existing workspace by invite,
+  and workspace creation by an already-verified account, are unaffected. The
+  new `signups_enabled` field on `GET /v1/public/config` drives the sign-up
+  page: it shows a closed message instead of the form, and the sign-in
+  page's "Sign up" link disappears. Self-hosted assemblies that never set
+  `SIGNUPS` see no change in behaviour.
+
 ### Changed
 
 - **`@kelpie/server`** — the built-in `smtp-email` module accepts a config

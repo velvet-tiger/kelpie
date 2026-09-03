@@ -36,6 +36,13 @@ export interface AuthDependencies {
   readonly now: () => Date
   /** The deployment's own base URL. Every emailed link is built from it. */
   readonly appBaseUrl: string
+  /**
+   * Whether a brand-new account may be created, through `signUp` or
+   * `completeExternalSignIn` provisioning. Joining an existing workspace via
+   * invite, and workspace creation by an already-verified account, are
+   * unaffected either way — this only gates the account-creation step itself.
+   */
+  readonly signupsEnabled: boolean
   /** Injected only so tests can pin tokens. Production uses the crypto default. */
   readonly newToken?: () => string
 }
@@ -250,6 +257,10 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
   return {
     /** Creates the account only. The first workspace comes from onboarding. */
     async signUp(input: SignUpInput): Promise<IssuedSession> {
+      if (!dependencies.signupsEnabled) {
+        throw new AppError('forbidden', 'Signups are closed on this instance')
+      }
+
       if (input.password.length < MINIMUM_PASSWORD_LENGTH) {
         throw AppError.validationFailed('Password is too short', [
           { field: 'password', message: `Must be at least ${MINIMUM_PASSWORD_LENGTH} characters` },
@@ -370,6 +381,12 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       if (existing !== undefined) {
         return dependencies.transaction(({ tx }) => link(tx, existing))
+      }
+
+      // The instance-level gate applies before the module's own policy: a
+      // module that would provision does not get to override it.
+      if (!dependencies.signupsEnabled) {
+        throw new ExternalSignInError('signups_closed')
       }
 
       if (input.provision === 'refuse') {

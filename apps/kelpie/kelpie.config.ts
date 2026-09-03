@@ -75,6 +75,12 @@ export default defineKelpieConfig({
   // `X-Forwarded-For`, trusting the header for that many hops.
   trustedProxyHopCount: fromEnv('TRUSTED_PROXY_HOP_COUNT', nonNegativeInt, 0),
 
+  // `closed` refuses a brand-new account, through either `POST
+  // /v1/auth/signup` or external-sign-in provisioning. Joining an existing
+  // workspace via invite, and workspace creation by an already-verified
+  // account, are unaffected either way.
+  signups: fromEnv('SIGNUPS', z.enum(['open', 'closed']), 'open'),
+
   // The deployment's base URL, source of every emailed link (invite, password
   // reset, email verification). Reuses the same validator the workspace and
   // auth modules used before this field existed.

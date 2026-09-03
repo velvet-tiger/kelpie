@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
+import { usePublicConfig } from '../../api/resources/publicConfig.ts'
 import { useSignUp } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SubmitButton, TextField } from './AuthForm.tsx'
@@ -25,10 +26,34 @@ import { AuthMethods } from './AuthMethods.tsx'
 export function SignUpPage(): React.JSX.Element {
   const navigate = useNavigate()
   const signUp = useSignUp()
+  const { config } = usePublicConfig()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
+
+  // Undefined (still loading) renders the form, same as the server's own
+  // default: a caller that has not thought about it sees no change.
+  if (config?.signupsEnabled === false) {
+    return (
+      <AuthLayout
+        title="Signups are closed"
+        footer={
+          <span className="text-ink-muted">
+            Already have an account?{' '}
+            <Link to="/login" className="font-medium text-accent hover:underline">
+              Sign in
+            </Link>
+          </span>
+        }
+      >
+        <p className="mt-5 text-ink-muted">
+          This instance is not accepting new accounts right now. If you were invited to a
+          workspace, use the link from your invitation email instead.
+        </p>
+      </AuthLayout>
+    )
+  }
 
   function submit(event: FormEvent): void {
     event.preventDefault()
