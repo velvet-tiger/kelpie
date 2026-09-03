@@ -11,7 +11,7 @@ import { resolveActorFrom } from './credentials.ts'
 import type { CredentialDependencies } from './credentials.ts'
 import type { PreferenceValues } from './preferences.ts'
 import type { AccountView, AuthService, IssuedSession, SessionView } from './service.ts'
-import { clearSessionCookie, writeSessionCookie } from './session.ts'
+import { clearSessionCookie, describeClient, writeSessionCookie } from './session.ts'
 import type { SessionCookieOptions } from './session.ts'
 
 /**
@@ -108,13 +108,6 @@ async function readBody<T>(context: Context, schema: z.ZodType<T>): Promise<T> {
   return parsed.data
 }
 
-/** The device and location shown on the Security page come from the request itself. */
-function describeClient(context: Context): { device?: string; location?: string } {
-  const userAgent = context.req.header('User-Agent')
-
-  return userAgent === undefined ? {} : { device: userAgent }
-}
-
 function accountResponse(issued: IssuedSession): Record<string, unknown> {
   return {
     account: accountBody(issued.account),
@@ -149,6 +142,7 @@ function sessionResponse(session: SessionView): Record<string, unknown> {
     location: session.location,
     last_active_at: session.lastActiveAt.toISOString(),
     current: session.current,
+    signed_in_via: session.signedInVia,
   }
 }
 

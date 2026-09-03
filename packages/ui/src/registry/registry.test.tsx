@@ -82,6 +82,15 @@ const gmailModule: UiModule = {
       render: () => <p>Last emailed yesterday</p>,
     })
     context.dashboardCard({ id: 'gmail-unread', render: () => <p>Twelve unread</p> })
+    context.authMethod({
+      id: 'gmail-sign-in',
+      order: 100,
+      render: ({ intent, next }) => (
+        <p>
+          Continue with Google ({intent} to {next})
+        </p>
+      ),
+    })
     context.override(recordHeader, ({ title }) => <h2>Gmail header: {title}</h2>)
   },
 }
@@ -102,6 +111,7 @@ describe('an assembly with no UI modules', () => {
     expect(NO_UI_MODULES.recordTabs('person')).toEqual([])
     expect(NO_UI_MODULES.recordSidebarCards('company')).toEqual([])
     expect(NO_UI_MODULES.dashboardCards()).toEqual([])
+    expect(NO_UI_MODULES.authMethods()).toEqual([])
     expect(NO_UI_MODULES.navItems('account')).toEqual([])
   })
 
@@ -132,6 +142,7 @@ describe('a registered module', () => {
     expect(extensions.recordTabs('person').map((tab) => tab.label)).toEqual(['Email'])
     expect(extensions.recordSidebarCards('person').map((card) => card.id)).toEqual(['gmail-last-seen'])
     expect(extensions.dashboardCards().map((card) => card.id)).toEqual(['gmail-unread'])
+    expect(extensions.authMethods().map((method) => method.id)).toEqual(['gmail-sign-in'])
   })
 
   it('renders into the shell', () => {
@@ -204,6 +215,17 @@ describe('a build that would break at runtime', () => {
       id: 'other',
       register: (context) => {
         context.nav('primary', { id: 'gmail', label: 'Also Gmail', to: '/elsewhere' })
+      },
+    }
+
+    expect(() => registerUiModules([gmailModule, clashing])).toThrow(/already taken/u)
+  })
+
+  it('refuses two modules claiming one sign-in method id', () => {
+    const clashing: UiModule = {
+      id: 'other',
+      register: (context) => {
+        context.authMethod({ id: 'gmail-sign-in', render: () => <p>Also Google</p> })
       },
     }
 

@@ -13,12 +13,15 @@ import type { EntitlementRegistry } from './entitlements.ts'
 import { createEventBus } from './events.ts'
 import type { EventBus } from './events.ts'
 import type {
+  CompletedSignIn,
+  ExternalSignInHandler,
   KelpieModule,
   McpTool,
   ModuleCatalogEntry,
   ModuleContext,
   ModuleServices,
   SchemaContribution,
+  VerifiedIdentity,
 } from './module.ts'
 import { createModuleConfigProvider, moduleCapabilityName, validateModuleConfig } from './moduleConfig.ts'
 import { ModuleBootError, orderModules } from './order.ts'
@@ -181,6 +184,46 @@ class EmailSenderProxy implements EmailSender {
 }
 
 /**
+ * Completes a sign-in for an identity a module verified elsewhere.
+ *
+ * Same shape as `EmailSenderProxy`, and for the same reason: one module owns
+ * the implementation, every module reaches it through this object, and a
+ * consumer captures the proxy at register time but only calls it at request
+ * time, so registration order does not matter.
+ *
+ * Exactly one installer, unlike email's named registry: there is one `users`
+ * table and one session cookie, so "which implementation" is never a question
+ * an assembly should have to answer.
+ */
+class ExternalSignInProxy {
+  private target: ExternalSignInHandler | undefined = undefined
+  private installedBy: string | undefined = undefined
+
+  install(moduleId: string, handler: ExternalSignInHandler): void {
+    if (this.installedBy !== undefined) {
+      throw new ModuleBootError([
+        `module "${moduleId}" provides external sign-in, but module "${this.installedBy}" already did`,
+      ])
+    }
+
+    this.target = handler
+    this.installedBy = moduleId
+  }
+
+  complete(context: Context, identity: VerifiedIdentity): Promise<CompletedSignIn> {
+    if (this.target === undefined) {
+      return Promise.reject(
+        new Error(
+          'external sign-in used before a module installed it. Is the auth module in the assembly?',
+        ),
+      )
+    }
+
+    return this.target(context, identity)
+  }
+}
+
+/**
  * The name the runtime uses for its built-in log sender. Reserved: a module
  * that tries to register under this name fails boot.
  */
@@ -204,10 +247,19 @@ function createModuleContext(
   moduleCatalog: readonly ModuleCatalogEntry[],
   emailProxy: EmailSenderProxy,
   providers: Map<string, RegisteredProvider>,
+  externalSignIn: ExternalSignInProxy,
 ): ModuleContext {
   return {
     ...options.services,
     email: emailProxy,
+
+    provideExternalSignIn(handler) {
+      externalSignIn.install(module.id, handler)
+    },
+
+    completeExternalSignIn(context, identity) {
+      return externalSignIn.complete(context, identity)
+    },
 
     provideEmailSender(name, build) {
       if (name === LOG_PROVIDER_NAME) {
@@ -348,6 +400,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   const entitlements = options.entitlements ?? createEntitlementRegistry()
   const emailProxy = new EmailSenderProxy()
   const emailProviders = new Map<string, RegisteredProvider>()
+  const externalSignIn = new ExternalSignInProxy()
 
   // The built-in log provider is always available, no module required. Named
   // 'log' in kelpie.config.ts's email.provider picks this one. Built eagerly
@@ -429,6 +482,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
       moduleCatalog,
       emailProxy,
       emailProviders,
+      externalSignIn,
     )
 
     try {

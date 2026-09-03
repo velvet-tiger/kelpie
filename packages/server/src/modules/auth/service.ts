@@ -1,12 +1,13 @@
 import { APP_LINK_PATHS, buildAppLink } from '../../lib/appUrl.ts'
 import type { EmailSender } from '../../lib/email.ts'
 import { renderEmail } from '../../lib/emailContent.ts'
-import { AppError } from '../../lib/errors.ts'
+import { AppError, ExternalSignInError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import { MINIMUM_PASSWORD_LENGTH, hashPassword, verifyPassword } from '../../lib/passwords.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
+import type { VerifiedIdentity } from '../../runtime/module.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { SessionActor } from './actor.ts'
 import { DEFAULT_PREFERENCES, applyPreferenceChanges } from './preferences.ts'
@@ -54,12 +55,19 @@ export interface IssuedSession {
   readonly activeWorkspaceId: string | null
 }
 
+/** What `completeExternalSignIn` returns: an issued session plus whether it made the account. */
+export interface ExternalIssuedSession extends IssuedSession {
+  readonly created: boolean
+}
+
 export interface SessionView {
   readonly id: string
   readonly device: string | null
   readonly location: string | null
   readonly lastActiveAt: Date
   readonly current: boolean
+  /** The module that signed this session in, or null for a password sign-in. */
+  readonly signedInVia: string | null
 }
 
 export interface SignUpInput {
@@ -85,6 +93,12 @@ export interface LogInInput {
   readonly location?: string
 }
 
+/** A `VerifiedIdentity` plus what the request itself says about the client. */
+export interface ExternalSignInInput extends VerifiedIdentity {
+  readonly device?: string
+  readonly location?: string
+}
+
 function toAccountView(user: repository.UserRecord): AccountView {
   return { id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerifiedAt !== null }
 }
@@ -103,6 +117,16 @@ function toPreferenceValues(record: repository.UserPreferencesRecord): Preferenc
 /** Emails are stored and compared lowercase, per `schema.md`. */
 function normaliseEmail(email: string): string {
   return email.trim().toLowerCase()
+}
+
+/**
+ * The name to use when a provider sends none. `users.name` is not nullable and
+ * an address is the only other thing an identity is guaranteed to carry.
+ */
+function localPartOf(email: string): string {
+  const [local] = email.split('@')
+
+  return local === undefined || local.length === 0 ? email : local
 }
 
 /**
@@ -128,6 +152,12 @@ export interface AuthService {
   /** Creates the account only. The first workspace comes from onboarding. */
   signUp(input: SignUpInput): Promise<IssuedSession>
   logIn(input: LogInInput): Promise<IssuedSession>
+  /**
+   * Signs in an identity a module verified elsewhere, provisioning the account
+   * when the module asked for it. Never sends a verification email: the
+   * provider already proved control of the address.
+   */
+  completeExternalSignIn(input: ExternalSignInInput): Promise<ExternalIssuedSession>
   logOut(actor: SessionActor): Promise<void>
   getAccount(actor: SessionActor): Promise<AccountView>
   updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<AccountView>
@@ -167,6 +197,8 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     user: repository.UserRecord,
     device: string | undefined,
     location: string | undefined,
+    /** The module that verified the identity, or null for a password sign-in. */
+    signedInVia: string | null = null,
   ): Promise<IssuedSession> {
     const now = dependencies.now()
     const token = newToken()
@@ -180,6 +212,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       tokenHash: hashToken(token),
       device: device ?? null,
       location: location ?? null,
+      signedInVia,
       lastActiveAt: now,
       expiresAt,
     })
@@ -269,15 +302,111 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     async logIn(input: LogInInput): Promise<IssuedSession> {
       const user = await repository.findUserByEmail(dependencies.db, normaliseEmail(input.email))
 
-      // Hash a throwaway password when the user is unknown, so a missing account
-      // and a wrong password take the same time to answer.
+      // Hash a throwaway password when the account is unknown or has no
+      // password, so all three cases take the same time to answer.
       const storedHash = user?.passwordHash ?? (await hashPassword('not-a-real-password-placeholder'))
+      // Always run the verify, even when the hash is the placeholder: skipping
+      // it would make a passwordless account answer faster than a wrong one.
+      const matches = await verifyPassword(storedHash, input.password)
 
-      if (!(await verifyPassword(storedHash, input.password)) || user === undefined) {
+      // The null check is the guard, not the placeholder hash. Without it,
+      // whoever guessed the placeholder string would sign in to every account
+      // that has no password.
+      if (user === undefined || user.passwordHash === null || !matches) {
         throw AppError.unauthorized('Email or password is incorrect')
       }
 
       return dependencies.transaction(({ tx }) => issueSession(tx, user, input.device, input.location))
+    },
+
+    /**
+     * Signs in an identity a module already verified.
+     *
+     * Core does not redo the verification and never learns the protocol. What
+     * it owns is everything downstream: finding or provisioning the account,
+     * issuing the session, and recording which module vouched for it.
+     */
+    async completeExternalSignIn(input: ExternalSignInInput): Promise<ExternalIssuedSession> {
+      // An unverified address is not an identity. A provider that does not say
+      // it checked is treated as not having checked.
+      if (!input.emailVerified) {
+        throw new ExternalSignInError('email_unverified')
+      }
+
+      const email = requireText(normaliseEmail(input.email), 'email')
+      const name = requireText(input.name ?? localPartOf(email), 'name')
+      const now = dependencies.now()
+
+      const link = async (
+        tx: repository.Queryable,
+        user: repository.UserRecord,
+      ): Promise<ExternalIssuedSession> => {
+        // Signing in through a provider on an account whose address was never
+        // confirmed is the pre-registration takeover case: somebody registered
+        // this address with a password and never proved they own it. The
+        // provider just proved the opposite. Drop that password and every
+        // session it opened; the real owner sets a new one through a reset.
+        if (user.emailVerifiedAt === null) {
+          await repository.updateUserPassword(tx, user.id, null, now)
+          await repository.deleteAllSessionsForUser(tx, user.id)
+        }
+
+        // The provider proved control of the address, which is the same thing
+        // accepting an invite proves.
+        await repository.markEmailVerified(tx, user.id, now)
+
+        const issued = await issueSession(
+          tx,
+          { ...user, emailVerifiedAt: user.emailVerifiedAt ?? now },
+          input.device,
+          input.location,
+          input.verifiedBy,
+        )
+
+        return { ...issued, created: false }
+      }
+
+      const existing = await repository.findUserByEmail(dependencies.db, email)
+
+      if (existing !== undefined) {
+        return dependencies.transaction(({ tx }) => link(tx, existing))
+      }
+
+      if (input.provision === 'refuse') {
+        throw new ExternalSignInError('unknown_identity')
+      }
+
+      return dependencies.transaction(async ({ tx }) => {
+        let user: repository.UserRecord
+
+        try {
+          user = await repository.insertUser(tx, {
+            id: dependencies.createId('user'),
+            email,
+            name,
+            passwordHash: null,
+            emailVerifiedAt: now,
+          })
+        } catch (error: unknown) {
+          if (postgresErrorCode(error) !== UNIQUE_VIOLATION) {
+            throw error
+          }
+
+          // Two first sign-ins for the same address at once. The other one won;
+          // this is now an ordinary link.
+          const raced = await repository.findUserByEmail(tx, email)
+
+          if (raced === undefined) {
+            throw error
+          }
+
+          return link(tx, raced)
+        }
+
+        const issued = await issueSession(tx, user, input.device, input.location, input.verifiedBy)
+
+        return { ...issued, created: true }
+      })
     },
 
     async logOut(actor: SessionActor): Promise<void> {
@@ -308,9 +437,12 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           : { email: requireText(normaliseEmail(changes.email), 'email') }),
       }
 
+      // A passwordless account cannot prove itself this way. It sets a password
+      // through the reset flow first, which is the same bar this check is.
       if (
         changes.email !== undefined &&
         (changes.currentPassword === undefined ||
+          user.passwordHash === null ||
           !(await verifyPassword(user.passwordHash, changes.currentPassword)))
       ) {
         throw AppError.unauthorized('Current password is incorrect')
@@ -405,6 +537,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         location: record.location,
         lastActiveAt: record.lastActiveAt,
         current: record.id === actor.sessionId,
+        signedInVia: record.signedInVia,
       }))
     },
 
@@ -494,7 +627,11 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       const user = await repository.findUserById(dependencies.db, actor.userId)
 
-      if (user === undefined || !(await verifyPassword(user.passwordHash, currentPassword))) {
+      if (
+        user === undefined ||
+        user.passwordHash === null ||
+        !(await verifyPassword(user.passwordHash, currentPassword))
+      ) {
         throw AppError.unauthorized('Current password is incorrect')
       }
 

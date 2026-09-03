@@ -1,4 +1,4 @@
-import type { Handler, Hono, MiddlewareHandler } from 'hono'
+import type { Context, Handler, Hono, MiddlewareHandler } from 'hono'
 import type { ZodType } from 'zod'
 
 import type { Actor } from '../lib/actor.ts'
@@ -57,6 +57,53 @@ export interface McpTool {
 export interface McpToolRegistry {
   tool<Input>(definition: McpToolDefinition<Input>): void
 }
+
+/**
+ * An identity a module verified somewhere else, handed back for core to sign in.
+ *
+ * Core never learns what OIDC or SAML is. Verification is the module's job and
+ * core does not redo it; core's job is that everything downstream of the cookie
+ * is identical to a password sign-in.
+ */
+export interface VerifiedIdentity {
+  readonly email: string
+  /** Core refuses the identity when false, rather than assuming the module checked. */
+  readonly emailVerified: boolean
+  /** The provider's display name, when it has one. The local part of the address is used otherwise. */
+  readonly name: string | null
+  /** Who verified it, recorded on the session: the module id, optionally suffixed (`sign-in:google`). */
+  readonly verifiedBy: string
+  /**
+   * What to do with an address core has never seen. The policy is the module's,
+   * because only it knows whether its provider vouches for strangers; executing
+   * it is core's.
+   */
+  readonly provision: 'create' | 'refuse'
+}
+
+/** The account a completed sign-in belongs to. */
+export interface CompletedSignInAccount {
+  readonly id: string
+  readonly email: string
+  readonly name: string
+  readonly emailVerified: boolean
+}
+
+export interface CompletedSignIn {
+  readonly account: CompletedSignInAccount
+  /** True when this sign-in provisioned the account rather than finding it. */
+  readonly created: boolean
+  readonly activeWorkspaceId: string | null
+}
+
+/**
+ * Completes a sign-in. Takes the Hono context because writing the session
+ * cookie on it is the point.
+ */
+export type ExternalSignInHandler = (
+  context: Context,
+  identity: VerifiedIdentity,
+) => Promise<CompletedSignIn>
 
 /**
  * What a module gets to build with, beyond its own contributions.
@@ -119,6 +166,28 @@ export interface ModuleContext extends ModuleServices {
    * delegates to the provider `email.provider` picked.
    */
   readonly email: EmailSender
+  /**
+   * Installs the one implementation of external sign-in. Core's `auth` module
+   * calls this; a second caller fails boot.
+   *
+   * The same shape as `provideEmailSender`: a capability only one module owns,
+   * reached by every module through a proxy, so registration order does not
+   * matter to a consumer.
+   */
+  provideExternalSignIn(handler: ExternalSignInHandler): void
+  /**
+   * Completes a sign-in for an identity this module already verified: finds or
+   * provisions the account, issues a session, and writes the session cookie on
+   * `context`.
+   *
+   * The alternative is a module writing core's `sessions` table itself, which
+   * ties it to core's token hashing, cookie flags and expiry with nothing
+   * keeping the two in step (`modules.md`).
+   *
+   * @throws ExternalSignInError when the identity is unverified, or unknown and
+   *   the module asked for `provision: 'refuse'`.
+   */
+  completeExternalSignIn(context: Context, identity: VerifiedIdentity): Promise<CompletedSignIn>
   /**
    * Registers routes that mount under `/v1/public`, take no credentials, and
    * answer cross-origin requests from any site.

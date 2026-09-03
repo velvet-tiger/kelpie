@@ -67,6 +67,11 @@ export interface AccountSession {
   readonly location: string | null
   readonly lastActiveAt: Date
   readonly current: boolean
+  /**
+   * The module that signed this session in, or `null` for a password sign-in.
+   * A person listing their sessions should be able to tell the two apart.
+   */
+  readonly signedInVia: string | null
 }
 
 export const accountSessionSchema: z.ZodType<AccountSession, unknown> = z
@@ -76,6 +81,7 @@ export const accountSessionSchema: z.ZodType<AccountSession, unknown> = z
     location: z.string().nullable(),
     last_active_at: timestampSchema,
     current: z.boolean(),
+    signed_in_via: z.string().nullable(),
   })
   .transform(
     (wire): AccountSession => ({
@@ -84,6 +90,7 @@ export const accountSessionSchema: z.ZodType<AccountSession, unknown> = z
       location: wire.location,
       lastActiveAt: wire.last_active_at,
       current: wire.current,
+      signedInVia: wire.signed_in_via,
     }),
   )
 

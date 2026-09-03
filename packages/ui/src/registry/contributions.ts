@@ -25,6 +25,32 @@ export interface NavItem {
   readonly icon?: ReactNode
 }
 
+/**
+ * What a sign-in method is rendering against.
+ *
+ * `intent` because the same button reads differently on the two pages, and
+ * `next` because where the browser lands afterwards is the page's to decide,
+ * not the module's. The page has already checked it is a path within the app.
+ */
+export interface AuthMethodContext {
+  readonly intent: 'login' | 'signup'
+  readonly next: string
+}
+
+/**
+ * Another way to sign in, offered beside the password form.
+ *
+ * Core renders whatever a module returns and nothing around it: no divider, no
+ * heading. A module cannot always tell at build time whether it has anything to
+ * offer (an unconfigured provider renders nothing at all), and core framing
+ * would then decorate an empty space.
+ */
+export interface AuthMethod {
+  readonly id: string
+  readonly order?: number
+  readonly render: (context: AuthMethodContext) => ReactNode
+}
+
 /** A whole page, mounted under the shell's chrome. */
 export interface RouteContribution {
   readonly path: string

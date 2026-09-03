@@ -48,10 +48,11 @@ export async function insertUser(db: Queryable, values: typeof users.$inferInser
   return created
 }
 
+/** `null` clears the password, leaving the account reachable only through a module or a reset. */
 export async function updateUserPassword(
   db: Queryable,
   userId: string,
-  passwordHash: string,
+  passwordHash: string | null,
   now: Date,
 ): Promise<void> {
   await db

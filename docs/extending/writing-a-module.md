@@ -62,7 +62,9 @@ export const flagsUi: UiModule = {
 }
 ```
 
-Nav slots are `primary`, `admin`, and `account`; core numbers its own items in hundreds, so an `order` like 250 lands between core entries. Record tabs render on person, company, deal, opportunity, partnership, and raise detail pages. Component overrides go through typed tokens (`defineOverridable` / `context.override`), so an override with the wrong props is a compile error. Clashes — two modules claiming one id, or overriding the same component — fail the build rather than a browser.
+Nav slots are `primary`, `admin`, and `account`; there is also `auth.methods` on the signed-out pages, covered below.
+
+Core numbers its own items in hundreds, so an `order` like 250 lands between core entries. Record tabs render on person, company, deal, opportunity, partnership, and raise detail pages. Component overrides go through typed tokens (`defineOverridable` / `context.override`), so an override with the wrong props is a compile error. Clashes — two modules claiming one id, or overriding the same component — fail the build rather than a browser.
 
 Two registered slot kinds have **no render site yet**: record sidebar cards and dashboard cards. Contributions to them compile and register but draw nothing until core renders those slots.
 
@@ -73,6 +75,38 @@ A module is toggleable by default: the runtime declares a `module.<your-id>` cap
 ## Email provider modules
 
 `context.provideEmailSender(name, sender)` registers a named transactional-mail sender. The deployment picks one with `EMAIL_PROVIDER=<name>`; only the chosen provider's factory runs. Core ships `log` and `smtp`; a Resend or Postmark module follows the same shape under its own name.
+
+## Sign-in providers
+
+A module can sign a browser in with an identity it verified somewhere else. Core owns the account, the session, and the cookie; the module owns the protocol, and core never learns what OIDC or SAML is.
+
+```ts
+const identity = await verifyHowever(request)   // yours: OAuth, SAML, anything
+
+await context.completeExternalSignIn(honoContext, {
+  email: identity.email,
+  emailVerified: identity.emailVerified,
+  name: identity.name,
+  verifiedBy: 'sign-in:google',      // recorded on the session
+  provision: 'create',               // or 'refuse' for an unknown address
+})
+```
+
+Core finds the account or provisions one, issues a session through the same code a password sign-in uses, and writes the cookie. It refuses an identity whose `emailVerified` is false, and throws `ExternalSignInError` (an `AppError`, so an uncaught one renders as the standard error body) with a `reason` of `email_unverified` or `unknown_identity`. Catch it if you would rather redirect somewhere useful than answer JSON.
+
+Mount the redirect and the callback with `context.appRoute`, not `context.routes`: they are reached by a stranger's browser, and `/v1` puts an actor, a rate limit, and a `module.<id>` gate in front of them. Two things follow from owning a surface outside `/v1`. Your assembly must name your prefix in `serveWebBundle`'s `apiPrefixes`, or the SPA fallback answers your callback with the page shell. And its dev proxy needs the same prefix, or the browser never reaches the API at all.
+
+The UI half contributes to `auth.methods`, which the sign-in and sign-up pages render:
+
+```tsx
+context.authMethod({
+  id: 'sign-in',
+  order: 100,
+  render: ({ intent, next }) => <SignInButtons intent={intent} next={next} />,
+})
+```
+
+`next` is the in-app path the reader was heading for, already checked against the open-redirect rule; carry it through your redirect so an invitee still lands on their invitation. Core draws nothing around what you return, so a module with buttons draws its own `AuthDivider`; both it and `AuthLinkButton` are exported from `@kelpie/ui`. Report a failed callback by redirecting to `/login?<your-param>=` and reading it in your own component: core has no vocabulary for your provider's errors.
 
 ## Developing against unreleased core
 

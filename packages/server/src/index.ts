@@ -64,13 +64,21 @@ export type { SecretCipher, SecretEncryptionConfig } from './lib/secrets.ts'
 
 export {
   AppError,
+  ExternalSignInError,
   describeThrown,
   describeValidationIssue,
   internalErrorBody,
   toErrorBody,
   toErrorDetails,
 } from './lib/errors.ts'
-export type { ErrorBody, ErrorCode, ErrorDetail, ErrorStatus, ValidationIssue } from './lib/errors.ts'
+export type {
+  ErrorBody,
+  ErrorCode,
+  ErrorDetail,
+  ErrorStatus,
+  ExternalSignInRefusal,
+  ValidationIssue,
+} from './lib/errors.ts'
 
 export { createIdFactory, idPrefixes } from './lib/ids.ts'
 export type { IdFactory, ObjectKind } from './lib/ids.ts'
@@ -84,6 +92,9 @@ export {
 export type { CreateLoggerOptions, LogFields, Logger, LoggingDestination } from './lib/logger.ts'
 
 export type {
+  CompletedSignIn,
+  CompletedSignInAccount,
+  ExternalSignInHandler,
   KelpieModule,
   McpTool,
   McpToolDefinition,
@@ -91,6 +102,7 @@ export type {
   ModuleCatalogEntry,
   ModuleContext,
   SchemaContribution,
+  VerifiedIdentity,
 } from './runtime/module.ts'
 
 export { ModuleBootError, orderModules } from './runtime/order.ts'

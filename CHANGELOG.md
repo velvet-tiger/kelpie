@@ -10,6 +10,48 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`** — **A sign-in extension point for identity modules.**
+  `ModuleContext` gains `provideExternalSignIn(handler)` and
+  `completeExternalSignIn(context, identity)`, shaped like the email port
+  beside them: the `auth` module installs the one implementation, a second
+  installer fails boot, and every module reaches it through a proxy. A module
+  verifies an identity its own way and hands back
+  `{ email, emailVerified, name, verifiedBy, provision }`; core finds or
+  provisions the account, issues a session through the same code a password
+  sign-in uses, and writes the same cookie. Core never learns the protocol.
+  New exports: `ExternalSignInError`, and the types `VerifiedIdentity`,
+  `CompletedSignIn`, `CompletedSignInAccount`, `ExternalSignInHandler`,
+  `ExternalSignInRefusal`.
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **`signed_in_via` on
+  a session.** Names the module that completed the sign-in, `null` for a
+  password one. On the wire in `GET /v1/auth/sessions`, and shown on the
+  account Security page, so a person can tell one kind of session from the
+  other.
+- **`@kelpie/ui`** — **The `auth.methods` slot**, rendered by the sign-in and
+  sign-up pages beside their form and handed `{ intent, next }`. Core draws
+  nothing around a contribution, because whether a module has a button to show
+  is decided at run time; `AuthDivider` and `AuthLinkButton` are exported for a
+  module to draw its own. `safeNext` is exported too, so a module and the page
+  agree on which redirects are in-app.
+
+### Changed
+
+- **`@kelpie/server`** — **`users.password_hash` is nullable** (migration
+  `0043`). An account provisioned by an identity module has no password, and an
+  unusable random hash would be a lie in a security-critical column. Password
+  sign-in is refused outright while the hash is null: `logIn` checks for null
+  explicitly rather than relying on the placeholder hash it compares against
+  for timing. Such an account sets a first password through the reset flow;
+  change-password and change-email need a current password and stay refused
+  until it has one.
+- **`@kelpie/server`** — Signing in through a module to an address whose
+  account was never verified now **clears that account's password and every
+  session it opened**. That case is a stranger having registered the address
+  and never proved they own it, and the provider has just proved the opposite.
+  The real owner recovers with a password reset.
+
 ## [0.11.0] - 2026-09-01
 
 ### Added

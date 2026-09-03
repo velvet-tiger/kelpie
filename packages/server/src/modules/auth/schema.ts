@@ -18,7 +18,12 @@ export const users = pgTable('users', {
   id: primaryId(),
   email: citext('email').notNull().unique(),
   name: text('name').notNull(),
-  passwordHash: text('password_hash').notNull(),
+  /**
+   * Null for an account that has only ever signed in through an identity
+   * module. Password sign-in is refused while it is null; a password is set
+   * through the reset flow, whose emailed link proves control of the address.
+   */
+  passwordHash: text('password_hash'),
   /** Null until the address is verified, either by confirming a token or by accepting a workspace invite. */
   emailVerifiedAt: moment('email_verified_at'),
   createdAt: createdAt(),
@@ -34,6 +39,12 @@ export const sessions = pgTable('sessions', {
   tokenHash: text('token_hash').notNull().unique(),
   device: text('device'),
   location: text('location'),
+  /**
+   * Which module completed this sign-in (`sign-in:google`), null for a password
+   * one. The Security page lists sessions, and a person should be able to tell
+   * the two apart.
+   */
+  signedInVia: text('signed_in_via'),
   lastActiveAt: moment('last_active_at').notNull().defaultNow(),
   expiresAt: moment('expires_at').notNull(),
   createdAt: createdAt(),

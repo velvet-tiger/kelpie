@@ -7,6 +7,7 @@ import { useSignUp } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SubmitButton, TextField } from './AuthForm.tsx'
 import { AuthLayout } from './AuthLayout.tsx'
+import { AuthMethods } from './AuthMethods.tsx'
 
 /**
  * Creating an account, against `POST /v1/auth/signup`.
@@ -94,6 +95,12 @@ export function SignUpPage(): React.JSX.Element {
         {signUp.error !== null && <ErrorPanel error={signUp.error} />}
         <SubmitButton label="Continue" pendingLabel="Creating…" isPending={signUp.isPending} />
       </form>
+      {/*
+        `/dashboard` rather than the verification screen a password signup goes
+        to: an account a module provisions is verified already, and having no
+        workspace, `SessionGate` sends it on to the workspace step itself.
+      */}
+      <AuthMethods intent="signup" next="/dashboard" />
     </AuthLayout>
   )
 }

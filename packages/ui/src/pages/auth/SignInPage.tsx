@@ -6,6 +6,8 @@ import { useLogIn } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SubmitButton, TextField } from './AuthForm.tsx'
 import { AuthLayout } from './AuthLayout.tsx'
+import { AuthMethods } from './AuthMethods.tsx'
+import { safeNext } from './nextPath.ts'
 
 /**
  * Sign in, against `POST /v1/auth/login`.
@@ -14,14 +16,6 @@ import { AuthLayout } from './AuthLayout.tsx'
  * sends its token through `?next=`, and dropping it would land the invitee on
  * People with the invitation still unaccepted.
  */
-
-/**
- * Only a path within this app. An absolute URL in `?next=` would turn the
- * sign-in form into an open redirect.
- */
-function safeNext(value: string | null): string {
-  return value !== null && value.startsWith('/') && !value.startsWith('//') ? value : '/dashboard'
-}
 
 export function SignInPage(): React.JSX.Element {
   const navigate = useNavigate()
@@ -78,6 +72,7 @@ export function SignInPage(): React.JSX.Element {
         {logIn.error !== null && <ErrorPanel error={logIn.error} />}
         <SubmitButton label="Sign in" pendingLabel="Signing in…" isPending={logIn.isPending} />
       </form>
+      <AuthMethods intent="login" next={next} />
     </AuthLayout>
   )
 }

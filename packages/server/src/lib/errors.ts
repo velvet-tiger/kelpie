@@ -84,6 +84,36 @@ export class AppError extends Error {
 }
 
 /**
+ * Why core refused an identity a module handed to `completeExternalSignIn`.
+ *
+ * A reason rather than a message, so a provider module can branch on it (to
+ * redirect somewhere useful, say) without matching on English text.
+ */
+export type ExternalSignInRefusal = 'email_unverified' | 'unknown_identity'
+
+/**
+ * An external sign-in core would not complete.
+ *
+ * An `AppError`, so an uncaught one still renders as the `api.md` body. No new
+ * `ErrorCode`: refusing an unverified identity is an ordinary `401`, and
+ * refusing to provision is an ordinary `403`.
+ */
+export class ExternalSignInError extends AppError {
+  readonly reason: ExternalSignInRefusal
+
+  constructor(reason: ExternalSignInRefusal) {
+    super(
+      reason === 'email_unverified' ? 'unauthorized' : 'forbidden',
+      reason === 'email_unverified'
+        ? 'The identity provider did not verify this email address'
+        : 'No account exists for this identity',
+    )
+    this.name = 'ExternalSignInError'
+    this.reason = reason
+  }
+}
+
+/**
  * Renders an `AppError` into the wire body from `api.md`. `details` is omitted
  * rather than sent as null when the error carries none.
  */

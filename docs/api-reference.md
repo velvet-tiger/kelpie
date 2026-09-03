@@ -16,7 +16,7 @@ Every endpoint here has integration tests against a real Postgres.
 | --- | --- |
 | Accounts | `POST /v1/auth/signup`, `login`, `logout`, `GET /v1/auth/me`, `GET` and `PATCH /v1/account` |
 | Preferences | `GET` and `PATCH /v1/account/preferences` (timezone, theme, notification choices) |
-| Sessions | `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id` |
+| Sessions | `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id`. Each row carries `signed_in_via`: the module that signed it in, or `null` for a password sign-in |
 | Passwords | `PATCH /v1/auth/password`, `POST /v1/auth/password-reset` and `/confirm` |
 | Email verification | `POST /v1/auth/verify-email` (issues and emails a token) and `/confirm` (spends it). Creating a workspace is `403` until the address is verified; accepting an invite verifies as a side effect |
 | Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `DELETE /v1/workspaces/:id?slug=` |

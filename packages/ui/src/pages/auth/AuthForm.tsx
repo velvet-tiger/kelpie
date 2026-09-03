@@ -116,3 +116,41 @@ export function SecondaryButton({
     </button>
   )
 }
+
+/**
+ * A labelled rule, for a module separating its own buttons from the password
+ * form above them. Core never renders one itself; see `AuthMethods`.
+ */
+export function AuthDivider({ label = 'or' }: { readonly label?: string }): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <span className="h-px flex-1 bg-border" />
+      <span className="text-[11px] text-ink-faint">{label}</span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  )
+}
+
+/**
+ * The secondary button as a link.
+ *
+ * A plain anchor, not a router link: a sign-in method leaves the app for its
+ * provider, and the destination is a server route the SPA router knows nothing
+ * about.
+ */
+export function AuthLinkButton({
+  label,
+  href,
+}: {
+  readonly label: string
+  readonly href: string
+}): React.JSX.Element {
+  return (
+    <a
+      href={href}
+      className="block w-full rounded-md border border-border bg-surface px-3.5 py-2 text-center text-[12px] font-medium text-ink-muted transition hover:bg-surface-raised"
+    >
+      {label}
+    </a>
+  )
+}

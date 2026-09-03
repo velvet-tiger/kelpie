@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react'
 import type { ComponentType } from 'react'
 
 import type {
+  AuthMethod,
   DashboardCard,
   ExtensibleRecordType,
   NavItem,
@@ -51,6 +52,11 @@ export function useRecordSidebarCards(objectType: ExtensibleRecordType): readonl
 
 export function useDashboardCards(): readonly DashboardCard[] {
   return useUiExtensions().dashboardCards()
+}
+
+/** Extra ways to sign in, for the signed-out pages to render beside their form. */
+export function useAuthMethods(): readonly AuthMethod[] {
+  return useUiExtensions().authMethods()
 }
 
 /**

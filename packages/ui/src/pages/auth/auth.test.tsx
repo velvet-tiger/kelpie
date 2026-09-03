@@ -6,10 +6,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../../api/ApiProvider.tsx'
 import { ApiError } from '../../api/client.ts'
 import type { ApiClient } from '../../api/client.ts'
+import { UiExtensionProvider } from '../../registry/UiExtensionProvider.tsx'
+import { registerUiModules } from '../../registry/registry.ts'
+import type { UiExtensions, UiModule } from '../../registry/registry.ts'
 import { setInputValue } from '../../testing/inputs.ts'
 import { stubClient } from '../../testing/stubClient.ts'
 import { ForgotPasswordPage } from './ForgotPasswordPage.tsx'
 import { ResetPasswordPage } from './ResetPasswordPage.tsx'
+import { SignInPage } from './SignInPage.tsx'
 import { SignUpPage } from './SignUpPage.tsx'
 import { VerifyEmailConfirmPage } from './VerifyEmailConfirmPage.tsx'
 import { VerifyEmailPendingPage } from './VerifyEmailPendingPage.tsx'
@@ -96,6 +100,7 @@ function renderAt(
   element: React.JSX.Element,
   calls: Calls,
   stubs: Stubs = {},
+  extensions?: UiExtensions,
 ): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -103,6 +108,7 @@ function renderAt(
 
   render(
     <MemoryRouter initialEntries={[path]}>
+      <UiExtensionProvider extensions={extensions ?? registerUiModules([])}>
       <ApiProvider client={authClient(calls, stubs)} queryClient={queryClient}>
         <Routes>
           <Route path={path.split('?')[0]} element={element} />
@@ -112,6 +118,7 @@ function renderAt(
           <Route path="/verify-email/pending" element={<p>verify your email</p>} />
         </Routes>
       </ApiProvider>
+      </UiExtensionProvider>
     </MemoryRouter>,
   )
 }
@@ -338,5 +345,77 @@ describe('VerifyEmailConfirmPage', () => {
     })
 
     expect(await screen.findByText('That verification link is invalid or has expired')).toBeTruthy()
+  })
+})
+
+/**
+ * The `auth.methods` slot.
+ *
+ * The contract a provider module builds against: whether it renders at all,
+ * and what it is told about where the reader was heading. `?next=` is the part
+ * worth pinning, because a module that drops it sends an invitee to the
+ * dashboard with the invitation still unaccepted.
+ */
+describe('extra sign-in methods', () => {
+  function moduleContributing(seen: { intent?: string; next?: string }): UiModule {
+    return {
+      id: 'sign-in',
+      register: (context) => {
+        context.authMethod({
+          id: 'sign-in',
+          render: ({ intent, next }) => {
+            seen.intent = intent
+            seen.next = next
+
+            return <a href="/auth/google/start">Continue with Google</a>
+          },
+        })
+      },
+    }
+  }
+
+  it('renders nothing on sign-in when no module contributes one', () => {
+    renderAt('/login', <SignInPage />, noCalls())
+
+    expect(screen.queryByText('Continue with Google')).toBeNull()
+  })
+
+  it('is told the page it is on and where the reader was heading', () => {
+    const seen: { intent?: string; next?: string } = {}
+
+    renderAt(
+      '/login?next=/join?token=inv_1',
+      <SignInPage />,
+      noCalls(),
+      {},
+      registerUiModules([moduleContributing(seen)]),
+    )
+
+    expect(screen.getByText('Continue with Google')).toBeDefined()
+    expect(seen.intent).toBe('login')
+    expect(seen.next).toBe('/join?token=inv_1')
+  })
+
+  it('refuses an off-site next rather than passing it on', () => {
+    const seen: { intent?: string; next?: string } = {}
+
+    renderAt(
+      '/login?next=https://evil.test',
+      <SignInPage />,
+      noCalls(),
+      {},
+      registerUiModules([moduleContributing(seen)]),
+    )
+
+    expect(seen.next).toBe('/dashboard')
+  })
+
+  it('renders on signup too, told which page it is on', () => {
+    const seen: { intent?: string; next?: string } = {}
+
+    renderAt('/signup', <SignUpPage />, noCalls(), {}, registerUiModules([moduleContributing(seen)]))
+
+    expect(screen.getByText('Continue with Google')).toBeDefined()
+    expect(seen.intent).toBe('signup')
   })
 })

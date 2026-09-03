@@ -132,6 +132,10 @@ export { DecisionsPage } from './pages/DecisionsPage.tsx'
 export { PeoplePage } from './pages/PeoplePage.tsx'
 export { PersonDetail } from './pages/PersonDetail.tsx'
 export { PlanningPage } from './pages/PlanningPage.tsx'
+// The controls a module contributing a sign-in method builds its button from,
+// so it matches the form beside it without copying class names.
+export { AuthDivider, AuthLinkButton } from './pages/auth/AuthForm.tsx'
+export { safeNext } from './pages/auth/nextPath.ts'
 export { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage.tsx'
 export { JoinPage } from './pages/auth/JoinPage.tsx'
 export { ResetPasswordPage } from './pages/auth/ResetPasswordPage.tsx'
@@ -165,6 +169,8 @@ export type { ThemePreference } from './lib/theme.ts'
 
 export { EXTENSIBLE_RECORD_TYPES, NAV_SLOTS } from './registry/contributions.ts'
 export type {
+  AuthMethod,
+  AuthMethodContext,
   DashboardCard,
   ExtensibleRecordType,
   NavItem,
@@ -182,6 +188,7 @@ export { NO_UI_MODULES, UiModuleError, inSlotOrder, registerUiModules } from './
 export type { UiExtensions, UiModule, UiModuleContext } from './registry/registry.ts'
 
 export {
+  useAuthMethods,
   useDashboardCards,
   useModuleRoutes,
   useNavItems,

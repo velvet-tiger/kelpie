@@ -88,7 +88,8 @@ function ChangePasswordForm(): React.JSX.Element {
     <form onSubmit={submit} className="space-y-3">
       <h2 className="text-[14px] font-semibold text-ink">Change password</h2>
       <p className="max-w-md text-[12px] text-ink-muted">
-        Changing your password signs you out everywhere except this browser.
+        Changing your password signs you out everywhere except this browser. If you have never set
+        one, use <span className="font-medium text-ink">Forgot password</span> on the sign-in page.
       </p>
 
       <label className="block max-w-md">
@@ -216,6 +217,10 @@ function SessionRow({
       <td className="px-4 py-3">
         <div className="font-medium break-all text-ink">{session.device ?? 'Unknown device'}</div>
         {session.current && <span className="text-[11px] font-medium text-success">This device</span>}
+        {/* Null for a password sign-in, which is the ordinary case and needs no label. */}
+        {session.signedInVia !== null && (
+          <div className="text-[11px] text-ink-faint">via {session.signedInVia}</div>
+        )}
       </td>
       {/* Always unknown today: the service records the User-Agent and nothing
           derives a location from the request. The column stays because the field

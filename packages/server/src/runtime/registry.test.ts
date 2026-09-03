@@ -289,6 +289,76 @@ describe('module app routes and middleware', () => {
   })
 })
 
+describe('external sign-in', () => {
+  const signInIdentity = {
+    email: 'ada@example.com',
+    emailVerified: true,
+    name: null,
+    verifiedBy: 'first',
+    provision: 'create',
+  } as const
+
+  function providerModule(id: string): KelpieModule {
+    return {
+      id,
+      register(context) {
+        context.provideExternalSignIn(() =>
+          Promise.resolve({
+            account: { id: 'usr_1', email: 'ada@example.com', name: 'Ada', emailVerified: true },
+            created: false,
+            activeWorkspaceId: null,
+          }),
+        )
+
+        return Promise.resolve()
+      },
+    }
+  }
+
+  it('fails boot when a second module provides it, naming both', async () => {
+    await expect(
+      registerModules({
+        modules: [providerModule('first'), providerModule('second')],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
+      }),
+    ).rejects.toThrow(/module "second".*module "first"/su)
+  })
+
+  /**
+   * An assembly built without the auth module. Rejecting says which module is
+   * missing rather than failing somewhere inside a provider's callback.
+   */
+  it('rejects when nothing installed an implementation', async () => {
+    let completed: Promise<unknown> | undefined
+
+    const consumer: KelpieModule = {
+      id: 'consumer',
+      register(context) {
+        context.appRoute('GET', '/consumer/sign-in', (requestContext) => {
+          completed = context.completeExternalSignIn(requestContext, signInIdentity)
+
+          return requestContext.json({ ok: true })
+        })
+
+        return Promise.resolve()
+      },
+    }
+
+    const { app } = await createTestApp({
+      modules: [consumer],
+      environment: {},
+      services: createTestServices(),
+    })
+
+    await app.request('/consumer/sign-in')
+
+    await expect(completed).rejects.toThrow(/auth module/u)
+  })
+})
+
 describe('module config', () => {
   it('gives the module its validated slice of the environment', async () => {
     const { app } = await createTestApp({

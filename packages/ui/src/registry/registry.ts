@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 
 import type {
+  AuthMethod,
   DashboardCard,
   ExtensibleRecordType,
   NavItem,
@@ -31,6 +32,8 @@ export interface UiModuleContext {
   recordTab(objectType: ExtensibleRecordType, tab: RecordTab): void
   recordSidebarCard(objectType: ExtensibleRecordType, card: RecordSidebarCard): void
   dashboardCard(card: DashboardCard): void
+  /** Another way to sign in, rendered beside the password form on `/login` and `/signup`. */
+  authMethod(method: AuthMethod): void
   /** Replaces a core component. Prefer a slot; see `modules.md`. */
   override<Props>(token: Overridable<Props>, component: ComponentType<Props>): void
 }
@@ -47,6 +50,7 @@ export interface UiExtensions {
   recordTabs(objectType: ExtensibleRecordType): readonly RecordTab[]
   recordSidebarCards(objectType: ExtensibleRecordType): readonly RecordSidebarCard[]
   dashboardCards(): readonly DashboardCard[]
+  authMethods(): readonly AuthMethod[]
   componentFor<Props>(token: Overridable<Props>): ComponentType<Props>
 }
 
@@ -70,6 +74,7 @@ interface Accumulator {
   readonly recordTabs: Map<ExtensibleRecordType, RecordTab[]>
   readonly recordSidebarCards: Map<ExtensibleRecordType, RecordSidebarCard[]>
   readonly dashboardCards: DashboardCard[]
+  readonly authMethods: AuthMethod[]
   readonly overrides: OverrideStore
 }
 
@@ -134,6 +139,11 @@ function createModuleContext(
       accumulator.dashboardCards.push(card)
     },
 
+    authMethod(method) {
+      claim(taken, module.id, 'auth.methods', method.id)
+      accumulator.authMethods.push(method)
+    },
+
     override(token, component) {
       if (accumulator.overrides.has(token.key)) {
         throw new UiModuleError(
@@ -158,6 +168,7 @@ export function registerUiModules(modules: readonly UiModule[]): UiExtensions {
     recordTabs: new Map(),
     recordSidebarCards: new Map(),
     dashboardCards: [],
+    authMethods: [],
     overrides: createOverrideStore(),
   }
   const taken = new Set<string>()
@@ -179,6 +190,7 @@ export function registerUiModules(modules: readonly UiModule[]): UiExtensions {
     recordSidebarCards: (objectType) =>
       inSlotOrder(accumulator.recordSidebarCards.get(objectType) ?? []),
     dashboardCards: () => inSlotOrder(accumulator.dashboardCards),
+    authMethods: () => inSlotOrder(accumulator.authMethods),
     componentFor: (token) => accumulator.overrides.get(token),
   }
 }

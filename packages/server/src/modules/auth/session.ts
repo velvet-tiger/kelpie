@@ -11,6 +11,20 @@ import type { Context } from 'hono'
 
 export const SESSION_COOKIE = 'kelpie_session'
 
+/**
+ * The device and location shown on the Security page come from the request
+ * itself.
+ *
+ * Here rather than in `routes.ts` because the external sign-in handler needs
+ * the same description, and a session created by a module should look the same
+ * on that page as one created by the login form.
+ */
+export function describeClient(context: Context): { device?: string; location?: string } {
+  const userAgent = context.req.header('User-Agent')
+
+  return userAgent === undefined ? {} : { device: userAgent }
+}
+
 /** Thirty days, matching the session row's expiry. */
 const COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 
