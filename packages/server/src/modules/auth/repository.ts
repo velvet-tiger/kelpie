@@ -64,11 +64,15 @@ export async function updateUserPassword(
 /**
  * Writes name and email. Not the password: that one has its own function because
  * it also ends sessions, and the two must not be reachable through one call.
+ *
+ * `emailVerifiedAt` rides along with an email change: the service resets it to
+ * null in the same call rather than a second write, so there is no window where
+ * the row holds a new address and the old address's verification.
  */
 export async function updateUserProfile(
   db: Queryable,
   userId: string,
-  changes: { readonly name?: string; readonly email?: string },
+  changes: { readonly name?: string; readonly email?: string; readonly emailVerifiedAt?: Date | null },
   now: Date,
 ): Promise<UserRecord | undefined> {
   const [updated] = await db

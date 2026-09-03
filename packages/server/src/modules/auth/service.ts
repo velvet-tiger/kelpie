@@ -443,15 +443,25 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
      * password reset. The current password must verify, every other session
      * ends, and the address being replaced is told, in case the caller was not
      * its owner.
+     *
+     * A real change of address also resets verification and sends a fresh
+     * token to the new one. Verifying the old address proves nothing about the
+     * new one, and leaving the flag set would let anyone who can rename an
+     * unregistered account onto a given address inherit "verified" for free —
+     * exactly the mailbox-ownership proof signup's own token exists to require.
+     * Submitting the address already on file is not a change and resets nothing.
      */
     async updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<AccountView> {
       const user = await requireUser(actor.userId)
 
+      const nextEmail =
+        changes.email === undefined ? undefined : requireText(normaliseEmail(changes.email), 'email')
+      const emailChanging = nextEmail !== undefined && nextEmail !== user.email
+
       const values = {
         ...(changes.name === undefined ? {} : { name: requireText(changes.name, 'name') }),
-        ...(changes.email === undefined
-          ? {}
-          : { email: requireText(normaliseEmail(changes.email), 'email') }),
+        ...(nextEmail === undefined ? {} : { email: nextEmail }),
+        ...(emailChanging ? { emailVerifiedAt: null } : {}),
       }
 
       // A passwordless account cannot prove itself this way. It sets a password
@@ -466,10 +476,12 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       }
 
       const previousEmail = user.email
+      const now = dependencies.now()
+      const verificationToken = emailChanging ? newToken() : undefined
 
       try {
         const updated = await dependencies.transaction(async ({ tx }) => {
-          const saved = await repository.updateUserProfile(tx, actor.userId, values, dependencies.now())
+          const saved = await repository.updateUserProfile(tx, actor.userId, values, now)
 
           if (saved === undefined) {
             throw AppError.unauthorized('This session no longer belongs to an account')
@@ -477,6 +489,15 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
           if (changes.email !== undefined) {
             await repository.deleteOtherSessionsForUser(tx, actor.userId, actor.sessionId)
+          }
+
+          if (verificationToken !== undefined) {
+            await repository.insertEmailVerificationToken(tx, {
+              id: dependencies.createId('emailVerificationToken'),
+              userId: actor.userId,
+              tokenHash: hashToken(verificationToken),
+              expiresAt: new Date(now.getTime() + EMAIL_VERIFICATION_TOKEN_LIFETIME_MS),
+            })
           }
 
           return saved
@@ -496,6 +517,13 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
             body: text,
             html,
           })
+        }
+
+        // Sent after commit, same as signup: a rolled-back change never emails
+        // a token, and this token is only ever minted alongside a committed
+        // `emailVerifiedAt: null` write.
+        if (verificationToken !== undefined) {
+          await sendVerificationEmail(updated.email, verificationToken)
         }
 
         return toAccountView(updated)

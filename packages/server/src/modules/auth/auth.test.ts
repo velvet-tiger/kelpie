@@ -120,6 +120,23 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     return header.split(';')[0] ?? ''
   }
 
+  /** The token from the most recently sent verification email. */
+  function verificationTokenFromEmail(): string {
+    const message = harness.services.sentEmails.at(-1)
+
+    if (message === undefined) {
+      throw new Error('Expected a verification email to have been sent')
+    }
+
+    const match = /token=([^\s]+)/u.exec(message.body)
+
+    if (match?.[1] === undefined) {
+      throw new Error(`No token in the verification email: ${message.body}`)
+    }
+
+    return match[1]
+  }
+
   async function signUp(): Promise<string> {
     const response = await post('/v1/auth/signup', SIGNUP)
     expect(response.status).toBe(201)
@@ -461,7 +478,8 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const other = sessionCookieFrom(
         await post('/v1/auth/login', { email: SIGNUP.email, password: SIGNUP.password }),
       )
-      // Signing up already sent one verification email; only the change notice comes next.
+      // Signing up already sent one verification email; the change notice and a
+      // fresh verification token for the new address come next.
       const sentBeforeChange = harness.services.sentEmails.length
 
       const response = await patch(
@@ -474,9 +492,41 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: keep } })).status).toBe(200)
       expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: other } })).status).toBe(401)
 
-      expect(harness.services.sentEmails).toHaveLength(sentBeforeChange + 1)
-      expect(harness.services.sentEmails.at(-1)).toMatchObject({ to: 'ada@example.com' })
-      expect(harness.services.sentEmails.at(-1)?.body).toContain('ada.king@example.com')
+      const [changeNotice, verification] = harness.services.sentEmails.slice(sentBeforeChange)
+      expect(harness.services.sentEmails).toHaveLength(sentBeforeChange + 2)
+      expect(changeNotice).toMatchObject({ to: 'ada@example.com' })
+      expect(changeNotice?.body).toContain('ada.king@example.com')
+      expect(verification).toMatchObject({ to: 'ada.king@example.com' })
+    })
+
+    it('resets verification on a real address change, and a no-op change resets nothing', async () => {
+      const cookie = await signUp()
+      await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() })
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
+
+      // Submitting the address already on file is not a change.
+      const unchanged = await patch(
+        '/v1/account',
+        { email: SIGNUP.email, current_password: SIGNUP.password },
+        cookie,
+      )
+      expect(unchanged.status).toBe(200)
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
+
+      const changed = await patch(
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+      expect(changed.status).toBe(200)
+      expect(await changed.json()).toMatchObject({ email: 'ada.king@example.com', email_verified: false })
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: false })
+
+      const confirmed = await post('/v1/auth/verify-email/confirm', {
+        token: verificationTokenFromEmail(),
+      })
+      expect(confirmed.status).toBe(204)
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
     })
 
     it('refuses a name that is only whitespace', async () => {
@@ -845,22 +895,6 @@ describe.skipIf(connectionString === undefined)('auth', () => {
   })
 
   describe('email verification', () => {
-    function verificationTokenFromEmail(): string {
-      const message = harness.services.sentEmails.at(-1)
-
-      if (message === undefined) {
-        throw new Error('Expected a verification email to have been sent')
-      }
-
-      const match = /token=([^\s]+)/u.exec(message.body)
-
-      if (match?.[1] === undefined) {
-        throw new Error(`No token in the verification email: ${message.body}`)
-      }
-
-      return match[1]
-    }
-
     it('emails a link at signup, and leaves the account unverified', async () => {
       const response = await post('/v1/auth/signup', SIGNUP)
       const cookie = sessionCookieFrom(response)
