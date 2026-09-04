@@ -74,17 +74,21 @@ function isPrivateIpv4(ip: string): boolean {
 
 /** True for an IPv6 address in a loopback, unspecified, link-local, or unique-local range. */
 function isPrivateIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase()
+  // Normalize both DNS results and literals. URL parsing compresses IPv6 and
+  // rewrites a dotted IPv4 suffix as two hexadecimal groups.
+  const lower = new URL(`http://[${ip}]/`).hostname.slice(1, -1)
 
   if (lower === '::1' || lower === '::') {
     return true
   }
 
-  const mapped = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/u.exec(lower)
+  const mapped = /^::ffff:([\da-f]{1,4}):([\da-f]{1,4})$/u.exec(lower)
 
-  if (mapped?.[1] !== undefined) {
+  if (mapped?.[1] !== undefined && mapped[2] !== undefined) {
     // An IPv4 address written in IPv6 form resolves by its IPv4 rules.
-    return isPrivateIpv4(mapped[1])
+    const high = Number.parseInt(mapped[1], 16)
+    const low = Number.parseInt(mapped[2], 16)
+    return isPrivateIpv4([high >>> 8, high & 255, low >>> 8, low & 255].join('.'))
   }
 
   const firstHextet = Number.parseInt(lower.split(':')[0] || '0', 16)

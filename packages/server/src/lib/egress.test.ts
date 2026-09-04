@@ -61,6 +61,38 @@ describe('createEgressGuard', () => {
       await expect(guard.check('http://[fe80::1]/x')).rejects.toBeInstanceOf(BlockedEgressError)
     })
 
+    it.each([
+      '::ffff:127.0.0.1',
+      '::ffff:7f00:1',
+      '0:0:0:0:0:ffff:7f00:1',
+      '::ffff:10.0.0.5',
+      '::ffff:172.16.0.1',
+      '::ffff:192.168.1.1',
+      '::ffff:169.254.169.254',
+    ])('refuses private mapped IPv6 address %s as a literal and DNS result', async (address) => {
+      const guard = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, literalOnly)
+
+      await expect(guard.check(`http://[${address}]/x`)).rejects.toBeInstanceOf(BlockedEgressError)
+      await expect(
+        guardResolving([address]).check('https://sneaky.example/x'),
+      ).rejects.toBeInstanceOf(BlockedEgressError)
+    })
+
+    it('refuses an expanded IPv6 loopback returned by DNS', async () => {
+      await expect(
+        guardResolving(['0:0:0:0:0:0:0:1']).check('https://sneaky.example/x'),
+      ).rejects.toBeInstanceOf(BlockedEgressError)
+    })
+
+    it('allows mapped IPv6 addresses with a public IPv4 destination', async () => {
+      const guard = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, literalOnly)
+
+      await expect(guard.check('http://[::ffff:93.184.216.34]/x')).resolves.toBeUndefined()
+      await expect(
+        guardResolving(['0:0:0:0:0:ffff:5db8:d822']).check('https://example.com/x'),
+      ).resolves.toBeUndefined()
+    })
+
     it('allows a public IPv6 literal', async () => {
       const guard = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, literalOnly)
 
