@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { cors } from 'hono/cors'
 
+import type { PublicRegion } from '@kelpie/schemas'
+
 import type { RuntimeMode } from './lib/config.ts'
 import type { DatabaseProbe } from './lib/database.ts'
 import { AppError, internalErrorBody, toErrorBody } from './lib/errors.ts'
@@ -71,6 +73,12 @@ export interface AppDependencies {
    * (open), matching the config layer's own default.
    */
   readonly signupsEnabled?: boolean
+  /**
+   * Reported through `GET /v1/public/config` so signed-out pages can draw a
+   * region switcher. Defaults to `[]` (no switcher), matching a self-hosted
+   * install that never declared regions.
+   */
+  readonly regions?: readonly PublicRegion[]
 }
 
 /** Per-request values the middleware chain sets and handlers read. */
@@ -192,10 +200,16 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   const runtimeMode: RuntimeMode = dependencies.runtimeMode ?? 'production'
   const siteName = dependencies.siteName ?? null
   const signupsEnabled = dependencies.signupsEnabled ?? true
+  const regions = dependencies.regions ?? []
 
   app.get(`${PUBLIC_ROUTE_PREFIX}/config`, (context) =>
     context.json(
-      { runtime_mode: runtimeMode, site_name: siteName, signups_enabled: signupsEnabled },
+      {
+        runtime_mode: runtimeMode,
+        site_name: siteName,
+        signups_enabled: signupsEnabled,
+        regions,
+      },
       200,
     ),
   )

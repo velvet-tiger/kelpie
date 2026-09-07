@@ -36,6 +36,7 @@ describe('loadConfig', () => {
       moduleConfigPath: undefined,
       siteName: undefined,
       webBundleDirectory: undefined,
+      regions: [],
     })
   })
 

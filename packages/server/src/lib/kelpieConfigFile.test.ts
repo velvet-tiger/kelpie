@@ -63,6 +63,7 @@ describe('resolveKelpieConfig', () => {
       env: {},
       appBaseUrl: undefined,
       secretEncryption: undefined,
+      regions: [],
     })
   })
 
@@ -405,6 +406,44 @@ describe('resolveKelpieConfig', () => {
       })
 
       expect(resolveKelpieConfig(input, {}).logging.level).toBe('info')
+    })
+  })
+
+  describe('regions', () => {
+    const us = { id: 'us', label: 'United States', origin: 'https://us.kelpie.example' }
+    const uk = { id: 'uk', label: 'United Kingdom', origin: 'https://uk.kelpie.example' }
+
+    it('defaults to an empty list when the assembly omits the field', () => {
+      expect(resolveKelpieConfig(baseInput(), {}).regions).toEqual([])
+    })
+
+    it('keeps a valid list', () => {
+      expect(resolveKelpieConfig(baseInput({ regions: [us, uk] }), {}).regions).toEqual([us, uk])
+    })
+
+    it('rejects an origin that is not an absolute http origin', () => {
+      const input = baseInput({
+        regions: [{ id: 'us', label: 'United States', origin: 'us.kelpie.example' }],
+      })
+
+      expect(() => resolveKelpieConfig(input, {})).toThrow(ConfigurationError)
+      expect(() => resolveKelpieConfig(input, {})).toThrow(/regions\.0\.origin/u)
+    })
+
+    it('rejects a duplicate id', () => {
+      const input = baseInput({
+        regions: [us, { id: 'us', label: 'United Kingdom', origin: 'https://uk.kelpie.example' }],
+      })
+
+      expect(() => resolveKelpieConfig(input, {})).toThrow(/duplicate id 'us'/u)
+    })
+
+    it('rejects a duplicate origin', () => {
+      const input = baseInput({
+        regions: [us, { id: 'uk', label: 'United Kingdom', origin: us.origin }],
+      })
+
+      expect(() => resolveKelpieConfig(input, {})).toThrow(/duplicate origin/u)
     })
   })
 })

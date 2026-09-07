@@ -62,6 +62,7 @@ describe('GET /v1/public/config', () => {
       runtime_mode: 'development',
       site_name: 'dev',
       signups_enabled: true,
+      regions: [],
     })
   })
 
@@ -75,6 +76,7 @@ describe('GET /v1/public/config', () => {
       runtime_mode: 'production',
       site_name: null,
       signups_enabled: true,
+      regions: [],
     })
   })
 
@@ -87,6 +89,24 @@ describe('GET /v1/public/config', () => {
       runtime_mode: 'production',
       site_name: null,
       signups_enabled: false,
+      regions: [],
+    })
+  })
+
+  it('reports the configured regions', async () => {
+    const regions = [
+      { id: 'us', label: 'United States', origin: 'https://us.kelpie.example' },
+      { id: 'uk', label: 'United Kingdom', origin: 'https://uk.kelpie.example' },
+    ]
+    const { app } = await createTestApp({ regions })
+
+    const response = await app.request('/v1/public/config')
+
+    expect(await response.json()).toEqual({
+      runtime_mode: 'production',
+      site_name: null,
+      signups_enabled: true,
+      regions,
     })
   })
 })

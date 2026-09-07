@@ -1,3 +1,4 @@
+import type { PublicRegion } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 
 import { createApp } from '../app.ts'
@@ -66,6 +67,8 @@ export interface TestAppOptions {
    * module's `signUp` and `completeExternalSignIn`. Defaults to `true` (open).
    */
   readonly signupsEnabled?: boolean
+  /** Reported through `GET /v1/public/config`. Defaults to `[]`. */
+  readonly regions?: readonly PublicRegion[]
 }
 
 export interface TestApp {
@@ -117,6 +120,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     ...(options.runtimeMode === undefined ? {} : { runtimeMode: options.runtimeMode }),
     ...(options.siteName === undefined ? {} : { siteName: options.siteName }),
     ...(options.signupsEnabled === undefined ? {} : { signupsEnabled: options.signupsEnabled }),
+    ...(options.regions === undefined ? {} : { regions: options.regions }),
   })
 
   return { app, contributions, logLines, services }

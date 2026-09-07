@@ -486,5 +486,5 @@ export type {
   UpdateAccountPreferencesInput,
 } from './account.ts'
 
-export { publicConfigSchema } from './publicConfig.ts'
-export type { PublicConfig, PublicRuntimeMode } from './publicConfig.ts'
+export { isHttpOrigin, publicConfigSchema, publicRegionSchema, publicRegionsSchema } from './publicConfig.ts'
+export type { PublicConfig, PublicRegion, PublicRuntimeMode } from './publicConfig.ts'

@@ -1,3 +1,4 @@
+import type { PublicRegion } from '@kelpie/schemas'
 import { z } from 'zod'
 
 import { emailConfigSchema } from './email.ts'
@@ -107,6 +108,12 @@ export interface KelpieConfig {
    * account, are unaffected either way.
    */
   readonly signups: SignupsMode
+  /**
+   * Origins a multi-region assembly advertises on signed-out pages. Empty
+   * (the default) hides the switcher. Two or more draws it. Exposed through
+   * `GET /v1/public/config`.
+   */
+  readonly regions: readonly PublicRegion[]
 }
 
 /** Thrown at boot when the environment cannot produce a valid configuration. */
@@ -184,5 +191,6 @@ export function loadConfig(environment: Environment): KelpieConfig {
     appBaseUrl: undefined,
     secretEncryption: undefined,
     signups: environmentResult.data.SIGNUPS,
+    regions: [],
   }
 }

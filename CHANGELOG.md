@@ -12,6 +12,17 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **An optional
+  region list for multi-region sign-in.** `kelpie.config.ts` gains a
+  `regions` field (`{ id, label, origin }[]`, default `[]`). Empty (the
+  self-hosted case) leaves signed-out pages unchanged. Two or more origins
+  draw a Region control on those pages; picking one navigates to that
+  origin and keeps the current path and query. `GET /v1/public/config`
+  reports the list. Duplicate ids or origins, or an origin that is not an
+  absolute `http:` / `https:` host, fail boot. The user already knows
+  which region their account lives in; the control does not look accounts
+  up.
+
 - **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **A `SIGNUPS`
   config flag to close new-account creation.** `kelpie.config.ts` gains a
   `signups` field (`'open' | 'closed'`, default `'open'`), overridable with

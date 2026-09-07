@@ -1,13 +1,16 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
+import { RegionSwitcher } from './RegionSwitcher.tsx'
+
 /**
  * The centred card every signed-out page sits in: sign in, signup, the two
  * password-reset pages, and the three onboarding steps.
  *
  * `step` is what makes it an onboarding page. Onboarding is a sequence somebody
  * is part-way through, and a card that does not say where they are in it turns
- * three screens into three unrelated forms.
+ * three screens into three unrelated forms. The region switcher stays off
+ * those steps: a session already exists on this origin.
  */
 
 /** Onboarding, per `onboarding.md`: workspace, invites, handbook. */
@@ -50,6 +53,7 @@ export function AuthLayout({
         {children}
         {footer !== undefined && <div className="mt-4 text-center text-[12px]">{footer}</div>}
       </div>
+      {step === undefined && <RegionSwitcher />}
     </div>
   )
 }

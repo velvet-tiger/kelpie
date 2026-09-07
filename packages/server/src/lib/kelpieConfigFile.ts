@@ -1,3 +1,6 @@
+import type { PublicRegion } from '@kelpie/schemas'
+import { publicRegionSchema } from '@kelpie/schemas'
+
 import type { KelpieModule } from '../runtime/module.ts'
 import {
   ConfigurationError,
@@ -8,6 +11,7 @@ import {
   type SignupsMode,
 } from './config.ts'
 import type { EmailConfig } from './email.ts'
+import { describeValidationIssue } from './errors.ts'
 import { type ConfigValue, resolveMarkers } from './fromEnv.ts'
 import type { LoggingDestination } from './logger.ts'
 import type { RateLimitConfig } from './rateLimit.ts'
@@ -48,6 +52,13 @@ export interface KelpieConfigInput {
    * this sees no change in behaviour.
    */
   readonly signups?: ConfigValue<SignupsMode>
+  /**
+   * Origins a multi-region assembly advertises on signed-out pages. Optional;
+   * omitted or empty hides the switcher, matching a self-hosted install.
+   * Two or more draws it. Each `id` and `origin` must be unique, and each
+   * `origin` must be an absolute `http:` or `https:` origin.
+   */
+  readonly regions?: ConfigValue<readonly PublicRegion[]>
   /**
    * The deployment's base URL. Every emailed link (password reset, email
    * verification, invite) is built from it. Required by the workspace and auth
@@ -177,6 +188,9 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
   const rateLimit = buildRateLimitConfig(resolved.rateLimit)
   const env = mergeEnv(environment, resolved.env)
   const secretEncryption = buildSecretEncryptionConfig(resolved.secretEncryption)
+  const regions = resolved.regions ?? []
+
+  problems.push(...describeRegionProblems(regions))
 
   if (problems.length > 0) {
     throw new ConfigurationError(problems)
@@ -200,6 +214,7 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
     appBaseUrl: resolved.appBaseUrl,
     secretEncryption,
     signups: resolved.signups ?? 'open',
+    regions,
   }
 }
 
@@ -232,6 +247,7 @@ interface ResolvedInput {
   readonly siteName?: string | undefined
   readonly trustedProxyHopCount?: number
   readonly signups?: SignupsMode
+  readonly regions?: readonly PublicRegion[]
   readonly appBaseUrl?: string
   readonly secretEncryption?: ResolvedSecretEncryption
   readonly email: ResolvedEmail
@@ -255,6 +271,43 @@ interface ResolvedRateLimit {
   readonly auth?: { readonly limit?: number; readonly windowSeconds?: number }
   readonly loginAccount?: { readonly limit?: number; readonly windowSeconds?: number }
   readonly api?: { readonly limit?: number; readonly windowSeconds?: number }
+}
+
+function describeRegionProblems(regions: readonly unknown[]): string[] {
+  const problems: string[] = []
+  const ids = new Set<string>()
+  const origins = new Set<string>()
+
+  for (const [index, region] of regions.entries()) {
+    const parsed = publicRegionSchema.safeParse(region)
+
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        problems.push(
+          describeValidationIssue({
+            path: ['regions', index, ...issue.path],
+            message: issue.message,
+          }),
+        )
+      }
+
+      continue
+    }
+
+    if (ids.has(parsed.data.id)) {
+      problems.push(`regions.${String(index)}.id: duplicate id '${parsed.data.id}'`)
+    }
+
+    ids.add(parsed.data.id)
+
+    if (origins.has(parsed.data.origin)) {
+      problems.push(`regions.${String(index)}.origin: duplicate origin '${parsed.data.origin}'`)
+    }
+
+    origins.add(parsed.data.origin)
+  }
+
+  return problems
 }
 
 function buildEmailConfig(resolved: ResolvedEmail | undefined): EmailConfig {

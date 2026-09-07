@@ -8,9 +8,9 @@ import { toError } from '../errors.ts'
 /**
  * The deployment metadata `GET /v1/public/config` reports.
  *
- * Read once, cached forever: neither `runtimeMode` nor `siteName` changes
- * while the app is open. The endpoint is public, so this hook works before a
- * session exists (the sign-in page reads it too).
+ * Read once, cached forever: neither `runtimeMode` nor `siteName` nor
+ * `regions` changes while the app is open. The endpoint is public, so this
+ * hook works before a session exists (the sign-in page reads it too).
  */
 
 const PUBLIC_CONFIG_KEY = ['public-config'] as const

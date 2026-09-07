@@ -49,7 +49,7 @@ Every endpoint here has integration tests against a real Postgres.
 | Export | `GET /v1/export/{people,companies,positions,deals}.csv` and `GET /v1/export/templates/{object}.csv` |
 | Import | `POST /v1/import/jobs` (multipart), `GET /v1/import/jobs/:id`, `POST /v1/import/jobs/:id/commit`, `DELETE /v1/import/jobs/:id` |
 | Sample data | `POST /v1/workspaces/:id/sample-data`. Admin only, one transaction, `409` once the workspace holds companies or people |
-| Public config | `GET /v1/public/config` — `{ runtime_mode, site_name }`, no credentials. Feeds the named banner a non-production install shows (`KELPIE_SITE_NAME`) |
+| Public config | `GET /v1/public/config` — `{ runtime_mode, site_name, signups_enabled, regions }`, no credentials. Feeds the named banner a non-production install shows (`KELPIE_SITE_NAME`), whether sign-up is open, and the region list a multi-region assembly advertises on signed-out pages. `regions` is `[]` when the assembly did not declare any |
 | Agent tasks | `GET /v1/agent-tasks?target_type=`, `POST /v1/agent-tasks/:task_id/resolve` and `/run`. Runs at `GET /v1/agent-runs[/:id]`, filters `?agent_id=` and `?status=`. Registered agents: `GET`, `POST /v1/agents`, `GET`, `PATCH`, `DELETE /v1/agents/:id` — writes admin only, reads any member |
 | Webhooks | `GET`, `POST /v1/webhooks`, `GET`, `PATCH`, `DELETE /v1/webhooks/:id`. Filter `?status=`. Plus `POST /v1/webhooks/:id/rotate_secret` and `GET /v1/webhooks/:id/deliveries`, filter `?status=`. Admin only, reads included |
 | MCP | `POST /mcp`, Streamable HTTP, bearer key only. Speaks `2026-07-28` and the two `initialize`-based revisions before it. `GET /v1/mcp/tools` lists the same tools over ordinary credentials |
