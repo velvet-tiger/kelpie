@@ -117,6 +117,17 @@ export interface DecisionSignal extends TargetRef {
   readonly dueAt: Date | null
 }
 
+export interface UpcomingEventSignal {
+  readonly id: string
+  readonly name: string
+  readonly startsAt: Date
+  readonly endsAt: Date
+  readonly format: string
+  readonly location: string
+  readonly attendeeCount: number
+  readonly ownerId: string | null
+}
+
 export interface DashboardSnapshot {
   readonly generatedAt: Date
   /** The day everything below was computed against, `YYYY-MM-DD`. */
@@ -129,6 +140,7 @@ export interface DashboardSnapshot {
   readonly overduePlanItems: SignalList<PlanItemSignal>
   readonly dueSoonPlanItems: SignalList<PlanItemSignal>
   readonly partnershipTouchpoints: SignalList<TouchpointSignal>
+  readonly upcomingEvents: SignalList<UpcomingEventSignal>
   readonly staleContacts: SignalList<StaleContactSignal>
   readonly recentActivity: readonly ActivitySignal[]
   readonly recentNotes: readonly NoteSignal[]
@@ -155,6 +167,10 @@ interface DayBounds {
   readonly through: string
   /** The first day a contact still counts as fresh. */
   readonly staleCutoff: string
+  /** Instant the upcoming Events window starts (now). */
+  readonly fromInstant: Date
+  /** Instant the upcoming Events window ends (now plus `UPCOMING_DAYS`). */
+  readonly throughInstant: Date
 }
 
 /** Everything read from the database, before any of it is named or shaped. */
@@ -163,6 +179,7 @@ interface SignalRows {
   readonly overduePlanItems: SignalList<repository.PlanItemRecord>
   readonly dueSoonPlanItems: SignalList<repository.PlanItemRecord>
   readonly partnershipTouchpoints: SignalList<repository.TouchpointRecord>
+  readonly upcomingEvents: SignalList<repository.UpcomingEventRecord>
   readonly staleContacts: SignalList<repository.StaleContactRecord>
   readonly recentActivity: readonly repository.ActivityRecord[]
   readonly recentNotes: readonly repository.NoteRecord[]
@@ -201,6 +218,19 @@ async function readTouchpoints(
   }
 }
 
+async function readUpcomingEvents(
+  db: Database,
+  workspaceId: string,
+  from: Date,
+  to: Date,
+  limit: number,
+): Promise<SignalList<repository.UpcomingEventRecord>> {
+  return {
+    total: await repository.countUpcomingEvents(db, workspaceId, from, to),
+    items: await repository.listUpcomingEvents(db, workspaceId, from, to, limit),
+  }
+}
+
 async function readStaleContacts(
   db: Database,
   workspaceId: string,
@@ -236,6 +266,7 @@ async function readSignals(
     overduePlanItems,
     dueSoonPlanItems,
     partnershipTouchpoints,
+    upcomingEvents,
     staleContacts,
     recentActivity,
     recentNotes,
@@ -245,6 +276,7 @@ async function readSignals(
     readPlanItems(db, workspaceId, { before: days.today }, limit),
     readPlanItems(db, workspaceId, { from: days.today, to: days.through }, limit),
     readTouchpoints(db, workspaceId, days.through, limit),
+    readUpcomingEvents(db, workspaceId, days.fromInstant, days.throughInstant, limit),
     readStaleContacts(db, workspaceId, timezone, days.staleCutoff, limit),
     repository.listRecentActivity(db, workspaceId, limit),
     repository.listRecentNotes(db, workspaceId, limit),
@@ -256,6 +288,7 @@ async function readSignals(
     overduePlanItems,
     dueSoonPlanItems,
     partnershipTouchpoints,
+    upcomingEvents,
     staleContacts,
     recentActivity,
     recentNotes,
@@ -376,6 +409,19 @@ function toSnapshot(
     overduePlanItems: toPlanItemSignal(rows.overduePlanItems, nameOf),
     dueSoonPlanItems: toPlanItemSignal(rows.dueSoonPlanItems, nameOf),
     partnershipTouchpoints: toTouchpointSignal(rows.partnershipTouchpoints, days.today),
+    upcomingEvents: {
+      total: rows.upcomingEvents.total,
+      items: rows.upcomingEvents.items.map((row) => ({
+        id: row.id,
+        name: row.name,
+        startsAt: row.startsAt,
+        endsAt: row.endsAt,
+        format: row.format,
+        location: row.location,
+        attendeeCount: row.attendeeCount,
+        ownerId: row.ownerId,
+      })),
+    },
     staleContacts: toStaleContactSignal(rows.staleContacts, days.today),
     recentActivity: rows.recentActivity.map((row) => ({
       id: row.id,
@@ -436,6 +482,8 @@ export function createDashboardService(dependencies: DashboardDependencies): Das
         today,
         through: upcomingEnd(today),
         staleCutoff: staleContactCutoff(today),
+        fromInstant: generatedAt,
+        throughInstant: new Date(generatedAt.getTime() + UPCOMING_DAYS * 24 * 60 * 60 * 1000),
       }
 
       const rows = await readSignals(dependencies.db, workspaceId, timezone, days, limit)

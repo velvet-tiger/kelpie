@@ -9,6 +9,7 @@ import { activities } from '../activities/schema.ts'
 import { decisions } from '../decisions/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { enquiries } from '../enquiries/schema.ts'
+import { attendances, events } from '../events/schema.ts'
 import { notes } from '../notes/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
@@ -240,6 +241,69 @@ export async function listPartnershipTouchpoints(
   return rows.flatMap((row) =>
     row.nextTouchpoint === null ? [] : [{ ...row, nextTouchpoint: row.nextTouchpoint }],
   )
+}
+
+/** A scheduled Event whose start is inside `[from, to)`. */
+export interface UpcomingEventRecord {
+  readonly id: string
+  readonly name: string
+  readonly startsAt: Date
+  readonly endsAt: Date
+  readonly format: string
+  readonly location: string
+  readonly attendeeCount: number
+  readonly ownerId: string | null
+}
+
+function upcomingEventConditions(workspaceId: string, from: Date, to: Date): (SQL | undefined)[] {
+  return [
+    eq(events.workspaceId, workspaceId),
+    eq(events.status, 'scheduled'),
+    gte(events.startsAt, from),
+    lt(events.startsAt, to),
+  ]
+}
+
+export async function countUpcomingEvents(
+  db: Queryable,
+  workspaceId: string,
+  from: Date,
+  to: Date,
+): Promise<number> {
+  const [row] = await db
+    .select({ total: count() })
+    .from(events)
+    .where(and(...upcomingEventConditions(workspaceId, from, to)))
+
+  return row?.total ?? 0
+}
+
+export async function listUpcomingEvents(
+  db: Queryable,
+  workspaceId: string,
+  from: Date,
+  to: Date,
+  limit: number,
+): Promise<readonly UpcomingEventRecord[]> {
+  const rows = await db
+    .select({
+      id: events.id,
+      name: events.name,
+      startsAt: events.startsAt,
+      endsAt: events.endsAt,
+      format: events.format,
+      location: events.location,
+      ownerId: events.ownerId,
+      attendeeCount: sql<number>`coalesce(count(${attendances.id}) filter (where ${attendances.status} <> 'cancelled'), 0)::int`,
+    })
+    .from(events)
+    .leftJoin(attendances, eq(attendances.eventId, events.id))
+    .where(and(...upcomingEventConditions(workspaceId, from, to)))
+    .groupBy(events.id)
+    .orderBy(asc(events.startsAt), asc(events.id))
+    .limit(limit)
+
+  return rows
 }
 
 /**

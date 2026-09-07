@@ -17,6 +17,8 @@ import * as dealRepository from '../deals/repository.ts'
 import '../deals/events.ts'
 import * as enquiryRepository from '../enquiries/repository.ts'
 import '../enquiries/events.ts'
+import '../events/catalog.ts'
+import * as eventRepository from '../events/repository.ts'
 import '../lists/events.ts'
 import * as listsRepository from '../lists/repository.ts'
 import * as opportunityRepository from '../opportunities/repository.ts'
@@ -1196,18 +1198,46 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
             events,
             actionLog,
             `attach:${target.targetType}:${target.targetId}`,
-            async (inner) => {
+            async (inner, emit) => {
+              const targetType = target.targetType
+              const targetId = target.targetId
+
               // Racing a target delete would fail the FK-less insert with the
               // same effect as an existence check: log an error, continue.
-              if (!(await targetExists(inner, workspaceId, target.targetType, target.targetId))) {
-                throw AppError.notFound(`${target.targetType} ${target.targetId} not found`)
+              if (!(await targetExists(inner, workspaceId, targetType, targetId))) {
+                throw AppError.notFound(`${targetType} ${targetId} not found`)
+              }
+
+              if (targetType === 'event') {
+                const { record, inserted } = await eventRepository.insertAttendanceIfAbsent(
+                  inner,
+                  {
+                    id: dependencies.createId('attendance'),
+                    workspaceId,
+                    eventId: targetId,
+                    personId: person.record.id,
+                    status: 'registered',
+                    source: 'form',
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                )
+
+                if (inserted) {
+                  emit('events.attendance.created', { type: 'attendance', id: record.id }, {})
+                }
+
+                return {
+                  status: 'ok',
+                  detail: inserted ? 'registered' : 'already registered',
+                }
               }
 
               const inserted = await personLinks.linkPersonIfAbsent(
                 inner,
                 dependencies.createId,
                 workspaceId,
-                target,
+                { targetType, targetId },
                 person.record.id,
               )
 

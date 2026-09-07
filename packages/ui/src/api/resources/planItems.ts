@@ -1,10 +1,10 @@
 import { createPlanItemBody, planItemBody, planItemSchema } from '@kelpie/schemas'
 import type {
   CreatePlanItemInput,
-  PipelineKind,
   PlanItem,
   PlanItemInput,
   PlanItemStatus,
+  PlanItemTargetType,
 } from '@kelpie/schemas'
 
 import type { QueryParameters } from '../client.ts'
@@ -12,7 +12,7 @@ import { createResourceHooks } from '../resource.ts'
 import type { ListOptions, MutationResult, RecordListResult, UpdateArguments } from '../resource.ts'
 
 /**
- * `/v1/plan_items`: the dated next steps on the four pipelines.
+ * `/v1/plan_items`: the dated next steps on pipeline records and Events.
  *
  * Unlike notes, this list is answerable workspace-wide, because the Planning
  * page is exactly that question. `useRecordPlanItems` narrows it to one record's
@@ -35,7 +35,7 @@ const planItems = createResourceHooks<PlanItem, CreatePlanItemInput, PlanItemInp
 export const MAX_PAGE_SIZE = 200
 
 export interface PlanItemFilters {
-  readonly targetType?: PipelineKind | undefined
+  readonly targetType?: PlanItemTargetType | undefined
   /** The records to read steps for. Repeats on the wire: `?target_id=a&target_id=b`. */
   readonly targetIds?: readonly string[] | undefined
   readonly statuses?: readonly PlanItemStatus[] | undefined
@@ -66,7 +66,7 @@ export function usePlanItems(
 
 /** One record's plan, in date order: what the panel on a detail page shows. */
 export function useRecordPlanItems(
-  targetType: PipelineKind,
+  targetType: PlanItemTargetType,
   targetId: string,
 ): RecordListResult<PlanItem> {
   return usePlanItems({ targetType, targetIds: [targetId] })
@@ -81,7 +81,7 @@ export function useRecordPlanItems(
  * dropped rather than sent, because the request would be a 422 in full.
  */
 export function usePlanItemsForRecords(
-  targetType: PipelineKind,
+  targetType: PlanItemTargetType,
   targetIds: readonly string[],
 ): RecordListResult<PlanItem> {
   return usePlanItems(

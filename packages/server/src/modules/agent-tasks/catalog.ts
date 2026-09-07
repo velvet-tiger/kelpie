@@ -623,6 +623,28 @@ Ask before setting stage to passed.`,
     instructions: `The human will paste notes after this prompt. Append a Note; propose Plan items; extract Decisions.`,
   }),
 
+  // Event
+  task({
+    id: 'event.brief',
+    label: 'Event brief',
+    description: 'Agenda, who is registered, linked records, open Plans.',
+    targetTypes: ['event'],
+    placement: 'primary',
+    handbookSlugs: ['agent-faq'],
+    instructions: `Prepare a brief for this Event: agenda from details, who is registered, linked records, and open Plan items.
+Do not invent attendees. Prefer pinned notes and Decisions.`,
+  }),
+  task({
+    id: 'event.follow_up',
+    label: 'Follow up',
+    description: 'Draft follow-up from attended vs no-show Attendances.',
+    targetTypes: ['event'],
+    placement: 'primary',
+    handbookSlugs: ['voice-and-tone', 'agent-faq'],
+    instructions: `Draft follow-up from this Event's Attendances. Separate attended from no-show.
+Save drafts as Notes. Do not send email.`,
+  }),
+
   // Candidate
   task({
     id: 'candidate.score',
@@ -753,6 +775,16 @@ Suggest Draft outreach or Plan items. Do not spam everyone.`,
     handbookSlugs: ['how-we-sell', 'agent-faq'],
     instructions: `Propose a week of Plan items across open Deals, Opportunities, Raises, and Partnerships.
 Create Plan items only when clearly useful; otherwise list proposals for confirmation.`,
+  }),
+  task({
+    id: 'workspace.upcoming_events',
+    label: 'Upcoming events',
+    description: 'Scheduled Events in the next week and their attendee counts.',
+    targetTypes: ['workspace'],
+    placement: 'primary',
+    handbookSlugs: ['agent-faq'],
+    instructions: `List scheduled Events in the next week with attendee counts.
+Use GET /v1/dashboard upcoming_events. Suggest follow-up or brief tasks where useful.`,
   }),
   task({
     id: 'workspace.empty_field_sweep',

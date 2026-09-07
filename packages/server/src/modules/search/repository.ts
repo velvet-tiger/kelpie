@@ -18,6 +18,7 @@ import { pipelineStages } from '../pipelines/schema.ts'
 import { planItems } from '../plans/schema.ts'
 import { positions } from '../positions/schema.ts'
 import { raises } from '../raises/schema.ts'
+import { events } from '../events/schema.ts'
 
 /**
  * The reads behind `GET /v1/search`: one query per collection, each against that
@@ -211,7 +212,7 @@ function byPlanItem(
   db: Queryable,
   workspaceId: string,
   query: SQL,
-  targetType: 'deal' | 'opportunity' | 'raise' | 'enquiry',
+  targetType: 'deal' | 'opportunity' | 'raise' | 'enquiry' | 'event',
 ) {
   return db
     .select({ id: planItems.targetId, rank: relatedRank(planItems.searchVector, query).as('rank') })
@@ -368,6 +369,36 @@ export async function searchPartnerships(
     .limit(limit)
 
   return collect('partnership', rows)
+}
+
+export async function searchEvents(
+  db: Queryable,
+  workspaceId: string,
+  query: SQL,
+  limit: number,
+): Promise<CollectionHits> {
+  const own = db
+    .select({ id: events.id, rank: rank(events.searchVector, query).as('rank') })
+    .from(events)
+    .where(and(eq(events.workspaceId, workspaceId), matches(events.searchVector, query)))
+
+  const hits = unionAll(own, byPlanItem(db, workspaceId, query, 'event')).as('hits')
+
+  const rows = await db
+    .select({
+      id: events.id,
+      title: events.name,
+      subtitle: events.kind,
+      snippetSource: events.summary,
+      total,
+    })
+    .from(hits)
+    .innerJoin(events, eq(events.id, hits.id))
+    .groupBy(events.id)
+    .orderBy(desc(bestRank(hits.rank)), asc(events.id))
+    .limit(limit)
+
+  return collect('event', rows)
 }
 
 export async function searchDecisions(

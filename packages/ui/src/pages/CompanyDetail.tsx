@@ -36,6 +36,7 @@ import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
 import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
+import { LinkedEventsPanel } from '../components/LinkedEventsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
 import { RelatedPlanAttention } from '../components/PlanAttention.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
@@ -98,6 +99,7 @@ export function CompanyDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    { id: 'events', label: 'Events' },
     ...(formSubmissions.records.length === 0
       ? []
       : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
@@ -148,6 +150,9 @@ export function CompanyDetail(): React.JSX.Element {
             {active === 'notes' && <NotesPanel targetType="company" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="company" targetId={record.id} />}
             {active === 'lists' && <ListsPanel targetType="company" targetId={record.id} />}
+            {active === 'events' && (
+              <LinkedEventsPanel targetType="company" targetId={record.id} />
+            )}
             {active === 'forms' && <FormsPanel targetType="company" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'company', recordId: record.id })}
           </RecordTabs>

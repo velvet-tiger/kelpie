@@ -13,7 +13,7 @@ import { targetExists } from '../recordTargets.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_PLAN_ITEM_SORT, PLAN_ITEM_SORTS } from './repository.ts'
 import type { PlanItemFilters, PlanItemRecord } from './repository.ts'
-import type { PipelineKind, PlanItemStatus } from './schema.ts'
+import type { PlanItemStatus, PlanItemTargetType } from './schema.ts'
 
 /**
  * Plan items: the dated next steps on a Deal, Opportunity, Raise or Partnership.
@@ -39,7 +39,7 @@ export interface PlansDependencies {
 export type PlanItemView = Omit<PlanItemRecord, 'workspaceId'>
 
 export interface CreatePlanItemInput {
-  readonly targetType: PipelineKind
+  readonly targetType: PlanItemTargetType
   readonly targetId: string
   /** `YYYY-MM-DD`. Validated as a real calendar date at the boundary. */
   readonly date: string
@@ -94,7 +94,7 @@ export function createPlansService(dependencies: PlansDependencies): PlansServic
 
   async function requireTarget(
     workspaceId: string,
-    targetType: PipelineKind,
+    targetType: PlanItemTargetType,
     targetId: string,
   ): Promise<void> {
     if (!(await targetExists(dependencies.db, workspaceId, targetType, targetId))) {

@@ -21,6 +21,8 @@ import { NotFoundPage } from '../pages/NotFoundPage.tsx'
 import { EnquiriesPage } from '../pages/EnquiriesPage.tsx'
 import { EnquiryDetail } from '../pages/EnquiryDetail.tsx'
 import { EnquiryStageSettingsPage } from '../pages/EnquiryStageSettingsPage.tsx'
+import { EventDetail } from '../pages/EventDetail.tsx'
+import { EventsPage } from '../pages/EventsPage.tsx'
 import { OpportunitiesPage } from '../pages/OpportunitiesPage.tsx'
 import { OpportunityDetail } from '../pages/OpportunityDetail.tsx'
 import { OpportunityStageSettingsPage } from '../pages/OpportunityStageSettingsPage.tsx'
@@ -167,6 +169,8 @@ function AppRoutes(): React.JSX.Element {
           <Route path="fundraising" element={<FundraisingPage />} />
           <Route path="fundraising/settings" element={<RaiseStageSettingsPage />} />
           <Route path="fundraising/:id" element={<RaiseDetail />} />
+          <Route path="events" element={<EventsPage />} />
+          <Route path="events/:id" element={<EventDetail />} />
           <Route path="partnerships" element={<PartnershipsPage />} />
           <Route path="partnerships/settings" element={<PartnershipStageSettingsPage />} />
           <Route path="partnerships/:id" element={<PartnershipDetail />} />

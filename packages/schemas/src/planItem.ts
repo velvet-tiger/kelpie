@@ -1,14 +1,14 @@
 import { z } from 'zod'
 
-import { PIPELINE_KINDS, PLAN_ITEM_STATUSES } from './values.ts'
-import type { PipelineKind, PlanItemStatus } from './values.ts'
+import { PLAN_ITEM_STATUSES, PLAN_ITEM_TARGET_TYPES } from './values.ts'
+import type { PlanItemStatus, PlanItemTargetType } from './values.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
 import type { RecordTimestamps } from './wire.ts'
 
 /**
  * Wire and write shapes for `/v1/plan_items`.
  *
- * A plan item is a dated action on one of the four pipelines. It replaces any
+ * A plan item is a dated action on a pipeline record or an Event. It replaces any
  * next-step text field (`brief.md`): the date, the owner, and the status are
  * columns, so "what is overdue" is a query rather than a read of prose.
  *
@@ -19,7 +19,7 @@ import type { RecordTimestamps } from './wire.ts'
 
 export interface PlanItem extends RecordTimestamps {
   readonly id: string
-  readonly targetType: PipelineKind
+  readonly targetType: PlanItemTargetType
   readonly targetId: string
   /** `YYYY-MM-DD`, per `api.md` date-only fields. */
   readonly date: string
@@ -31,7 +31,7 @@ export interface PlanItem extends RecordTimestamps {
 export const planItemSchema: z.ZodType<PlanItem, unknown> = z
   .object({
     id: idSchema,
-    target_type: z.enum(PIPELINE_KINDS),
+    target_type: z.enum(PLAN_ITEM_TARGET_TYPES),
     target_id: idSchema,
     date: z.string(),
     title: z.string(),
@@ -54,7 +54,7 @@ export const planItemSchema: z.ZodType<PlanItem, unknown> = z
   )
 
 export interface CreatePlanItemInput {
-  readonly targetType: PipelineKind
+  readonly targetType: PlanItemTargetType
   readonly targetId: string
   readonly date: string
   readonly title: string

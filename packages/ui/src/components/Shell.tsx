@@ -40,6 +40,7 @@ const CORE_NAV: readonly NavItem[] = [
   { id: 'deals', label: 'Deals', to: '/deals', order: 300 },
   { id: 'opportunities', label: 'Opportunities', to: '/opportunities', order: 350 },
   { id: 'fundraising', label: 'Fundraising', to: '/fundraising', order: 360 },
+  { id: 'events', label: 'Events', to: '/events', order: 370 },
   { id: 'partnerships', label: 'Partnerships', to: '/partnerships', order: 375 },
   { id: 'lists', label: 'Lists', to: '/lists', order: 378 },
   { id: 'forms', label: 'Forms', to: '/forms', order: 380 },

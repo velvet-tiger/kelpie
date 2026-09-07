@@ -309,6 +309,13 @@
       "when": 1788700000000,
       "tag": "0043_external_sign_in",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1788800000000,
+      "tag": "0044_events",
+      "breakpoints": true
     }
   ]
 }

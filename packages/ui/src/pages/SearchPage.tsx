@@ -24,6 +24,7 @@ const COLLECTIONS: Readonly<Record<SearchCollection, { label: string; path: (id:
   opportunity: { label: 'Opportunities', path: (id) => `/opportunities/${id}` },
   raise: { label: 'Fundraising', path: (id) => `/fundraising/${id}` },
   partnership: { label: 'Partnerships', path: (id) => `/partnerships/${id}` },
+  event: { label: 'Events', path: (id) => `/events/${id}` },
   // Decisions have no detail page of their own, in the mockup or here. The global
   // list is where one is read.
   decision: { label: 'Decisions', path: () => '/decisions' },
@@ -39,7 +40,7 @@ export function SearchPage(): React.JSX.Element {
       <div className="animate-fade-in py-16 text-center">
         <p className="text-[15px] font-medium text-ink">Search Kelpie</p>
         <p className="mt-1 text-[13px] text-ink-muted">
-          Find people, companies, deals, raises, decisions, and handbook pages.
+          Find people, companies, deals, events, raises, decisions, and handbook pages.
         </p>
       </div>
     )

@@ -4,6 +4,8 @@ import {
   COMPANY_STAGES,
   CUSTOM_FIELD_OBJECT_TYPE_LABELS,
   CUSTOM_FIELD_TYPE_LABELS,
+  EVENT_FORMATS,
+  EVENT_STATUSES,
   FORM_FIELD_MAP_TARGET_LABELS,
   ICP_FITS,
   INFLUENCE_LEVELS,
@@ -33,6 +35,7 @@ export const FORM_MAP_OBJECT_TYPES = [
   'partnership',
   'enquiry',
   'raise',
+  'event',
 ] as const
 
 export type FormMapObjectType = (typeof FORM_MAP_OBJECT_TYPES)[number]
@@ -46,6 +49,7 @@ export const FORM_MAP_OBJECT_TYPE_LABELS: Readonly<Record<FormMapObjectType, str
   partnership: 'Partnership',
   enquiry: 'Enquiry',
   raise: 'Raise',
+  event: 'Event',
 }
 
 /** The value shape a mapped target expects from a submit answer. */
@@ -211,6 +215,18 @@ const RAISE_STANDARD_FIELDS: readonly FormMapStandardField[] = [
   { field: 'tags', label: 'tags', valueType: 'tags' },
 ]
 
+const EVENT_STANDARD_FIELDS: readonly FormMapStandardField[] = [
+  { field: 'name', label: 'name', valueType: 'text' },
+  { field: 'kind', label: 'kind', valueType: 'text' },
+  { field: 'location', label: 'location', valueType: 'text' },
+  { field: 'meeting_url', label: 'meeting URL', valueType: 'url' },
+  { field: 'format', label: 'format', valueType: 'enum', enumValues: EVENT_FORMATS },
+  { field: 'details', label: 'details', valueType: 'long_text' },
+  { field: 'status', label: 'status', valueType: 'enum', enumValues: EVENT_STATUSES },
+  { field: 'summary', label: 'summary', valueType: 'long_text' },
+  { field: 'tags', label: 'tags', valueType: 'tags' },
+]
+
 /** Standard writable fields per object type, keyed by object. */
 export const FORM_STANDARD_MAP_FIELDS: Readonly<
   Record<FormMapObjectType, readonly FormMapStandardField[]>
@@ -223,6 +239,7 @@ export const FORM_STANDARD_MAP_FIELDS: Readonly<
   partnership: PARTNERSHIP_STANDARD_FIELDS,
   enquiry: ENQUIRY_STANDARD_FIELDS,
   raise: RAISE_STANDARD_FIELDS,
+  event: EVENT_STANDARD_FIELDS,
 }
 
 function standardFieldTarget(objectType: FormMapObjectType, field: FormMapStandardField): string {

@@ -3,12 +3,13 @@ import type {
   DashboardPlanItem,
   DashboardStaleContact,
   DashboardTouchpoint,
+  DashboardUpcomingEvent,
   PipelineKind,
   RecordTargetType,
 } from '@kelpie/schemas'
 
 import type { ChipTone } from '../../components/Chip.tsx'
-import { formatDay } from '../../lib/dates.ts'
+import { formatDate, formatDay } from '../../lib/dates.ts'
 
 /**
  * Reading the workspace snapshot as a page: one attention list, and the brief
@@ -30,6 +31,8 @@ const ROUTES: Readonly<Record<RecordTargetType, string | undefined>> = {
   raise: '/fundraising',
   enquiry: '/enquiries',
   candidate: undefined,
+  event: '/events',
+  attendance: undefined,
 }
 
 const TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {
@@ -41,6 +44,8 @@ const TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {
   raise: 'Fundraising',
   enquiry: 'Enquiry',
   candidate: 'Candidate',
+  event: 'Event',
+  attendance: 'Attendance',
 }
 
 export function targetTypeLabel(targetType: RecordTargetType): string {
@@ -115,6 +120,20 @@ function staleContactRow(contact: DashboardStaleContact): AttentionRow {
   }
 }
 
+function upcomingEventRow(event: DashboardUpcomingEvent, timezone: string): AttentionRow {
+  const where = event.location.length > 0 ? event.location : event.format
+
+  return {
+    id: `event-${event.id}`,
+    label: 'Upcoming event',
+    tone: 'accent',
+    meta: formatDate(event.startsAt, timezone),
+    title: event.name,
+    detail: `${String(event.attendeeCount)} registered · ${where}`,
+    href: `/events/${event.id}`,
+  }
+}
+
 /**
  * The signals behind the brief, most urgent first.
  *
@@ -131,6 +150,7 @@ export function attentionRows(dashboard: Dashboard): readonly AttentionRow[] {
     ...touchpoints.filter((touchpoint) => touchpoint.overdue).map(touchpointRow),
     ...dashboard.dueSoonPlanItems.items.map((item) => planItemRow(item, false)),
     ...touchpoints.filter((touchpoint) => !touchpoint.overdue).map(touchpointRow),
+    ...dashboard.upcomingEvents.items.map((item) => upcomingEventRow(item, dashboard.timezone)),
     ...dashboard.staleContacts.items.map(staleContactRow),
   ]
 }
@@ -186,6 +206,12 @@ export function briefLines(dashboard: Dashboard): readonly string[] {
   if (dashboard.staleContacts.total > 0) {
     lines.push(
       `${plural(dashboard.staleContacts.total, 'contact')} past the ${String(dashboard.staleContactDays)}-day touch threshold.`,
+    )
+  }
+
+  if (dashboard.upcomingEvents.total > 0) {
+    lines.push(
+      `${plural(dashboard.upcomingEvents.total, 'upcoming event')} in the next ${plural(dashboard.upcomingDays, 'day')}.`,
     )
   }
 

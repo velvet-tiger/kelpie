@@ -19,6 +19,7 @@ import { requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
 import {
   deleteRecordsAttachedTo,
+  deleteRecordsAttachedToAttendancesOf,
   deleteRecordsAttachedToCandidaciesOf,
 } from '../attachedRecords.ts'
 import type { CustomFieldValuesValidator } from '../custom-fields/values.ts'
@@ -421,6 +422,7 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
           // The candidacy rows themselves cascade, which is why their interview
           // notes have to be taken here: no hiring service sees that delete.
           await deleteRecordsAttachedToCandidaciesOf(tx, workspaceId, id)
+          await deleteRecordsAttachedToAttendancesOf(tx, workspaceId, { personId: id })
 
           // A person delete failing on a foreign key aborts the enclosing
           // transaction, so the follow-up read that names the referring pipeline

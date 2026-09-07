@@ -173,6 +173,7 @@ describe.skipIf(connectionString === undefined)('dashboard', () => {
       expect(payload.generated_at).toBe(PINNED_NOW.toISOString())
       expect(openCount(payload, 'deal')).toBe(0)
       expect(await signal('overdue_plan_items')).toEqual({ total: 0, items: [] })
+      expect(await signal('upcoming_events')).toEqual({ total: 0, items: [] })
       expect(await signal('stale_contacts')).toEqual({ total: 0, items: [] })
       expect(payload.recent_activity).toEqual([])
       expect(payload.recent_notes).toEqual([])
@@ -377,6 +378,61 @@ describe.skipIf(connectionString === undefined)('dashboard', () => {
       )
 
       expect(bodies).toEqual(['Older, pinned', 'Newer'])
+    })
+  })
+
+  describe('upcoming events', () => {
+    async function createEvent(
+      name: string,
+      extra: Record<string, unknown> = {},
+    ): Promise<string> {
+      return readString(
+        await create('/v1/events', {
+          name,
+          format: 'virtual',
+          location: 'Online',
+          starts_at: '2026-06-18T02:00:00.000Z',
+          ends_at: '2026-06-18T03:00:00.000Z',
+          ...extra,
+        }),
+        'id',
+      )
+    }
+
+    it('lists scheduled Events whose start falls in the next week, with attendee counts', async () => {
+      const eventId = await createEvent('Product webinar')
+      const personId = await createPerson('Ada Lovelace')
+      const otherId = await createPerson('Grace Hopper')
+
+      await create(`/v1/events/${eventId}/attendances`, { person_id: personId })
+      const cancelled = await create(`/v1/events/${eventId}/attendances`, { person_id: otherId })
+      const cancelledId = readString(cancelled, 'id')
+      const patched = await client.send('PATCH', `/v1/attendances/${cancelledId}`, {
+        body: { status: 'cancelled' },
+        cookie: acme.cookie,
+      })
+
+      expect(patched.status).toBe(200)
+
+      await createEvent('Still a draft', {
+        status: 'draft',
+        starts_at: '2026-06-19T02:00:00.000Z',
+        ends_at: '2026-06-19T03:00:00.000Z',
+      })
+      await createEvent('Already ran', {
+        starts_at: '2026-06-14T02:00:00.000Z',
+        ends_at: '2026-06-14T03:00:00.000Z',
+      })
+      await createEvent('Too far out', {
+        starts_at: '2026-06-24T02:00:00.000Z',
+        ends_at: '2026-06-24T03:00:00.000Z',
+      })
+
+      const list = await signal('upcoming_events')
+
+      expect(list.total).toBe(1)
+      expect(list.items[0]?.name).toBe('Product webinar')
+      expect(list.items[0]?.attendee_count).toBe(1)
     })
   })
 

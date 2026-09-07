@@ -4,6 +4,7 @@ import type {
   DashboardSignal,
   DashboardStaleContact,
   DashboardTouchpoint,
+  DashboardUpcomingEvent,
 } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
@@ -30,6 +31,7 @@ function dashboard(overrides: Partial<Dashboard> = {}): Dashboard {
     overduePlanItems: emptySignal<DashboardPlanItem>(),
     dueSoonPlanItems: emptySignal<DashboardPlanItem>(),
     partnershipTouchpoints: emptySignal<DashboardTouchpoint>(),
+    upcomingEvents: emptySignal(),
     staleContacts: emptySignal<DashboardStaleContact>(),
     recentActivity: [],
     recentNotes: [],
@@ -65,6 +67,20 @@ function touchpoint(overrides: Partial<DashboardTouchpoint> = {}): DashboardTouc
   }
 }
 
+function upcomingEvent(overrides: Partial<DashboardUpcomingEvent> = {}): DashboardUpcomingEvent {
+  return {
+    id: 'event_1',
+    name: 'Product webinar',
+    startsAt: new Date('2026-06-18T02:00:00.000Z'),
+    endsAt: new Date('2026-06-18T03:00:00.000Z'),
+    format: 'virtual',
+    location: 'Online',
+    attendeeCount: 2,
+    ownerId: null,
+    ...overrides,
+  }
+}
+
 function staleContact(overrides: Partial<DashboardStaleContact> = {}): DashboardStaleContact {
   return {
     id: 'per_1',
@@ -81,6 +97,7 @@ describe('targetHref', () => {
   it('points at the record for every type that has a page', () => {
     expect(targetHref('person', 'per_1')).toBe('/people/per_1')
     expect(targetHref('raise', 'rse_1')).toBe('/fundraising/rse_1')
+    expect(targetHref('event', 'event_1')).toBe('/events/event_1')
   })
 
   it('has none for a candidate, which is reached through its Role', () => {
@@ -143,6 +160,18 @@ describe('attentionRows', () => {
     expect(row?.href).toBe('/deals/deal_1')
   })
 
+  it('names an upcoming Event, its attendee count, and the Events page', () => {
+    const [row] = attentionRows(
+      dashboard({ upcomingEvents: { total: 1, items: [upcomingEvent()] } }),
+    )
+
+    expect(row?.label).toBe('Upcoming event')
+    expect(row?.tone).toBe('accent')
+    expect(row?.title).toBe('Product webinar')
+    expect(row?.detail).toBe('2 registered · Online')
+    expect(row?.href).toBe('/events/event_1')
+  })
+
   it('writes how long a contact has been quiet', () => {
     const [row] = attentionRows(
       dashboard({ staleContacts: { total: 1, items: [staleContact()] } }),
@@ -190,6 +219,14 @@ describe('briefLines', () => {
     )
 
     expect(lines).toEqual(['Open: 3 deals, 2 opportunities, 1 raise.'])
+  })
+
+  it('counts upcoming Events in the same window the dashboard reports', () => {
+    const [line] = briefLines(
+      dashboard({ upcomingEvents: { total: 1, items: [] }, upcomingDays: 7 }),
+    )
+
+    expect(line).toBe('1 upcoming event in the next 7 days.')
   })
 
   it('reads the window length off the response rather than assuming a week', () => {

@@ -2,7 +2,7 @@
 
 Point Claude, Cursor, or any MCP client at a Kelpie workspace. Every operation the app offers is also an MCP tool over Streamable HTTP, so a connected agent reads and writes the same records your team does — through the same API, with the same refusals.
 
-The **Admin → MCP** page in your Kelpie shows the live version of everything here: your exact endpoint URL, a ready-made config snippet, and the current tool catalog (110 tools at the time of writing, and modules can extend it — trust the page, not this number).
+The **Admin → MCP** page in your Kelpie shows the live version of everything here: your exact endpoint URL, a ready-made config snippet, and the current tool catalog (121 tools at the time of writing, and modules can extend it — trust the page, not this number).
 
 ## Step 1: create an API key
 

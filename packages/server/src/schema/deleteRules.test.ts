@@ -296,7 +296,10 @@ describe.skipIf(connectionString === undefined)('migrations', () => {
       expect(names).not.toContain('partnership_people')
       expect(names).not.toContain('raise_people')
       expect(names).toContain('enquiries')
-      expect(names).toHaveLength(45)
+      expect(names).toContain('events')
+      expect(names).toContain('attendances')
+      expect(names).toContain('event_associations')
+      expect(names).toHaveLength(48)
     } finally {
       await database.close()
     }

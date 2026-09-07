@@ -15,6 +15,7 @@ import type {
   SignalList,
   StaleContactSignal,
   TouchpointSignal,
+  UpcomingEventSignal,
 } from './service.ts'
 
 /**
@@ -83,6 +84,19 @@ function touchpointBody(touchpoint: TouchpointSignal): Record<string, unknown> {
   }
 }
 
+function upcomingEventBody(event: UpcomingEventSignal): Record<string, unknown> {
+  return {
+    id: event.id,
+    name: event.name,
+    starts_at: event.startsAt.toISOString(),
+    ends_at: event.endsAt.toISOString(),
+    format: event.format,
+    location: event.location,
+    attendee_count: event.attendeeCount,
+    owner_id: event.ownerId,
+  }
+}
+
 function staleContactBody(contact: StaleContactSignal): Record<string, unknown> {
   return {
     id: contact.id,
@@ -147,6 +161,7 @@ export function dashboardResponse(snapshot: DashboardSnapshot): Record<string, u
     overdue_plan_items: signalListBody(snapshot.overduePlanItems, planItemBody),
     due_soon_plan_items: signalListBody(snapshot.dueSoonPlanItems, planItemBody),
     partnership_touchpoints: signalListBody(snapshot.partnershipTouchpoints, touchpointBody),
+    upcoming_events: signalListBody(snapshot.upcomingEvents, upcomingEventBody),
     stale_contacts: signalListBody(snapshot.staleContacts, staleContactBody),
     recent_activity: snapshot.recentActivity.map(activityBody),
     recent_notes: snapshot.recentNotes.map(noteBody),

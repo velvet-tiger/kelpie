@@ -13,7 +13,7 @@ import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
-import { deleteRecordsAttachedTo } from '../attachedRecords.ts'
+import { deleteEventAssociationsForTarget, deleteRecordsAttachedTo } from '../attachedRecords.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_ROLE_SORT, ROLE_SORTS } from './repository.ts'
 import type { RoleFilters, RoleRecord } from './repository.ts'
@@ -162,6 +162,7 @@ export function createRolesService(dependencies: RolesDependencies): RolesServic
           })
         }
 
+        await deleteEventAssociationsForTarget(tx, workspaceId, 'role', id)
         await repository.deleteRole(tx, workspaceId, id)
 
         events.emit('hiring.role.deleted', { type: 'role', id }, {})

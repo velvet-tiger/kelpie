@@ -11,6 +11,7 @@ import {
   searchDeals,
   searchDecisions,
   searchEnquiries,
+  searchEvents,
   searchHandbookPages,
   searchOpportunities,
   searchPartnerships,
@@ -21,7 +22,7 @@ import {
 import type { CollectionHits } from './repository.ts'
 
 /**
- * One box across ten collections, ranked per collection rather than merged.
+ * One box across twelve collections, ranked per collection rather than merged.
  *
  * A single merged ranking would need `ts_rank` values from different tables to
  * mean the same thing, and they do not: a handbook page is a thousand words and a
@@ -50,7 +51,7 @@ export interface SearchResults {
   readonly limit: number
   /** Across every group. The number a "12 results" heading is built from. */
   readonly total: number
-  /** Always all ten, in `SEARCH_COLLECTIONS` order, empty ones included. */
+  /** Always every collection, in `SEARCH_COLLECTIONS` order, empty ones included. */
   readonly groups: readonly SearchGroup[]
 }
 
@@ -95,6 +96,7 @@ const SEARCHES: Readonly<Record<SearchCollection, CollectionSearch>> = {
   opportunity: searchOpportunities,
   raise: searchRaises,
   partnership: searchPartnerships,
+  event: searchEvents,
   decision: searchDecisions,
 }
 
@@ -136,8 +138,8 @@ export function createSearchService(dependencies: SearchServiceDependencies): Se
       const query = compileQuery(tsQuery)
       const words = searchWords(request.term)
 
-      // Ten independent reads with nothing to share but the compiled query. Run
-      // in sequence they would be ten round trips deep rather than wide.
+      // Independent reads with nothing to share but the compiled query. Run
+      // in sequence they would be round trips deep rather than wide.
       const groups = await Promise.all(
         wanted.map(async (collection) =>
           toGroup(await SEARCHES[collection](dependencies.db, workspaceId, query, limit), words),

@@ -1,5 +1,5 @@
 import { PLAN_ITEM_STATUS_LABELS, PLAN_ITEM_STATUSES } from '@kelpie/schemas'
-import type { PipelineKind, PlanItem, PlanItemStatus } from '@kelpie/schemas'
+import type { PlanItem, PlanItemStatus, PlanItemTargetType } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
@@ -18,7 +18,7 @@ import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
 
 /**
- * The plan for one pipeline record: what happens next, when, and who has it.
+ * The plan for one record: what happens next, when, and who has it.
  *
  * Ported from the mockup's panel, edit and delete included. Notes have neither,
  * because the mockup's note panel offers neither; this one offers both, so both
@@ -30,7 +30,7 @@ import { SectionHeader } from './SectionHeader.tsx'
  */
 
 export interface PlanPanelProps {
-  readonly targetType: PipelineKind
+  readonly targetType: PlanItemTargetType
   readonly targetId: string
 }
 

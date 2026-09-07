@@ -5,6 +5,7 @@ import type { Queryable } from '../runtime/transaction.ts'
 import { companies } from './companies/schema.ts'
 import { deals } from './deals/schema.ts'
 import { enquiries } from './enquiries/schema.ts'
+import { attendances, events } from './events/schema.ts'
 import { candidates } from './hiring/schema.ts'
 import { RECORD_TARGET_TYPES } from './notes/schema.ts'
 import { opportunities } from './opportunities/schema.ts'
@@ -67,6 +68,8 @@ const TABLES: Readonly<Record<RecordTargetType, TargetTable>> = {
   raise: targetTable(raises, raises.id, raises.workspaceId, raises.name),
   enquiry: targetTable(enquiries, enquiries.id, enquiries.workspaceId, enquiries.name),
   candidate: targetTable(candidates, candidates.id, candidates.workspaceId),
+  event: targetTable(events, events.id, events.workspaceId, events.name),
+  attendance: targetTable(attendances, attendances.id, attendances.workspaceId),
 }
 
 export function isRecordTargetType(value: string): value is RecordTargetType {
@@ -141,7 +144,18 @@ async function namesOfType(
   // A Candidate's label is the person's name. The role it is for is the other
   // half of the answer, but a timeline row already says which record it is on,
   // so repeating the title in the name would read as "Ada Lovelace" twice over.
+  // An Attendance is the same shape: Person↔Event, labelled by the person.
   if (target.name === undefined) {
+    if (targetType === 'attendance') {
+      return db
+        .select({ id: attendances.id, name: people.name })
+        .from(attendances)
+        .innerJoin(people, eq(attendances.personId, people.id))
+        .where(
+          and(eq(attendances.workspaceId, workspaceId), inArray(attendances.id, [...targetIds])),
+        )
+    }
+
     return db
       .select({ id: candidates.id, name: people.name })
       .from(candidates)

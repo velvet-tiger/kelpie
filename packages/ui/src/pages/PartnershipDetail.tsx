@@ -33,6 +33,7 @@ import { CustomFieldsPanel } from '../components/CustomFieldsPanel.tsx'
 import { useHasCustomFields } from '../components/useHasCustomFields.ts'
 import { InlineEdit } from '../components/InlineEdit.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
+import { LinkedEventsPanel } from '../components/LinkedEventsPanel.tsx'
 import { NotesPanel } from '../components/NotesPanel.tsx'
 import { PlanAttention } from '../components/PlanAttention.tsx'
 import { PlanPanel } from '../components/PlanPanel.tsx'
@@ -94,6 +95,7 @@ export function PartnershipDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
+    { id: 'events', label: 'Events' },
     ...(formSubmissions.records.length === 0
       ? []
       : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),
@@ -176,6 +178,9 @@ export function PartnershipDetail(): React.JSX.Element {
               <DecisionsPanel targetType="partnership" targetId={record.id} />
             )}
             {active === 'lists' && <ListsPanel targetType="partnership" targetId={record.id} />}
+            {active === 'events' && (
+              <LinkedEventsPanel targetType="partnership" targetId={record.id} />
+            )}
             {active === 'forms' && <FormsPanel targetType="partnership" targetId={record.id} />}
             {moduleTab?.render({ objectType: 'partnership', recordId: record.id })}
           </RecordTabs>

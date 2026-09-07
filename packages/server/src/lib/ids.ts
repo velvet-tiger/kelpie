@@ -71,6 +71,17 @@ export const idPrefixes = {
    * key. Not persisted by core.
    */
   event: 'ev',
+  /**
+   * A dated CRM gathering. The public prefix is `event_`; the factory key is
+   * `crmEvent` because `event` already stamps domain-event envelopes as `ev_`.
+   */
+  crmEvent: 'event',
+  attendance: 'atnd',
+  /**
+   * Never returns over the wire: associations nest on the Event and on
+   * `GET /v1/event-associations`. Same reason as `personLink`.
+   */
+  eventAssociation: 'elink',
 } as const
 
 export type ObjectKind = keyof typeof idPrefixes

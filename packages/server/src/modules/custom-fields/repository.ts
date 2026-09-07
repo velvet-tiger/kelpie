@@ -8,6 +8,7 @@ import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { enquiries } from '../enquiries/schema.ts'
+import { events } from '../events/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
 import { people } from '../people/schema.ts'
@@ -178,6 +179,7 @@ const TABLES = {
   partnership: partnerships,
   raise: raises,
   enquiry: enquiries,
+  event: events,
 } as const
 
 /**

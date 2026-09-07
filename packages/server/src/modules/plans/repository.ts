@@ -11,7 +11,7 @@ import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
 import { planItems } from './schema.ts'
-import type { PipelineKind, PlanItemStatus } from './schema.ts'
+import type { PlanItemStatus, PlanItemTargetType } from './schema.ts'
 
 export type PlanItemRecord = typeof planItems.$inferSelect
 
@@ -39,7 +39,7 @@ export const DEFAULT_PLAN_ITEM_SORT = 'date'
 
 export interface PlanItemFilters {
   /** `?target_type=`: one pipeline. The Planning page's type filter. */
-  readonly targetType?: PipelineKind | undefined
+  readonly targetType?: PlanItemTargetType | undefined
   /** `?target_id=`, repeatable: one record's panel, or a page of records' next steps. */
   readonly targetIds?: readonly string[] | undefined
   /** `?status=`, repeatable. Naming the two open ones is how a caller asks for outstanding work. */

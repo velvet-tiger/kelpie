@@ -91,8 +91,10 @@ export const EXTENSIBLE_RECORD_TYPES = [
   'partnership',
   'raise',
   'enquiry',
+  'event',
   'role',
   'candidate',
+  'attendance',
 ] as const
 
 export type ExtensibleRecordType = (typeof EXTENSIBLE_RECORD_TYPES)[number]
@@ -113,6 +115,8 @@ export const RECORD_TARGET_TYPES = [
   'raise',
   'enquiry',
   'candidate',
+  'event',
+  'attendance',
 ] as const
 
 export type RecordTargetType = (typeof RECORD_TARGET_TYPES)[number]
@@ -127,6 +131,8 @@ export const RECORD_TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string
   raise: 'Raise',
   enquiry: 'Enquiry',
   candidate: 'Candidate',
+  event: 'Event',
+  attendance: 'Attendance',
 }
 
 /**
@@ -150,6 +156,7 @@ export const SEARCH_COLLECTIONS = [
   'opportunity',
   'raise',
   'partnership',
+  'event',
   'decision',
 ] as const
 
@@ -232,6 +239,115 @@ export const PIPELINE_KIND_LABELS: Readonly<Record<PipelineKind, string>> = {
   opportunity: 'Opportunity',
   raise: 'Fundraising',
   partnership: 'Partnership',
+}
+
+/**
+ * What a Plan item may attach to: the five pipelines plus Event.
+ *
+ * Event is a calendar object, not a pipeline, but prep work ("send reminder",
+ * "record the session") still needs a dated action on the Event itself.
+ */
+export const PLAN_ITEM_TARGET_TYPES = [
+  'enquiry',
+  'deal',
+  'opportunity',
+  'raise',
+  'partnership',
+  'event',
+] as const
+
+export type PlanItemTargetType = (typeof PLAN_ITEM_TARGET_TYPES)[number]
+
+export const PLAN_ITEM_TARGET_TYPE_LABELS: Readonly<Record<PlanItemTargetType, string>> = {
+  enquiry: 'Enquiry',
+  deal: 'Deal',
+  opportunity: 'Opportunity',
+  raise: 'Fundraising',
+  partnership: 'Partnership',
+  event: 'Event',
+}
+
+/**
+ * Form attach targets: pipeline records (person_links) plus Event (Attendance).
+ */
+export const FORM_ATTACH_TARGET_TYPES = [
+  'enquiry',
+  'deal',
+  'opportunity',
+  'raise',
+  'partnership',
+  'event',
+] as const
+
+export type FormAttachTargetType = (typeof FORM_ATTACH_TARGET_TYPES)[number]
+
+/** Where an Event may point besides its own Attendances. */
+export const EVENT_ASSOCIATION_TARGET_TYPES = [
+  'person',
+  'company',
+  'deal',
+  'opportunity',
+  'partnership',
+  'raise',
+  'enquiry',
+  'role',
+  'candidate',
+] as const
+
+export type EventAssociationTargetType = (typeof EVENT_ASSOCIATION_TARGET_TYPES)[number]
+
+export const EVENT_ASSOCIATION_TARGET_TYPE_LABELS: Readonly<
+  Record<EventAssociationTargetType, string>
+> = {
+  person: 'Person',
+  company: 'Company',
+  deal: 'Deal',
+  opportunity: 'Opportunity',
+  partnership: 'Partnership',
+  raise: 'Raise',
+  enquiry: 'Enquiry',
+  role: 'Role',
+  candidate: 'Candidate',
+}
+
+export const EVENT_FORMATS = ['in_person', 'virtual', 'hybrid'] as const
+
+export type EventFormat = (typeof EVENT_FORMATS)[number]
+
+export const EVENT_FORMAT_LABELS: Readonly<Record<EventFormat, string>> = {
+  in_person: 'In person',
+  virtual: 'Virtual',
+  hybrid: 'Hybrid',
+}
+
+export const EVENT_STATUSES = ['draft', 'scheduled', 'cancelled'] as const
+
+export type EventStatus = (typeof EVENT_STATUSES)[number]
+
+export const EVENT_STATUS_LABELS: Readonly<Record<EventStatus, string>> = {
+  draft: 'Draft',
+  scheduled: 'Scheduled',
+  cancelled: 'Cancelled',
+}
+
+export const ATTENDANCE_STATUSES = ['registered', 'attended', 'no_show', 'cancelled'] as const
+
+export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number]
+
+export const ATTENDANCE_STATUS_LABELS: Readonly<Record<AttendanceStatus, string>> = {
+  registered: 'Registered',
+  attended: 'Attended',
+  no_show: 'No-show',
+  cancelled: 'Cancelled',
+}
+
+export const ATTENDANCE_SOURCES = ['manual', 'form'] as const
+
+export type AttendanceSource = (typeof ATTENDANCE_SOURCES)[number]
+
+export const ATTENDANCE_SOURCE_LABELS: Readonly<Record<AttendanceSource, string>> = {
+  manual: 'Manual',
+  form: 'Form',
 }
 
 /**
@@ -473,6 +589,7 @@ export const AGENT_TASK_TARGET_TYPES = [
   'partnership',
   'raise',
   'enquiry',
+  'event',
   'candidate',
   'role',
   'handbook',
@@ -521,6 +638,7 @@ export const CUSTOM_FIELD_OBJECT_TYPES = [
   'partnership',
   'raise',
   'enquiry',
+  'event',
 ] as const
 
 export type CustomFieldObjectType = (typeof CUSTOM_FIELD_OBJECT_TYPES)[number]
@@ -533,6 +651,7 @@ export const CUSTOM_FIELD_OBJECT_TYPE_LABELS: Readonly<Record<CustomFieldObjectT
   partnership: 'Partnership',
   raise: 'Raise',
   enquiry: 'Enquiry',
+  event: 'Event',
 }
 
 /**

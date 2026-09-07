@@ -72,6 +72,10 @@ describe.skipIf(connectionString === undefined)('sample-data', () => {
     expect(body.enquiries).toBe(SAMPLE_DATA_FIXTURE.enquiries.length)
     expect(body.roles).toBe(SAMPLE_DATA_FIXTURE.roles.length)
     expect(body.candidates).toBe(SAMPLE_DATA_FIXTURE.candidates.length)
+    expect(body.events).toBe(SAMPLE_DATA_FIXTURE.events.length)
+    expect(body.attendances).toBe(
+      SAMPLE_DATA_FIXTURE.events.reduce((sum, event) => sum + event.attendees.length, 0),
+    )
 
     const seededCompanies = await harness.services.db
       .select({ id: companies.id })

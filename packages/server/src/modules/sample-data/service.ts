@@ -10,12 +10,13 @@ import { requireWorkspaceId } from '../auth/actor.ts'
 import * as authRepository from '../auth/repository.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
-import { candidates, roles } from '../hiring/schema.ts'
-import { notes } from '../notes/schema.ts'
 import { enquiries } from '../enquiries/schema.ts'
+import { attendances, eventAssociations, events } from '../events/schema.ts'
+import { candidates, roles } from '../hiring/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
 import { people, personLinks } from '../people/schema.ts'
+import { notes } from '../notes/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { planItems } from '../plans/schema.ts'
 import { positions } from '../positions/schema.ts'
@@ -55,6 +56,8 @@ export interface SampleDataCounts {
   readonly enquiries: number
   readonly roles: number
   readonly candidates: number
+  readonly events: number
+  readonly attendances: number
 }
 
 export interface SampleDataService {
@@ -552,6 +555,71 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
             })
           }
 
+          for (const record of fixture.events) {
+            const startsAt = new Date(now.getTime() + record.startOffsetHours * 60 * 60 * 1000)
+            const endsAt = new Date(startsAt.getTime() + record.durationHours * 60 * 60 * 1000)
+            const id = dependencies.createId('crmEvent')
+
+            await tx.insert(events).values({
+              id,
+              workspaceId,
+              name: record.name,
+              kind: record.kind,
+              startsAt,
+              endsAt,
+              timezone: record.timezone,
+              location: record.location,
+              meetingUrl: record.meetingUrl,
+              format: record.format,
+              details: record.details,
+              status: record.status,
+              summary: record.summary,
+              tags: [...record.tags],
+              createdAt: now,
+              updatedAt: now,
+            })
+
+            if (record.dealKey !== null) {
+              const dealId = dealIds.get(record.dealKey)
+
+              if (dealId === undefined) {
+                throw new Error(
+                  `Sample event "${record.name}" names unknown deal "${record.dealKey}"`,
+                )
+              }
+
+              await tx.insert(eventAssociations).values({
+                id: dependencies.createId('eventAssociation'),
+                workspaceId,
+                eventId: id,
+                targetType: 'deal',
+                targetId: dealId,
+                createdAt: now,
+              })
+            }
+
+            for (const attendee of record.attendees) {
+              const personId = personIds.get(attendee.personKey)
+
+              if (personId === undefined) {
+                throw new Error(
+                  `Sample event "${record.name}" names unknown person "${attendee.personKey}"`,
+                )
+              }
+
+              await tx.insert(attendances).values({
+                id: dependencies.createId('attendance'),
+                workspaceId,
+                eventId: id,
+                personId,
+                status: attendee.status,
+                source: attendee.source,
+                createdAt: now,
+                updatedAt: now,
+              })
+            }
+          }
+
           for (const record of fixture.plans) {
             const dealId = dealIds.get(record.targetDealKey)
 
@@ -675,5 +743,7 @@ function countsFor(fixture: Fixture): SampleDataCounts {
     enquiries: fixture.enquiries.length,
     roles: fixture.roles.length,
     candidates: fixture.candidates.length,
+    events: fixture.events.length,
+    attendances: fixture.events.reduce((sum, event) => sum + event.attendees.length, 0),
   }
 }

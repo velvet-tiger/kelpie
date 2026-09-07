@@ -45,6 +45,26 @@ export {
 export type { CreatePersonInput, PeopleFilters } from './api/resources/people.ts'
 
 export {
+  useCreateEvent,
+  useDeleteEvent,
+  useEvent,
+  useEvents,
+  useUpdateEvent,
+} from './api/resources/events.ts'
+export type { EventFilters } from './api/resources/events.ts'
+
+export {
+  useAttendances,
+  useCreateAttendance,
+  useDeleteAttendance,
+  useUpdateAttendance,
+} from './api/resources/attendances.ts'
+export type { AttendanceFilters } from './api/resources/attendances.ts'
+
+export { useEventAssociationsFor } from './api/resources/eventAssociations.ts'
+export type { EventAssociationsResult } from './api/resources/eventAssociations.ts'
+
+export {
   useCreatePosition,
   useDeletePosition,
   usePositions,
@@ -129,6 +149,8 @@ export type { SummaryBlockProps } from './components/SummaryBlock.tsx'
 export { CompaniesPage } from './pages/CompaniesPage.tsx'
 export { CompanyDetail } from './pages/CompanyDetail.tsx'
 export { DecisionsPage } from './pages/DecisionsPage.tsx'
+export { EventDetail } from './pages/EventDetail.tsx'
+export { EventsPage } from './pages/EventsPage.tsx'
 export { PeoplePage } from './pages/PeoplePage.tsx'
 export { PersonDetail } from './pages/PersonDetail.tsx'
 export { PlanningPage } from './pages/PlanningPage.tsx'

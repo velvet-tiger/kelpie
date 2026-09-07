@@ -52,7 +52,7 @@ export function FieldsPage(): React.JSX.Element {
     <div className="animate-slide-in mx-auto max-w-4xl space-y-6">
       <PageHeader
         title="Custom fields"
-        description="Add workspace-defined fields to the six main record types. Values on records go through the same API the UI uses."
+        description="Add workspace-defined fields to People, Companies, pipeline records, and Events. Values on records go through the same API the UI uses."
       />
       {isAdmin ? <FieldsAdmin /> : <MemberNotice />}
     </div>

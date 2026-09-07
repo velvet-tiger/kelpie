@@ -38,6 +38,7 @@ export function createAgentTasksModule(
       'partnerships',
       'raises',
       'hiring',
+      'events',
       'plans',
       'decisions',
       'notes',

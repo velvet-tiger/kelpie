@@ -1,15 +1,16 @@
 import {
-  PIPELINE_KIND_LABELS,
-  PIPELINE_KINDS,
   PLAN_ITEM_STATUS_LABELS,
   PLAN_ITEM_STATUSES,
+  PLAN_ITEM_TARGET_TYPE_LABELS,
+  PLAN_ITEM_TARGET_TYPES,
 } from '@kelpie/schemas'
-import type { PipelineKind, PlanItem, PlanItemStatus } from '@kelpie/schemas'
+import type { PlanItem, PlanItemStatus, PlanItemTargetType } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useDeals } from '../api/resources/deals.ts'
 import { useEnquiries } from '../api/resources/enquiries.ts'
+import { useEvents } from '../api/resources/events.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
@@ -41,7 +42,7 @@ import { monthBounds, planStatusTone, todayIso } from '../lib/plan.ts'
  */
 
 type ViewMode = 'list' | 'calendar'
-type TypeFilter = PipelineKind | 'all'
+type TypeFilter = PlanItemTargetType | 'all'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 
@@ -110,9 +111,9 @@ export function PlanningPage(): React.JSX.Element {
               className="rounded-md border border-border bg-surface-raised px-2.5 py-1 text-[12px] outline-none focus:border-accent"
             >
               <option value="all">All types</option>
-              {PIPELINE_KINDS.map((kind) => (
+              {PLAN_ITEM_TARGET_TYPES.map((kind) => (
                 <option key={kind} value={kind}>
-                  {PIPELINE_KIND_LABELS[kind]}
+                  {PLAN_ITEM_TARGET_TYPE_LABELS[kind]}
                 </option>
               ))}
             </select>
@@ -207,7 +208,7 @@ export function PlanningPage(): React.JSX.Element {
  * for PlanTargetLink. One page per kind, same ceiling as the rest of Planning.
  */
 function usePipelineTargets(): {
-  readonly byKind: Readonly<Record<PipelineKind, readonly PipelineTarget[]>>
+  readonly byKind: Readonly<Record<PlanItemTargetType, readonly PipelineTarget[]>>
   readonly nameById: ReadonlyMap<string, string>
 } {
   const deals = useDeals({ limit: MAX_PAGE_SIZE })
@@ -215,13 +216,15 @@ function usePipelineTargets(): {
   const raises = useRaises({ limit: MAX_PAGE_SIZE })
   const partnerships = usePartnerships({ limit: MAX_PAGE_SIZE })
   const enquiries = useEnquiries({ limit: MAX_PAGE_SIZE })
+  const events = useEvents({ limit: MAX_PAGE_SIZE })
 
-  const byKind: Readonly<Record<PipelineKind, readonly PipelineTarget[]>> = {
+  const byKind: Readonly<Record<PlanItemTargetType, readonly PipelineTarget[]>> = {
     enquiry: enquiries.records.map((record) => ({ id: record.id, name: record.name })),
     deal: deals.records.map((record) => ({ id: record.id, name: record.name })),
     opportunity: opportunities.records.map((record) => ({ id: record.id, name: record.name })),
     raise: raises.records.map((record) => ({ id: record.id, name: record.name })),
     partnership: partnerships.records.map((record) => ({ id: record.id, name: record.name })),
+    event: events.records.map((record) => ({ id: record.id, name: record.name })),
   }
 
   return {
@@ -235,7 +238,7 @@ function usePipelineTargets(): {
 }
 
 interface AddPlanItemFields {
-  readonly targetType: PipelineKind
+  readonly targetType: PlanItemTargetType
   readonly targetId: string
   readonly date: string
   readonly title: string
@@ -251,8 +254,8 @@ function AddPlanItemForm({
   onSubmit,
   onCancel,
 }: {
-  readonly initialTargetType: PipelineKind
-  readonly targetsByKind: Readonly<Record<PipelineKind, readonly PipelineTarget[]>>
+  readonly initialTargetType: PlanItemTargetType
+  readonly targetsByKind: Readonly<Record<PlanItemTargetType, readonly PipelineTarget[]>>
   readonly isPending: boolean
   readonly error: Error | null
   readonly onSubmit: (fields: AddPlanItemFields) => void
@@ -288,16 +291,16 @@ function AddPlanItemForm({
         <select
           value={draft.targetType}
           onChange={(event) => {
-            const targetType = event.target.value as PipelineKind
+            const targetType = event.target.value as PlanItemTargetType
 
             setDraft((current) => ({ ...current, targetType, targetId: '' }))
           }}
           aria-label="Record type"
           className={inputClass}
         >
-          {PIPELINE_KINDS.map((kind) => (
+          {PLAN_ITEM_TARGET_TYPES.map((kind) => (
             <option key={kind} value={kind}>
-              {PIPELINE_KIND_LABELS[kind]}
+              {PLAN_ITEM_TARGET_TYPE_LABELS[kind]}
             </option>
           ))}
         </select>

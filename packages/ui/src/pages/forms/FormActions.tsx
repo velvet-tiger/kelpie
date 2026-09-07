@@ -1,9 +1,10 @@
-import { PIPELINE_KINDS } from '@kelpie/schemas'
-import type { Form, FormAttachTarget, PipelineKind } from '@kelpie/schemas'
+import { FORM_ATTACH_TARGET_TYPES, PLAN_ITEM_TARGET_TYPE_LABELS } from '@kelpie/schemas'
+import type { Form, FormAttachTarget, FormAttachTargetType, PipelineKind } from '@kelpie/schemas'
 import { useMemo, useState } from 'react'
 
 import { useDeals } from '../../api/resources/deals.ts'
 import { useEnquiries } from '../../api/resources/enquiries.ts'
+import { useEvents } from '../../api/resources/events.ts'
 import { useUpdateForm } from '../../api/resources/forms.ts'
 import { useLists } from '../../api/resources/lists.ts'
 import { useMembers } from '../../api/resources/members.ts'
@@ -400,12 +401,13 @@ interface AttachRecord {
   readonly name: string
 }
 
-function useAttachOptions(kind: PipelineKind): readonly AttachRecord[] {
+function useAttachOptions(kind: FormAttachTargetType): readonly AttachRecord[] {
   const deals = useDeals({}, { enabled: kind === 'deal' })
   const opportunities = useOpportunities({}, { enabled: kind === 'opportunity' })
   const raises = useRaises({}, { enabled: kind === 'raise' })
   const partnerships = usePartnerships({}, { enabled: kind === 'partnership' })
   const enquiries = useEnquiries({}, { enabled: kind === 'enquiry' })
+  const events = useEvents({}, { enabled: kind === 'event' })
 
   switch (kind) {
     case 'deal':
@@ -421,6 +423,8 @@ function useAttachOptions(kind: PipelineKind): readonly AttachRecord[] {
       }))
     case 'enquiry':
       return enquiries.records.map((enquiry) => ({ id: enquiry.id, name: enquiry.name }))
+    case 'event':
+      return events.records.map((record) => ({ id: record.id, name: record.name }))
   }
 }
 
@@ -431,7 +435,7 @@ function AttachTargetsBlock({
   readonly form: Form
   readonly onChange: (next: readonly FormAttachTarget[]) => void
 }): React.JSX.Element {
-  const [kind, setKind] = useState<PipelineKind>('deal')
+  const [kind, setKind] = useState<FormAttachTargetType>('deal')
   const [pick, setPick] = useState('')
   const options = useAttachOptions(kind)
   const chosen = form.attachTargets
@@ -459,7 +463,9 @@ function AttachTargetsBlock({
     <div className="space-y-2 rounded-md border border-border p-4">
       <div className="text-[13px] font-medium text-ink">Attach the submitter to a record</div>
       <p className="text-[11px] text-ink-faint">
-        Every submitter is linked into these records through <code>person_links</code>.
+        Pipeline records receive a <code>person_links</code> row. An Event
+        registers Attendance instead: the submitter is marked registered, and a
+        second submit of the same person is a no-op.
       </p>
       <ul className="divide-y divide-border">
         {chosen.length === 0 && (
@@ -496,13 +502,13 @@ function AttachTargetsBlock({
           className={inputClass}
           value={kind}
           onChange={(event) => {
-            setKind(event.target.value as PipelineKind)
+            setKind(event.target.value as FormAttachTargetType)
             setPick('')
           }}
         >
-          {PIPELINE_KINDS.map((option) => (
+          {FORM_ATTACH_TARGET_TYPES.map((option) => (
             <option key={option} value={option}>
-              {option}
+              {PLAN_ITEM_TARGET_TYPE_LABELS[option]}
             </option>
           ))}
         </select>

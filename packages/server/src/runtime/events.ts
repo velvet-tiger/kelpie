@@ -35,6 +35,8 @@ export const RECORD_OBJECT_TYPES = [
   'raise',
   'role',
   'candidate',
+  'event',
+  'attendance',
   'handbook_page',
   'form',
 ] as const

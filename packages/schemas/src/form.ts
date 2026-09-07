@@ -1,17 +1,17 @@
 import { z } from 'zod'
 
 import {
+  FORM_ATTACH_TARGET_TYPES,
   FORM_FIELD_TYPES,
   FORM_OPTION_VALUE_TYPES,
   FORM_STATUSES,
-  PIPELINE_KINDS,
 } from './values.ts'
 import type {
+  FormAttachTargetType,
   FormFieldMapTarget,
   FormFieldType,
   FormOptionValueType,
   FormStatus,
-  PipelineKind,
 } from './values.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
 import type { RecordTimestamps } from './wire.ts'
@@ -69,12 +69,12 @@ export interface FormField {
 }
 
 /**
- * One pre-existing pipeline record every submitter is linked into through
- * `person_links`. `target_type` is fixed at form-write time; the row itself
- * lives in `form_attach_targets` on the server.
+ * One pre-existing record every submitter is linked into. Pipeline kinds use
+ * `person_links`. `event` creates an Attendance instead. The row itself lives
+ * in `form_attach_targets` on the server.
  */
 export interface FormAttachTarget {
-  readonly targetType: PipelineKind
+  readonly targetType: FormAttachTargetType
   readonly targetId: string
 }
 
@@ -181,7 +181,7 @@ const formFieldSchema = z
 
 const attachTargetSchema = z
   .object({
-    target_type: z.enum(PIPELINE_KINDS),
+    target_type: z.enum(FORM_ATTACH_TARGET_TYPES),
     target_id: idSchema,
   })
   .transform(

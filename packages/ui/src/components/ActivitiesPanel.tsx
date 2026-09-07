@@ -50,6 +50,8 @@ const TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {
   raise: 'Raise',
   enquiry: 'Enquiry',
   candidate: 'Candidate',
+  event: 'Event',
+  attendance: 'Attendance',
 }
 
 interface MonthGroup {

@@ -252,6 +252,39 @@ const dashboardDecisionSchema: z.ZodType<DashboardDecision, unknown> = z
     dueAt: wire.due_at,
   }))
 
+export interface DashboardUpcomingEvent {
+  readonly id: string
+  readonly name: string
+  readonly startsAt: Date
+  readonly endsAt: Date
+  readonly format: string
+  readonly location: string
+  readonly attendeeCount: number
+  readonly ownerId: string | null
+}
+
+const dashboardUpcomingEventSchema: z.ZodType<DashboardUpcomingEvent, unknown> = z
+  .object({
+    id: idSchema,
+    name: z.string(),
+    starts_at: timestampSchema,
+    ends_at: timestampSchema,
+    format: z.string(),
+    location: z.string(),
+    attendee_count: z.number().int(),
+    owner_id: idSchema.nullable(),
+  })
+  .transform((wire) => ({
+    id: wire.id,
+    name: wire.name,
+    startsAt: wire.starts_at,
+    endsAt: wire.ends_at,
+    format: wire.format,
+    location: wire.location,
+    attendeeCount: wire.attendee_count,
+    ownerId: wire.owner_id,
+  }))
+
 export interface Dashboard {
   readonly generatedAt: Date
   /** The day every signal was measured against, `YYYY-MM-DD`. */
@@ -266,6 +299,7 @@ export interface Dashboard {
   readonly overduePlanItems: DashboardSignal<DashboardPlanItem>
   readonly dueSoonPlanItems: DashboardSignal<DashboardPlanItem>
   readonly partnershipTouchpoints: DashboardSignal<DashboardTouchpoint>
+  readonly upcomingEvents: DashboardSignal<DashboardUpcomingEvent>
   readonly staleContacts: DashboardSignal<DashboardStaleContact>
   readonly recentActivity: readonly DashboardActivity[]
   readonly recentNotes: readonly DashboardNote[]
@@ -283,6 +317,7 @@ export const dashboardSchema: z.ZodType<Dashboard, unknown> = z
     overdue_plan_items: signalSchema(dashboardPlanItemSchema),
     due_soon_plan_items: signalSchema(dashboardPlanItemSchema),
     partnership_touchpoints: signalSchema(dashboardTouchpointSchema),
+    upcoming_events: signalSchema(dashboardUpcomingEventSchema),
     stale_contacts: signalSchema(dashboardStaleContactSchema),
     recent_activity: z.array(dashboardActivitySchema),
     recent_notes: z.array(dashboardNoteSchema),
@@ -299,6 +334,7 @@ export const dashboardSchema: z.ZodType<Dashboard, unknown> = z
       overduePlanItems: wire.overdue_plan_items,
       dueSoonPlanItems: wire.due_soon_plan_items,
       partnershipTouchpoints: wire.partnership_touchpoints,
+      upcomingEvents: wire.upcoming_events,
       staleContacts: wire.stale_contacts,
       recentActivity: wire.recent_activity,
       recentNotes: wire.recent_notes,

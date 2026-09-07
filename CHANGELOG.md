@@ -12,6 +12,12 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **Events.** A
+  first-class dated CRM object (webinar, meetup, dinner) with Attendances
+  from the people list, Event-only associations to other records, custom
+  fields, search, dashboard upcoming, and form-triggered registration.
+  Spec: `docs/events.md`.
+
 - **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **An optional
   region list for multi-region sign-in.** `kelpie.config.ts` gains a
   `regions` field (`{ id, label, origin }[]`, default `[]`). Empty (the

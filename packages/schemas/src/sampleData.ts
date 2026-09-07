@@ -20,6 +20,8 @@ export interface SampleDataCounts {
   readonly enquiries: number
   readonly roles: number
   readonly candidates: number
+  readonly events: number
+  readonly attendances: number
 }
 
 export const sampleDataCountsSchema: z.ZodType<SampleDataCounts, unknown> = z
@@ -36,6 +38,8 @@ export const sampleDataCountsSchema: z.ZodType<SampleDataCounts, unknown> = z
     enquiries: z.number().int().nonnegative(),
     roles: z.number().int().nonnegative(),
     candidates: z.number().int().nonnegative(),
+    events: z.number().int().nonnegative(),
+    attendances: z.number().int().nonnegative(),
   })
   .transform(
     (wire): SampleDataCounts => ({
@@ -51,5 +55,7 @@ export const sampleDataCountsSchema: z.ZodType<SampleDataCounts, unknown> = z
       enquiries: wire.enquiries,
       roles: wire.roles,
       candidates: wire.candidates,
+      events: wire.events,
+      attendances: wire.attendances,
     }),
   )

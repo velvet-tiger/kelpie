@@ -8,8 +8,8 @@ import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { PlanItemFilters } from './repository.ts'
-import { PIPELINE_KINDS, PLAN_ITEM_STATUSES } from './schema.ts'
-import type { PipelineKind, PlanItemStatus } from './schema.ts'
+import { PLAN_ITEM_STATUSES, PLAN_ITEM_TARGET_TYPES } from './schema.ts'
+import type { PlanItemStatus, PlanItemTargetType } from './schema.ts'
 import type {
   CreatePlanItemInput,
   PlanItemView,
@@ -40,7 +40,7 @@ const planItemShape = {
  */
 export const createBody = z.strictObject({
   ...planItemShape,
-  target_type: z.enum(PIPELINE_KINDS),
+  target_type: z.enum(PLAN_ITEM_TARGET_TYPES),
   target_id: z.string().min(1),
   owner_id: planItemShape.owner_id.default(null),
   status: planItemShape.status.default('todo'),
@@ -94,18 +94,18 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePlanItemI
  *   cannot attach to a Person, so answering the person question with an empty
  *   list would read as "none yet" instead of "that is not a thing".
  */
-function readTargetType(context: Context): PipelineKind | undefined {
+function readTargetType(context: Context): PlanItemTargetType | undefined {
   const raw = context.req.query('target_type')
 
   if (raw === undefined) {
     return undefined
   }
 
-  const parsed = z.enum(PIPELINE_KINDS).safeParse(raw)
+  const parsed = z.enum(PLAN_ITEM_TARGET_TYPES).safeParse(raw)
 
   if (!parsed.success) {
     throw AppError.validationFailed('That is not a record type a plan item attaches to', [
-      { field: 'target_type', message: `Use one of: ${PIPELINE_KINDS.join(', ')}` },
+      { field: 'target_type', message: `Use one of: ${PLAN_ITEM_TARGET_TYPES.join(', ')}` },
     ])
   }
 

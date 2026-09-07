@@ -15,6 +15,7 @@ import { Chip } from '../components/Chip.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
 import { EntitySearch } from '../components/EntitySearch.tsx'
 import { InlineEdit } from '../components/InlineEdit.tsx'
+import { LinkedEventsPanel } from '../components/LinkedEventsPanel.tsx'
 import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
@@ -89,6 +90,9 @@ export function RoleDetail(): React.JSX.Element {
       </div>
 
       <RoleCandidates role={record} />
+      <div className="mt-8">
+        <LinkedEventsPanel targetType="role" targetId={record.id} />
+      </div>
     </div>
   )
 }

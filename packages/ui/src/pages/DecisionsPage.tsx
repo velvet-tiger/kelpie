@@ -6,6 +6,7 @@ import { useTimezone } from '../api/resources/account.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
 import { useDecisions } from '../api/resources/decisions.ts'
+import { useEvents } from '../api/resources/events.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
@@ -46,6 +47,8 @@ const TARGET_LABELS: Readonly<Record<RecordTargetType, string>> = {
   raise: 'Raise',
   enquiry: 'Enquiry',
   candidate: 'Candidate',
+  event: 'Event',
+  attendance: 'Attendance',
 }
 
 const TARGET_ROUTES: Readonly<Partial<Record<RecordTargetType, string>>> = {
@@ -56,6 +59,7 @@ const TARGET_ROUTES: Readonly<Partial<Record<RecordTargetType, string>>> = {
   raise: '/fundraising',
   partnership: '/partnerships',
   enquiry: '/enquiries',
+  event: '/events',
 }
 
 interface TargetDirectory {
@@ -69,6 +73,7 @@ function useTargetDirectory(): TargetDirectory {
   const opportunities = useOpportunities({ limit: MAX_PAGE })
   const raises = useRaises({ limit: MAX_PAGE })
   const partnerships = usePartnerships({ limit: MAX_PAGE })
+  const events = useEvents({ limit: MAX_PAGE })
 
   const nameById = useMemo(
     () =>
@@ -80,6 +85,7 @@ function useTargetDirectory(): TargetDirectory {
           ...opportunities.records,
           ...raises.records,
           ...partnerships.records,
+          ...events.records,
         ].map((record) => [record.id, record.name]),
       ),
     [
@@ -89,6 +95,7 @@ function useTargetDirectory(): TargetDirectory {
       opportunities.records,
       raises.records,
       partnerships.records,
+      events.records,
     ],
   )
 

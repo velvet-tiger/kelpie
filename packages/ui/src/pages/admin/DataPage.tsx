@@ -1044,7 +1044,7 @@ function SampleDataSection(): ReactNode {
       <div>
         <h2 className="text-[15px] font-semibold text-ink">Install sample data</h2>
         <p className="mt-1 text-[13px] text-ink-muted">
-          A small set of companies, people, and deals so a fresh workspace has something
+          A small set of companies, people, deals, and events so a fresh workspace has something
           to look at. Refuses if this workspace already has CRM data.
         </p>
       </div>
@@ -1065,8 +1065,9 @@ function SampleDataSection(): ReactNode {
           Added {counts.companies} companies, {counts.people} people, {counts.positions}{' '}
           positions, {counts.deals} deals, {counts.opportunities} opportunities,{' '}
           {counts.raises} raises, {counts.partnerships} partnerships, {counts.enquiries}{' '}
-          enquiries, {counts.roles} roles, {counts.candidates} candidates,{' '}
-          {counts.planItems} plan items, and {counts.notes} notes.
+          enquiries, {counts.roles} roles, {counts.candidates} candidates, {counts.events}{' '}
+          events, {counts.attendances} attendances, {counts.planItems} plan items, and{' '}
+          {counts.notes} notes.
         </p>
       ) : null}
       {failure === null ? null : (

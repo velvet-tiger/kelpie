@@ -22,7 +22,7 @@ interface TextProps extends CommonProps {
   readonly value: string
   readonly onChange: (value: string) => void
   readonly multiline?: boolean
-  readonly type?: 'text' | 'number' | 'date' | 'url' | 'email'
+          readonly type?: 'text' | 'number' | 'date' | 'datetime-local' | 'url' | 'email'
   readonly options?: never
 }
 

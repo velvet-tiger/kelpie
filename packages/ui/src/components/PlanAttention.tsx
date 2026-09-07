@@ -1,11 +1,11 @@
-import { PIPELINE_KIND_LABELS, PLAN_ITEM_STATUS_LABELS } from '@kelpie/schemas'
+import { PLAN_ITEM_STATUS_LABELS, PLAN_ITEM_TARGET_TYPE_LABELS } from '@kelpie/schemas'
 import type {
   Deal,
   Enquiry,
   Opportunity,
   Partnership,
-  PipelineKind,
   PlanItem,
+  PlanItemTargetType,
   Raise,
 } from '@kelpie/schemas'
 import { Link } from 'react-router'
@@ -27,12 +27,13 @@ import { SectionHeader } from './SectionHeader.tsx'
  */
 
 /** Where a plan item's record lives. */
-const ROUTES: Readonly<Record<PipelineKind, string | undefined>> = {
+const ROUTES: Readonly<Record<PlanItemTargetType, string | undefined>> = {
   enquiry: '/enquiries',
   deal: '/deals',
   opportunity: '/opportunities',
   raise: '/fundraising',
   partnership: '/partnerships',
+  event: '/events',
 }
 
 export interface PlanAttentionProps {
@@ -247,7 +248,7 @@ export function PlanTargetLink({
   readonly item: PlanItem
   readonly targetNames: ReadonlyMap<string, string> | undefined
 }): React.JSX.Element {
-  const kind = PIPELINE_KIND_LABELS[item.targetType]
+  const kind = PLAN_ITEM_TARGET_TYPE_LABELS[item.targetType]
   const name = targetNames?.get(item.targetId)
   const route = ROUTES[item.targetType]
 

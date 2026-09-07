@@ -21,6 +21,10 @@ export {
   AGENT_TASK_PLACEMENTS,
   AGENT_TASK_TARGET_TYPES,
   API_KEY_KINDS,
+  ATTENDANCE_SOURCE_LABELS,
+  ATTENDANCE_SOURCES,
+  ATTENDANCE_STATUS_LABELS,
+  ATTENDANCE_STATUSES,
   CANDIDATE_STATUS_LABELS,
   CANDIDATE_STATUSES,
   COMPANY_STAGES,
@@ -34,9 +38,16 @@ export {
   CUSTOM_FIELD_TYPE_LABELS,
   CUSTOM_FIELD_TYPES,
   CUSTOM_FIELD_TYPES_WITH_OPTIONS,
+  EVENT_ASSOCIATION_TARGET_TYPE_LABELS,
+  EVENT_ASSOCIATION_TARGET_TYPES,
+  EVENT_FORMAT_LABELS,
+  EVENT_FORMATS,
+  EVENT_STATUS_LABELS,
+  EVENT_STATUSES,
   EXTENSIBLE_RECORD_TYPES,
   FIRST_INTERVIEW_STAGE,
   FORM_ACTION_STATUSES,
+  FORM_ATTACH_TARGET_TYPES,
   FORM_BOOLEAN_FIELD_TYPES,
   FORM_FIELD_MAP_TARGET_LABELS,
   FORM_FIELD_MAP_TARGETS,
@@ -58,6 +69,8 @@ export {
   PIPELINE_KINDS,
   PLAN_ITEM_STATUS_LABELS,
   PLAN_ITEM_STATUSES,
+  PLAN_ITEM_TARGET_TYPE_LABELS,
+  PLAN_ITEM_TARGET_TYPES,
   PREFERRED_CHANNELS,
   RECORD_TARGET_TYPE_LABELS,
   RECORD_TARGET_TYPES,
@@ -82,6 +95,8 @@ export type {
   AgentTaskPlacement,
   AgentTaskTargetType,
   ApiKeyKind,
+  AttendanceSource,
+  AttendanceStatus,
   CandidateStatus,
   CompanyStage,
   ConsentPurposeStatus,
@@ -90,8 +105,12 @@ export type {
   CustomFieldObjectType,
   CustomFieldType,
   CustomFieldTypeWithOptions,
+  EventAssociationTargetType,
+  EventFormat,
+  EventStatus,
   ExtensibleRecordType,
   FormActionStatus,
+  FormAttachTargetType,
   FormBooleanFieldType,
   FormFieldMapTarget,
   FormFieldType,
@@ -105,6 +124,7 @@ export type {
   MemberRole,
   PipelineKind,
   PlanItemStatus,
+  PlanItemTargetType,
   PreferredChannel,
   RecordTargetType,
   Relationship,
@@ -204,6 +224,15 @@ export type { Role, RoleInput } from './role.ts'
 
 export { candidateBody, candidateSchema, createCandidateBody } from './candidate.ts'
 export type { Candidate, CandidateInput, CreateCandidateInput } from './candidate.ts'
+
+export { attendanceBody, attendanceSchema, createAttendanceBody } from './attendance.ts'
+export type { Attendance, AttendanceInput, CreateAttendanceInput } from './attendance.ts'
+
+export { createEventBody, eventBody, eventSchema } from './event.ts'
+export type { CreateEventInput, Event, EventAssociation, EventInput } from './event.ts'
+
+export { eventAssociationRowSchema } from './eventAssociation.ts'
+export type { EventAssociationRow } from './eventAssociation.ts'
 
 export {
   createPipelineStageBody,
@@ -419,6 +448,7 @@ export type {
   DashboardSignal,
   DashboardStaleContact,
   DashboardTouchpoint,
+  DashboardUpcomingEvent,
   TargetRef,
 } from './dashboard.ts'
 

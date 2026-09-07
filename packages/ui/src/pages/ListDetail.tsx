@@ -14,6 +14,7 @@ import {
   useRemoveListMember,
 } from '../api/resources/listMembers.ts'
 import { useEnquiries } from '../api/resources/enquiries.ts'
+import { useEvents } from '../api/resources/events.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { usePeople } from '../api/resources/people.ts'
@@ -274,9 +275,13 @@ function detailPathFor(targetType: RecordTargetType, targetId: string): string {
       return `/fundraising/${targetId}`
     case 'enquiry':
       return `/enquiries/${targetId}`
+    case 'event':
+      return `/events/${targetId}`
     case 'candidate':
       // A candidate has no page of its own; the person's does.
       return `/hiring`
+    case 'attendance':
+      return `/events`
   }
 }
 
@@ -309,11 +314,20 @@ function MemberPicker({
       return <RaisesPicker attached={attached} onPick={onPick} />
     case 'enquiry':
       return <EnquiriesPicker attached={attached} onPick={onPick} />
+    case 'event':
+      return <EventsPicker attached={attached} onPick={onPick} />
     case 'candidate':
       return (
         <p className="text-[12px] text-ink-faint">
           Candidate lists have no inline picker in this release. Add candidacies from a role's
           page, then attach them here through the API.
+        </p>
+      )
+    case 'attendance':
+      return (
+        <p className="text-[12px] text-ink-faint">
+          Attendance lists have no inline picker in this release. Register people on an Event,
+          then attach them here through the API.
         </p>
       )
   }
@@ -387,6 +401,16 @@ function RaisesPicker({ attached, onPick }: PickerProps): React.JSX.Element {
 function EnquiriesPicker({ attached, onPick }: PickerProps): React.JSX.Element {
   const [search, setSearch] = useState('')
   const records = useEnquiries({ term: trimmedOrUndefined(search) })
+  const options: readonly SearchOption[] = records.records
+    .filter((row) => !attached.has(row.id))
+    .map((row) => ({ id: row.id, label: row.name }))
+
+  return <PickerBox onQueryChange={setSearch} onPick={onPick} options={options} />
+}
+
+function EventsPicker({ attached, onPick }: PickerProps): React.JSX.Element {
+  const [search, setSearch] = useState('')
+  const records = useEvents({ term: trimmedOrUndefined(search) })
   const options: readonly SearchOption[] = records.records
     .filter((row) => !attached.has(row.id))
     .map((row) => ({ id: row.id, label: row.name }))

@@ -27,6 +27,7 @@ export function createDashboardModule(): KelpieModule {
       'raises',
       'partnerships',
       'plans',
+      'events',
       'decisions',
       'notes',
       'activities',

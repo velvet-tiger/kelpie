@@ -9,6 +9,7 @@ import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { decisions } from '../decisions/schema.ts'
 import { enquiries } from '../enquiries/schema.ts'
+import { attendances } from '../events/schema.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { candidates, roles } from '../hiring/schema.ts'
 import { notes } from '../notes/schema.ts'
@@ -440,6 +441,16 @@ async function collectRelated(
           candidates,
           candidates.id,
           and(eq(candidates.workspaceId, workspaceId), eq(candidates.roleId, targetId)) as SQL,
+        ),
+      }
+
+    case 'event':
+      return {
+        person_ids: await relatedFrom(
+          db,
+          attendances,
+          attendances.personId,
+          and(eq(attendances.workspaceId, workspaceId), eq(attendances.eventId, targetId)) as SQL,
         ),
       }
 

@@ -1,4 +1,4 @@
-import { PIPELINE_KINDS, PLAN_ITEM_STATUSES } from '@kelpie/schemas'
+import { PLAN_ITEM_STATUSES, PLAN_ITEM_TARGET_TYPES } from '@kelpie/schemas'
 import { date, index, pgTable, text } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
@@ -6,8 +6,8 @@ import type { SearchVectorPart } from '../../lib/columns.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 
 /** Re-exported for the routes and service that constrain themselves to this table. */
-export { PIPELINE_KINDS, PLAN_ITEM_STATUSES } from '@kelpie/schemas'
-export type { PipelineKind, PlanItemStatus } from '@kelpie/schemas'
+export { PLAN_ITEM_STATUSES, PLAN_ITEM_TARGET_TYPES } from '@kelpie/schemas'
+export type { PlanItemStatus, PlanItemTargetType } from '@kelpie/schemas'
 
 /**
  * Dated action items on the four pipelines. These replace any next-step text
@@ -39,7 +39,7 @@ export const planItems = pgTable(
     index('plan_items_target_idx').on(table.workspaceId, table.targetType, table.targetId),
     index('plan_items_date_idx').on(table.workspaceId, table.date),
     index('plan_items_search_idx').using('gin', table.searchVector),
-    checkOneOf('plan_items_target_type_check', table.targetType, PIPELINE_KINDS),
+    checkOneOf('plan_items_target_type_check', table.targetType, PLAN_ITEM_TARGET_TYPES),
     checkOneOf('plan_items_status_check', table.status, PLAN_ITEM_STATUSES),
   ],
 )

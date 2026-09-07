@@ -1,7 +1,7 @@
 import { and, asc, eq, ilike, inArray, or } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
-import type { FormSubmissionLinkTarget, PipelineKind } from '@kelpie/schemas'
+import type { FormSubmissionLinkTarget, FormAttachTargetType } from '@kelpie/schemas'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
@@ -332,7 +332,7 @@ export async function replaceFormLists(
 
 /** One form's configured attach targets, ordered so a resent identical set is not a write. */
 export interface FormAttachTargetRow {
-  readonly targetType: PipelineKind
+  readonly targetType: FormAttachTargetType
   readonly targetId: string
 }
 
@@ -347,7 +347,7 @@ export async function listAttachTargets(
     .orderBy(asc(formAttachTargets.targetType), asc(formAttachTargets.targetId))
 
   return rows.map((row) => ({
-    targetType: row.targetType as PipelineKind,
+    targetType: row.targetType as FormAttachTargetType,
     targetId: row.targetId,
   }))
 }

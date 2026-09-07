@@ -4,7 +4,7 @@ import type {
   FormSubmissionLinkTarget,
   PipelineKind,
 } from '@kelpie/schemas'
-import { PIPELINE_KINDS } from '@kelpie/schemas'
+import { FORM_ATTACH_TARGET_TYPES } from '@kelpie/schemas'
 
 import { changedKeys } from '../../lib/changes.ts'
 import type { Database } from '../../lib/database.ts'
@@ -422,7 +422,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
 
     const problems: { field: string; message: string }[] = []
 
-    for (const kind of PIPELINE_KINDS) {
+    for (const kind of FORM_ATTACH_TARGET_TYPES) {
       const ofKind = targets.filter((target) => target.targetType === kind)
 
       if (ofKind.length === 0) {

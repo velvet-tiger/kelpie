@@ -1,7 +1,7 @@
 import {
+  FORM_ATTACH_TARGET_TYPES,
   FORM_FIELD_TYPES,
   FORM_STATUSES,
-  PIPELINE_KINDS,
 } from '@kelpie/schemas'
 import type { FormOptionValueType, FormSubmissionActionEntry } from '@kelpie/schemas'
 import { boolean, index, integer, jsonb, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
@@ -187,7 +187,7 @@ export const formAttachTargets = pgTable(
       table.targetType,
       table.targetId,
     ),
-    checkOneOf('form_attach_targets_target_type_check', table.targetType, PIPELINE_KINDS),
+    checkOneOf('form_attach_targets_target_type_check', table.targetType, FORM_ATTACH_TARGET_TYPES),
   ],
 )
 

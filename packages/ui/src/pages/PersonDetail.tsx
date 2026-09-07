@@ -1,3 +1,4 @@
+import { ATTENDANCE_STATUS_LABELS } from '@kelpie/schemas'
 import { CONSENT_PURPOSE_STATUS_LABELS, IN_PROCESS, PREFERRED_CHANNELS } from '@kelpie/schemas'
 import type {
   Candidate,
@@ -13,6 +14,8 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCandidates } from '../api/resources/candidates.ts'
+import { useAttendances, useCreateAttendance } from '../api/resources/attendances.ts'
+import { useEvents } from '../api/resources/events.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
 import { useEnquiries } from '../api/resources/enquiries.ts'
@@ -39,6 +42,7 @@ import { NotesPanel } from '../components/NotesPanel.tsx'
 import { RelatedPlanAttention } from '../components/PlanAttention.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { ListsPanel } from '../components/ListsPanel.tsx'
+import { LinkedEventsPanel } from '../components/LinkedEventsPanel.tsx'
 import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
@@ -87,6 +91,10 @@ export function PersonDetail(): React.JSX.Element {
     enabled: id !== undefined,
   })
   const formSubmissions = useFormSubmissionsForRecord('person', id)
+  const attendances = useAttendances(
+    { personIds: id === undefined ? [] : [id] },
+    { enabled: id !== undefined },
+  )
 
   if (isNotFound) {
     return <NotFoundPanel label="Person" backTo="/people" />
@@ -107,6 +115,7 @@ export function PersonDetail(): React.JSX.Element {
     ...(candidacies.records.length === 0
       ? []
       : [{ id: 'hiring', label: 'Hiring', count: candidacies.records.length }]),
+    { id: 'events', label: 'Events', count: attendances.records.length },
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
@@ -154,6 +163,7 @@ export function PersonDetail(): React.JSX.Element {
             {active === 'hiring' && (
               <PersonHiring candidacies={candidacies.records} personName={record.name} />
             )}
+            {active === 'events' && <PersonEvents personId={record.id} />}
             {active === 'notes' && <NotesPanel targetType="person" targetId={record.id} />}
             {active === 'decisions' && <DecisionsPanel targetType="person" targetId={record.id} />}
             {active === 'lists' && <ListsPanel targetType="person" targetId={record.id} />}
@@ -239,6 +249,95 @@ function PersonOverview({ person }: { readonly person: Person }): React.JSX.Elem
         isLoading={deals.isLoading || partnerships.isLoading || enquiries.isLoading}
       />
       <LatestActivity targetType="person" targetId={person.id} />
+    </div>
+  )
+}
+
+function PersonEvents({ personId }: { readonly personId: string }): React.JSX.Element {
+  const attendances = useAttendances({ personIds: [personId], limit: 200 })
+  const createAttendance = useCreateAttendance()
+  const [eventId, setEventId] = useState('')
+  const [search, setSearch] = useState('')
+  const searchable = useEvents({
+    term: search.trim().length > 0 ? search.trim() : undefined,
+    statuses: ['draft', 'scheduled'],
+    limit: 50,
+  })
+  const directory = useEvents({ limit: 200 })
+  const nameById = new Map(directory.records.map((record) => [record.id, record.name]))
+  const registered = new Set(attendances.records.map((row) => row.eventId))
+
+  function add(submitEvent: FormEvent): void {
+    submitEvent.preventDefault()
+
+    if (eventId.length === 0 || registered.has(eventId)) {
+      return
+    }
+
+    createAttendance.run({ eventId, personId, source: 'manual' })
+    setEventId('')
+    setSearch('')
+  }
+
+  return (
+    <div className="space-y-8">
+      <section>
+        <SectionHeader title="Attendance" />
+        {createAttendance.error !== null && (
+          <div className="mb-3">
+            <ErrorPanel error={createAttendance.error} />
+          </div>
+        )}
+        {attendances.error !== null && <ErrorPanel error={attendances.error} />}
+        {attendances.isLoading ? (
+          <p className="text-[13px] text-ink-faint">Loading events…</p>
+        ) : attendances.records.length === 0 ? (
+          <p className="text-[13px] text-ink-faint">Not registered for any events yet.</p>
+        ) : (
+          <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
+            {attendances.records.map((row) => (
+              <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                <Link
+                  to={`/events/${row.eventId}`}
+                  className="text-[13px] font-medium text-accent hover:underline"
+                >
+                  {nameById.get(row.eventId) ?? row.eventId}
+                </Link>
+                <span className="text-[12px] text-ink-muted">
+                  {ATTENDANCE_STATUS_LABELS[row.status]}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form onSubmit={add} className="mt-3 flex flex-wrap items-end gap-2">
+          <div className="min-w-[220px] flex-1">
+            <EntitySearch
+              options={searchable.records
+                .filter((record) => !registered.has(record.id))
+                .map((record) => ({
+                  id: record.id,
+                  label: record.name,
+                  meta: record.kind.length > 0 ? record.kind : undefined,
+                }))}
+              value={eventId}
+              onChange={setEventId}
+              onQueryChange={setSearch}
+              placeholder="Register for an event…"
+              emptyMessage="No events match"
+              size="sm"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={createAttendance.isPending || eventId.length === 0}
+            className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+          >
+            Register
+          </button>
+        </form>
+      </section>
+      <LinkedEventsPanel targetType="person" targetId={personId} />
     </div>
   )
 }

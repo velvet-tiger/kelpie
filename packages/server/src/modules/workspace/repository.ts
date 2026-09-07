@@ -6,6 +6,7 @@ import { users } from '../auth/schema.ts'
 import { consentPurposes } from '../consent-purposes/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { decisions } from '../decisions/schema.ts'
+import { events } from '../events/schema.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { notes } from '../notes/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
@@ -138,6 +139,7 @@ export async function countMemberReferences(
 ): Promise<readonly { readonly type: string; readonly count: number }[]> {
   const sources = [
     { type: 'deal', table: deals, column: deals.ownerId, workspaceId: deals.workspaceId },
+    { type: 'event', table: events, column: events.ownerId, workspaceId: events.workspaceId },
     { type: 'opportunity', table: opportunities, column: opportunities.ownerId, workspaceId: opportunities.workspaceId },
     { type: 'partnership', table: partnerships, column: partnerships.ownerId, workspaceId: partnerships.workspaceId },
     { type: 'raise', table: raises, column: raises.ownerId, workspaceId: raises.workspaceId },

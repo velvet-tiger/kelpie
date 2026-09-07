@@ -156,6 +156,30 @@ export interface FixtureCandidate {
   readonly referrerPersonKey: string | null
 }
 
+export interface FixtureEvent {
+  readonly key: string
+  readonly name: string
+  readonly kind: string
+  readonly startOffsetHours: number
+  readonly durationHours: number
+  readonly timezone: string
+  readonly location: string
+  readonly meetingUrl: string | null
+  readonly format: 'in_person' | 'virtual' | 'hybrid'
+  readonly details: string
+  readonly status: 'draft' | 'scheduled' | 'cancelled'
+  readonly summary: string
+  readonly tags: readonly string[]
+  readonly dealKey: string | null
+  readonly attendees: readonly FixtureAttendance[]
+}
+
+export interface FixtureAttendance {
+  readonly personKey: string
+  readonly status: 'registered' | 'attended' | 'no_show' | 'cancelled'
+  readonly source: 'manual' | 'form'
+}
+
 export interface Fixture {
   readonly companies: readonly FixtureCompany[]
   readonly people: readonly FixturePerson[]
@@ -169,6 +193,7 @@ export interface Fixture {
   readonly enquiries: readonly FixtureEnquiry[]
   readonly roles: readonly FixtureRole[]
   readonly candidates: readonly FixtureCandidate[]
+  readonly events: readonly FixtureEvent[]
 }
 
 export const SAMPLE_DATA_FIXTURE: Fixture = {
@@ -655,6 +680,66 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       status: 'nurture',
       interviewStage: null,
       referrerPersonKey: null,
+    },
+  ],
+
+  events: [
+    {
+      key: 'product-webinar',
+      name: 'Product webinar — pipeline walkthrough',
+      kind: 'webinar',
+      startOffsetHours: 48,
+      durationHours: 1,
+      timezone: 'Australia/Melbourne',
+      location: 'Online',
+      meetingUrl: 'https://meet.example.com/webinar',
+      format: 'virtual',
+      details: 'Live walkthrough of the CRM for inbound leads.',
+      status: 'scheduled',
+      summary: 'Demand webinar for Q3 inbound.',
+      tags: ['demand'],
+      dealKey: 'northwind-expansion',
+      attendees: [
+        { personKey: 'ada', status: 'registered', source: 'manual' },
+        { personKey: 'grace', status: 'registered', source: 'form' },
+      ],
+    },
+    {
+      key: 'customer-dinner',
+      name: 'Northwind customer dinner',
+      kind: 'dinner',
+      startOffsetHours: 96,
+      durationHours: 3,
+      timezone: 'Australia/Melbourne',
+      location: 'Melbourne CBD',
+      meetingUrl: null,
+      format: 'in_person',
+      details: 'Small dinner with the Northwind team.',
+      status: 'scheduled',
+      summary: 'Relationship dinner.',
+      tags: ['customer'],
+      dealKey: 'northwind-expansion',
+      attendees: [{ personKey: 'ada', status: 'registered', source: 'manual' }],
+    },
+    {
+      key: 'launch-livestream',
+      name: 'Launch livestream recap',
+      kind: 'livestream',
+      startOffsetHours: -48,
+      durationHours: 1,
+      timezone: 'Australia/Melbourne',
+      location: 'Online',
+      meetingUrl: 'https://meet.example.com/launch',
+      format: 'virtual',
+      details: 'The launch stream that already ran.',
+      status: 'scheduled',
+      summary: 'Past livestream.',
+      tags: ['launch'],
+      dealKey: null,
+      attendees: [
+        { personKey: 'ada', status: 'attended', source: 'form' },
+        { personKey: 'gavin', status: 'no_show', source: 'form' },
+      ],
     },
   ],
 }

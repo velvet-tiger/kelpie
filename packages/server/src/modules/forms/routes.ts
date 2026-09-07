@@ -1,6 +1,6 @@
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
-import { FORM_SUBMISSION_LINK_TARGETS, PIPELINE_KINDS } from '@kelpie/schemas'
+import { FORM_ATTACH_TARGET_TYPES, FORM_SUBMISSION_LINK_TARGETS } from '@kelpie/schemas'
 import type { FormAttachTarget, FormSubmissionLinkTarget } from '@kelpie/schemas'
 
 import { AppError } from '../../lib/errors.ts'
@@ -59,7 +59,7 @@ const fieldBody = z.strictObject({
 })
 
 const attachTargetBody = z.strictObject({
-  target_type: z.enum(PIPELINE_KINDS),
+  target_type: z.enum(FORM_ATTACH_TARGET_TYPES),
   target_id: z.string().min(1),
 })
 

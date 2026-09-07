@@ -144,6 +144,7 @@ describe.skipIf(connectionString === undefined)('search', () => {
         'opportunity',
         'raise',
         'partnership',
+        'event',
         'decision',
       ])
     })
@@ -282,7 +283,7 @@ describe.skipIf(connectionString === undefined)('search', () => {
       expect(titles(await search('q=compelling'), 'handbook_page')).toEqual(['How we sell'])
     })
 
-    it('finds a role, a partnership, an opportunity, a raise and a decision', async () => {
+    it('finds a role, a partnership, an opportunity, a raise, a decision and an event', async () => {
       const companyId = await createCompany('Globex')
 
       await create('/v1/roles', { title: 'Staff Engineer' })
@@ -308,6 +309,14 @@ describe.skipIf(connectionString === undefined)('search', () => {
         target_id: companyId,
         body: 'We promised a quarterly business review',
       })
+      await create('/v1/events', {
+        name: 'Demand webinar',
+        kind: 'webinar',
+        format: 'virtual',
+        location: 'Online',
+        starts_at: '2026-09-09T02:00:00.000Z',
+        ends_at: '2026-09-09T03:00:00.000Z',
+      })
 
       expect(titles(await search('q=engineer'), 'role')).toEqual(['Staff Engineer'])
       expect(titles(await search('q=integration'), 'partnership')).toEqual(['Globex integration'])
@@ -316,6 +325,7 @@ describe.skipIf(connectionString === undefined)('search', () => {
       expect(titles(await search('q=quarterly'), 'decision')).toEqual([
         'We promised a quarterly business review',
       ])
+      expect(titles(await search('q=webinar'), 'event')).toEqual(['Demand webinar'])
     })
 
     it('reflects an edit, because the vector is generated rather than written', async () => {
