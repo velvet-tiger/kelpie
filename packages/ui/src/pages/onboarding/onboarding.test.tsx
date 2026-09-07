@@ -157,6 +157,7 @@ function renderStep(element: React.JSX.Element, calls: Calls, stubs: Stubs = {})
           <Route path="/step" element={element} />
           {/* Standing in for what each step hands off to, so moving on is
               something the test can see. */}
+          <Route path="/onboarding/workspace" element={<p>step 1</p>} />
           <Route path="/onboarding/invites" element={<p>step 2</p>} />
           <Route path="/onboarding/handbook" element={<p>step 3</p>} />
           <Route path="/dashboard" element={<p>the app</p>} />
@@ -183,7 +184,7 @@ describe('WorkspaceStepPage', () => {
 
     expect((screen.getByLabelText(/^Slug/u) as HTMLInputElement).value).toBe('acme-labs')
 
-    await press('Continue')
+    await press('Next')
 
     await waitFor(() => {
       expect(calls.posted).toHaveLength(1)
@@ -240,7 +241,7 @@ describe('WorkspaceStepPage', () => {
       screen.getByLabelText(/Install sample data/u).click()
     })
 
-    await press('Continue')
+    await press('Next')
 
     await waitFor(() => {
       expect(calls.posted).toHaveLength(2)
@@ -260,13 +261,35 @@ describe('WorkspaceStepPage', () => {
       setValue(screen.getByLabelText(/^Workspace name/u), 'Acme Labs')
     })
 
-    await press('Continue')
+    await press('Next')
 
     await waitFor(() => {
       expect(calls.posted).toHaveLength(1)
     })
 
     expect(calls.posted[0]?.path).toBe('/workspaces')
+  })
+
+  it('has no Previous button: there is no earlier onboarding step', async () => {
+    renderStep(<WorkspaceStepPage />, noCalls(), { workspaceId: null })
+
+    expect(await screen.findByRole('button', { name: 'Next' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
+  })
+
+  /**
+   * Previous on the invites step lands here after POST /workspaces has
+   * already succeeded. The create form must not come back.
+   */
+  it('moves on when the account already has a workspace', async () => {
+    renderStep(<WorkspaceStepPage />, noCalls())
+
+    expect(await screen.findByText('Your workspace is ready')).toBeTruthy()
+    expect(screen.queryByLabelText(/^Workspace name/u)).toBeNull()
+
+    await press('Next')
+
+    expect(await screen.findByText('step 2')).toBeTruthy()
   })
 })
 
@@ -364,6 +387,17 @@ describe('InvitesStepPage', () => {
     expect(await screen.findByText('step 3')).toBeTruthy()
     expect(calls.posted).toEqual([])
   })
+
+  it('goes back to the workspace step without sending', async () => {
+    const calls = noCalls()
+
+    renderStep(<InvitesStepPage />, calls)
+
+    await press('Previous')
+
+    expect(await screen.findByText('step 1')).toBeTruthy()
+    expect(calls.posted).toEqual([])
+  })
 })
 
 describe('HandbookStepPage', () => {
@@ -396,5 +430,16 @@ describe('HandbookStepPage', () => {
 
     expect(await screen.findByText(/no handbook pages/u)).toBeTruthy()
     expect(screen.queryByText(/Every page starts as a stub/u)).toBeNull()
+  })
+
+  it('goes back to the invites step', async () => {
+    renderStep(<HandbookStepPage />, noCalls(), {
+      pages: [handbookPage('hbp_1', 'About us')],
+    })
+
+    expect(await screen.findByText('About us')).toBeTruthy()
+    await press('Previous')
+
+    expect(await screen.findByText('step 2')).toBeTruthy()
   })
 })

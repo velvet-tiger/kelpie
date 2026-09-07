@@ -2,8 +2,8 @@ import { useNavigate } from 'react-router'
 
 import { useHandbookPages } from '../../api/resources/handbookPages.ts'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
-import { PrimaryButton } from '../auth/AuthForm.tsx'
 import { AuthLayout } from '../auth/AuthLayout.tsx'
+import { OnboardingNav } from './OnboardingNav.tsx'
 
 /**
  * Onboarding step 3: the starter handbook.
@@ -68,7 +68,12 @@ export function HandbookStepPage(): React.JSX.Element {
 
         {/* Not a submit: the work behind this step already happened, so the
             button only moves the reader on. */}
-        <PrimaryButton label="Go to Kelpie" onClick={finish} />
+        <OnboardingNav
+          step={3}
+          nextLabel="Go to Kelpie"
+          nextType="button"
+          onNext={finish}
+        />
       </div>
     </AuthLayout>
   )

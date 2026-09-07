@@ -5,8 +5,9 @@ import { Link, Navigate, useNavigate } from 'react-router'
 import { useInstallSampleData } from '../../api/resources/sampleData.ts'
 import { useCreateWorkspace, useSession } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
-import { SubmitButton, TextField } from '../auth/AuthForm.tsx'
+import { TextField } from '../auth/AuthForm.tsx'
 import { AuthLayout } from '../auth/AuthLayout.tsx'
+import { OnboardingNav } from './OnboardingNav.tsx'
 
 /**
  * Onboarding step 1: the workspace, against `POST /v1/workspaces`.
@@ -47,9 +48,10 @@ function browserTimezone(): string {
 
 export function WorkspaceStepPage(): React.JSX.Element {
   const navigate = useNavigate()
-  const { isSignedOut } = useSession()
+  const { isSignedOut, session } = useSession()
   const createWorkspace = useCreateWorkspace()
   const installSampleData = useInstallSampleData()
+  const hasWorkspace = session?.workspaceId !== null && session?.workspaceId !== undefined
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugEdited, setSlugEdited] = useState(false)
@@ -91,6 +93,37 @@ export function WorkspaceStepPage(): React.JSX.Element {
 
   if (isSignedOut) {
     return <Navigate to="/login" replace />
+  }
+
+  /**
+   * Previous on the invites step lands here after the workspace already
+   * exists. Showing the create form again would offer a second POST that
+   * this account cannot use. Next is the only action that remains.
+   */
+  if (hasWorkspace) {
+    return (
+      <AuthLayout
+        step={1}
+        title="Your workspace is ready"
+        description="Use Next to invite teammates, or skip that step later."
+        footer={
+          <Link to="/login" className="font-medium text-accent hover:underline">
+            Sign in as somebody else
+          </Link>
+        }
+      >
+        <div className="mt-5">
+          <OnboardingNav
+            step={1}
+            nextLabel="Next"
+            nextType="button"
+            onNext={() => {
+              navigate('/onboarding/invites', { replace: true })
+            }}
+          />
+        </div>
+      </AuthLayout>
+    )
   }
 
   return (
@@ -139,9 +172,10 @@ export function WorkspaceStepPage(): React.JSX.Element {
         </label>
         {createWorkspace.error !== null && <ErrorPanel error={createWorkspace.error} />}
         {installSampleData.error !== null && <ErrorPanel error={installSampleData.error} />}
-        <SubmitButton
-          label="Continue"
-          pendingLabel={installSampleData.isPending ? 'Installing sample data…' : 'Creating…'}
+        <OnboardingNav
+          step={1}
+          nextLabel="Next"
+          nextPendingLabel={installSampleData.isPending ? 'Installing sample data…' : 'Creating…'}
           isPending={createWorkspace.isPending || installSampleData.isPending}
         />
       </form>

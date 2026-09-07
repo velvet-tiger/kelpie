@@ -5,8 +5,9 @@ import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 
 import { useSendInvite } from '../../api/resources/invites.ts'
-import { AUTH_INPUT_CLASS, SecondaryButton, SubmitButton } from '../auth/AuthForm.tsx'
+import { AUTH_INPUT_CLASS, SecondaryButton } from '../auth/AuthForm.tsx'
 import { AuthLayout } from '../auth/AuthLayout.tsx'
+import { OnboardingNav } from './OnboardingNav.tsx'
 
 /**
  * Onboarding step 2: invitations, against `POST /v1/workspaces/:id/invites`.
@@ -117,20 +118,21 @@ export function InvitesStepPage(): React.JSX.Element {
           Add another
         </button>
 
-        <div className="flex flex-col gap-2 pt-1">
-          <SubmitButton
-            label={outstanding === 0 ? 'Continue' : 'Send invitations'}
-            pendingLabel="Sending…"
-            isPending={sendInvite.isPending}
-          />
-          <SecondaryButton
-            label="Skip for now"
-            disabled={sendInvite.isPending}
-            onClick={() => {
-              navigate('/onboarding/handbook', { replace: true })
-            }}
-          />
-        </div>
+        <OnboardingNav
+          step={2}
+          nextLabel={outstanding === 0 ? 'Next' : 'Send invitations'}
+          nextPendingLabel="Sending…"
+          isPending={sendInvite.isPending}
+          extra={
+            <SecondaryButton
+              label="Skip for now"
+              disabled={sendInvite.isPending}
+              onClick={() => {
+                navigate('/onboarding/handbook', { replace: true })
+              }}
+            />
+          }
+        />
       </form>
     </AuthLayout>
   )
