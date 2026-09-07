@@ -36,6 +36,12 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/ui`** — the non-production environment strip now uses a
+  different colour per known site name (`dev` amber, `demo` teal,
+  `staging` violet, `test` slate, `cloud` blue) so installs open side by
+  side are distinct before you read the label. An unknown name hashes
+  onto that same five-colour set.
+
 - **`@kelpie/server`** — the built-in `smtp-email` module accepts a config
   with no `SMTP_USER` / `SMTP_PASSWORD` and connects to the relay without
   SMTP AUTH in that case. Local catch-alls (maildev, MailHog, smtp4dev) that

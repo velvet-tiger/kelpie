@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../api/ApiProvider.tsx'
 import { stubClient } from '../testing/stubClient.ts'
 import { EnvironmentBanner } from './EnvironmentBanner.tsx'
+import { environmentTone } from './environmentTone.ts'
 
 afterEach(cleanup)
 
@@ -28,17 +29,56 @@ function renderWith(wire: { runtime_mode: string; site_name: string | null; sign
   )
 }
 
+describe('environmentTone', () => {
+  it('gives each known name a stable colour', () => {
+    expect(environmentTone('dev')).toBe('dev')
+    expect(environmentTone('development')).toBe('dev')
+    expect(environmentTone('local')).toBe('dev')
+    expect(environmentTone('demo')).toBe('demo')
+    expect(environmentTone('staging')).toBe('staging')
+    expect(environmentTone('stage')).toBe('staging')
+    expect(environmentTone('preview')).toBe('staging')
+    expect(environmentTone('test')).toBe('test')
+    expect(environmentTone('cloud')).toBe('cloud')
+  })
+
+  it('ignores case and surrounding space', () => {
+    expect(environmentTone('  DEV  ')).toBe('dev')
+    expect(environmentTone('Demo')).toBe('demo')
+  })
+
+  it('hashes an unknown name onto the same five colours', () => {
+    expect(['dev', 'demo', 'staging', 'test', 'cloud']).toContain(environmentTone('sandbox'))
+  })
+})
+
 describe('EnvironmentBanner', () => {
   it('names the site when the mode is not production', async () => {
     renderWith({ runtime_mode: 'development', site_name: 'dev', signups_enabled: true })
 
-    expect((await screen.findByText('dev')).textContent).toBe('dev')
+    const strip = await screen.findByText('dev')
+    expect(strip.textContent).toBe('dev')
+    expect(strip.getAttribute('data-tone')).toBe('dev')
+  })
+
+  it('paints the demo site in a different colour from local', async () => {
+    renderWith({ runtime_mode: 'development', site_name: 'demo', signups_enabled: true })
+
+    expect((await screen.findByText('demo')).getAttribute('data-tone')).toBe('demo')
+  })
+
+  it('paints the cloud site in a different colour from demo', async () => {
+    renderWith({ runtime_mode: 'development', site_name: 'cloud', signups_enabled: true })
+
+    expect((await screen.findByText('cloud')).getAttribute('data-tone')).toBe('cloud')
   })
 
   it('falls back to the runtime mode when no site name is set', async () => {
     renderWith({ runtime_mode: 'development', site_name: null, signups_enabled: true })
 
-    expect((await screen.findByText('development')).textContent).toBe('development')
+    const strip = await screen.findByText('development')
+    expect(strip.textContent).toBe('development')
+    expect(strip.getAttribute('data-tone')).toBe('dev')
   })
 
   it('renders nothing on production', async () => {

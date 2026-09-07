@@ -93,7 +93,7 @@ Naming a module the build does not have, or one that is structural (always on), 
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `KELPIE_SITE_NAME` | no | A label ("dev", "staging", "demo") shown in a strip at the top of the UI whenever `NODE_ENV` is not `production`, so two installs open side by side are easy to tell apart. Unset, the runtime mode is the label. Ignored in production. |
+| `KELPIE_SITE_NAME` | no | A label ("dev", "staging", "demo", "cloud") shown in a coloured strip at the top of the UI whenever `NODE_ENV` is not `production`, so two installs open side by side are easy to tell apart. Known names each have a fixed colour; other names still pick one from the same set. Unset, the runtime mode is the label. Ignored in production. |
 
 ## Module settings
 
