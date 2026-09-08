@@ -1,4 +1,4 @@
-import { formatAddress, primaryAddress } from '@kelpie/schemas'
+import { SOCIAL_NETWORK_LABELS, formatAddress, primaryAddress } from '@kelpie/schemas'
 import type { Person } from '@kelpie/schemas'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router'
 import { useTimezone } from '../api/resources/account.ts'
 import { useCreatePerson, usePeople } from '../api/resources/people.ts'
 import { Chip } from '../components/Chip.tsx'
+import { SocialNetworkIcon } from '../components/SocialNetworkIcon.tsx'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
@@ -131,7 +132,10 @@ export function PeoplePage(): React.JSX.Element {
           <span className="flex flex-wrap gap-1">
             {person.socialProfiles.map((entry) => (
               <Chip key={entry.network}>
-                <span className="text-[10px]">{entry.network}</span>
+                <span className="inline-flex items-center gap-1">
+                  <SocialNetworkIcon network={entry.network} className="size-3" />
+                  <span className="text-[10px]">{SOCIAL_NETWORK_LABELS[entry.network]}</span>
+                </span>
               </Chip>
             ))}
           </span>

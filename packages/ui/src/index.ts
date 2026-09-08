@@ -145,10 +145,15 @@ export { AddressSidebarLink, AddressesField } from './components/AddressesField.
 export type { AddressSidebarLinkProps, AddressesFieldProps } from './components/AddressesField.tsx'
 export { CountrySearch } from './components/CountrySearch.tsx'
 export type { CountrySearchProps } from './components/CountrySearch.tsx'
-export { SocialProfilesField, SocialProfilesSidebar } from './components/SocialProfilesField.tsx'
+export { SocialNetworkIcon, SocialNetworkName } from './components/SocialNetworkIcon.tsx'
 export type {
+  SocialNetworkIconProps,
+  SocialNetworkNameProps,
+} from './components/SocialNetworkIcon.tsx'
+export { SocialProfileIcons, SocialProfilesField } from './components/SocialProfilesField.tsx'
+export type {
+  SocialProfileIconsProps,
   SocialProfilesFieldProps,
-  SocialProfilesSidebarProps,
 } from './components/SocialProfilesField.tsx'
 export { SummaryBlock } from './components/SummaryBlock.tsx'
 export type { SummaryBlockProps } from './components/SummaryBlock.tsx'

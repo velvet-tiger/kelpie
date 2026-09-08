@@ -52,7 +52,8 @@
     "@tanstack/react-query": "^5.101.4",
     "react-markdown": "^10.1.0",
     "react-router": "^8.3.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "simple-icons": "^16.30.0"
   },
   "peerDependencies": {
     "react": "^19.0.0",

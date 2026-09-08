@@ -2,7 +2,7 @@ import { SOCIAL_NETWORK_IDS, SOCIAL_NETWORK_LABELS } from '@kelpie/schemas'
 import type { SocialNetworkId, SocialProfile } from '@kelpie/schemas'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
-import { SidebarField } from './SidebarField.tsx'
+import { SocialNetworkIcon, SocialNetworkName } from './SocialNetworkIcon.tsx'
 
 export interface SocialProfilesFieldProps {
   readonly value: readonly SocialProfile[]
@@ -27,53 +27,42 @@ function profileHandle(url: string): string {
   return path.length > 0 ? path : bare
 }
 
-export interface SocialProfilesSidebarProps {
+export interface SocialProfileIconsProps {
   readonly profiles: readonly SocialProfile[]
-  readonly onOpen: () => void
 }
 
 /**
- * The person's social profiles in the aside: outbound links, not the editor.
- * An empty list is a link that opens the Social tab.
+ * Compact outbound marks for the person heading. Empty when there are no
+ * profiles; the Social tab is the editor.
  */
-export function SocialProfilesSidebar({
+export function SocialProfileIcons({
   profiles,
-  onOpen,
-}: SocialProfilesSidebarProps): React.JSX.Element {
-  return (
-    <SidebarField label="Social profiles">
-      {profiles.length === 0 ? (
-        <button
-          type="button"
-          onClick={onOpen}
-          className="text-left text-[12px] font-medium text-accent transition hover:text-accent-hover hover:underline"
-        >
-          Add profile…
-        </button>
-      ) : (
-        <ul className="space-y-0.5">
-          {profiles.map((profile) => {
-            const label = SOCIAL_NETWORK_LABELS[profile.network]
+}: SocialProfileIconsProps): React.JSX.Element | null {
+  if (profiles.length === 0) {
+    return null
+  }
 
-            return (
-              <li key={profile.network}>
-                <a
-                  href={hrefFor(profile.url)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={profile.url}
-                  className="block min-w-0 truncate text-[12px] leading-snug text-ink hover:text-accent"
-                >
-                  <span className="font-medium">{label}</span>
-                  <span className="text-ink-faint"> · </span>
-                  <span className="text-ink-muted">{profileHandle(profile.url)}</span>
-                </a>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </SidebarField>
+  return (
+    <ul className="flex shrink-0 items-center gap-1.5">
+      {profiles.map((profile) => {
+        const label = SOCIAL_NETWORK_LABELS[profile.network]
+
+        return (
+          <li key={profile.network}>
+            <a
+              href={hrefFor(profile.url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`${label} · ${profileHandle(profile.url)}`}
+              aria-label={label}
+              className="inline-flex text-ink-muted transition hover:text-accent"
+            >
+              <SocialNetworkIcon network={profile.network} className="size-4" />
+            </a>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -202,7 +191,9 @@ export function SocialProfilesField({
           if (editingNetwork === profile.network) {
             return (
               <li key={profile.network} className="py-1">
-                <div className="mb-1 text-[11px] font-medium text-ink-muted">{label}</div>
+                <div className="mb-1">
+                  <SocialNetworkName network={profile.network} className="text-[11px] font-medium text-ink-muted" />
+                </div>
                 <input
                   ref={editInputRef}
                   type="url"
@@ -238,11 +229,14 @@ export function SocialProfilesField({
                 target="_blank"
                 rel="noopener noreferrer"
                 title={profile.url}
-                className="min-w-0 flex-1 truncate text-[12px] leading-snug text-ink hover:text-accent"
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] leading-snug text-ink hover:text-accent"
               >
-                <span className="font-medium">{label}</span>
-                <span className="text-ink-faint"> · </span>
-                <span className="text-ink-muted">{profileHandle(profile.url)}</span>
+                <SocialNetworkIcon network={profile.network} />
+                <span className="min-w-0 truncate">
+                  <span className="font-medium">{label}</span>
+                  <span className="text-ink-faint"> · </span>
+                  <span className="text-ink-muted">{profileHandle(profile.url)}</span>
+                </span>
               </a>
               <div className="flex shrink-0 items-center">
                 <button
@@ -282,9 +276,10 @@ export function SocialProfilesField({
 
       {pendingNetwork !== null ? (
         <div className="mt-1 space-y-1.5 rounded-md border border-border bg-surface px-2 py-2">
-          <div className="text-[11px] font-medium text-ink">
-            {SOCIAL_NETWORK_LABELS[pendingNetwork]}
-          </div>
+          <SocialNetworkName
+            network={pendingNetwork}
+            className="text-[11px] font-medium text-ink"
+          />
           <input
             ref={urlInputRef}
             type="url"
@@ -388,11 +383,11 @@ export function SocialProfilesField({
                             pickNetwork(network)
                           }}
                           className={[
-                            'flex w-full px-3 py-1.5 text-left text-[12px] text-ink',
+                            'flex w-full items-center px-3 py-1.5 text-left text-[12px] text-ink',
                             index === highlight ? 'bg-accent-soft' : 'hover:bg-surface',
                           ].join(' ')}
                         >
-                          {SOCIAL_NETWORK_LABELS[network]}
+                          <SocialNetworkName network={network} />
                         </button>
                       </li>
                     ))

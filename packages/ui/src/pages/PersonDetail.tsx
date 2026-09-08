@@ -49,7 +49,7 @@ import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
 import { SidebarField } from '../components/SidebarField.tsx'
-import { SocialProfilesField, SocialProfilesSidebar } from '../components/SocialProfilesField.tsx'
+import { SocialProfileIcons, SocialProfilesField } from '../components/SocialProfilesField.tsx'
 import { TimezoneSearch } from '../components/TimezoneSearch.tsx'
 import { PhonesField } from '../components/PhonesField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
@@ -201,9 +201,6 @@ export function PersonDetail(): React.JSX.Element {
             onOpenAddresses={() => {
               setActiveTab('addresses')
             }}
-            onOpenSocial={() => {
-              setActiveTab('social')
-            }}
           />
           <PersonConsents person={record} />
         </aside>
@@ -236,14 +233,19 @@ function PersonHeading({
           <ErrorPanel error={error} />
         </div>
       )}
-      <InlineEdit
-        value={person.name}
-        onChange={(name) => {
-          patch({ name })
-        }}
-        displayClassName="text-[22px] font-semibold tracking-tight text-ink not-italic"
-        emptyLabel="Untitled"
-      />
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <InlineEdit
+            value={person.name}
+            onChange={(name) => {
+              patch({ name })
+            }}
+            displayClassName="text-[22px] font-semibold tracking-tight text-ink not-italic"
+            emptyLabel="Untitled"
+          />
+        </div>
+        <SocialProfileIcons profiles={person.socialProfiles} />
+      </div>
       {positions.records.length > 0 && (
         <ul className="mt-1 space-y-0.5">
           {positions.records.map((position) => {
@@ -534,11 +536,9 @@ function PersonNameParts({ person }: { readonly person: Person }): React.JSX.Ele
 function PersonSidebar({
   person,
   onOpenAddresses,
-  onOpenSocial,
 }: {
   readonly person: Person
   readonly onOpenAddresses: () => void
-  readonly onOpenSocial: () => void
 }): React.JSX.Element {
   const { patch, error } = usePersonPatch(person)
 
@@ -576,7 +576,6 @@ function PersonSidebar({
           }}
         />
       </SidebarField>
-      <SocialProfilesSidebar profiles={person.socialProfiles} onOpen={onOpenSocial} />
       <SidebarField label="Tags">
         <InlineEdit
           value={person.tags.join(', ')}
@@ -632,7 +631,7 @@ function PersonSocial({ person }: { readonly person: Person }): React.JSX.Elemen
       {error !== null && <ErrorPanel error={error} />}
       <SectionHeader
         title="Social profiles"
-        description="One profile per network. The sidebar lists them as links."
+        description="One profile per network. Icons beside the name open each profile."
       />
       <SocialProfilesField
         value={person.socialProfiles}

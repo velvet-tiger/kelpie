@@ -12,6 +12,10 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/ui`** — **Brand icons on person social profiles.** Icon links sit
+  beside the name on the person page. The Social tab editor, the network
+  picker, and the People list Socials column also show a Simple Icons mark.
+
 - **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **Labelled postal
   addresses on Person and Company.** Stored as jsonb arrays (one entry per
   kind: Person `home` / `work` / `mailing` / `other`; Company `hq` /
@@ -21,8 +25,8 @@ While the major version is `0`, a minor bump may break the API.
   street / city / region / postal code / country instead of a single city
   cell. Person and Company detail pages keep the list on an Addresses tab
   and show only the primary address in the sidebar, as a link to that tab.
-  Person social profiles use the same split: the editor is on a Social tab,
-  and the sidebar lists the profiles as outbound links. Person positions live
+  Person social profiles live on a Social tab; icon links beside the name
+  open each profile. Person positions live
   on a Positions tab; the heading lists each title (opens the tab) and
   company (opens the company) under the name, with email below.
 

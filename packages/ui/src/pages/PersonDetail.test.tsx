@@ -266,20 +266,19 @@ describe('PersonDetail Addresses tab', () => {
 })
 
 describe('PersonDetail Social tab', () => {
-  it('keeps the editor on the Social tab, not the sidebar', async () => {
+  it('keeps the editor on the Social tab, not the heading', async () => {
     renderPerson(false)
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Social' })).toBeTruthy()
     })
 
-    expect(screen.getByRole('button', { name: 'Add profile…' })).toBeTruthy()
     expect(screen.queryByText(/One profile per network/u)).toBeNull()
     expect(screen.getByRole('tab', { name: 'Social' }).getAttribute('aria-selected')).toBe(
       'false',
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add profile…' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Social' }))
 
     expect(screen.getByRole('tab', { name: 'Social' }).getAttribute('aria-selected')).toBe(
       'true',
@@ -287,18 +286,19 @@ describe('PersonDetail Social tab', () => {
     expect(screen.getByText(/One profile per network/u)).toBeTruthy()
   })
 
-  it('lists social profiles in the sidebar as outbound links', async () => {
+  it('lists social profiles as icon links beside the name', async () => {
     renderPerson(false, { socialProfiles: [LINKEDIN_PROFILE] })
 
-    const link = await screen.findByRole('link', { name: 'LinkedIn · in/ada' })
+    const link = await screen.findByRole('link', { name: 'LinkedIn' })
 
     expect(link.getAttribute('href')).toBe('https://linkedin.com/in/ada')
     expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.querySelector('svg')).not.toBeNull()
     expect(
       screen.getByRole('tab', { name: /Social/u }).getAttribute('aria-selected'),
     ).toBe('false')
     expect(screen.queryByText(/One profile per network/u)).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Add profile…' })).toBeNull()
+    expect(screen.queryByText('Social profiles')).toBeNull()
   })
 })
 
