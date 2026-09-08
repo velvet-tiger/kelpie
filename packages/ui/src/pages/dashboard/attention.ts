@@ -4,7 +4,6 @@ import type {
   DashboardStaleContact,
   DashboardTouchpoint,
   DashboardUpcomingEvent,
-  PipelineKind,
   RecordTargetType,
 } from '@kelpie/schemas'
 
@@ -12,8 +11,8 @@ import type { ChipTone } from '../../components/Chip.tsx'
 import { formatDate, formatDay } from '../../lib/dates.ts'
 
 /**
- * Reading the workspace snapshot as a page: one attention list, and the brief
- * above it.
+ * Reading the workspace snapshot as a page: one attention list from the
+ * signals the service already ranked.
  *
  * Pure functions over the decoded response, so the page renders and these are
  * tested separately. Nothing here recomputes a signal: the service already
@@ -135,7 +134,7 @@ function upcomingEventRow(event: DashboardUpcomingEvent, timezone: string): Atte
 }
 
 /**
- * The signals behind the brief, most urgent first.
+ * The attention list, most urgent first.
  *
  * The groups are concatenated rather than sorted: each arrives from the API in
  * its own order — plan items soonest first, contacts coldest first — and a
@@ -153,83 +152,4 @@ export function attentionRows(dashboard: Dashboard): readonly AttentionRow[] {
     ...dashboard.upcomingEvents.items.map((item) => upcomingEventRow(item, dashboard.timezone)),
     ...dashboard.staleContacts.items.map(staleContactRow),
   ]
-}
-
-function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
-  return `${String(count)} ${count === 1 ? singular : pluralForm}`
-}
-
-/**
- * How a count of open records reads mid-sentence.
- *
- * Not `PIPELINE_KIND_LABELS`: that one is nav wording, where a Raise is filed
- * under "Fundraising", and "3 fundraisings" is not a sentence. Written out
- * rather than suffixed, because "opportunitys" is not one either.
- */
-const OPEN_PIPELINE_NOUNS: Readonly<
-  Record<PipelineKind, { readonly one: string; readonly many: string }>
-> = {
-  enquiry: { one: 'enquiry', many: 'enquiries' },
-  deal: { one: 'deal', many: 'deals' },
-  opportunity: { one: 'opportunity', many: 'opportunities' },
-  raise: { one: 'raise', many: 'raises' },
-  partnership: { one: 'partnership', many: 'partnerships' },
-}
-
-/**
- * The brief, built from the totals rather than from the rows.
- *
- * A list is capped by the request's limit and a total is not, so counting the
- * rows on screen would understate every workspace with more than a page of them.
- */
-export function briefLines(dashboard: Dashboard): readonly string[] {
-  const lines: string[] = []
-
-  if (dashboard.overduePlanItems.total > 0) {
-    lines.push(
-      `${plural(dashboard.overduePlanItems.total, 'plan item')} overdue — triage Planning first.`,
-    )
-  }
-
-  if (dashboard.dueSoonPlanItems.total > 0) {
-    lines.push(
-      `${plural(dashboard.dueSoonPlanItems.total, 'plan item')} due in the next ${plural(dashboard.upcomingDays, 'day')}.`,
-    )
-  }
-
-  if (dashboard.partnershipTouchpoints.total > 0) {
-    lines.push(
-      `${plural(dashboard.partnershipTouchpoints.total, 'partnership touchpoint')} at hand.`,
-    )
-  }
-
-  if (dashboard.staleContacts.total > 0) {
-    lines.push(
-      `${plural(dashboard.staleContacts.total, 'contact')} past the ${String(dashboard.staleContactDays)}-day touch threshold.`,
-    )
-  }
-
-  if (dashboard.upcomingEvents.total > 0) {
-    lines.push(
-      `${plural(dashboard.upcomingEvents.total, 'upcoming event')} in the next ${plural(dashboard.upcomingDays, 'day')}.`,
-    )
-  }
-
-  const open = dashboard.pipelines.filter((pipeline) => pipeline.open > 0)
-
-  if (open.length > 0) {
-    lines.push(
-      `Open: ${open
-        .map((pipeline) => {
-          const noun = OPEN_PIPELINE_NOUNS[pipeline.kind]
-
-          return plural(pipeline.open, noun.one, noun.many)
-        })
-        .join(', ')}.`,
-    )
-  }
-
-  return lines.length === 0
-    ? ['Nothing urgent. Pipeline and relationships look quiet today.']
-    : lines
 }

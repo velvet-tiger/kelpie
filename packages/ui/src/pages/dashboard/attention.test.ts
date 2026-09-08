@@ -8,7 +8,7 @@ import type {
 } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
-import { attentionRows, briefLines, targetDescription, targetHref } from './attention.ts'
+import { attentionRows, targetDescription, targetHref } from './attention.ts'
 
 /** The empty snapshot every case below adds one signal to. */
 function emptySignal<Item>(): DashboardSignal<Item> {
@@ -182,58 +182,5 @@ describe('attentionRows', () => {
 
   it('is empty when nothing needs attention', () => {
     expect(attentionRows(dashboard())).toEqual([])
-  })
-})
-
-describe('briefLines', () => {
-  it('says so plainly when there is nothing to do', () => {
-    expect(briefLines(dashboard())).toEqual([
-      'Nothing urgent. Pipeline and relationships look quiet today.',
-    ])
-  })
-
-  it('counts from the totals, not from the rows the request asked for', () => {
-    const [line] = briefLines(
-      dashboard({ overduePlanItems: { total: 12, items: [planItem()] } }),
-    )
-
-    expect(line).toBe('12 plan items overdue — triage Planning first.')
-  })
-
-  it('agrees with itself on one', () => {
-    const [line] = briefLines(dashboard({ staleContacts: { total: 1, items: [] } }))
-
-    expect(line).toBe('1 contact past the 14-day touch threshold.')
-  })
-
-  it('lists the open pipelines with the right nouns, and skips the empty ones', () => {
-    const lines = briefLines(
-      dashboard({
-        pipelines: [
-          { kind: 'deal', open: 3 },
-          { kind: 'opportunity', open: 2 },
-          { kind: 'raise', open: 1 },
-          { kind: 'partnership', open: 0 },
-        ],
-      }),
-    )
-
-    expect(lines).toEqual(['Open: 3 deals, 2 opportunities, 1 raise.'])
-  })
-
-  it('counts upcoming Events in the same window the dashboard reports', () => {
-    const [line] = briefLines(
-      dashboard({ upcomingEvents: { total: 1, items: [] }, upcomingDays: 7 }),
-    )
-
-    expect(line).toBe('1 upcoming event in the next 7 days.')
-  })
-
-  it('reads the window length off the response rather than assuming a week', () => {
-    const lines = briefLines(
-      dashboard({ dueSoonPlanItems: { total: 2, items: [] }, upcomingDays: 7 }),
-    )
-
-    expect(lines[0]).toBe('2 plan items due in the next 7 days.')
   })
 })

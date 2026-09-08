@@ -73,7 +73,10 @@ function EmptyOr({
 export function AttentionList({ rows }: { readonly rows: readonly AttentionRow[] }): React.JSX.Element {
   return (
     <section>
-      <SectionHeader title="Needs attention" description="The signals behind the brief." />
+      <SectionHeader
+        title="Needs attention"
+        description="Overdue Plans, partnership touchpoints, and contacts going cold."
+      />
       <EmptyOr isEmpty={rows.length === 0} empty="Nothing urgent right now.">
         <ul className="divide-y divide-border border-y border-border">
           {rows.map((row) => (

@@ -70,6 +70,12 @@ While the major version is `0`, a minor bump may break the API.
   both keeps working; setting exactly one still fails at boot with an error
   naming both keys.
 
+### Removed
+
+- **`@kelpie/ui`** — the assembled Daily brief on the dashboard. Attention,
+  activity, notes, and decisions stay. Workspace agent tasks, including
+  `workspace.daily_brief`, remain on the page header.
+
 ## [0.12.0] - 2026-09-03
 
 ### Added

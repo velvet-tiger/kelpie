@@ -54,7 +54,7 @@ The sidebar is the map:
 
 ## Your dashboard
 
-The dashboard is a daily brief built from your own data: open counts for each pipeline, plan items overdue and due soon, partnership touchpoints coming up, people you have not contacted in 14 days, and the latest activity, notes, and decisions. Each signal shows a handful of rows and the true total, so "4 of 23 overdue" reads as 23, not 4. Overdue is judged in your workspace's timezone.
+The dashboard shows what needs attention: plan items overdue and due soon, partnership touchpoints coming up, people you have not contacted in 14 days, upcoming events, and the latest activity, notes, and decisions. Each signal shows a handful of rows and the true total, so "4 of 23 overdue" reads as 23, not 4. Overdue is judged in your workspace's timezone.
 
 <!-- screenshot: dashboard -->
 
