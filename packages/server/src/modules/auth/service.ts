@@ -9,6 +9,8 @@ import { MINIMUM_PASSWORD_LENGTH, hashPassword, verifyPassword } from '../../lib
 import { generateToken, hashToken } from '../../lib/tokens.ts'
 import type { VerifiedIdentity } from '../../runtime/module.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import type { MemberRole } from '../workspace/roles.ts'
+import { parseMemberRole } from '../workspace/roles.ts'
 import type { SessionActor } from './actor.ts'
 import { DEFAULT_PREFERENCES, applyPreferenceChanges } from './preferences.ts'
 import type { PreferenceChanges, PreferenceValues } from './preferences.ts'
@@ -75,6 +77,24 @@ export interface SessionView {
   readonly current: boolean
   /** The module that signed this session in, or null for a password sign-in. */
   readonly signedInVia: string | null
+}
+
+/** What `GET /v1/auth/me` and `POST /v1/auth/workspace` answer with. */
+export interface MeView {
+  readonly userId: string
+  readonly sessionId: string
+  readonly workspaceId: string | null
+  readonly role: MemberRole | null
+  readonly emailVerified: boolean
+}
+
+/** One membership on `GET /v1/auth/workspaces`. */
+export interface AccountWorkspaceView {
+  readonly id: string
+  readonly name: string
+  readonly slug: string
+  readonly timezone: string
+  readonly role: MemberRole
 }
 
 export interface SignUpInput {
@@ -173,6 +193,10 @@ export interface AuthService {
   updatePreferences(actor: SessionActor, changes: PreferenceChanges): Promise<PreferenceValues>
   listSessions(actor: SessionActor): Promise<readonly SessionView[]>
   revokeSession(actor: SessionActor, sessionId: string): Promise<void>
+  /** Workspaces this account belongs to. Oldest membership first. */
+  listWorkspaces(actor: SessionActor): Promise<readonly AccountWorkspaceView[]>
+  /** Moves this session into a membership. Answers the same shape as `GET /v1/auth/me`. */
+  switchWorkspace(actor: SessionActor, workspaceId: string): Promise<MeView>
   /** Resolves whether or not the address is registered. */
   requestPasswordReset(email: string): Promise<void>
   confirmPasswordReset(token: string, newPassword: string): Promise<void>
@@ -593,6 +617,51 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         // Another user's session id is indistinguishable from one that never
         // existed, which is what `api.md` requires of a cross-tenant miss.
         throw AppError.notFound('Session not found')
+      }
+    },
+
+    async listWorkspaces(actor: SessionActor): Promise<readonly AccountWorkspaceView[]> {
+      const rows = await repository.listWorkspacesForUser(dependencies.db, actor.userId)
+
+      return rows.map((row) => {
+        const role = parseMemberRole(row.role)
+
+        if (role === undefined) {
+          throw new Error(`workspace_members.role holds "${row.role}", which its check constraint forbids`)
+        }
+
+        return {
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+          timezone: row.timezone,
+          role,
+        }
+      })
+    },
+
+    async switchWorkspace(actor: SessionActor, workspaceId: string): Promise<MeView> {
+      const membership = await repository.findMembership(dependencies.db, workspaceId, actor.userId)
+
+      if (membership === undefined) {
+        throw AppError.notFound('Workspace not found')
+      }
+
+      const role = parseMemberRole(membership.role)
+
+      if (role === undefined) {
+        throw new Error(`workspace_members.role holds "${membership.role}", which its check constraint forbids`)
+      }
+
+      await repository.setActiveWorkspace(dependencies.db, actor.sessionId, workspaceId)
+      const user = await requireUser(actor.userId)
+
+      return {
+        userId: actor.userId,
+        sessionId: actor.sessionId,
+        workspaceId,
+        role,
+        emailVerified: user.emailVerifiedAt !== null,
       }
     },
 

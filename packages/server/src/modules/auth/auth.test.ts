@@ -983,4 +983,115 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect(response.status).toBe(401)
     })
   })
+
+  describe('workspace switching', () => {
+    async function verifiedCookie(email = SIGNUP.email): Promise<string> {
+      const response = await post('/v1/auth/signup', { ...SIGNUP, email })
+      expect(response.status).toBe(201)
+      const cookie = sessionCookieFrom(response)
+      const confirmed = await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() })
+      expect(confirmed.status).toBe(204)
+
+      return cookie
+    }
+
+    async function createWorkspace(cookie: string, slug: string, name: string): Promise<string> {
+      const response = await post(
+        '/v1/workspaces',
+        { name, slug, timezone: 'UTC' },
+        cookie,
+      )
+      expect(response.status).toBe(201)
+      const payload: unknown = await response.json()
+
+      if (!isRecord(payload) || typeof payload.id !== 'string') {
+        throw new Error(`Expected a workspace, got ${JSON.stringify(payload)}`)
+      }
+
+      return payload.id
+    }
+
+    it('lists nothing before the account has a workspace', async () => {
+      const cookie = await verifiedCookie()
+
+      const response = await get('/v1/auth/workspaces', cookie)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ data: [], next_cursor: null })
+    })
+
+    it('lists every membership and moves the session into another one', async () => {
+      const cookie = await verifiedCookie()
+      const acme = await createWorkspace(cookie, 'acme-switch', 'Acme')
+      const globex = await createWorkspace(cookie, 'globex-switch', 'Globex')
+
+      const listed = await get('/v1/auth/workspaces', cookie)
+      expect(listed.status).toBe(200)
+      const page: unknown = await listed.json()
+      expect(isRecord(page) && Array.isArray(page.data) ? page.data.map((row) => {
+        if (!isRecord(row)) {
+          throw new Error('Expected a workspace row')
+        }
+
+        return { id: row.id, name: row.name, role: row.role }
+      }) : []).toEqual([
+        { id: acme, name: 'Acme', role: 'owner' },
+        { id: globex, name: 'Globex', role: 'owner' },
+      ])
+
+      const meBefore = await harness.app.request('/v1/auth/me', { headers: { Cookie: cookie } })
+      expect(await meBefore.json()).toMatchObject({ workspace_id: globex })
+
+      const switched = await post('/v1/auth/workspace', { workspace_id: acme }, cookie)
+      expect(switched.status).toBe(200)
+      expect(await switched.json()).toMatchObject({
+        workspace_id: acme,
+        role: 'owner',
+        email_verified: true,
+      })
+
+      const meAfter = await harness.app.request('/v1/auth/me', { headers: { Cookie: cookie } })
+      expect(await meAfter.json()).toMatchObject({ workspace_id: acme })
+    })
+
+    it('answers 404 for a workspace the account does not belong to', async () => {
+      const cookie = await verifiedCookie('ada-miss@example.com')
+      await createWorkspace(cookie, 'acme-miss', 'Acme')
+      const other = await verifiedCookie('grace-miss@example.com')
+      const outsiderWorkspace = await createWorkspace(other, 'globex-miss', 'Globex')
+
+      const response = await post('/v1/auth/workspace', { workspace_id: outsiderWorkspace }, cookie)
+
+      expect(response.status).toBe(404)
+    })
+
+    it('needs a session, not an API key', async () => {
+      const cookie = await verifiedCookie()
+      await createWorkspace(cookie, 'acme-key', 'Acme')
+      const minted = await post('/v1/api-keys', { name: 'agent', kind: 'workspace' }, cookie)
+      expect(minted.status).toBe(201)
+      const payload: unknown = await minted.json()
+      const secret = isRecord(payload) && typeof payload.secret === 'string' ? payload.secret : ''
+
+      const listed = await harness.app.request('/v1/auth/workspaces', {
+        headers: { Authorization: `Bearer ${secret}` },
+      })
+      const switched = await harness.app.request('/v1/auth/workspace', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+        },
+        body: JSON.stringify({ workspace_id: 'ws_nope' }),
+      })
+
+      expect(listed.status).toBe(403)
+      expect(switched.status).toBe(403)
+    })
+
+    it('answers 401 without a cookie', async () => {
+      expect((await get('/v1/auth/workspaces')).status).toBe(401)
+      expect((await post('/v1/auth/workspace', { workspace_id: 'ws_nope' })).status).toBe(401)
+    })
+  })
 })

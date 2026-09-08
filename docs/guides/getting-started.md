@@ -39,7 +39,7 @@ On the last onboarding step you review the handbook pages seeded for your organi
 The sidebar is the map:
 
 - **Dashboard** — what needs attention today (below).
-- **Search** — the box in the header searches everything at once: people, companies, deals, the other pipelines, roles, decisions, and handbook pages. Partial words work — typing `acm` finds Acme.
+- **Search** — the box in the header searches everything at once: people, companies, deals, the other pipelines, roles, decisions, and handbook pages. Partial words work — typing `acm` finds Acme. The header also shows the current workspace; open it to switch into another membership.
 - **People and Companies** — who you know and where they work. Job titles live on the link between a person and a company, so one person can hold titles at several companies. See [Records](records.md).
 - **Deals, Opportunities, Fundraising, Partnerships** — four pipelines on one kanban. See [Pipelines](pipelines.md).
 - **Hiring** — roles you are hiring for, and candidates attached to them.

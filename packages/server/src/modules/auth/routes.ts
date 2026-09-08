@@ -10,7 +10,7 @@ import type { SessionActor } from './actor.ts'
 import { resolveActorFrom } from './credentials.ts'
 import type { CredentialDependencies } from './credentials.ts'
 import type { PreferenceValues } from './preferences.ts'
-import type { AccountView, AuthService, IssuedSession, SessionView } from './service.ts'
+import type { AccountView, AuthService, IssuedSession, MeView, SessionView } from './service.ts'
 import { clearSessionCookie, describeClient, writeSessionCookie } from './session.ts'
 import type { SessionCookieOptions } from './session.ts'
 
@@ -42,6 +42,10 @@ const resetConfirmBody = z.object({
 const changePasswordBody = z.object({
   current_password: z.string().min(1),
   new_password: z.string().min(1),
+})
+
+const switchWorkspaceBodySchema = z.object({
+  workspace_id: z.string().min(1),
 })
 
 const verifyEmailConfirmBody = z.object({
@@ -135,6 +139,32 @@ function preferencesResponse(preferences: PreferenceValues): Record<string, unkn
   }
 }
 
+function sessionMeResponse(session: MeView): Record<string, unknown> {
+  return {
+    user_id: session.userId,
+    session_id: session.sessionId,
+    workspace_id: session.workspaceId,
+    role: session.role,
+    email_verified: session.emailVerified,
+  }
+}
+
+function accountWorkspaceResponse(workspace: {
+  readonly id: string
+  readonly name: string
+  readonly slug: string
+  readonly timezone: string
+  readonly role: string
+}): Record<string, unknown> {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    slug: workspace.slug,
+    timezone: workspace.timezone,
+    role: workspace.role,
+  }
+}
+
 function sessionResponse(session: SessionView): Record<string, unknown> {
   return {
     id: session.id,
@@ -192,6 +222,19 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
       role: actor.role,
       email_verified: account.emailVerified,
     })
+  })
+
+  router.get('/auth/workspaces', async (context) => {
+    const workspaces = await dependencies.service.listWorkspaces(await requireActor(context))
+
+    return context.json({ data: workspaces.map(accountWorkspaceResponse), next_cursor: null })
+  })
+
+  router.post('/auth/workspace', async (context) => {
+    const body = await readBody(context, switchWorkspaceBodySchema)
+    const session = await dependencies.service.switchWorkspace(await requireActor(context), body.workspace_id)
+
+    return context.json(sessionMeResponse(session))
   })
 
   /**

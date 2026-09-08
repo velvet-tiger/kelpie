@@ -162,6 +162,56 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
     })
   })
 
+  it('lets a member of a blocked workspace list memberships and switch to another', async () => {
+    let deniedWorkspaceId: string | undefined
+    const entitlements: EntitlementRegistry = createEntitlementRegistry()
+    entitlements.provide((workspaceId, capability) =>
+      Promise.resolve(
+        capability.name === WORKSPACE_ACCESS.name && workspaceId === deniedWorkspaceId
+          ? { kind: 'flag', granted: false }
+          : undefined,
+      ),
+    )
+
+    const harness = await createTestApp({
+      modules: coreModules,
+      environment: TEST_ENVIRONMENT,
+      services: createTestServices({ db: database.db }),
+      entitlements,
+    })
+    const client = createTestClient(harness.app, harness.services.db)
+    const blocked = await client.owner('switch-away@example.com', 'switch-blocked')
+    const second = await client.send('POST', '/v1/workspaces', {
+      cookie: blocked.cookie,
+      body: { name: 'Other', slug: 'switch-other', timezone: 'UTC' },
+    })
+    expect(second.status).toBe(201)
+    const otherId = readString(await second.json(), 'id')
+
+    const back = await client.send('POST', '/v1/auth/workspace', {
+      cookie: blocked.cookie,
+      body: { workspace_id: blocked.workspaceId },
+    })
+    expect(back.status).toBe(200)
+
+    deniedWorkspaceId = blocked.workspaceId
+
+    const peopleWhileBlocked = await client.send('GET', '/v1/people', { cookie: blocked.cookie })
+    expect(peopleWhileBlocked.status).toBe(403)
+
+    const listed = await client.send('GET', '/v1/auth/workspaces', { cookie: blocked.cookie })
+    expect(listed.status).toBe(200)
+
+    const switched = await client.send('POST', '/v1/auth/workspace', {
+      cookie: blocked.cookie,
+      body: { workspace_id: otherId },
+    })
+    expect(switched.status).toBe(200)
+
+    const peopleAfter = await client.send('GET', '/v1/people', { cookie: blocked.cookie })
+    expect(peopleAfter.status).toBe(200)
+  })
+
   it('is inert with no provider registered, the open-source default', async () => {
     const harness = await createTestApp({
       modules: coreModules,

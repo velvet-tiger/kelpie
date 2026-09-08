@@ -10,6 +10,7 @@ import { useNavItems } from '../registry/context.ts'
 import type { NavItem } from '../registry/contributions.ts'
 import { useVisibleNavItems } from '../registry/visibleNav.ts'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
+import { WorkspaceSwitcher } from './WorkspaceSwitcher.tsx'
 
 /**
  * Sidebar, header, and the outlet every page renders into.
@@ -262,6 +263,7 @@ export function Shell(): React.JSX.Element {
           >
             {THEME_LABELS[theme]}
           </button>
+          <WorkspaceSwitcher />
           <div className="relative" ref={menuRef}>
             <button
               type="button"

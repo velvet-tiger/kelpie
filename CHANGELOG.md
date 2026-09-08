@@ -12,6 +12,13 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **Workspace
+  switcher in the app header.** `GET /v1/auth/workspaces` lists the
+  account's memberships. `POST /v1/auth/workspace` moves the session into
+  one. Both are session-only and sit under `/v1/auth`, so a member of a
+  suspended workspace can still see the others and leave. The header shows
+  the current workspace between the theme control and the account menu.
+
 - **`@kelpie/ui`** — **Brand icons on person social profiles.** Icon links sit
   beside the name on the person page. The Social tab editor, the network
   picker, and the People list Socials column also show a Simple Icons mark.

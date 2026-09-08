@@ -93,6 +93,7 @@ export type { DecisionFilters } from './api/resources/decisions.ts'
 
 export {
   useAcceptInvite,
+  useAccountWorkspaces,
   useConfirmPasswordReset,
   useCreateWorkspace,
   useLogIn,
@@ -100,8 +101,9 @@ export {
   useRequestPasswordReset,
   useSession,
   useSignUp,
+  useSwitchWorkspace,
 } from './api/resources/session.ts'
-export type { SessionState } from './api/resources/session.ts'
+export type { AccountWorkspacesState, SessionState } from './api/resources/session.ts'
 
 export { fetchServiceHealth } from './api/health.ts'
 export type { HealthRequestOptions, ServiceHealth } from './api/health.ts'

@@ -64,7 +64,44 @@ function shellClient(): ApiClient {
         return { items: [], nextCursor: null }
       }
 
+      if (path === '/auth/workspaces') {
+        return {
+          items: [
+            {
+              id: 'ws_1',
+              name: 'Acme Labs',
+              slug: 'acme',
+              timezone: 'UTC',
+              role: 'owner',
+            },
+            {
+              id: 'ws_2',
+              name: 'Globex',
+              slug: 'globex',
+              timezone: 'UTC',
+              role: 'member',
+            },
+          ],
+          nextCursor: null,
+        }
+      }
+
       throw new Error(`Unexpected list ${path}`)
+    },
+    post: (path, body) => {
+      if (path === '/auth/workspace') {
+        const record = body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {}
+
+        return {
+          user_id: SESSION.user_id,
+          session_id: SESSION.session_id,
+          workspace_id: record.workspace_id,
+          role: 'member',
+          email_verified: true,
+        }
+      }
+
+      throw new Error(`Unexpected post ${path}`)
     },
   })
 }
@@ -150,5 +187,39 @@ describe('the account menu', () => {
     })
 
     expect(await screen.findByText('onboarding rerun')).toBeTruthy()
+  })
+})
+
+describe('the workspace switcher', () => {
+  it('shows the current workspace between theme and account', async () => {
+    renderShell('/dashboard')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Switch workspace' })).toBeTruthy()
+    })
+
+    expect(screen.getByRole('button', { name: 'Switch workspace' }).textContent).toContain('Acme Labs')
+  })
+
+  it('lists memberships and moves the session into another workspace', async () => {
+    renderShell('/dashboard')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Switch workspace' })).toBeTruthy()
+    })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Switch workspace' }).click()
+    })
+
+    expect(screen.getByRole('menuitem', { name: /Globex/u })).toBeTruthy()
+
+    await act(async () => {
+      screen.getByRole('menuitem', { name: /Globex/u }).click()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Dashboard page')).toBeTruthy()
+    })
   })
 })

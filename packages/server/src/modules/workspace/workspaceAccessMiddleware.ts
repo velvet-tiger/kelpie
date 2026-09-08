@@ -23,10 +23,9 @@ import { WORKSPACE_ACCESS } from './capabilities.ts'
  *
  * Exempts `/v1/auth/*` and `/v1/account*`: they manage the *account*, not
  * the workspace, and a member of a workspace this gate has locked out
- * still needs to sign in, sign out, and see their own account to have any
- * chance of understanding why. There is no `/v1` endpoint to switch a
- * session to a different workspace membership — a session is bound to one
- * at login — so there is nothing further to exempt for that case.
+ * still needs to sign in, sign out, see their own account, list the
+ * workspaces they belong to (`GET /v1/auth/workspaces`), and switch this
+ * session to a different membership (`POST /v1/auth/workspace`).
  *
  * Also exempts `DELETE /v1/workspaces/:id` itself, and only that exact
  * path: a suspension must never trap an owner into a workspace they can no

@@ -11,9 +11,8 @@ import { useSession } from './session.ts'
 /**
  * The workspace the session is in.
  *
- * Not a CRM resource: there is one of them, its id comes from the session rather
- * than a route, and there is no list. `createResourceHooks` would have nothing
- * to configure.
+ * Not a CRM resource: the id comes from the session rather than a route.
+ * The account's memberships are a different list (`GET /v1/auth/workspaces`).
  */
 
 const WORKSPACE_KEY = 'workspace'

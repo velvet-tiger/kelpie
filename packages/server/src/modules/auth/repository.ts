@@ -1,8 +1,8 @@
-import { and, desc, eq, gt, isNull, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNull, ne } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
-import { workspaceMembers } from '../workspace/schema.ts'
+import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 import {
   emailVerificationTokens,
   passwordResetTokens,
@@ -297,4 +297,31 @@ export async function findFirstMembership(
     .limit(1)
 
   return found
+}
+
+/** Every workspace this account belongs to, oldest membership first. */
+export interface AccountWorkspaceRecord {
+  readonly id: string
+  readonly name: string
+  readonly slug: string
+  readonly timezone: string
+  readonly role: string
+}
+
+export async function listWorkspacesForUser(
+  db: Queryable,
+  userId: string,
+): Promise<AccountWorkspaceRecord[]> {
+  return db
+    .select({
+      id: workspaces.id,
+      name: workspaces.name,
+      slug: workspaces.slug,
+      timezone: workspaces.timezone,
+      role: workspaceMembers.role,
+    })
+    .from(workspaceMembers)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+    .where(eq(workspaceMembers.userId, userId))
+    .orderBy(asc(workspaceMembers.joinedAt))
 }

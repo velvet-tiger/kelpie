@@ -1,4 +1,5 @@
 import {
+  accountWorkspaceSchema,
   confirmEmailVerificationBody,
   confirmPasswordResetBody,
   createWorkspaceBody,
@@ -7,9 +8,11 @@ import {
   sessionSchema,
   signUpBody,
   signedInAccountSchema,
+  switchWorkspaceBody,
   workspaceSchema,
 } from '@kelpie/schemas'
 import type {
+  AccountWorkspace,
   ConfirmEmailVerificationInput,
   ConfirmPasswordResetInput,
   CreateWorkspaceInput,
@@ -18,6 +21,7 @@ import type {
   Session,
   SignUpInput,
   SignedInAccount,
+  SwitchWorkspaceInput,
   Workspace,
 } from '@kelpie/schemas'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -247,6 +251,61 @@ export function useCreateWorkspace(): MutationResult<CreateWorkspaceInput, Works
       client.post('/workspaces', createWorkspaceBody(input), workspaceSchema.parse),
     // Creating a workspace moves the session into it, so the session is stale.
     onSuccess: async () => {
+      await queryClient.fetchQuery(sessionQuery(client))
+    },
+  })
+
+  return asMutationResult(mutation)
+}
+
+const ACCOUNT_WORKSPACES_KEY = ['account', 'workspaces'] as const
+
+export interface AccountWorkspacesState {
+  readonly workspaces: readonly AccountWorkspace[]
+  readonly isLoading: boolean
+  readonly error: Error | null
+}
+
+/**
+ * Workspaces this account belongs to.
+ *
+ * Lives under `/auth` rather than `/workspaces/:id` so a session whose current
+ * workspace is suspended can still list the others and switch. The shell reads
+ * this for the header switcher.
+ */
+export function useAccountWorkspaces(): AccountWorkspacesState {
+  const client = useApiClient()
+  const result = useQuery({
+    queryKey: ACCOUNT_WORKSPACES_KEY,
+    queryFn: async () => {
+      const page = await client.list('/auth/workspaces', accountWorkspaceSchema.parse)
+
+      return page.items
+    },
+  })
+
+  return {
+    workspaces: result.data ?? [],
+    isLoading: result.isPending,
+    error: toError(result.error),
+  }
+}
+
+/**
+ * Moves this session into another membership.
+ *
+ * Every cached CRM list belongs to the workspace that is being left, so the
+ * whole cache is dropped. Leaving Acme's people in the cache for Globex would
+ * mix two tenants, not just show stale names.
+ */
+export function useSwitchWorkspace(): MutationResult<SwitchWorkspaceInput, Session> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (input: SwitchWorkspaceInput) =>
+      client.post('/auth/workspace', switchWorkspaceBody(input), sessionSchema.parse),
+    onSuccess: async () => {
+      queryClient.clear()
       await queryClient.fetchQuery(sessionQuery(client))
     },
   })

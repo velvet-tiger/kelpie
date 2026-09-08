@@ -86,6 +86,45 @@ export const workspaceSchema: z.ZodType<Workspace, unknown> = z
     }),
   )
 
+/**
+ * One workspace the signed-in account belongs to, as `GET /v1/auth/workspaces`
+ * returns it. `role` is this account's membership, not a workspace setting.
+ */
+export interface AccountWorkspace {
+  readonly id: string
+  readonly name: string
+  readonly slug: string
+  readonly timezone: string
+  readonly role: MemberRole
+}
+
+export const accountWorkspaceSchema: z.ZodType<AccountWorkspace, unknown> = z
+  .object({
+    id: idSchema,
+    name: z.string(),
+    slug: z.string(),
+    timezone: z.string(),
+    role: z.enum(MEMBER_ROLES),
+  })
+  .transform(
+    (wire): AccountWorkspace => ({
+      id: wire.id,
+      name: wire.name,
+      slug: wire.slug,
+      timezone: wire.timezone,
+      role: wire.role,
+    }),
+  )
+
+/** Body for `POST /v1/auth/workspace`: move this session into a membership. */
+export interface SwitchWorkspaceInput {
+  readonly workspaceId: string
+}
+
+export function switchWorkspaceBody(input: SwitchWorkspaceInput): Record<string, unknown> {
+  return { workspace_id: input.workspaceId }
+}
+
 export const HANDBOOK_TEMPLATE_IDS = [
   'startup',
   'agency',

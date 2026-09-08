@@ -510,6 +510,7 @@ export { createInviteBody, inviteSchema } from './invite.ts'
 export type { CreateInviteInput, Invite } from './invite.ts'
 
 export {
+  accountWorkspaceSchema,
   confirmEmailVerificationBody,
   confirmPasswordResetBody,
   createWorkspaceBody,
@@ -521,10 +522,12 @@ export {
   sessionSchema,
   signUpBody,
   signedInAccountSchema,
+  switchWorkspaceBody,
   updateWorkspaceBody,
   workspaceSchema,
 } from './session.ts'
 export type {
+  AccountWorkspace,
   ConfirmEmailVerificationInput,
   ConfirmPasswordResetInput,
   CreateWorkspaceInput,
@@ -536,6 +539,7 @@ export type {
   Session,
   SignUpInput,
   SignedInAccount,
+  SwitchWorkspaceInput,
   UpdateWorkspaceInput,
   Workspace,
 } from './session.ts'
