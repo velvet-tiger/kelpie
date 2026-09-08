@@ -368,6 +368,22 @@ export async function deleteInvite(db: Queryable, id: string): Promise<void> {
   await db.delete(invites).where(eq(invites.id, id))
 }
 
+export async function deleteAllHandbookPages(db: Queryable, workspaceId: string): Promise<number> {
+  const deleted = await db
+    .delete(handbookPages)
+    .where(eq(handbookPages.workspaceId, workspaceId))
+    .returning({ id: handbookPages.id })
+
+  return deleted.length
+}
+
+export async function listHandbookPages(
+  db: Queryable,
+  workspaceId: string,
+): Promise<(typeof handbookPages.$inferSelect)[]> {
+  return db.select().from(handbookPages).where(eq(handbookPages.workspaceId, workspaceId))
+}
+
 export async function insertHandbookPages(
   db: Queryable,
   values: readonly (typeof handbookPages.$inferInsert)[],

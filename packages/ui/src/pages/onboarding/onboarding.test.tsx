@@ -9,6 +9,8 @@ import type { ApiClient } from '../../api/client.ts'
 import { stubClient } from '../../testing/stubClient.ts'
 import { HandbookStepPage } from './HandbookStepPage.tsx'
 import { InvitesStepPage } from './InvitesStepPage.tsx'
+import { ModulesStepPage } from './ModulesStepPage.tsx'
+import { OrganisationStepPage } from './OrganisationStepPage.tsx'
 import { WorkspaceStepPage } from './WorkspaceStepPage.tsx'
 
 afterEach(cleanup)
@@ -57,6 +59,7 @@ function handbookPage(id: string, title: string): Record<string, unknown> {
 
 interface Calls {
   posted: { path: string; body: unknown }[]
+  patched: { path: string; body: unknown }[]
 }
 
 interface Stubs {
@@ -66,6 +69,8 @@ interface Stubs {
   readonly rejectEmails?: readonly string[]
   /** `GET /auth/me` answers `401`: nobody is signed in. */
   readonly signedOut?: boolean
+  /** Module ids whose PATCH the service refuses, so the step cannot advance. */
+  readonly rejectModules?: readonly string[]
 }
 
 function onboardingClient(calls: Calls, stubs: Stubs = {}): ApiClient {
@@ -76,6 +81,8 @@ function onboardingClient(calls: Calls, stubs: Stubs = {}): ApiClient {
     role: 'owner',
     email_verified: true,
   }
+  const handbookPagesState: Record<string, unknown>[] =
+    stubs.pages === undefined ? [] : [...stubs.pages]
 
   return stubClient({
     get: (path) => {
@@ -92,13 +99,26 @@ function onboardingClient(calls: Calls, stubs: Stubs = {}): ApiClient {
         throw new Error(`Unexpected list ${path}`)
       }
 
-      return { items: stubs.pages ?? [], nextCursor: null }
+      return { items: handbookPagesState, nextCursor: null }
     },
     post: (path, body) => {
       calls.posted.push({ path, body })
 
       if (path === '/workspaces') {
         return WORKSPACE
+      }
+
+      if (path.endsWith('/handbook/seed')) {
+        const template = (body as { handbook_template: string }).handbook_template
+        handbookPagesState.splice(0, handbookPagesState.length)
+
+        if (template === 'nonprofit') {
+          handbookPagesState.push(handbookPage('hbp_1', 'Programs & impact'))
+        } else {
+          handbookPagesState.push(handbookPage('hbp_1', 'About us'))
+        }
+
+        return { handbook_pages: handbookPagesState.length }
       }
 
       if (path.endsWith('/sample-data')) {
@@ -112,8 +132,11 @@ function onboardingClient(calls: Calls, stubs: Stubs = {}): ApiClient {
           opportunities: 3,
           raises: 1,
           partnerships: 2,
+          enquiries: 2,
           roles: 2,
           candidates: 3,
+          events: 2,
+          attendances: 4,
         }
       }
 
@@ -124,6 +147,19 @@ function onboardingClient(calls: Calls, stubs: Stubs = {}): ApiClient {
       }
 
       return invite(sent.email, sent.role)
+    },
+    patch: (path, body) => {
+      calls.patched.push({ path, body })
+
+      const moduleId = path.split('/').at(-1) ?? ''
+
+      if (stubs.rejectModules?.includes(moduleId) === true) {
+        return Promise.reject(new ApiError(409, 'conflict', 'This module is locked by the deployment configuration'))
+      }
+
+      const enabled = (body as { enabled: boolean }).enabled
+
+      return { module_id: moduleId, enabled, locked: false }
     },
   })
 }
@@ -145,21 +181,28 @@ async function press(name: RegExp | string): Promise<void> {
   })
 }
 
-function renderStep(element: React.JSX.Element, calls: Calls, stubs: Stubs = {}): void {
+function renderStep(
+  element: React.JSX.Element,
+  calls: Calls,
+  stubs: Stubs = {},
+  initialPath = '/step',
+): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
 
   render(
-    <MemoryRouter initialEntries={['/step']}>
+    <MemoryRouter initialEntries={[initialPath]}>
       <ApiProvider client={onboardingClient(calls, stubs)} queryClient={queryClient}>
         <Routes>
           <Route path="/step" element={element} />
           {/* Standing in for what each step hands off to, so moving on is
               something the test can see. */}
           <Route path="/onboarding/workspace" element={<p>step 1</p>} />
-          <Route path="/onboarding/invites" element={<p>step 2</p>} />
-          <Route path="/onboarding/handbook" element={<p>step 3</p>} />
+          <Route path="/onboarding/organisation" element={<p>step 2</p>} />
+          <Route path="/onboarding/modules" element={<p>step 3</p>} />
+          <Route path="/onboarding/invites" element={<p>step 4</p>} />
+          <Route path="/onboarding/handbook" element={<p>step 5</p>} />
           <Route path="/dashboard" element={<p>the app</p>} />
           <Route path="/login" element={<p>sign in</p>} />
         </Routes>
@@ -169,7 +212,7 @@ function renderStep(element: React.JSX.Element, calls: Calls, stubs: Stubs = {})
 }
 
 function noCalls(): Calls {
-  return { posted: [] }
+  return { posted: [], patched: [] }
 }
 
 describe('WorkspaceStepPage', () => {
@@ -195,6 +238,7 @@ describe('WorkspaceStepPage', () => {
     expect(calls.posted[0]?.path).toBe('/workspaces')
     expect(body.name).toBe('Acme Labs')
     expect(body.slug).toBe('acme-labs')
+    expect(body.handbook_template).toBeUndefined()
     // Whatever the platform reports. Asserting a specific zone would assert the
     // machine the test runs on.
     expect(body.timezone).toBeTruthy()
@@ -228,31 +272,7 @@ describe('WorkspaceStepPage', () => {
     expect((screen.getByLabelText(/^Slug/u) as HTMLInputElement).value).toBe('acme-labs')
   })
 
-  it('installs the sample fixture when the checkbox is on and moves on', async () => {
-    const calls = noCalls()
-
-    renderStep(<WorkspaceStepPage />, calls, { workspaceId: null })
-
-    await act(async () => {
-      setValue(screen.getByLabelText(/^Workspace name/u), 'Acme Labs')
-    })
-
-    await act(async () => {
-      screen.getByLabelText(/Install sample data/u).click()
-    })
-
-    await press('Next')
-
-    await waitFor(() => {
-      expect(calls.posted).toHaveLength(2)
-    })
-
-    expect(calls.posted[0]?.path).toBe('/workspaces')
-    expect(calls.posted[1]?.path).toBe('/workspaces/wsp_1/sample-data')
-    expect(await screen.findByText('step 2')).toBeTruthy()
-  })
-
-  it('creates the workspace without seeding when the checkbox is off', async () => {
+  it('creates the workspace without seeding', async () => {
     const calls = noCalls()
 
     renderStep(<WorkspaceStepPage />, calls, { workspaceId: null })
@@ -268,6 +288,7 @@ describe('WorkspaceStepPage', () => {
     })
 
     expect(calls.posted[0]?.path).toBe('/workspaces')
+    expect(calls.patched).toEqual([])
   })
 
   it('has no Previous button: there is no earlier onboarding step', async () => {
@@ -278,8 +299,8 @@ describe('WorkspaceStepPage', () => {
   })
 
   /**
-   * Previous on the invites step lands here after POST /workspaces has
-   * already succeeded. The create form must not come back.
+   * Previous on a later step lands here after POST /workspaces has already
+   * succeeded. The create form must not come back.
    */
   it('moves on when the account already has a workspace', async () => {
     renderStep(<WorkspaceStepPage />, noCalls())
@@ -290,6 +311,247 @@ describe('WorkspaceStepPage', () => {
     await press('Next')
 
     expect(await screen.findByText('step 2')).toBeTruthy()
+  })
+
+  /**
+   * A finished workspace can walk the wizard again. Organisation still runs;
+   * handbook pages are not seeded from that step, and the review is skipped.
+   */
+  it('keeps organisation on a rerun', async () => {
+    renderStep(<WorkspaceStepPage />, noCalls(), {}, '/step?rerun=1')
+
+    expect(await screen.findByText('Your workspace is ready')).toBeTruthy()
+
+    await press('Next')
+
+    expect(await screen.findByText('step 2')).toBeTruthy()
+    expect(screen.queryByText('step 3')).toBeNull()
+  })
+})
+
+describe('OrganisationStepPage', () => {
+  it('renders the organisation type choices including Choose later', async () => {
+    renderStep(<OrganisationStepPage />, noCalls(), { pages: [] })
+
+    expect(await screen.findByText('Startup')).toBeTruthy()
+    expect(screen.getByText('Agency')).toBeTruthy()
+    expect(screen.getByText('Nonprofit')).toBeTruthy()
+    expect(screen.getByText('Choose later')).toBeTruthy()
+  })
+
+  it('seeds the handbook for the default organisation type then moves on', async () => {
+    const calls = noCalls()
+
+    renderStep(<OrganisationStepPage />, calls, { pages: [] })
+
+    await screen.findByRole('button', { name: 'Next' })
+    await press('Next')
+
+    await waitFor(() => {
+      expect(calls.posted.some((call) => call.path === '/workspaces/wsp_1/handbook/seed')).toBe(true)
+    })
+
+    const seed = calls.posted.find((call) => call.path === '/workspaces/wsp_1/handbook/seed')
+
+    expect((seed?.body as { handbook_template: string }).handbook_template).toBe('startup')
+    expect(await screen.findByText('step 3')).toBeTruthy()
+  })
+
+  it('seeds the startup handbook when Choose later is selected', async () => {
+    const calls = noCalls()
+
+    renderStep(<OrganisationStepPage />, calls, { pages: [] })
+
+    await screen.findByLabelText(/^Choose later/u)
+
+    await act(async () => {
+      screen.getByLabelText(/^Choose later/u).click()
+    })
+
+    await press('Next')
+
+    await waitFor(() => {
+      expect(calls.posted).toHaveLength(1)
+    })
+
+    expect((calls.posted[0]?.body as { handbook_template: string }).handbook_template).toBe('startup')
+    expect(await screen.findByText('step 3')).toBeTruthy()
+  })
+
+  it('seeds a different template when Nonprofit is selected', async () => {
+    const calls = noCalls()
+
+    renderStep(<OrganisationStepPage />, calls, { pages: [] })
+
+    await screen.findByLabelText(/^Nonprofit/u)
+
+    await act(async () => {
+      screen.getByLabelText(/^Nonprofit/u).click()
+    })
+
+    await press('Next')
+
+    await waitFor(() => {
+      expect(calls.posted).toHaveLength(1)
+    })
+
+    expect((calls.posted[0]?.body as { handbook_template: string }).handbook_template).toBe(
+      'nonprofit',
+    )
+  })
+
+  it('replaces existing starter pages when going through the step again', async () => {
+    const calls = noCalls()
+
+    renderStep(<OrganisationStepPage />, calls, {
+      pages: [handbookPage('hbp_1', 'About us')],
+    })
+
+    await screen.findByLabelText(/^Nonprofit/u)
+
+    await act(async () => {
+      screen.getByLabelText(/^Nonprofit/u).click()
+    })
+
+    await press('Next')
+
+    await waitFor(() => {
+      expect(calls.posted).toHaveLength(1)
+    })
+
+    const body = calls.posted[0]?.body as { handbook_template: string; replace: boolean }
+
+    expect(body.handbook_template).toBe('nonprofit')
+    expect(body.replace).toBe(true)
+  })
+
+  it('goes back to the workspace step without seeding', async () => {
+    const calls = noCalls()
+
+    renderStep(<OrganisationStepPage />, calls, { pages: [] })
+
+    await screen.findByRole('button', { name: 'Next' })
+    await press('Previous')
+
+    expect(await screen.findByText('step 1')).toBeTruthy()
+    expect(calls.posted).toEqual([])
+  })
+
+  it('shows the choices on a rerun and moves on without seeding', async () => {
+    const calls = noCalls()
+
+    renderStep(
+      <OrganisationStepPage />,
+      calls,
+      { pages: [handbookPage('hbp_1', 'About us')] },
+      '/step?rerun=1',
+    )
+
+    expect(await screen.findByText('Startup')).toBeTruthy()
+    expect(screen.getByText(/Existing handbook pages are not changed/u)).toBeTruthy()
+
+    await act(async () => {
+      screen.getByLabelText(/^Nonprofit/u).click()
+    })
+    await press('Next')
+
+    expect(await screen.findByText('step 3')).toBeTruthy()
+    expect(calls.posted).toEqual([])
+  })
+})
+
+describe('ModulesStepPage', () => {
+  it('starts with opportunities, events, and forms on, and the other three off', async () => {
+    renderStep(<ModulesStepPage />, noCalls())
+
+    expect(((await screen.findByLabelText(/^Deals/u)) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/^Opportunities/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Fundraising/u) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/^Partnerships/u) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/^Events/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Forms/u) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('writes every module choice then moves on', async () => {
+    const calls = noCalls()
+
+    renderStep(<ModulesStepPage />, calls)
+
+    await screen.findByRole('button', { name: 'Next' })
+
+    await press('Next')
+
+    await waitFor(() => {
+      expect(calls.patched).toHaveLength(6)
+    })
+
+    expect(calls.patched.map((call) => call.path)).toEqual([
+      '/workspaces/wsp_1/modules/deals',
+      '/workspaces/wsp_1/modules/opportunities',
+      '/workspaces/wsp_1/modules/raises',
+      '/workspaces/wsp_1/modules/partnerships',
+      '/workspaces/wsp_1/modules/events',
+      '/workspaces/wsp_1/modules/forms',
+    ])
+    expect(calls.patched.map((call) => (call.body as { enabled: boolean }).enabled)).toEqual([
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+    ])
+    expect(calls.posted).toEqual([])
+    expect(await screen.findByText('step 4')).toBeTruthy()
+  })
+
+  it('installs the sample fixture after the module choices when the checkbox is on', async () => {
+    const calls = noCalls()
+
+    renderStep(<ModulesStepPage />, calls)
+
+    await screen.findByRole('button', { name: 'Next' })
+
+    await act(async () => {
+      screen.getByLabelText(/sample data/u).click()
+    })
+
+    await press('Next')
+
+    await waitFor(() => {
+      expect(calls.posted).toHaveLength(1)
+    })
+
+    expect(calls.patched).toHaveLength(6)
+    expect(calls.posted[0]?.path).toBe('/workspaces/wsp_1/sample-data')
+    expect(await screen.findByText('step 4')).toBeTruthy()
+  })
+
+  it('stays on the page when a module write is refused', async () => {
+    const calls = noCalls()
+
+    renderStep(<ModulesStepPage />, calls, { rejectModules: ['deals'] })
+
+    await screen.findByRole('button', { name: 'Next' })
+
+    await press('Next')
+
+    expect(await screen.findByText('This module is locked by the deployment configuration')).toBeTruthy()
+    expect(screen.queryByText('step 4')).toBeNull()
+    expect(calls.posted).toEqual([])
+  })
+
+  it('goes back to the organisation step without writing', async () => {
+    const calls = noCalls()
+
+    renderStep(<ModulesStepPage />, calls)
+
+    await screen.findByRole('button', { name: 'Next' })
+    await press('Previous')
+
+    expect(await screen.findByText('step 2')).toBeTruthy()
+    expect(calls.patched).toEqual([])
+    expect(calls.posted).toEqual([])
   })
 })
 
@@ -335,7 +597,7 @@ describe('InvitesStepPage', () => {
     // The invite link is built server-side now, so the browser sends no URL.
     expect(bodies[0]?.invite_url_template).toBeUndefined()
 
-    expect(await screen.findByText('step 3')).toBeTruthy()
+    expect(await screen.findByText('step 5')).toBeTruthy()
   })
 
   /**
@@ -365,7 +627,7 @@ describe('InvitesStepPage', () => {
 
     expect(await screen.findByText('That person is already a member')).toBeTruthy()
     expect(screen.getByText('Invitation sent')).toBeTruthy()
-    expect(screen.queryByText('step 3')).toBeNull()
+    expect(screen.queryByText('step 5')).toBeNull()
 
     await press('Send invitations')
 
@@ -384,27 +646,38 @@ describe('InvitesStepPage', () => {
 
     await press('Skip for now')
 
-    expect(await screen.findByText('step 3')).toBeTruthy()
+    expect(await screen.findByText('step 5')).toBeTruthy()
     expect(calls.posted).toEqual([])
   })
 
-  it('goes back to the workspace step without sending', async () => {
+  /** A rerun leaves handbook pages alone and returns to the app. */
+  it('skips the handbook step on a rerun', async () => {
+    const calls = noCalls()
+
+    renderStep(<InvitesStepPage />, calls, {}, '/step?rerun=1')
+
+    await press('Skip for now')
+
+    expect(await screen.findByText('the app')).toBeTruthy()
+    expect(screen.queryByText('step 5')).toBeNull()
+    expect(calls.posted).toEqual([])
+  })
+
+  it('goes back to the modules step without sending', async () => {
     const calls = noCalls()
 
     renderStep(<InvitesStepPage />, calls)
 
     await press('Previous')
 
-    expect(await screen.findByText('step 1')).toBeTruthy()
+    expect(await screen.findByText('step 3')).toBeTruthy()
     expect(calls.posted).toEqual([])
   })
 })
 
 describe('HandbookStepPage', () => {
   /**
-   * The pages already exist: `POST /v1/workspaces` seeded them two steps ago.
-   * This step reads them back, so a title that is not really there cannot
-   * appear on it.
+   * The pages already exist: step 2 seeded them. This step reads them back.
    */
   it('lists the pages the workspace was seeded with', async () => {
     const calls = noCalls()
@@ -440,6 +713,18 @@ describe('HandbookStepPage', () => {
     expect(await screen.findByText('About us')).toBeTruthy()
     await press('Previous')
 
-    expect(await screen.findByText('step 2')).toBeTruthy()
+    expect(await screen.findByText('step 4')).toBeTruthy()
+  })
+
+  it('sends a rerun straight to the app', async () => {
+    renderStep(
+      <HandbookStepPage />,
+      noCalls(),
+      { pages: [handbookPage('hbp_1', 'About us')] },
+      '/step?rerun=1',
+    )
+
+    expect(await screen.findByText('the app')).toBeTruthy()
+    expect(screen.queryByText('About us')).toBeNull()
   })
 })

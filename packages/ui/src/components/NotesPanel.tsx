@@ -4,7 +4,7 @@ import type { FormEvent } from 'react'
 
 import { useTimezone } from '../api/resources/account.ts'
 import { useMembers } from '../api/resources/members.ts'
-import { useCreateNote, useNotes } from '../api/resources/notes.ts'
+import { useCreateNote, useDeleteNote, useNotes, useUpdateNote } from '../api/resources/notes.ts'
 import { formatDateTime } from '../lib/dates.ts'
 import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
@@ -13,12 +13,9 @@ import { SectionHeader } from './SectionHeader.tsx'
 /**
  * The notes on one record.
  *
- * Ports the mockup's panel. There is no pin control: the mockup renders the
- * badge on a note that carries the flag and offers no way to set it, and the
- * mockup decides what a page shows. `PATCH /v1/notes/:id` takes `pinned`, so an
- * agent can still pin.
- *
- * No edit or delete either, for the same reason, though the API has both.
+ * Notes can be created, edited, and deleted here. There is no pin control: the
+ * mockup renders the badge on a note that carries the flag and offers no way to
+ * set it. `PATCH /v1/notes/:id` takes `pinned`, so an agent can still pin.
  */
 
 export interface NotesPanelProps {
@@ -143,22 +140,138 @@ function NoteItem({
   readonly authorName: string
 }): React.JSX.Element {
   const timezone = useTimezone()
+  const updateNote = useUpdateNote()
+  const deleteNote = useDeleteNote()
+  const [editing, setEditing] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [draft, setDraft] = useState(note.body)
+
+  function cancelEdit(): void {
+    setDraft(note.body)
+    setEditing(false)
+  }
+
+  function submitEdit(event: FormEvent): void {
+    event.preventDefault()
+
+    const text = draft.trim()
+
+    if (text.length === 0) {
+      return
+    }
+
+    if (text !== note.body) {
+      updateNote.run({ id: note.id, changes: { body: text } })
+    }
+
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <li className="rounded-md border border-border bg-surface-raised px-3.5 py-3">
+        <form onSubmit={submitEdit} className="space-y-2">
+          <textarea
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value)
+            }}
+            rows={3}
+            autoFocus
+            className="w-full resize-y rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="rounded-md px-2.5 py-1 text-[12px] font-medium text-ink-muted hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+        {updateNote.error !== null && (
+          <div className="mt-2">
+            <ErrorPanel error={updateNote.error} />
+          </div>
+        )}
+      </li>
+    )
+  }
 
   return (
-    <li className="rounded-md border border-border bg-surface-raised px-3.5 py-3">
+    <li className="group rounded-md border border-border bg-surface-raised px-3.5 py-3">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-ink">{note.body}</p>
-        {note.pinned && (
-          <span className="shrink-0 text-[10px] font-semibold tracking-wide text-accent uppercase">
-            Pinned
-          </span>
-        )}
+        <p className="min-w-0 flex-1 text-[13px] leading-relaxed whitespace-pre-wrap text-ink">{note.body}</p>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {note.pinned && (
+            <span className="text-[10px] font-semibold tracking-wide text-accent uppercase">Pinned</span>
+          )}
+          {confirmingDelete ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="text-[11px] text-ink-muted">Delete this note?</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingDelete(false)
+                }}
+                className="rounded-md px-2 py-0.5 text-[11px] font-medium text-ink-muted hover:text-ink"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteNote.isPending}
+                onClick={() => {
+                  deleteNote.run(note.id)
+                  setConfirmingDelete(false)
+                }}
+                className="rounded-md bg-danger px-2 py-0.5 text-[11px] font-semibold text-danger-fg transition hover:opacity-90 disabled:opacity-50"
+              >
+                {deleteNote.isPending ? 'Deleting…' : 'Delete note'}
+              </button>
+            </div>
+          ) : (
+            <span className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(note.body)
+                  setEditing(true)
+                }}
+                className="rounded-md px-2 py-0.5 text-[11px] font-medium text-ink-muted hover:bg-surface-sunken hover:text-ink"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingDelete(true)
+                }}
+                className="rounded-md px-2 py-0.5 text-[11px] font-medium text-ink-muted hover:bg-danger-soft hover:text-danger"
+              >
+                Delete
+              </button>
+            </span>
+          )}
+        </div>
       </div>
       <div className="mt-2 flex items-center gap-2 text-[11px] text-ink-faint">
         <span>{authorName}</span>
         <span>·</span>
         <span>{formatDateTime(note.createdAt, timezone)}</span>
       </div>
+      {deleteNote.error !== null && (
+        <div className="mt-2">
+          <ErrorPanel error={deleteNote.error} />
+        </div>
+      )}
     </li>
   )
 }

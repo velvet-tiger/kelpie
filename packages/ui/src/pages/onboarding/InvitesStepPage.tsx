@@ -2,15 +2,16 @@ import { INVITABLE_ROLES } from '@kelpie/schemas'
 import type { InvitableRole } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 
 import { useSendInvite } from '../../api/resources/invites.ts'
 import { AUTH_INPUT_CLASS, SecondaryButton } from '../auth/AuthForm.tsx'
 import { AuthLayout } from '../auth/AuthLayout.tsx'
 import { OnboardingNav } from './OnboardingNav.tsx'
+import { isOnboardingRerun } from './onboardingRerun.ts'
 
 /**
- * Onboarding step 2: invitations, against `POST /v1/workspaces/:id/invites`.
+ * Onboarding step 4: invitations, against `POST /v1/workspaces/:id/invites`.
  *
  * One request per address, and they can fail one at a time — an address already
  * invited answers `409` while its neighbours succeed. The mockup could ignore
@@ -39,8 +40,15 @@ function isOutstanding(row: InviteRow): boolean {
 
 export function InvitesStepPage(): React.JSX.Element {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const rerun = isOnboardingRerun(searchParams)
   const sendInvite = useSendInvite()
   const [rows, setRows] = useState<readonly InviteRow[]>([emptyRow()])
+
+  /** First run reviews the handbook next; a rerun leaves those pages alone. */
+  function afterInvites(): void {
+    navigate(rerun ? '/dashboard' : '/onboarding/handbook', { replace: true })
+  }
 
   function changeRow(index: number, changes: Partial<InviteRow>): void {
     setRows((previous) =>
@@ -81,7 +89,7 @@ export function InvitesStepPage(): React.JSX.Element {
     sendOutstanding()
       .then((allSent) => {
         if (allSent) {
-          navigate('/onboarding/handbook', { replace: true })
+          afterInvites()
         }
       })
       .catch(() => undefined)
@@ -91,7 +99,7 @@ export function InvitesStepPage(): React.JSX.Element {
 
   return (
     <AuthLayout
-      step={2}
+      step={4}
       title="Invite teammates"
       description="Optional. You can always invite people later from Admin → Team."
     >
@@ -119,7 +127,7 @@ export function InvitesStepPage(): React.JSX.Element {
         </button>
 
         <OnboardingNav
-          step={2}
+          step={4}
           nextLabel={outstanding === 0 ? 'Next' : 'Send invitations'}
           nextPendingLabel="Sending…"
           isPending={sendInvite.isPending}
@@ -127,9 +135,7 @@ export function InvitesStepPage(): React.JSX.Element {
             <SecondaryButton
               label="Skip for now"
               disabled={sendInvite.isPending}
-              onClick={() => {
-                navigate('/onboarding/handbook', { replace: true })
-              }}
+              onClick={afterInvites}
             />
           }
         />

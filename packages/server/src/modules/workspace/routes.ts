@@ -9,6 +9,7 @@ import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { INVITABLE_ROLES, MEMBER_ROLES } from './roles.ts'
 import type { InviteView, MemberView, ModuleSettingView, WorkspaceService, WorkspaceView } from './service.ts'
+import { HANDBOOK_TEMPLATE_IDS } from './starters.ts'
 
 /** Wire shapes for `/v1/workspaces`, per `onboarding.md`'s API sketch. */
 
@@ -19,6 +20,11 @@ const createBody = z.object({
   name: z.string().min(1),
   slug: z.string().min(1).max(63).regex(slugPattern, 'Use lowercase letters, digits, and hyphens'),
   timezone: timezoneSchema,
+})
+
+const seedHandbookBodySchema = z.object({
+  handbook_template: z.enum(HANDBOOK_TEMPLATE_IDS),
+  replace: z.boolean().optional().default(false),
 })
 
 export const updateBody = z
@@ -104,6 +110,16 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
     const workspace = await dependencies.service.create(await requireUser(context), body)
 
     return context.json(workspaceResponse(workspace), 201)
+  })
+
+  router.post('/workspaces/:id/handbook/seed', async (context) => {
+    const body = await readBody(context, seedHandbookBodySchema)
+    const result = await dependencies.service.seedHandbook(await requireActor(context), context.req.param('id'), {
+      handbookTemplate: body.handbook_template,
+      replace: body.replace,
+    })
+
+    return context.json({ handbook_pages: result.handbookPages }, 201)
   })
 
   router.get('/workspaces/:id', async (context) => {

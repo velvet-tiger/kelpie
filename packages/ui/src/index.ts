@@ -165,6 +165,7 @@ export { SignInPage } from './pages/auth/SignInPage.tsx'
 export { SignUpPage } from './pages/auth/SignUpPage.tsx'
 export { HandbookStepPage } from './pages/onboarding/HandbookStepPage.tsx'
 export { InvitesStepPage } from './pages/onboarding/InvitesStepPage.tsx'
+export { OrganisationStepPage } from './pages/onboarding/OrganisationStepPage.tsx'
 export { WorkspaceStepPage } from './pages/onboarding/WorkspaceStepPage.tsx'
 
 export {

@@ -18,7 +18,9 @@ A workspace is your company brain — CRM records, handbook, and team. You choos
 
 - **Name and slug.** The slug is the workspace's short handle; it must be unique on the install.
 - **Timezone.** This decides what "today" means for the whole workspace: overdue plans and stale contacts are judged against your calendar, not the server's.
-- **Install sample data.** Ticked, Kelpie fills the workspace with a small set of companies, people, deals, and the rest, so you explore a working CRM instead of an empty one. It can also be installed later from Admin → Data, but only while the workspace holds no real records.
+- **Organisation type.** Startup, Agency, Nonprofit, Community, Professional services, Creator, or Choose later. This seeds the starter handbook. Choose later uses the standard startup pages.
+- **Modules.** The next step turns Deals, Opportunities, Fundraising, Partnerships, Events, and Forms on or off. Opportunities, Events, and Forms start on.
+- **Install sample data.** On the modules step. Ticked, Kelpie fills the workspace with a small set of companies, people, and records for the modules you turned on, so you explore a working CRM instead of an empty one. It can also be installed later from Admin → Data, but only while the workspace holds no real records.
 
 <!-- screenshot: onboarding workspace step -->
 
@@ -28,7 +30,7 @@ Optional at this point; you can always invite people later from Admin → Team. 
 
 ## Review the starter handbook
 
-Every new workspace comes with a starter handbook: About us, Product, Ideal customer profile, Voice and tone, Pricing, How we sell, and more. The pages exist as stubs for your team to fill in. Agents read these pages to learn what your company is, so filling them in early pays off immediately. See [Handbook](handbook.md).
+On the last onboarding step you review the handbook pages seeded for your organisation type. A startup (or Choose later) gets About us, Product, Ideal customer profile, and the rest of the product-company set; other types get their own page list. The pages exist as prompts for your team to fill in. Agents read these pages to learn what your company is, so filling them in early pays off immediately. See [Handbook](handbook.md).
 
 <!-- screenshot: onboarding handbook step -->
 

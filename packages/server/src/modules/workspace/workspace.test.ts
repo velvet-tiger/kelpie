@@ -17,7 +17,10 @@ import { pipelineStages } from '../pipelines/schema.ts'
 import { invites, workspaceMembers } from './schema.ts'
 import { STARTER_FORMS } from '../forms/starters.ts'
 import { STARTER_LISTS } from '../lists/starters.ts'
-import { STARTER_HANDBOOK_PAGES } from './starters.ts'
+import {
+  getHandbookPagesForTemplate,
+  HANDBOOK_TEMPLATE_IDS,
+} from './starters.ts'
 
 /** Workspace creation, membership, and invites against real Postgres. */
 
@@ -167,11 +170,29 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     return cookie
   }
 
-  async function createWorkspace(cookie: string): Promise<string> {
-    const response = await send('POST', '/v1/workspaces', WORKSPACE, cookie)
+  async function createWorkspace(
+    cookie: string,
+    overrides: Partial<typeof WORKSPACE> = {},
+  ): Promise<string> {
+    const response = await send('POST', '/v1/workspaces', { ...WORKSPACE, ...overrides }, cookie)
     expect(response.status).toBe(201)
 
     return readString(await response.json(), 'id')
+  }
+
+  async function seedHandbook(
+    cookie: string,
+    workspaceId: string,
+    handbookTemplate: string,
+    replace = false,
+  ): Promise<void> {
+    const response = await send(
+      'POST',
+      `/v1/workspaces/${workspaceId}/handbook/seed`,
+      { handbook_template: handbookTemplate, replace },
+      cookie,
+    )
+    expect(response.status).toBe(201)
   }
 
   /**
@@ -264,7 +285,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(readString(me, 'role')).toBe('owner')
     })
 
-    it('seeds the starter handbook pages', async () => {
+    it('does not seed handbook pages with the workspace', async () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
 
@@ -273,8 +294,76 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         .from(handbookPages)
         .where(eq(handbookPages.workspaceId, workspaceId))
 
-      expect(pages).toHaveLength(STARTER_HANDBOOK_PAGES.length)
-      expect(pages.map((page) => page.slug)).toContain('ideal-customer-profile')
+      expect(pages).toHaveLength(0)
+    })
+
+    it.each(HANDBOOK_TEMPLATE_IDS)('seeds handbook pages for the %s template', async (templateId) => {
+      const cookie = await signUp(`${templateId}@example.com`)
+      const workspaceId = await createWorkspace(cookie)
+      await seedHandbook(cookie, workspaceId, templateId)
+      const expected = getHandbookPagesForTemplate(templateId)
+
+      const pages = await database.db
+        .select()
+        .from(handbookPages)
+        .where(eq(handbookPages.workspaceId, workspaceId))
+        .orderBy(handbookPages.sortOrder)
+
+      expect(pages).toHaveLength(expected.length)
+      expect(pages.map((page) => page.slug)).toEqual(expected.map((page) => page.slug))
+      expect(pages.map((page) => page.title)).toEqual(expected.map((page) => page.title))
+      expect(pages.some((page) => page.slug === 'agent-faq')).toBe(true)
+    })
+
+    it('seeds the nonprofit template without pricing or competitive landscape', async () => {
+      const cookie = await signUp('nonprofit-skip@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await seedHandbook(cookie, workspaceId, 'nonprofit')
+
+      const slugs = (
+        await database.db
+          .select({ slug: handbookPages.slug })
+          .from(handbookPages)
+          .where(eq(handbookPages.workspaceId, workspaceId))
+      ).map((page) => page.slug)
+
+      expect(slugs).toContain('grant-applications')
+      expect(slugs).not.toContain('pricing')
+      expect(slugs).not.toContain('competitive-landscape')
+    })
+
+    it('seeds the creator template without team and roles', async () => {
+      const cookie = await signUp('creator-skip@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await seedHandbook(cookie, workspaceId, 'creator')
+
+      const slugs = (
+        await database.db
+          .select({ slug: handbookPages.slug })
+          .from(handbookPages)
+          .where(eq(handbookPages.workspaceId, workspaceId))
+      ).map((page) => page.slug)
+
+      expect(slugs).toContain('brand-partnerships')
+      expect(slugs).not.toContain('team-and-roles')
+      expect(slugs).not.toContain('competitive-landscape')
+    })
+
+    it('replaces starter handbook pages when replace is true', async () => {
+      const cookie = await signUp('replace@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await seedHandbook(cookie, workspaceId, 'startup')
+      await seedHandbook(cookie, workspaceId, 'nonprofit', true)
+
+      const slugs = (
+        await database.db
+          .select({ slug: handbookPages.slug })
+          .from(handbookPages)
+          .where(eq(handbookPages.workspaceId, workspaceId))
+      ).map((page) => page.slug)
+
+      expect(slugs).toContain('grant-applications')
+      expect(slugs).not.toContain('pricing')
     })
 
     it('seeds stages for all five pipelines', async () => {

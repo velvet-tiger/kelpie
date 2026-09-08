@@ -5,6 +5,7 @@ import { useAccount, useTheme } from '../api/resources/account.ts'
 import { useLogOut } from '../api/resources/session.ts'
 import { initialsOf } from '../lib/names.ts'
 import type { ThemePreference } from '../lib/theme.ts'
+import { ONBOARDING_RERUN_ENTRY } from '../pages/onboarding/onboardingRerun.ts'
 import { useNavItems } from '../registry/context.ts'
 import type { NavItem } from '../registry/contributions.ts'
 import { useVisibleNavItems } from '../registry/visibleNav.ts'
@@ -303,10 +304,21 @@ export function Shell(): React.JSX.Element {
                   onClick={() => {
                     setMenuOpen(false)
                   }}
-                  className="block border-b border-border px-3 py-1.5 text-left text-[13px] text-ink hover:bg-surface-sunken"
+                  className="block px-3 py-1.5 text-left text-[13px] text-ink hover:bg-surface-sunken"
                 >
                   Preferences
                 </NavLink>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void navigate(ONBOARDING_RERUN_ENTRY)
+                  }}
+                  className="block w-full border-b border-border px-3 py-1.5 text-left text-[13px] text-ink hover:bg-surface-sunken"
+                >
+                  Rerun onboarding wizard
+                </button>
                 <button
                   type="button"
                   role="menuitem"

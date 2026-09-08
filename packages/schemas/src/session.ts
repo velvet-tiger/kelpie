@@ -86,14 +86,51 @@ export const workspaceSchema: z.ZodType<Workspace, unknown> = z
     }),
   )
 
+export const HANDBOOK_TEMPLATE_IDS = [
+  'startup',
+  'agency',
+  'nonprofit',
+  'community',
+  'professional-services',
+  'creator',
+] as const
+
+export type HandbookTemplateId = (typeof HANDBOOK_TEMPLATE_IDS)[number]
+
 export interface CreateWorkspaceInput {
   readonly name: string
   readonly slug: string
   readonly timezone: string
 }
 
+export interface SeedHandbookInput {
+  readonly handbookTemplate: HandbookTemplateId
+  readonly replace?: boolean | undefined
+}
+
+export interface SeedHandbookResult {
+  readonly handbookPages: number
+}
+
+export const seedHandbookResultSchema: z.ZodType<SeedHandbookResult, unknown> = z
+  .object({
+    handbook_pages: z.number(),
+  })
+  .transform(
+    (wire): SeedHandbookResult => ({
+      handbookPages: wire.handbook_pages,
+    }),
+  )
+
 export function createWorkspaceBody(input: CreateWorkspaceInput): Record<string, unknown> {
   return { name: input.name, slug: input.slug, timezone: input.timezone }
+}
+
+export function seedHandbookBody(input: SeedHandbookInput): Record<string, unknown> {
+  return definedFields({
+    handbook_template: input.handbookTemplate,
+    replace: input.replace,
+  })
 }
 
 /** Settings a workspace admin can change. */

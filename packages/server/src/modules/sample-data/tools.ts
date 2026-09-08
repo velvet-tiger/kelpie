@@ -21,7 +21,7 @@ export function registerSampleDataTools(
   mcp.tool({
     name: 'sample_data_install',
     description:
-      'Populate this workspace with a small sample of companies, people, positions, deals, plans and notes. Refuses if the workspace already has data.',
+      'Populate this workspace with a small sample of companies, people, and other CRM records. Skips objects for modules that are switched off. Refuses if the workspace already has data.',
     inputSchema: installArgs,
     async invoke(_args, actor) {
       const counts = await service.install(actor, requireWorkspaceId(actor))

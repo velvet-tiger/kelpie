@@ -15,7 +15,7 @@ const UK = { id: 'uk', label: 'United Kingdom', origin: 'https://uk.kelpie.examp
 
 function renderLayout(
   regions: readonly { id: string; label: string; origin: string }[],
-  step?: 1 | 2 | 3,
+  step?: 1 | 2 | 3 | 4,
 ): void {
   const client = stubClient({
     get: (path) => {

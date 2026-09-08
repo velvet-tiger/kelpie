@@ -60,6 +60,8 @@ import { DashboardPage } from '../pages/dashboard/DashboardPage.tsx'
 import { HandbookLayout } from '../pages/handbook/HandbookPage.tsx'
 import { HandbookStepPage } from '../pages/onboarding/HandbookStepPage.tsx'
 import { InvitesStepPage } from '../pages/onboarding/InvitesStepPage.tsx'
+import { ModulesStepPage } from '../pages/onboarding/ModulesStepPage.tsx'
+import { OrganisationStepPage } from '../pages/onboarding/OrganisationStepPage.tsx'
 import { WorkspaceStepPage } from '../pages/onboarding/WorkspaceStepPage.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
 import type { RouteContribution } from '../registry/contributions.ts'
@@ -140,9 +142,11 @@ function AppRoutes(): React.JSX.Element {
       <Route path="/verify-email/pending" element={<VerifyEmailPendingPage />} />
 
       <Route element={<SessionGate />}>
-        {/* Inside the gate and outside the Shell: both steps need the workspace
-            that step 1 created, and neither is a place to start navigating the
-            app from. */}
+        {/* Inside the gate and outside the Shell: these steps need the workspace
+            that step 1 created, and none of them is a place to start navigating
+            the app from. */}
+        <Route path="/onboarding/organisation" element={<OrganisationStepPage />} />
+        <Route path="/onboarding/modules" element={<ModulesStepPage />} />
         <Route path="/onboarding/invites" element={<InvitesStepPage />} />
         <Route path="/onboarding/handbook" element={<HandbookStepPage />} />
 

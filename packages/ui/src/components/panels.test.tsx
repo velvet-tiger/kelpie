@@ -389,6 +389,100 @@ describe('NotesPanel', () => {
       body: 'Written just now',
     })
   })
+
+  it('patches a note when its body is edited', async () => {
+    const patched: { path?: string; body?: unknown } = {}
+    const client = panelsClient({
+      notes: [note()],
+      onPatch: (path, body) => {
+        patched.path = path
+        patched.body = body
+
+        return note({ body: 'Updated body' })
+      },
+    })
+
+    renderWithClient(client, <NotesPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('Cares about implementation.')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit' }).click()
+    })
+
+    const textarea = screen.getByDisplayValue('Cares about implementation.')
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        globalThis.HTMLTextAreaElement.prototype,
+        'value',
+      )?.set?.call(textarea, 'Updated body')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Save' }).click()
+    })
+
+    await waitFor(() => {
+      expect(patched.path).toBe('/notes/note_1')
+    })
+
+    expect(patched.body).toEqual({ body: 'Updated body' })
+  })
+
+  it('deletes a note only after confirmation', async () => {
+    const deleted: string[] = []
+    const client = panelsClient({
+      notes: [note()],
+      onDelete: (path) => {
+        deleted.push(path)
+      },
+    })
+
+    renderWithClient(client, <NotesPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('Cares about implementation.')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Delete' }).click()
+    })
+
+    expect(deleted).toEqual([])
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Delete note' }).click()
+    })
+
+    await waitFor(() => {
+      expect(deleted).toEqual(['/notes/note_1'])
+    })
+  })
+
+  it('does not delete when confirmation is cancelled', async () => {
+    const deleted: string[] = []
+    const client = panelsClient({
+      notes: [note()],
+      onDelete: (path) => {
+        deleted.push(path)
+      },
+    })
+
+    renderWithClient(client, <NotesPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('Cares about implementation.')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Delete' }).click()
+    })
+
+    await act(async () => {
+      screen.getAllByRole('button', { name: 'Cancel' })[0]?.click()
+    })
+
+    expect(deleted).toEqual([])
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy()
+  })
 })
 
 describe('DecisionsPanel', () => {

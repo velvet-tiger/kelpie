@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 
-import { useInstallSampleData } from '../../api/resources/sampleData.ts'
 import { useCreateWorkspace, useSession } from '../../api/resources/session.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { TextField } from '../auth/AuthForm.tsx'
 import { AuthLayout } from '../auth/AuthLayout.tsx'
 import { OnboardingNav } from './OnboardingNav.tsx'
+import { isOnboardingRerun, onboardingPath } from './onboardingRerun.ts'
 
 /**
  * Onboarding step 1: the workspace, against `POST /v1/workspaces`.
@@ -16,9 +16,9 @@ import { OnboardingNav } from './OnboardingNav.tsx'
  * no workspace, so until this succeeds every CRM endpoint answers `403`, and
  * `SessionGate` sends anyone in that state here.
  *
- * One request does the whole thing: the service seeds the starter handbook and
- * the pipeline stages in the same transaction and moves this session into the
- * new workspace. There is nothing to re-login for and nothing to create next.
+ * One request creates the workspace, seeds pipeline stages, and moves this
+ * session into it. The starter handbook is seeded on step 4 once the reader
+ * picks an organisation type.
  *
  * It sits outside `SessionGate`, because being sent here *is* what the gate does
  * with an account that has no workspace, so gating it would loop. That leaves
@@ -48,15 +48,15 @@ function browserTimezone(): string {
 
 export function WorkspaceStepPage(): React.JSX.Element {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const rerun = isOnboardingRerun(searchParams)
   const { isSignedOut, session } = useSession()
   const createWorkspace = useCreateWorkspace()
-  const installSampleData = useInstallSampleData()
   const hasWorkspace = session?.workspaceId !== null && session?.workspaceId !== undefined
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugEdited, setSlugEdited] = useState(false)
   const [timezone] = useState(browserTimezone)
-  const [seedSample, setSeedSample] = useState(false)
 
   function changeName(value: string): void {
     setName(value)
@@ -76,17 +76,8 @@ export function WorkspaceStepPage(): React.JSX.Element {
 
     createWorkspace
       .runAsync({ name: name.trim(), slug: slug.trim(), timezone })
-      .then(async (workspace) => {
-        if (seedSample) {
-          // A refusal here does not block the wizard: the workspace itself is
-          // already created, and the invites step is what comes next either
-          // way. The error stays on screen so the reader sees what failed.
-          await installSampleData
-            .runAsync({ workspaceId: workspace.id })
-            .catch(() => undefined)
-        }
-
-        navigate('/onboarding/invites', { replace: true })
+      .then(() => {
+        navigate('/onboarding/organisation', { replace: true })
       })
       .catch(() => undefined)
   }
@@ -96,16 +87,17 @@ export function WorkspaceStepPage(): React.JSX.Element {
   }
 
   /**
-   * Previous on the invites step lands here after the workspace already
-   * exists. Showing the create form again would offer a second POST that
-   * this account cannot use. Next is the only action that remains.
+   * Previous on a later step lands here after the workspace already exists.
+   * Showing the create form again would offer a second POST that this account
+   * cannot use. Next is the only action that remains. A rerun keeps the flag
+   * so organisation does not seed handbook pages and the review step is skipped.
    */
   if (hasWorkspace) {
     return (
       <AuthLayout
         step={1}
         title="Your workspace is ready"
-        description="Use Next to invite teammates, or skip that step later."
+        description="Use Next to choose your organisation type and starter handbook."
         footer={
           <Link to="/login" className="font-medium text-accent hover:underline">
             Sign in as somebody else
@@ -118,7 +110,7 @@ export function WorkspaceStepPage(): React.JSX.Element {
             nextLabel="Next"
             nextType="button"
             onNext={() => {
-              navigate('/onboarding/invites', { replace: true })
+              navigate(onboardingPath('/onboarding/organisation', rerun), { replace: true })
             }}
           />
         </div>
@@ -157,26 +149,12 @@ export function WorkspaceStepPage(): React.JSX.Element {
         <p className="text-[11px] text-ink-faint">
           Timezone: {timezone}. Change it later in Admin → Workspace.
         </p>
-        <label className="flex items-start gap-2 text-[12px] text-ink">
-          <input
-            type="checkbox"
-            checked={seedSample}
-            onChange={(event) => setSeedSample(event.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent"
-          />
-          <span>
-            Install sample data — a small set of companies, people, deals, enquiries, opportunities,
-            fundraising, partnerships, hiring, and events so the workspace has something to look at.
-            You can delete it later.
-          </span>
-        </label>
         {createWorkspace.error !== null && <ErrorPanel error={createWorkspace.error} />}
-        {installSampleData.error !== null && <ErrorPanel error={installSampleData.error} />}
         <OnboardingNav
           step={1}
           nextLabel="Next"
-          nextPendingLabel={installSampleData.isPending ? 'Installing sample data…' : 'Creating…'}
-          isPending={createWorkspace.isPending || installSampleData.isPending}
+          nextPendingLabel="Creating…"
+          isPending={createWorkspace.isPending}
         />
       </form>
     </AuthLayout>

@@ -4,6 +4,8 @@ import { toEventActor } from '../../lib/actor.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
+import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
+import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
@@ -23,7 +25,6 @@ import { positions } from '../positions/schema.ts'
 import { raises } from '../raises/schema.ts'
 import { parseMemberRole, roleAllows } from '../workspace/roles.ts'
 import { SAMPLE_DATA_FIXTURE } from './fixture.ts'
-import type { Fixture } from './fixture.ts'
 
 /**
  * Installs the sample workspace, in one transaction.
@@ -34,6 +35,10 @@ import type { Fixture } from './fixture.ts'
  * Idempotent by refusal: a workspace that already holds any companies or
  * people gets a 409. Installing twice would double the fixture, which is not
  * what an "install once" button says.
+ *
+ * A workspace that has switched a toggleable module off (deals, opportunities,
+ * raises, partnerships, events) does not get fixture rows for that module.
+ * Companies, people, hiring, and enquiries still install.
  */
 
 export interface SampleDataDependencies {
@@ -41,6 +46,7 @@ export interface SampleDataDependencies {
   readonly transaction: TransactionScope
   readonly createId: IdFactory
   readonly now: () => Date
+  readonly entitlements: EntitlementRegistry
 }
 
 export interface SampleDataCounts {
@@ -100,6 +106,15 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
     }
   }
 
+  async function moduleIsOn(workspaceId: string, moduleId: string): Promise<boolean> {
+    const entitlement = await dependencies.entitlements.check(
+      workspaceId,
+      moduleCapabilityName(moduleId),
+    )
+
+    return entitlement.kind === 'flag' ? entitlement.granted : true
+  }
+
   return {
     async install(actor, workspaceId) {
       // The path parameter must match the actor's workspace, and it must be an
@@ -109,6 +124,11 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
       await requireAdmin(actor, workspaceId)
 
       const fixture = SAMPLE_DATA_FIXTURE
+      const includeDeals = await moduleIsOn(workspaceId, 'deals')
+      const includeOpportunities = await moduleIsOn(workspaceId, 'opportunities')
+      const includeRaises = await moduleIsOn(workspaceId, 'raises')
+      const includePartnerships = await moduleIsOn(workspaceId, 'partnerships')
+      const includeEvents = await moduleIsOn(workspaceId, 'events')
 
       return dependencies.transaction(
         async ({ tx }) => {
@@ -168,6 +188,10 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
           const enquiryIds = new Map<string, string>()
           const roleIds = new Map<string, string>()
           const candidateIds = new Map<string, string>()
+          let planItemCount = 0
+          let notesWritten = 0
+          let eventCount = 0
+          let attendanceCount = 0
 
           for (const record of fixture.companies) {
             const id = dependencies.createId('company')
@@ -237,6 +261,7 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
             })
           }
 
+          if (includeDeals) {
           for (const record of fixture.deals) {
             const stageId = stageIdByKindAndSlug.get(stageLookupKey('deal', record.stageSlug))
             const companyId = companyIds.get(record.companyKey)
@@ -292,7 +317,9 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
               })
             }
           }
+          }
 
+          if (includeOpportunities) {
           for (const record of fixture.opportunities) {
             const stageId = stageIdByKindAndSlug.get(
               stageLookupKey('opportunity', record.stageSlug),
@@ -330,7 +357,9 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
               updatedAt: now,
             })
           }
+          }
 
+          if (includeRaises) {
           for (const record of fixture.raises) {
             const stageId = stageIdByKindAndSlug.get(stageLookupKey('raise', record.stageSlug))
             const companyId = companyIds.get(record.companyKey)
@@ -384,7 +413,9 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
               })
             }
           }
+          }
 
+          if (includePartnerships) {
           for (const record of fixture.partnerships) {
             const stageId = stageIdByKindAndSlug.get(
               stageLookupKey('partnership', record.stageSlug),
@@ -439,6 +470,7 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
                 targetId: id,
               })
             }
+          }
           }
 
           for (const record of fixture.enquiries) {
@@ -555,10 +587,12 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
             })
           }
 
+          if (includeEvents) {
           for (const record of fixture.events) {
             const startsAt = new Date(now.getTime() + record.startOffsetHours * 60 * 60 * 1000)
             const endsAt = new Date(startsAt.getTime() + record.durationHours * 60 * 60 * 1000)
             const id = dependencies.createId('crmEvent')
+            eventCount += 1
 
             await tx.insert(events).values({
               id,
@@ -579,7 +613,7 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
               updatedAt: now,
             })
 
-            if (record.dealKey !== null) {
+            if (record.dealKey !== null && includeDeals) {
               const dealId = dealIds.get(record.dealKey)
 
               if (dealId === undefined) {
@@ -607,6 +641,8 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
                 )
               }
 
+              attendanceCount += 1
+
               await tx.insert(attendances).values({
                 id: dependencies.createId('attendance'),
                 workspaceId,
@@ -619,8 +655,13 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
               })
             }
           }
+          }
 
           for (const record of fixture.plans) {
+            if (!includeDeals) {
+              continue
+            }
+
             const dealId = dealIds.get(record.targetDealKey)
 
             if (dealId === undefined) {
@@ -628,6 +669,8 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
                 `Sample plan item "${record.title}" names unknown deal "${record.targetDealKey}"`,
               )
             }
+
+            planItemCount += 1
 
             await tx.insert(planItems).values({
               id: dependencies.createId('planItem'),
@@ -655,10 +698,16 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
             })
 
             if (targetId === undefined) {
+              if (isOptionalModuleNoteTarget(record.targetType)) {
+                continue
+              }
+
               throw new Error(
                 `Sample note names unknown ${record.targetType} "${record.targetKey}"`,
               )
             }
+
+            notesWritten += 1
 
             await tx.insert(notes).values({
               id: dependencies.createId('note'),
@@ -672,7 +721,22 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
             })
           }
 
-          return countsFor(fixture)
+          return {
+            companies: fixture.companies.length,
+            people: fixture.people.length,
+            positions: fixture.positions.length,
+            deals: dealIds.size,
+            planItems: planItemCount,
+            notes: notesWritten,
+            opportunities: opportunityIds.size,
+            raises: raiseIds.size,
+            partnerships: partnershipIds.size,
+            enquiries: enquiryIds.size,
+            roles: roleIds.size,
+            candidates: candidateIds.size,
+            events: eventCount,
+            attendances: attendanceCount,
+          }
         },
         { workspaceId, actor: toEventActor(actor) },
       )
@@ -729,21 +793,11 @@ function stageLookupKey(kind: string, slug: string): string {
   return `${kind}::${slug}`
 }
 
-function countsFor(fixture: Fixture): SampleDataCounts {
-  return {
-    companies: fixture.companies.length,
-    people: fixture.people.length,
-    positions: fixture.positions.length,
-    deals: fixture.deals.length,
-    planItems: fixture.plans.length,
-    notes: fixture.notes.length,
-    opportunities: fixture.opportunities.length,
-    raises: fixture.raises.length,
-    partnerships: fixture.partnerships.length,
-    enquiries: fixture.enquiries.length,
-    roles: fixture.roles.length,
-    candidates: fixture.candidates.length,
-    events: fixture.events.length,
-    attendances: fixture.events.reduce((sum, event) => sum + event.attendees.length, 0),
-  }
+function isOptionalModuleNoteTarget(targetType: string): boolean {
+  return (
+    targetType === 'deal' ||
+    targetType === 'opportunity' ||
+    targetType === 'raise' ||
+    targetType === 'partnership'
+  )
 }

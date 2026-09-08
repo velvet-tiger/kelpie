@@ -12,6 +12,19 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/ui`** — **A modules step in the setup wizard.** After workspace
+  create, the reader turns Deals, Opportunities, Fundraising, Partnerships,
+  Events, and Forms on or off, each with a short explanation. Opportunities,
+  Events, and Forms start on. Continue writes the six choices through
+  `PATCH /v1/workspaces/:id/modules/:module_id`. Sample data moved onto this
+  step so the installer runs after the choices.
+
+- **`@kelpie/server`** — **Sample data skips fixture rows for a disabled
+  module.** `POST /v1/workspaces/:id/sample-data` checks each of deals,
+  opportunities, raises, partnerships, and events against that workspace's
+  module setting and omits those objects (and plan items or notes that
+  pointed at them). Counts in the response stay honest.
+
 - **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **Events.** A
   first-class dated CRM object (webinar, meetup, dinner) with Attendances
   from the people list, Event-only associations to other records, custom

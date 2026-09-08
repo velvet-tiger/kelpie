@@ -104,6 +104,7 @@ const ROUTE_SCOPE_RULES: readonly RouteScopeRule[] = [
   { methods: ['GET'], pattern: /^\/v1\/workspaces\/[^/]+\/modules(?:\/[^/]+)?$/u, scope: 'modules:read' },
   { methods: ['PATCH'], pattern: /^\/v1\/workspaces\/[^/]+\/modules(?:\/[^/]+)?$/u, scope: 'modules:write' },
   { methods: ['POST'], pattern: /^\/v1\/workspaces\/[^/]+\/sample-data$/u, scope: 'sample_data:write' },
+  { methods: ['POST'], pattern: /^\/v1\/workspaces\/[^/]+\/handbook\/seed$/u, scope: 'handbook:write' },
   { methods: ['POST'], pattern: /^\/v1\/workspaces\/[^/]+\/relink-email-domains$/u, scope: 'workspace:write' },
   { methods: ['GET'], pattern: /^\/v1\/mcp\/tools$/u, scope: 'search:read' },
 ]

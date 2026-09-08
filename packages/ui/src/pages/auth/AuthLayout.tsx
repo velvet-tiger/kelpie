@@ -5,16 +5,16 @@ import { RegionSwitcher } from './RegionSwitcher.tsx'
 
 /**
  * The centred card every signed-out page sits in: sign in, signup, the two
- * password-reset pages, and the three onboarding steps.
+ * password-reset pages, and the five onboarding steps.
  *
  * `step` is what makes it an onboarding page. Onboarding is a sequence somebody
  * is part-way through, and a card that does not say where they are in it turns
- * three screens into three unrelated forms. The region switcher stays off
+ * five screens into five unrelated forms. The region switcher stays off
  * those steps: a session already exists on this origin.
  */
 
-/** Onboarding, per `onboarding.md`: workspace, invites, handbook. */
-const ONBOARDING_STEPS = [1, 2, 3] as const
+/** Onboarding, per `onboarding.md`: workspace, organisation, modules, invites, handbook. */
+const ONBOARDING_STEPS = [1, 2, 3, 4, 5] as const
 
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number]
 

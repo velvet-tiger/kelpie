@@ -8,7 +8,8 @@ import { registerSampleDataTools } from './tools.ts'
  *
  * Owns no tables. Requires the modules whose tables the fixture writes into.
  * A workspace admin invokes it from the setup wizard or from the admin data
- * page; an agent invokes it through the matching MCP tool.
+ * page; an agent invokes it through the matching MCP tool. The installer skips
+ * fixture rows for a toggleable module the workspace has switched off.
  */
 export function createSampleDataModule(): KelpieModule {
   return {
@@ -36,6 +37,7 @@ export function createSampleDataModule(): KelpieModule {
         transaction: context.transaction,
         createId: context.createId,
         now: context.now,
+        entitlements: context.entitlements,
       })
 
       context.routes((router) => {

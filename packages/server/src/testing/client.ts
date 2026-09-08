@@ -132,7 +132,17 @@ export function createTestClient(app: Hono<AppBindings>, db: Database): TestClie
         throw new Error(`Creating workspace ${slug} answered ${String(created.status)}`)
       }
 
-      return { cookie, workspaceId: readString(await created.json(), 'id') }
+      const workspaceId = readString(await created.json(), 'id')
+      const seeded = await send('POST', `/v1/workspaces/${workspaceId}/handbook/seed`, {
+        body: { handbook_template: 'startup' },
+        cookie,
+      })
+
+      if (seeded.status !== 201) {
+        throw new Error(`Seeding handbook for ${slug} answered ${String(seeded.status)}`)
+      }
+
+      return { cookie, workspaceId }
     },
   }
 }

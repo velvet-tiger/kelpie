@@ -91,6 +91,28 @@ describe.skipIf(connectionString === undefined)('sample-data', () => {
     expect(listed).toHaveLength(SAMPLE_DATA_FIXTURE.deals.length)
   })
 
+  it('skips fixture rows for a module the workspace has switched off', async () => {
+    const disabled = await client.send('PATCH', `/v1/workspaces/${acme.workspaceId}/modules/deals`, {
+      body: { enabled: false },
+      cookie: acme.cookie,
+    })
+
+    expect(disabled.status).toBe(200)
+
+    const response = await install()
+
+    expect(response.status).toBe(201)
+
+    const body = readRecord(await response.json())
+
+    expect(body.deals).toBe(0)
+    expect(body.plan_items).toBe(0)
+    expect(body.companies).toBe(SAMPLE_DATA_FIXTURE.companies.length)
+    expect(body.people).toBe(SAMPLE_DATA_FIXTURE.people.length)
+    expect(body.opportunities).toBe(SAMPLE_DATA_FIXTURE.opportunities.length)
+    expect(body.events).toBe(SAMPLE_DATA_FIXTURE.events.length)
+  })
+
   it('refuses a second install on the same workspace with 409', async () => {
     const first = await install()
 

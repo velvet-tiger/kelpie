@@ -23,6 +23,7 @@ const MODULE_LABELS: Readonly<Record<string, string>> = {
   opportunities: 'Opportunities',
   partnerships: 'Partnerships',
   raises: 'Fundraising',
+  events: 'Events',
   hiring: 'Hiring',
   handbook: 'Handbook',
   forms: 'Forms',

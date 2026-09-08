@@ -21,10 +21,12 @@ import { seedStarterForms } from './seedStarterForms.ts'
 import { parseInvitableRole, parseMemberRole, roleAllows } from './roles.ts'
 import type { InvitableRole, InviteStatus, MemberRole } from './roles.ts'
 import {
-  STARTER_HANDBOOK_PAGES,
+  getHandbookPagesForTemplate,
+  isStarterHandbookBody,
   STARTER_PIPELINE_STAGES,
   starterHandbookBody,
 } from './starters.ts'
+import type { HandbookTemplateId } from './starters.ts'
 
 /**
  * Workspaces and who belongs to them.
@@ -89,6 +91,15 @@ export interface CreateWorkspaceInput {
   readonly timezone: string
 }
 
+export interface SeedHandbookInput {
+  readonly handbookTemplate: HandbookTemplateId
+  readonly replace?: boolean | undefined
+}
+
+export interface SeedHandbookResult {
+  readonly handbookPages: number
+}
+
 /**
  * A partial update, on `api.md`'s rule: an absent field is not being changed,
  * and `null` clears one.
@@ -108,6 +119,8 @@ export interface UpdateWorkspaceInput {
 export interface WorkspaceService {
   /** Creates the workspace, makes the caller its owner, and seeds its starters. */
   create(actor: SessionActor, input: CreateWorkspaceInput): Promise<WorkspaceView>
+  /** Seeds starter handbook pages for the chosen organisation template. */
+  seedHandbook(actor: Actor, workspaceId: string, input: SeedHandbookInput): Promise<SeedHandbookResult>
   get(actor: Actor, workspaceId: string): Promise<WorkspaceView>
   update(actor: Actor, workspaceId: string, changes: UpdateWorkspaceInput): Promise<WorkspaceView>
   /**
@@ -439,19 +452,6 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
           joinedAt: now,
         })
 
-        await repository.insertHandbookPages(
-          tx,
-          STARTER_HANDBOOK_PAGES.map((page, index) => ({
-            id: dependencies.createId('handbookPage'),
-            workspaceId,
-            title: page.title,
-            slug: page.slug,
-            sortOrder: index,
-            body: starterHandbookBody(page.title),
-            updatedBy: memberId,
-          })),
-        )
-
         await repository.insertPipelineStages(
           tx,
           Object.entries(STARTER_PIPELINE_STAGES).flatMap(([kind, stages]) =>
@@ -509,6 +509,51 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
         return toWorkspaceView(workspace)
       }, { workspaceId, actor: toEventActor(actor) })
+    },
+
+    async seedHandbook(actor, workspaceId, input) {
+      const { memberId } = await requireMembership(actor, workspaceId, 'admin')
+
+      if (memberId === null) {
+        throw new AppError('forbidden', 'This action needs a workspace member')
+      }
+
+      const existing = await repository.listHandbookPages(dependencies.db, workspaceId)
+
+      if (existing.length > 0) {
+        if (input.replace !== true) {
+          throw AppError.conflict('This workspace already has handbook pages', [
+            { field: 'replace', message: 'Set replace to true to replace starter pages' },
+          ])
+        }
+
+        if (!existing.every((page) => isStarterHandbookBody(page))) {
+          throw AppError.conflict('Handbook pages have been edited and cannot be replaced')
+        }
+      }
+
+      const templatePages = getHandbookPagesForTemplate(input.handbookTemplate)
+
+      return dependencies.transaction(async ({ tx }) => {
+        if (existing.length > 0) {
+          await repository.deleteAllHandbookPages(tx, workspaceId)
+        }
+
+        await repository.insertHandbookPages(
+          tx,
+          templatePages.map((page, index) => ({
+            id: dependencies.createId('handbookPage'),
+            workspaceId,
+            title: page.title,
+            slug: page.slug,
+            sortOrder: index,
+            body: starterHandbookBody(page),
+            updatedBy: memberId,
+          })),
+        )
+
+        return { handbookPages: templatePages.length }
+      })
     },
 
     async get(actor, workspaceId) {

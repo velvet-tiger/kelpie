@@ -158,7 +158,7 @@ MCP tools share the input schema with their REST route, and the runtime parses a
 
 A module is `structural` or it is not. A structural module (`auth`, `workspace`, `api-keys`, `people`, `companies`, `activities`, `notes`, `pipelines`, `plans`, `decisions`, `lists`, `search`, `dashboard` and `smtp-email` in `coreModules` today) registers every route and MCP tool unconditionally and can never be disabled. Every other module is toggleable: the registration pass declares a `module.<id>` entitlement capability for it and gates its routes and tools behind that capability, so a disabled module answers `entitlement_required` on both surfaces rather than just disappearing from the UI. A module says nothing to opt in; `structural` defaults to false, so a module added later is toggleable without its author doing anything.
 
-A workspace admin turns a toggleable module on or off from **Admin → Modules**, backed by `GET`/`PATCH /v1/workspaces/:id/modules`. No row for a module means enabled, which is the state every workspace starts in.
+A workspace admin turns a toggleable module on or off from **Admin → Modules**, backed by `GET`/`PATCH /v1/workspaces/:id/modules`. The setup wizard's modules step writes the same endpoint for six of them (deals, opportunities, raises, partnerships, events, forms) with Opportunities, Events, and Forms on and the other three off. No row for a module means enabled, which is the state every workspace starts in until that step (or Admin → Modules) writes one.
 
 A deploy can lock specific modules on or off for every workspace it serves, ahead of what any workspace's own settings say:
 

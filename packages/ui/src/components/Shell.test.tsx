@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -93,6 +93,7 @@ function renderShell(initialPath: string): void {
               <Route path="dashboard" element={<p>Dashboard page</p>} />
               <Route path="admin/team" element={<p>Team page</p>} />
             </Route>
+            <Route path="/onboarding/workspace" element={<p>onboarding rerun</p>} />
           </Routes>
         </MemoryRouter>
       </UiExtensionProvider>
@@ -127,5 +128,27 @@ describe('the shell sidebar', () => {
       expect(labels).not.toContain('Dashboard')
       expect(labels).not.toContain('People')
     })
+  })
+})
+
+describe('the account menu', () => {
+  it('offers a rerun of the onboarding wizard', async () => {
+    renderShell('/dashboard')
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Ada Lovelace')).toBeTruthy()
+    })
+
+    await act(async () => {
+      screen.getByTitle('Ada Lovelace').click()
+    })
+
+    expect(screen.getByRole('menuitem', { name: 'Rerun onboarding wizard' })).toBeTruthy()
+
+    await act(async () => {
+      screen.getByRole('menuitem', { name: 'Rerun onboarding wizard' }).click()
+    })
+
+    expect(await screen.findByText('onboarding rerun')).toBeTruthy()
   })
 })
