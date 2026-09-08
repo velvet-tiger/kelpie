@@ -7,7 +7,7 @@ import { ErrorPanel } from '../../components/QueryState.tsx'
 import { TextField } from '../auth/AuthForm.tsx'
 import { AuthLayout } from '../auth/AuthLayout.tsx'
 import { OnboardingNav } from './OnboardingNav.tsx'
-import { isOnboardingRerun, onboardingPath } from './onboardingRerun.ts'
+import { isOnboardingRerun, ONBOARDING_ORG_PARAM, onboardingPath } from './onboardingRerun.ts'
 
 /**
  * Onboarding step 1: the workspace, against `POST /v1/workspaces`.
@@ -110,7 +110,10 @@ export function WorkspaceStepPage(): React.JSX.Element {
             nextLabel="Next"
             nextType="button"
             onNext={() => {
-              navigate(onboardingPath('/onboarding/organisation', rerun), { replace: true })
+              navigate(
+                onboardingPath('/onboarding/organisation', rerun, searchParams.get(ONBOARDING_ORG_PARAM)),
+                { replace: true },
+              )
             }}
           />
         </div>

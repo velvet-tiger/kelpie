@@ -14,10 +14,11 @@ While the major version is `0`, a minor bump may break the API.
 
 - **`@kelpie/ui`** — **A modules step in the setup wizard.** After workspace
   create, the reader turns Deals, Opportunities, Fundraising, Partnerships,
-  Events, and Forms on or off, each with a short explanation. Opportunities,
-  Events, and Forms start on. Continue writes the six choices through
-  `PATCH /v1/workspaces/:id/modules/:module_id`. Sample data moved onto this
-  step so the installer runs after the choices.
+  Events, and Forms on or off, each with a short explanation. Defaults and
+  copy follow the organisation type from the previous step (a startup
+  starts with all six on). Continue writes the six
+  choices through `PATCH /v1/workspaces/:id/modules/:module_id`. Sample
+  data moved onto this step so the installer runs after the choices.
 
 - **`@kelpie/server`** — **Sample data skips fixture rows for a disabled
   module.** `POST /v1/workspaces/:id/sample-data` checks each of deals,

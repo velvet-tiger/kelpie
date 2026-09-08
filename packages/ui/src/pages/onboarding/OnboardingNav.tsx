@@ -2,16 +2,16 @@ import type { ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 
 import type { OnboardingStep } from '../auth/AuthLayout.tsx'
-import { isOnboardingRerun, onboardingPath } from './onboardingRerun.ts'
+import { isOnboardingRerun, ONBOARDING_ORG_PARAM, onboardingPath } from './onboardingRerun.ts'
 
 /**
  * The Previous / Next row every onboarding step shares.
  *
  * Forward still commits on the step that owns the form. This only moves
  * between the five routes. Step 1 has no previous onboarding page, so
- * Previous stays off there. The `rerun` query is kept on Previous so a
- * finished workspace that walks the wizard again still skips handbook
- * seeding and the handbook review.
+ * Previous stays off there. The `rerun` and `org` queries are kept on
+ * Previous so a finished workspace that walks the wizard again still skips
+ * handbook seeding, and the modules step still sees the organisation type.
  */
 
 const ONBOARDING_PATHS = {
@@ -44,12 +44,13 @@ export interface OnboardingNavProps {
 export function previousOnboardingPath(
   step: OnboardingStep,
   rerun = false,
+  org?: string | null,
 ): string | undefined {
   if (step === 1) {
     return undefined
   }
 
-  return onboardingPath(ONBOARDING_PATHS[(step - 1) as OnboardingStep], rerun)
+  return onboardingPath(ONBOARDING_PATHS[(step - 1) as OnboardingStep], rerun, org)
 }
 
 export function OnboardingNav({
@@ -64,7 +65,7 @@ export function OnboardingNav({
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const rerun = isOnboardingRerun(searchParams)
-  const previousTo = previousOnboardingPath(step, rerun)
+  const previousTo = previousOnboardingPath(step, rerun, searchParams.get(ONBOARDING_ORG_PARAM))
 
   return (
     <div className="flex flex-col gap-2 pt-1">

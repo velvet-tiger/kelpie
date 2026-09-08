@@ -7,31 +7,44 @@ import { useInstallSampleData } from '../../api/resources/sampleData.ts'
 import { useSession } from '../../api/resources/session.ts'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { AuthLayout } from '../auth/AuthLayout.tsx'
+import { organisationChoiceFromParam, organisationChoiceLabel } from './handbookTemplates.ts'
+import type { OrganisationChoiceId } from './handbookTemplates.ts'
 import { OnboardingNav } from './OnboardingNav.tsx'
-import { defaultOnboardingModuleState, ONBOARDING_MODULES } from './onboardingModules.ts'
-import { isOnboardingRerun, onboardingPath } from './onboardingRerun.ts'
+import { defaultOnboardingModuleState, onboardingModulesForChoice } from './onboardingModules.ts'
+import { isOnboardingRerun, ONBOARDING_ORG_PARAM, onboardingPath } from './onboardingRerun.ts'
+
+function modulesStepDescription(org: OrganisationChoiceId): string {
+  if (org === 'startup' || org === 'later') {
+    return 'Pick the parts of Kelpie your team needs today. Turn the rest on whenever you like — nothing here is permanent.'
+  }
+
+  return `Suggested for ${organisationChoiceLabel(org)}. Turn the rest on whenever you like — nothing here is permanent.`
+}
 
 /**
  * Onboarding step 3: which optional modules this workspace runs.
  *
  * The workspace already exists. This step writes each of the six choices
  * through `PATCH /v1/workspaces/:id/modules/:moduleId`, then optionally
- * installs sample data, then moves on to invites. Other toggleable modules
- * stay on; Admin → Modules is where they change later.
+ * installs sample data, then moves on to invites. Defaults and explanations
+ * follow the organisation type on `?org=`. Other toggleable modules stay
+ * on; Admin → Modules is where they change later.
  */
 
 export function ModulesStepPage(): React.JSX.Element {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const rerun = isOnboardingRerun(searchParams)
+  const org = organisationChoiceFromParam(searchParams.get(ONBOARDING_ORG_PARAM))
+  const modules = onboardingModulesForChoice(org)
   const { session, isLoading } = useSession()
   const setEnabled = useSetModuleEnabled()
   const installSampleData = useInstallSampleData()
-  const [enabled, setEnabledState] = useState(defaultOnboardingModuleState)
+  const [enabled, setEnabledState] = useState(() => defaultOnboardingModuleState(org))
   const [seedSample, setSeedSample] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  function toggle(moduleId: string, next: boolean): void {
+  function toggle(moduleId: (typeof modules)[number]['id'], next: boolean): void {
     setEnabledState((previous) => ({ ...previous, [moduleId]: next }))
   }
 
@@ -52,7 +65,7 @@ export function ModulesStepPage(): React.JSX.Element {
           await installSampleData.runAsync({ workspaceId })
         }
 
-        navigate(onboardingPath('/onboarding/invites', rerun), { replace: true })
+        navigate(onboardingPath('/onboarding/invites', rerun, org), { replace: true })
       })
       .catch(() => undefined)
       .finally(() => {
@@ -61,7 +74,7 @@ export function ModulesStepPage(): React.JSX.Element {
   }
 
   async function persistChoices(): Promise<void> {
-    for (const choice of ONBOARDING_MODULES) {
+    for (const choice of modules) {
       await setEnabled.runAsync({
         moduleId: choice.id,
         enabled: enabled[choice.id] === true,
@@ -71,14 +84,11 @@ export function ModulesStepPage(): React.JSX.Element {
 
   const isPending = saving || setEnabled.isPending || installSampleData.isPending
   const workspaceId = session?.workspaceId
+  const description = modulesStepDescription(org)
 
   if (isLoading || workspaceId === null || workspaceId === undefined) {
     return (
-      <AuthLayout
-        step={3}
-        title="What do you want to use?"
-        description="Pick the parts of Kelpie your team needs today. Turn the rest on whenever you like — nothing here is permanent."
-      >
+      <AuthLayout step={3} title="What do you want to use?" description={description}>
         <div className="mt-5">
           <LoadingPanel label="Loading…" />
         </div>
@@ -87,14 +97,10 @@ export function ModulesStepPage(): React.JSX.Element {
   }
 
   return (
-    <AuthLayout
-      step={3}
-      title="What do you want to use?"
-      description="Pick the parts of Kelpie your team needs today. Turn the rest on whenever you like — nothing here is permanent."
-    >
+    <AuthLayout step={3} title="What do you want to use?" description={description}>
       <form onSubmit={submit} className="mt-5 space-y-3">
         <ul className="space-y-3">
-          {ONBOARDING_MODULES.map((choice) => (
+          {modules.map((choice) => (
             <li key={choice.id}>
               <label className="flex items-start gap-2 text-[12px] text-ink">
                 <input

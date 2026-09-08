@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiProvider } from '../../api/ApiProvider.tsx'
@@ -181,6 +181,18 @@ async function press(name: RegExp | string): Promise<void> {
   })
 }
 
+function StepEcho({ label }: { label: string }): React.JSX.Element {
+  const [params] = useSearchParams()
+  const org = params.get('org')
+
+  return (
+    <div>
+      <p>{label}</p>
+      {org !== null && <p>{`org=${org}`}</p>}
+    </div>
+  )
+}
+
 function renderStep(
   element: React.JSX.Element,
   calls: Calls,
@@ -199,9 +211,9 @@ function renderStep(
           {/* Standing in for what each step hands off to, so moving on is
               something the test can see. */}
           <Route path="/onboarding/workspace" element={<p>step 1</p>} />
-          <Route path="/onboarding/organisation" element={<p>step 2</p>} />
-          <Route path="/onboarding/modules" element={<p>step 3</p>} />
-          <Route path="/onboarding/invites" element={<p>step 4</p>} />
+          <Route path="/onboarding/organisation" element={<StepEcho label="step 2" />} />
+          <Route path="/onboarding/modules" element={<StepEcho label="step 3" />} />
+          <Route path="/onboarding/invites" element={<StepEcho label="step 4" />} />
           <Route path="/onboarding/handbook" element={<p>step 5</p>} />
           <Route path="/dashboard" element={<p>the app</p>} />
           <Route path="/login" element={<p>sign in</p>} />
@@ -353,8 +365,9 @@ describe('OrganisationStepPage', () => {
 
     const seed = calls.posted.find((call) => call.path === '/workspaces/wsp_1/handbook/seed')
 
-    expect((seed?.body as { handbook_template: string }).handbook_template).toBe('startup')
     expect(await screen.findByText('step 3')).toBeTruthy()
+    expect(screen.getByText('org=startup')).toBeTruthy()
+    expect((seed?.body as { handbook_template: string }).handbook_template).toBe('startup')
   })
 
   it('seeds the startup handbook when Choose later is selected', async () => {
@@ -376,6 +389,7 @@ describe('OrganisationStepPage', () => {
 
     expect((calls.posted[0]?.body as { handbook_template: string }).handbook_template).toBe('startup')
     expect(await screen.findByText('step 3')).toBeTruthy()
+    expect(screen.getByText('org=later')).toBeTruthy()
   })
 
   it('seeds a different template when Nonprofit is selected', async () => {
@@ -398,6 +412,8 @@ describe('OrganisationStepPage', () => {
     expect((calls.posted[0]?.body as { handbook_template: string }).handbook_template).toBe(
       'nonprofit',
     )
+    expect(await screen.findByText('step 3')).toBeTruthy()
+    expect(screen.getByText('org=nonprofit')).toBeTruthy()
   })
 
   it('replaces existing starter pages when going through the step again', async () => {
@@ -448,7 +464,8 @@ describe('OrganisationStepPage', () => {
     )
 
     expect(await screen.findByText('Startup')).toBeTruthy()
-    expect(screen.getByText(/Existing handbook pages are not changed/u)).toBeTruthy()
+    expect(screen.getByText('Pick a type to continue.')).toBeTruthy()
+    expect(screen.queryByText(/Existing handbook pages/u)).toBeNull()
 
     await act(async () => {
       screen.getByLabelText(/^Nonprofit/u).click()
@@ -456,20 +473,102 @@ describe('OrganisationStepPage', () => {
     await press('Next')
 
     expect(await screen.findByText('step 3')).toBeTruthy()
+    expect(screen.getByText('org=nonprofit')).toBeTruthy()
     expect(calls.posted).toEqual([])
   })
 })
 
 describe('ModulesStepPage', () => {
-  it('starts with opportunities, events, and forms on, and the other three off', async () => {
+  it('starts with every optional module on for a startup', async () => {
     renderStep(<ModulesStepPage />, noCalls())
 
-    expect(((await screen.findByLabelText(/^Deals/u)) as HTMLInputElement).checked).toBe(false)
+    expect(((await screen.findByLabelText(/^Deals/u)) as HTMLInputElement).checked).toBe(true)
     expect((screen.getByLabelText(/^Opportunities/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Fundraising/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Partnerships/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Events/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Forms/u) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('starts with opportunities off for an agency', async () => {
+    renderStep(<ModulesStepPage />, noCalls(), {}, '/step?org=agency')
+
+    expect(((await screen.findByLabelText(/^Deals/u)) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Opportunities/u) as HTMLInputElement).checked).toBe(false)
     expect((screen.getByLabelText(/^Fundraising/u) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/^Partnerships/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Events/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Forms/u) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByText('Track pitches, retainers, and projects you are trying to close.')).toBeTruthy()
+    expect(screen.getByText('Suggested for Agency. Turn the rest on whenever you like — nothing here is permanent.')).toBeTruthy()
+  })
+
+  it('starts with fundraising on for a nonprofit', async () => {
+    renderStep(<ModulesStepPage />, noCalls(), {}, '/step?org=nonprofit')
+
+    expect(((await screen.findByLabelText(/^Deals/u)) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/^Fundraising/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Partnerships/u) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByText('Chase grants, awards, press, and speaking slots.')).toBeTruthy()
+    expect(
+      screen.getByText('Track who you are raising from, and where each conversation is up to.'),
+    ).toBeTruthy()
+  })
+
+  it('starts with fundraising on for a community', async () => {
+    renderStep(<ModulesStepPage />, noCalls(), {}, '/step?org=community')
+
+    expect(((await screen.findByLabelText(/^Deals/u)) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/^Fundraising/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Events/u) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('starts with opportunities and partnerships off for professional services', async () => {
+    renderStep(<ModulesStepPage />, noCalls(), {}, '/step?org=professional-services')
+
+    expect(((await screen.findByLabelText(/^Deals/u)) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Opportunities/u) as HTMLInputElement).checked).toBe(false)
     expect((screen.getByLabelText(/^Partnerships/u) as HTMLInputElement).checked).toBe(false)
     expect((screen.getByLabelText(/^Events/u) as HTMLInputElement).checked).toBe(true)
     expect((screen.getByLabelText(/^Forms/u) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('starts with partnerships and events off for a creator', async () => {
+    renderStep(<ModulesStepPage />, noCalls(), {}, '/step?org=creator')
+
+    expect(((await screen.findByLabelText(/^Deals/u)) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Opportunities/u) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/^Partnerships/u) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/^Events/u) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/^Forms/u) as HTMLInputElement).checked).toBe(true)
+    expect(
+      screen.getByText('Track brand deals and client work from first chat to won or lost.'),
+    ).toBeTruthy()
+  })
+
+  it('writes agency defaults when that type is on the query', async () => {
+    const calls = noCalls()
+
+    renderStep(<ModulesStepPage />, calls, {}, '/step?org=agency')
+
+    await screen.findByRole('button', { name: 'Next' })
+
+    await press('Next')
+
+    await waitFor(() => {
+      expect(calls.patched).toHaveLength(6)
+    })
+
+    expect(calls.patched.map((call) => (call.body as { enabled: boolean }).enabled)).toEqual([
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+    ])
+    expect(await screen.findByText('step 4')).toBeTruthy()
+    expect(screen.getByText('org=agency')).toBeTruthy()
   })
 
   it('writes every module choice then moves on', async () => {
@@ -494,10 +593,10 @@ describe('ModulesStepPage', () => {
       '/workspaces/wsp_1/modules/forms',
     ])
     expect(calls.patched.map((call) => (call.body as { enabled: boolean }).enabled)).toEqual([
-      false,
       true,
-      false,
-      false,
+      true,
+      true,
+      true,
       true,
       true,
     ])

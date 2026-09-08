@@ -53,6 +53,24 @@ export const ORGANISATION_CHOICES: readonly OrganisationChoice[] = [
 
 export const DEFAULT_ORGANISATION_CHOICE: OrganisationChoiceId = 'startup'
 
+export function isOrganisationChoiceId(value: string): value is OrganisationChoiceId {
+  return ORGANISATION_CHOICES.some((option) => option.id === value)
+}
+
+export function organisationChoiceFromParam(value: string | null): OrganisationChoiceId {
+  return value !== null && isOrganisationChoiceId(value) ? value : DEFAULT_ORGANISATION_CHOICE
+}
+
+export function organisationChoiceLabel(choice: OrganisationChoiceId): string {
+  for (const option of ORGANISATION_CHOICES) {
+    if (option.id === choice) {
+      return option.label
+    }
+  }
+
+  return 'Startup'
+}
+
 /** `later` seeds the original startup pages. */
 export function handbookTemplateForChoice(choice: OrganisationChoiceId): HandbookTemplateId {
   return choice === 'later' ? 'startup' : choice

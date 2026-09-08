@@ -19,7 +19,7 @@ A workspace is your company brain — CRM records, handbook, and team. You choos
 - **Name and slug.** The slug is the workspace's short handle; it must be unique on the install.
 - **Timezone.** This decides what "today" means for the whole workspace: overdue plans and stale contacts are judged against your calendar, not the server's.
 - **Organisation type.** Startup, Agency, Nonprofit, Community, Professional services, Creator, or Choose later. This seeds the starter handbook. Choose later uses the standard startup pages.
-- **Modules.** The next step turns Deals, Opportunities, Fundraising, Partnerships, Events, and Forms on or off. Opportunities, Events, and Forms start on.
+- **Modules.** The next step turns Deals, Opportunities, Fundraising, Partnerships, Events, and Forms on or off. Defaults follow the organisation type you just picked — a startup starts with all six on.
 - **Install sample data.** On the modules step. Ticked, Kelpie fills the workspace with a small set of companies, people, and records for the modules you turned on, so you explore a working CRM instead of an empty one. It can also be installed later from Admin → Data, but only while the workspace holds no real records.
 
 <!-- screenshot: onboarding workspace step -->
