@@ -21,6 +21,10 @@ While the major version is `0`, a minor bump may break the API.
   street / city / region / postal code / country instead of a single city
   cell. Person and Company detail pages keep the list on an Addresses tab
   and show only the primary address in the sidebar, as a link to that tab.
+  Person social profiles use the same split: the editor is on a Social tab,
+  and the sidebar lists the profiles as outbound links. Person positions live
+  on a Positions tab; the heading lists each title (opens the tab) and
+  company (opens the company) under the name, with email below.
 
 - **`@kelpie/ui`** — **A modules step in the setup wizard.** After workspace
   create, the reader turns Deals, Opportunities, Fundraising, Partnerships,

@@ -145,8 +145,11 @@ export { AddressSidebarLink, AddressesField } from './components/AddressesField.
 export type { AddressSidebarLinkProps, AddressesFieldProps } from './components/AddressesField.tsx'
 export { CountrySearch } from './components/CountrySearch.tsx'
 export type { CountrySearchProps } from './components/CountrySearch.tsx'
-export { SocialProfilesField } from './components/SocialProfilesField.tsx'
-export type { SocialProfilesFieldProps } from './components/SocialProfilesField.tsx'
+export { SocialProfilesField, SocialProfilesSidebar } from './components/SocialProfilesField.tsx'
+export type {
+  SocialProfilesFieldProps,
+  SocialProfilesSidebarProps,
+} from './components/SocialProfilesField.tsx'
 export { SummaryBlock } from './components/SummaryBlock.tsx'
 export type { SummaryBlockProps } from './components/SummaryBlock.tsx'
 export { TimezoneSearch } from './components/TimezoneSearch.tsx'

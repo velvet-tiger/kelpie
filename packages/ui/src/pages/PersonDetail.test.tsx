@@ -53,9 +53,51 @@ const HOME_ADDRESS = {
   primary: true,
 }
 
-function wirePerson(
-  addresses: readonly Record<string, unknown>[] = [],
-): Record<string, unknown> {
+const LINKEDIN_PROFILE = {
+  network: 'linkedin',
+  url: 'https://linkedin.com/in/ada',
+}
+
+const COMPANY_ID = 'com_01hx'
+
+const WIRE_COMPANY = {
+  id: COMPANY_ID,
+  name: 'Northwind',
+  domain: 'northwind.dev',
+  industry: null,
+  description: '',
+  stage: 'growth',
+  size_band: '11-50',
+  addresses: [],
+  website: null,
+  account_type: 'customer',
+  icp_fit: 'high',
+  tech_stack: [],
+  summary: '',
+  tags: [],
+  is_own: false,
+  custom_fields: {},
+  created_at: '2026-07-01T00:00:00.000Z',
+  updated_at: '2026-08-01T00:00:00.000Z',
+}
+
+const WIRE_POSITION = {
+  id: 'pos_01hx',
+  person_id: PERSON_ID,
+  company_id: COMPANY_ID,
+  title: 'Executive sponsor',
+  created_at: '2026-07-01T00:00:00.000Z',
+  updated_at: '2026-08-01T00:00:00.000Z',
+}
+
+interface PersonWireOptions {
+  readonly addresses?: readonly Record<string, unknown>[]
+  readonly socialProfiles?: readonly Record<string, unknown>[]
+  readonly positions?: readonly Record<string, unknown>[]
+  readonly companies?: readonly Record<string, unknown>[]
+}
+
+function wirePerson(options: PersonWireOptions = {}): Record<string, unknown> {
   return {
     id: PERSON_ID,
     name: 'Ada Lovelace',
@@ -65,9 +107,9 @@ function wirePerson(
     suffix: null,
     email: 'ada@example.com',
     phones: [],
-    social_profiles: [],
+    social_profiles: options.socialProfiles ?? [],
     timezone: null,
-    addresses,
+    addresses: options.addresses ?? [],
     preferred_channel: 'email',
     influence: 'decision_maker',
     relationship: 'cold',
@@ -85,7 +127,7 @@ function wirePerson(
 function personClient(
   eventsEnabled: boolean,
   listed: string[],
-  addresses: readonly Record<string, unknown>[] = [],
+  options: PersonWireOptions = {},
 ): ApiClient {
   return stubClient({
     get: (path) => {
@@ -94,7 +136,7 @@ function personClient(
       }
 
       if (path === `/people/${PERSON_ID}`) {
-        return wirePerson(addresses)
+        return wirePerson(options)
       }
 
       if (path === '/account/preferences') {
@@ -117,6 +159,14 @@ function personClient(
         }
       }
 
+      if (path === '/positions') {
+        return { items: options.positions ?? [], nextCursor: null }
+      }
+
+      if (path === '/companies') {
+        return { items: options.companies ?? [], nextCursor: null }
+      }
+
       return { items: [], nextCursor: null }
     },
   })
@@ -126,10 +176,7 @@ function tabLabels(): readonly string[] {
   return screen.getAllByRole('tab').map((tab) => tab.textContent ?? '')
 }
 
-function renderPerson(
-  eventsEnabled: boolean,
-  addresses: readonly Record<string, unknown>[] = [],
-): string[] {
+function renderPerson(eventsEnabled: boolean, options: PersonWireOptions = {}): string[] {
   const listed: string[] = []
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -138,7 +185,7 @@ function renderPerson(
   render(
     <ApiProvider
       baseUrl="http://localhost/v1"
-      client={personClient(eventsEnabled, listed, addresses)}
+      client={personClient(eventsEnabled, listed, options)}
       queryClient={queryClient}
     >
       <MemoryRouter initialEntries={[`/people/${PERSON_ID}`]}>
@@ -197,7 +244,7 @@ describe('PersonDetail Addresses tab', () => {
   })
 
   it('opens the Addresses tab from the primary address in the sidebar', async () => {
-    renderPerson(false, [HOME_ADDRESS])
+    renderPerson(false, { addresses: [HOME_ADDRESS] })
 
     const link = await screen.findByRole('button', {
       name: '42 Gertrude Street, Fitzroy, VIC, 3065, Australia',
@@ -215,5 +262,90 @@ describe('PersonDetail Addresses tab', () => {
     ).toBe('true')
     expect(screen.getByText('Home')).toBeTruthy()
     expect(screen.getByText('Primary')).toBeTruthy()
+  })
+})
+
+describe('PersonDetail Social tab', () => {
+  it('keeps the editor on the Social tab, not the sidebar', async () => {
+    renderPerson(false)
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Social' })).toBeTruthy()
+    })
+
+    expect(screen.getByRole('button', { name: 'Add profile…' })).toBeTruthy()
+    expect(screen.queryByText(/One profile per network/u)).toBeNull()
+    expect(screen.getByRole('tab', { name: 'Social' }).getAttribute('aria-selected')).toBe(
+      'false',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add profile…' }))
+
+    expect(screen.getByRole('tab', { name: 'Social' }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    expect(screen.getByText(/One profile per network/u)).toBeTruthy()
+  })
+
+  it('lists social profiles in the sidebar as outbound links', async () => {
+    renderPerson(false, { socialProfiles: [LINKEDIN_PROFILE] })
+
+    const link = await screen.findByRole('link', { name: 'LinkedIn · in/ada' })
+
+    expect(link.getAttribute('href')).toBe('https://linkedin.com/in/ada')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(
+      screen.getByRole('tab', { name: /Social/u }).getAttribute('aria-selected'),
+    ).toBe('false')
+    expect(screen.queryByText(/One profile per network/u)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add profile…' })).toBeNull()
+  })
+})
+
+describe('PersonDetail Positions tab', () => {
+  it('keeps the editor on the Positions tab, not the sidebar', async () => {
+    renderPerson(false)
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Positions' })).toBeTruthy()
+    })
+
+    expect(screen.queryByText('No positions yet.')).toBeNull()
+    expect(screen.queryByText(/Titles this person holds/u)).toBeNull()
+    expect(
+      screen.getByRole('tab', { name: 'Positions' }).getAttribute('aria-selected'),
+    ).toBe('false')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Positions' }))
+
+    expect(
+      screen.getByRole('tab', { name: 'Positions' }).getAttribute('aria-selected'),
+    ).toBe('true')
+    expect(screen.getByText(/Titles this person holds/u)).toBeTruthy()
+    expect(screen.getByText('No positions yet.')).toBeTruthy()
+  })
+
+  it('lists title and company under the name, with email below', async () => {
+    renderPerson(false, {
+      positions: [WIRE_POSITION],
+      companies: [WIRE_COMPANY],
+    })
+
+    const title = await screen.findByRole('button', { name: 'Executive sponsor' })
+    const company = screen.getByRole('link', { name: 'Northwind' })
+
+    expect(company.getAttribute('href')).toBe(`/companies/${COMPANY_ID}`)
+    expect(screen.getByText('ada@example.com')).toBeTruthy()
+    expect(
+      screen.getByRole('tab', { name: /Positions/u }).getAttribute('aria-selected'),
+    ).toBe('false')
+    expect(screen.queryByText(/Titles this person holds/u)).toBeNull()
+
+    fireEvent.click(title)
+
+    expect(
+      screen.getByRole('tab', { name: /Positions/u }).getAttribute('aria-selected'),
+    ).toBe('true')
+    expect(screen.getByText(/Titles this person holds/u)).toBeTruthy()
   })
 })

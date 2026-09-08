@@ -49,7 +49,7 @@ import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
 import { SidebarField } from '../components/SidebarField.tsx'
-import { SocialProfilesField } from '../components/SocialProfilesField.tsx'
+import { SocialProfilesField, SocialProfilesSidebar } from '../components/SocialProfilesField.tsx'
 import { TimezoneSearch } from '../components/TimezoneSearch.tsx'
 import { PhonesField } from '../components/PhonesField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
@@ -66,10 +66,10 @@ import { usePersonNames, useRoleTitles } from './hiringDirectory.ts'
 /**
  * One person.
  *
- * The mockup carried eight tabs. Overview, Addresses, Activity, Notes, Decisions
- * and Hiring are here; the remaining three read Deals, Opportunities or
- * Partnerships, and return with their pages. A UI module can add its own
- * through the `person` record-tab slot.
+ * The mockup carried eight tabs. Overview, Addresses, Social, Positions,
+ * Activity, Notes, Decisions and Hiring are here; the remaining three read
+ * Deals, Opportunities or Partnerships, and return with their pages. A UI
+ * module can add its own through the `person` record-tab slot.
  *
  * Hiring appears only when this person is up for a role, which is the mockup's
  * rule: a Person carries no hiring fields, so with no candidacy there is nothing
@@ -95,6 +95,10 @@ export function PersonDetail(): React.JSX.Element {
   const candidacies = useCandidates({ personIds: id === undefined ? [] : [id] }, {
     enabled: id !== undefined,
   })
+  const positions = usePositions(
+    { personIds: id === undefined ? [] : [id] },
+    { enabled: id !== undefined },
+  )
   const formSubmissions = useFormSubmissionsForRecord('person', id)
   const attendances = useAttendances(
     { personIds: id === undefined ? [] : [id] },
@@ -116,6 +120,8 @@ export function PersonDetail(): React.JSX.Element {
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'addresses', label: 'Addresses', count: record.addresses.length },
+    { id: 'social', label: 'Social', count: record.socialProfiles.length },
+    { id: 'positions', label: 'Positions', count: positions.records.length },
     ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'activity', label: 'Activity' },
     ...(candidacies.records.length === 0
@@ -146,7 +152,12 @@ export function PersonDetail(): React.JSX.Element {
 
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="min-w-0 space-y-8">
-          <PersonHeading person={record} />
+          <PersonHeading
+            person={record}
+            onOpenPositions={() => {
+              setActiveTab('positions')
+            }}
+          />
 
           <div className="flex justify-end gap-2">
             <AgentTasks targetType="person" targetId={record.id} targetLabel={record.name} />
@@ -167,6 +178,8 @@ export function PersonDetail(): React.JSX.Element {
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Person sections">
             {active === 'overview' && <PersonOverview person={record} />}
             {active === 'addresses' && <PersonAddresses person={record} />}
+            {active === 'social' && <PersonSocial person={record} />}
+            {active === 'positions' && <PersonPositions person={record} />}
             {active === 'fields' && <PersonFields person={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="person" targetId={record.id} />}
             {active === 'hiring' && (
@@ -188,9 +201,11 @@ export function PersonDetail(): React.JSX.Element {
             onOpenAddresses={() => {
               setActiveTab('addresses')
             }}
+            onOpenSocial={() => {
+              setActiveTab('social')
+            }}
           />
           <PersonConsents person={record} />
-          <PersonPositions person={record} />
         </aside>
       </div>
     </div>
@@ -202,8 +217,17 @@ function usePersonPatch(person: Person): PatchResult<PersonInput> {
   return usePatch(useUpdatePerson, person)
 }
 
-function PersonHeading({ person }: { readonly person: Person }): React.JSX.Element {
+function PersonHeading({
+  person,
+  onOpenPositions,
+}: {
+  readonly person: Person
+  readonly onOpenPositions: () => void
+}): React.JSX.Element {
   const { patch, error } = usePersonPatch(person)
+  const positions = usePositions({ personIds: [person.id] })
+  const companies = useCompanies({ personIds: [person.id] })
+  const companyNameById = new Map(companies.records.map((company) => [company.id, company.name]))
 
   return (
     <div className="min-w-0 flex-1">
@@ -220,6 +244,37 @@ function PersonHeading({ person }: { readonly person: Person }): React.JSX.Eleme
         displayClassName="text-[22px] font-semibold tracking-tight text-ink not-italic"
         emptyLabel="Untitled"
       />
+      {positions.records.length > 0 && (
+        <ul className="mt-1 space-y-0.5">
+          {positions.records.map((position) => {
+            const companyName = companyNameById.get(position.companyId) ?? 'Unknown'
+            const title = position.title.trim()
+
+            return (
+              <li key={position.id} className="text-[13px] text-ink-muted">
+                {title.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onOpenPositions}
+                      className="font-medium text-accent transition hover:text-accent-hover hover:underline"
+                    >
+                      {title}
+                    </button>
+                    <span> at </span>
+                  </>
+                )}
+                <Link
+                  to={`/companies/${position.companyId}`}
+                  className="font-medium text-accent transition hover:text-accent-hover hover:underline"
+                >
+                  {companyName}
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      )}
       <div className="mt-1">
         <InlineEdit
           value={person.email ?? ''}
@@ -479,9 +534,11 @@ function PersonNameParts({ person }: { readonly person: Person }): React.JSX.Ele
 function PersonSidebar({
   person,
   onOpenAddresses,
+  onOpenSocial,
 }: {
   readonly person: Person
   readonly onOpenAddresses: () => void
+  readonly onOpenSocial: () => void
 }): React.JSX.Element {
   const { patch, error } = usePersonPatch(person)
 
@@ -519,14 +576,7 @@ function PersonSidebar({
           }}
         />
       </SidebarField>
-      <SidebarField label="Social profiles">
-        <SocialProfilesField
-          value={person.socialProfiles}
-          onChange={(socialProfiles) => {
-            patch({ socialProfiles })
-          }}
-        />
-      </SidebarField>
+      <SocialProfilesSidebar profiles={person.socialProfiles} onOpen={onOpenSocial} />
       <SidebarField label="Tags">
         <InlineEdit
           value={person.tags.join(', ')}
@@ -568,6 +618,26 @@ function PersonAddresses({ person }: { readonly person: Person }): React.JSX.Ele
         kindLabels={PERSON_ADDRESS_KIND_LABELS}
         onChange={(addresses) => {
           patch({ addresses })
+        }}
+      />
+    </div>
+  )
+}
+
+function PersonSocial({ person }: { readonly person: Person }): React.JSX.Element {
+  const { patch, error } = usePersonPatch(person)
+
+  return (
+    <div className="max-w-lg space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <SectionHeader
+        title="Social profiles"
+        description="One profile per network. The sidebar lists them as links."
+      />
+      <SocialProfilesField
+        value={person.socialProfiles}
+        onChange={(socialProfiles) => {
+          patch({ socialProfiles })
         }}
       />
     </div>
@@ -631,69 +701,21 @@ function PersonPositions({ person }: { readonly person: Person }): React.JSX.Ele
   }
 
   return (
-    <section className="rounded-md border border-border">
-      <div className="border-b border-border px-3.5 py-2.5">
-        <SectionHeader
-          title="Positions"
-          onAdd={() => {
-            setAdding((current) => !current)
-          }}
-          addLabel="Add position"
-          compact
-        />
-      </div>
+    <div className="space-y-4">
+      <SectionHeader
+        title="Positions"
+        description="Titles this person holds at companies."
+        onAdd={() => {
+          setAdding((current) => !current)
+        }}
+        addLabel="Add position"
+      />
 
-      {createPosition.error !== null && (
-        <div className="px-3.5 py-2">
-          <ErrorPanel error={createPosition.error} />
-        </div>
-      )}
-      {deletePosition.error !== null && (
-        <div className="px-3.5 py-2">
-          <ErrorPanel error={deletePosition.error} />
-        </div>
-      )}
-
-      <ul className="divide-y divide-border">
-        {positions.isLoading && (
-          <li className="px-3.5 py-4 text-[12px] text-ink-faint">Loading positions…</li>
-        )}
-        {!positions.isLoading && positions.records.length === 0 && !adding && (
-          <li className="px-3.5 py-4 text-[12px] text-ink-faint">No positions yet.</li>
-        )}
-        {positions.records.map((position) => (
-          <li key={position.id} className="space-y-1 px-3.5 py-2.5">
-            <div className="flex items-start justify-between gap-2">
-              <Link
-                to={`/companies/${position.companyId}`}
-                className="text-[13px] font-medium text-ink hover:text-accent"
-              >
-                {companyNameById.get(position.companyId) ?? 'Unknown'}
-              </Link>
-              <button
-                type="button"
-                onClick={() => {
-                  deletePosition.run(position.id)
-                }}
-                className="text-[11px] font-medium text-danger hover:underline"
-              >
-                Remove
-              </button>
-            </div>
-            <InlineEdit
-              value={position.title}
-              onChange={(next) => {
-                updateTitle.run({ id: position.id, changes: { title: next } })
-              }}
-              displayClassName="not-italic text-[12px]"
-              emptyLabel="Add position title…"
-            />
-          </li>
-        ))}
-      </ul>
+      {createPosition.error !== null && <ErrorPanel error={createPosition.error} />}
+      {deletePosition.error !== null && <ErrorPanel error={deletePosition.error} />}
 
       {adding && (
-        <form onSubmit={submit} className="space-y-2 border-t border-border bg-surface px-3.5 py-3">
+        <form onSubmit={submit} className="space-y-2 rounded-md border border-border bg-surface p-3">
           <EntitySearch
             options={searchable.records
               .filter((company) => !held.has(company.id))
@@ -715,7 +737,7 @@ function PersonPositions({ person }: { readonly person: Person }): React.JSX.Ele
               setTitle(event.target.value)
             }}
             placeholder="Position title (optional)"
-            className="w-full rounded-md border border-border bg-surface-raised px-2 py-1.5 text-[12px] outline-none focus:border-accent"
+            className="w-full rounded-md border border-border bg-surface-raised px-2 py-1.5 text-[13px] outline-none focus:border-accent"
           />
           <div className="flex justify-end gap-2">
             <button
@@ -734,7 +756,45 @@ function PersonPositions({ person }: { readonly person: Person }): React.JSX.Ele
           </div>
         </form>
       )}
-    </section>
+
+      {positions.isLoading && <p className="text-[13px] text-ink-faint">Loading positions…</p>}
+
+      {!positions.isLoading && positions.records.length === 0 && !adding ? (
+        <p className="text-[13px] text-ink-faint">No positions yet.</p>
+      ) : (
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {positions.records.map((position) => (
+            <li key={position.id} className="space-y-1 px-3.5 py-3">
+              <div className="flex items-start justify-between gap-2">
+                <Link
+                  to={`/companies/${position.companyId}`}
+                  className="text-[13px] font-medium text-ink hover:text-accent"
+                >
+                  {companyNameById.get(position.companyId) ?? 'Unknown'}
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    deletePosition.run(position.id)
+                  }}
+                  className="text-[11px] font-medium text-danger hover:underline"
+                >
+                  Remove
+                </button>
+              </div>
+              <InlineEdit
+                value={position.title}
+                onChange={(next) => {
+                  updateTitle.run({ id: position.id, changes: { title: next } })
+                }}
+                displayClassName="not-italic text-[12px] text-ink-muted"
+                emptyLabel="Add position title…"
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 

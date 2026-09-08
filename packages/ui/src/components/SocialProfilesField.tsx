@@ -2,6 +2,8 @@ import { SOCIAL_NETWORK_IDS, SOCIAL_NETWORK_LABELS } from '@kelpie/schemas'
 import type { SocialNetworkId, SocialProfile } from '@kelpie/schemas'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
+import { SidebarField } from './SidebarField.tsx'
+
 export interface SocialProfilesFieldProps {
   readonly value: readonly SocialProfile[]
   readonly onChange: (profiles: readonly SocialProfile[]) => void
@@ -23,6 +25,56 @@ function profileHandle(url: string): string {
   const path = bare.slice(slash + 1)
 
   return path.length > 0 ? path : bare
+}
+
+export interface SocialProfilesSidebarProps {
+  readonly profiles: readonly SocialProfile[]
+  readonly onOpen: () => void
+}
+
+/**
+ * The person's social profiles in the aside: outbound links, not the editor.
+ * An empty list is a link that opens the Social tab.
+ */
+export function SocialProfilesSidebar({
+  profiles,
+  onOpen,
+}: SocialProfilesSidebarProps): React.JSX.Element {
+  return (
+    <SidebarField label="Social profiles">
+      {profiles.length === 0 ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          className="text-left text-[12px] font-medium text-accent transition hover:text-accent-hover hover:underline"
+        >
+          Add profile…
+        </button>
+      ) : (
+        <ul className="space-y-0.5">
+          {profiles.map((profile) => {
+            const label = SOCIAL_NETWORK_LABELS[profile.network]
+
+            return (
+              <li key={profile.network}>
+                <a
+                  href={hrefFor(profile.url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={profile.url}
+                  className="block min-w-0 truncate text-[12px] leading-snug text-ink hover:text-accent"
+                >
+                  <span className="font-medium">{label}</span>
+                  <span className="text-ink-faint"> · </span>
+                  <span className="text-ink-muted">{profileHandle(profile.url)}</span>
+                </a>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </SidebarField>
+  )
 }
 
 /** One profile per network, so the network list doubles as the set of things left to add. */
