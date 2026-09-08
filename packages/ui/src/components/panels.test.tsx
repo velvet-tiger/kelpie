@@ -345,6 +345,17 @@ describe('NotesPanel', () => {
     expect(screen.queryByRole('button', { name: /pin/iu })).toBeNull()
   })
 
+  it('renders markdown in a note body', async () => {
+    renderWithClient(
+      panelsClient({ notes: [note({ body: '**Bold** note' })] }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    const bold = await screen.findByText('Bold')
+
+    expect(bold.tagName).toBe('STRONG')
+  })
+
   it('posts a new note to the record it is showing', async () => {
     const posted: { path?: string; body?: unknown } = {}
     const client = panelsClient({
@@ -365,7 +376,7 @@ describe('NotesPanel', () => {
       screen.getByRole('button', { name: 'Add note' }).click()
     })
 
-    const textarea = screen.getByPlaceholderText('Write a note…')
+    const textarea = screen.getByPlaceholderText('Write a note… (Markdown supported)')
 
     await act(async () => {
       Object.getOwnPropertyDescriptor(

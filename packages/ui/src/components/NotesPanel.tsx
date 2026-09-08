@@ -6,6 +6,7 @@ import { useTimezone } from '../api/resources/account.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useCreateNote, useDeleteNote, useNotes, useUpdateNote } from '../api/resources/notes.ts'
 import { formatDateTime } from '../lib/dates.ts'
+import { MarkdownView } from './MarkdownView.tsx'
 import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
@@ -13,6 +14,7 @@ import { SectionHeader } from './SectionHeader.tsx'
 /**
  * The notes on one record.
  *
+ * Bodies are markdown, rendered with the same component as the handbook.
  * Notes can be created, edited, and deleted here. There is no pin control: the
  * mockup renders the badge on a note that carries the flag and offers no way to
  * set it. `PATCH /v1/notes/:id` takes `pinned`, so an agent can still pin.
@@ -79,7 +81,7 @@ export function NotesPanel({ targetType, targetId }: NotesPanelProps): React.JSX
             onChange={(event) => {
               setBody(event.target.value)
             }}
-            placeholder="Write a note…"
+            placeholder="Write a note… (Markdown supported)"
             rows={3}
             autoFocus
             className="w-full resize-y rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
@@ -208,7 +210,9 @@ function NoteItem({
   return (
     <li className="group rounded-md border border-border bg-surface-raised px-3.5 py-3">
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 flex-1 text-[13px] leading-relaxed whitespace-pre-wrap text-ink">{note.body}</p>
+        <div className="min-w-0 flex-1">
+          <MarkdownView source={note.body} />
+        </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {note.pinned && (
             <span className="text-[10px] font-semibold tracking-wide text-accent uppercase">Pinned</span>

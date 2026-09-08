@@ -9,6 +9,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
 import { Chip } from '../../components/Chip.tsx'
+import { MarkdownView } from '../../components/MarkdownView.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
 import { formatDate, formatRelativeTime } from '../../lib/dates.ts'
 import { targetHref, targetTypeLabel } from './attention.ts'
@@ -201,7 +202,9 @@ export function NotesList({
           {notes.map((note) => (
             <li key={note.id} className="py-3">
               <div className="flex items-start justify-between gap-2">
-                <p className="line-clamp-3 text-[13px] leading-relaxed text-ink">{note.body}</p>
+                <div className="line-clamp-3 min-w-0 flex-1">
+                  <MarkdownView source={note.body} />
+                </div>
                 {note.pinned && (
                   <span className="shrink-0 text-[10px] font-medium tracking-wide text-accent uppercase">
                     Pinned
