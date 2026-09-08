@@ -1014,17 +1014,17 @@ function messageOf(error: Error | null | undefined): string | null {
 /**
  * One button that fills the workspace with a small demo fixture.
  *
- * The endpoint refuses on a workspace that already has data, so the button
- * never doubles the seed and the "already has data" answer surfaces here as
- * a plain error line.
+ * The first click opens a warning. Confirm is what POSTs. Existing records
+ * stay; a sample email or domain that is already present fails the install.
  */
 function SampleDataSection(): ReactNode {
   const { session } = useSession()
   const workspaceId = session?.workspaceId ?? null
   const install = useInstallSampleData()
   const [counts, setCounts] = useState<SampleDataCounts | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
-  function onInstall(): void {
+  function onConfirm(): void {
     if (workspaceId === null) {
       return
     }
@@ -1033,6 +1033,7 @@ function SampleDataSection(): ReactNode {
       .runAsync({ workspaceId })
       .then((result) => {
         setCounts(result)
+        setConfirming(false)
       })
       .catch(() => undefined)
   }
@@ -1044,22 +1045,62 @@ function SampleDataSection(): ReactNode {
       <div>
         <h2 className="text-[15px] font-semibold text-ink">Install sample data</h2>
         <p className="mt-1 text-[13px] text-ink-muted">
-          A small set of companies, people, deals, and events so a fresh workspace has something
-          to look at. Refuses if this workspace already has CRM data.
+          A small set of companies, people, deals, and events so a workspace has something to look
+          at. Existing records stay. This page asks before it writes.
         </p>
       </div>
-      <button
-        type="button"
-        onClick={onInstall}
-        disabled={install.isPending || workspaceId === null || counts !== null}
-        className="rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
-      >
-        {counts !== null
-          ? 'Installed'
-          : install.isPending
-            ? 'Installing…'
-            : 'Install sample data'}
-      </button>
+      {counts !== null ? (
+        <button
+          type="button"
+          disabled
+          className="rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg opacity-50"
+        >
+          Installed
+        </button>
+      ) : confirming ? (
+        <div className="rounded-md border border-warning bg-warning-soft p-3 text-[13px] text-ink">
+          <p>
+            This adds sample companies, people, and other CRM records. Existing records are not
+            removed. If sample emails or domains are already present, the install fails.
+          </p>
+          {failure === null ? null : (
+            <p role="alert" className="mt-2 text-[12px] font-medium text-danger">
+              {failure}
+            </p>
+          )}
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirming(false)
+              }}
+              disabled={install.isPending}
+              className="rounded-md border border-border px-3 py-1 text-[12px] hover:bg-surface"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={install.isPending || workspaceId === null}
+              className="rounded-md bg-accent px-3 py-1 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+            >
+              {install.isPending ? 'Installing…' : 'Install sample data'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setConfirming(true)
+          }}
+          disabled={workspaceId === null}
+          className="rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
+        >
+          Install sample data
+        </button>
+      )}
       {counts !== null ? (
         <p className="text-[12px] text-ink-muted">
           Added {counts.companies} companies, {counts.people} people, {counts.positions}{' '}
@@ -1070,7 +1111,7 @@ function SampleDataSection(): ReactNode {
           {counts.notes} notes.
         </p>
       ) : null}
-      {failure === null ? null : (
+      {confirming || failure === null ? null : (
         <p role="alert" className="text-[12px] font-medium text-danger">
           {failure}
         </p>

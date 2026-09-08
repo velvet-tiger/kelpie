@@ -113,25 +113,43 @@ describe.skipIf(connectionString === undefined)('sample-data', () => {
     expect(body.events).toBe(SAMPLE_DATA_FIXTURE.events.length)
   })
 
-  it('refuses a second install on the same workspace with 409', async () => {
+  it('installs next to a company that does not collide with the fixture', async () => {
+    const created = await client.send('POST', '/v1/companies', {
+      body: { name: 'Analytical Engines' },
+      cookie: acme.cookie,
+    })
+
+    expect(created.status).toBe(201)
+
+    const response = await install()
+
+    expect(response.status).toBe(201)
+
+    const body = readRecord(await response.json())
+
+    expect(body.companies).toBe(SAMPLE_DATA_FIXTURE.companies.length)
+
+    const seededCompanies = await harness.services.db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(eq(companies.workspaceId, acme.workspaceId))
+
+    expect(seededCompanies).toHaveLength(SAMPLE_DATA_FIXTURE.companies.length + 1)
+  })
+
+  it('answers 409 when a sample email or domain is already in the workspace', async () => {
     const first = await install()
 
     expect(first.status).toBe(201)
 
     const second = await install()
+    const body = readRecord(await second.json())
 
     expect(second.status).toBe(409)
-  })
-
-  it('is 409 for a workspace that already carries any company', async () => {
-    await client.send('POST', '/v1/companies', {
-      body: { name: 'Analytical Engines' },
-      cookie: acme.cookie,
-    })
-
-    const response = await install()
-
-    expect(response.status).toBe(409)
+    expect(readRecord(body.error).code).toBe('conflict')
+    expect(readRecord(body.error).message).toBe(
+      'A company domain or person email in the sample set already exists in this workspace',
+    )
   })
 
   it('refuses a non-admin caller with 403', async () => {

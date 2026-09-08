@@ -4,12 +4,14 @@ import { createSampleDataService } from './service.ts'
 import { registerSampleDataTools } from './tools.ts'
 
 /**
- * Sample data: one-shot fixture install for a new workspace.
+ * Sample data: fixture install for a workspace.
  *
  * Owns no tables. Requires the modules whose tables the fixture writes into.
  * A workspace admin invokes it from the setup wizard or from the admin data
- * page; an agent invokes it through the matching MCP tool. The installer skips
- * fixture rows for a toggleable module the workspace has switched off.
+ * page; an agent invokes it through the matching MCP tool. Existing records
+ * stay. The installer skips fixture rows for a toggleable module the workspace
+ * has switched off, and answers 409 when a sample email or domain already
+ * exists.
  */
 export function createSampleDataModule(): KelpieModule {
   return {

@@ -3,8 +3,11 @@ import { z } from 'zod'
 /**
  * Wire shape for `POST /v1/workspaces/:id/sample-data`.
  *
- * The endpoint takes no body. The response is a count per object type, so a
- * caller can tell the reader what the button just did without a second query.
+ * The endpoint takes no body. Existing records stay; the fixture is inserted
+ * next to them. A second install of the same fixture is `409` when a sample
+ * email or domain is already present. The response is a count per object type,
+ * so a caller can tell the reader what the button just did without a second
+ * query.
  */
 
 export interface SampleDataCounts {

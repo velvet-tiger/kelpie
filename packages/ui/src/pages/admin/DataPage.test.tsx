@@ -239,3 +239,113 @@ describe('DataPage import wizard', () => {
     expect(screen.getByText(/No company here matches/u)).toBeTruthy()
   })
 })
+
+const SAMPLE_COUNTS = {
+  companies: 3,
+  people: 5,
+  positions: 4,
+  deals: 2,
+  plan_items: 1,
+  notes: 1,
+  opportunities: 1,
+  raises: 1,
+  partnerships: 1,
+  enquiries: 1,
+  roles: 1,
+  candidates: 1,
+  events: 1,
+  attendances: 1,
+}
+
+function sessionWire(): Record<string, unknown> {
+  return {
+    user_id: 'usr_1',
+    session_id: 'ses_1',
+    workspace_id: 'ws_1',
+    role: 'owner',
+    email_verified: true,
+  }
+}
+
+function renderSampleDataPage(posted: string[]): void {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+
+  render(
+    <MemoryRouter>
+      <ApiProvider
+        client={stubClient({
+          get: (path) => {
+            if (path === '/auth/me') {
+              return sessionWire()
+            }
+
+            throw new Error(`Unexpected get ${path}`)
+          },
+          post: (path) => {
+            posted.push(path)
+
+            if (path !== '/workspaces/ws_1/sample-data') {
+              throw new Error(`Unexpected post ${path}`)
+            }
+
+            return SAMPLE_COUNTS
+          },
+        })}
+        queryClient={queryClient}
+      >
+        <DataPage />
+      </ApiProvider>
+    </MemoryRouter>,
+  )
+}
+
+async function openInstallButton(): Promise<HTMLElement> {
+  const button = await screen.findByRole('button', { name: 'Install sample data' })
+
+  await waitFor(() => {
+    expect((button as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  return button
+}
+
+describe('DataPage sample data', () => {
+  it('does not POST until the warning is confirmed', async () => {
+    const posted: string[] = []
+    renderSampleDataPage(posted)
+
+    fireEvent.click(await openInstallButton())
+
+    expect(posted).toEqual([])
+    expect(screen.getByText(/Existing records are not removed/u)).toBeTruthy()
+  })
+
+  it('does not POST when the warning is cancelled', async () => {
+    const posted: string[] = []
+    renderSampleDataPage(posted)
+
+    fireEvent.click(await openInstallButton())
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(posted).toEqual([])
+    expect(screen.queryByText(/Existing records are not removed/u)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Install sample data' })).toBeTruthy()
+  })
+
+  it('POSTs on confirm and shows the counts the installer returned', async () => {
+    const posted: string[] = []
+    renderSampleDataPage(posted)
+
+    fireEvent.click(await openInstallButton())
+    fireEvent.click(screen.getByRole('button', { name: 'Install sample data' }))
+
+    await waitFor(() => {
+      expect(posted).toEqual(['/workspaces/ws_1/sample-data'])
+    })
+
+    expect(await screen.findByText(/Added 3 companies, 5 people/u)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Installed' })).toBeTruthy()
+  })
+})

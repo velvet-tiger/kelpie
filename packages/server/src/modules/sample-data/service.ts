@@ -1,6 +1,7 @@
-import { and, count, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 
 import { toEventActor } from '../../lib/actor.ts'
+import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -32,9 +33,9 @@ import { SAMPLE_DATA_FIXTURE } from './fixture.ts'
  * The whole seed is one write. A failure part-way through rolls the whole
  * thing back, so a workspace never ends up with half of it.
  *
- * Idempotent by refusal: a workspace that already holds any companies or
- * people gets a 409. Installing twice would double the fixture, which is not
- * what an "install once" button says.
+ * Existing companies and people stay. The fixture is inserted next to them.
+ * A second install of the same fixture still fails: people emails and company
+ * domains are unique per workspace, and that unique violation becomes a 409.
  *
  * A workspace that has switched a toggleable module off (deals, opportunities,
  * raises, partnerships, events) does not get fixture rows for that module.
@@ -130,25 +131,9 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
       const includePartnerships = await moduleIsOn(workspaceId, 'partnerships')
       const includeEvents = await moduleIsOn(workspaceId, 'events')
 
-      return dependencies.transaction(
-        async ({ tx }) => {
-          const [companiesTally] = await tx
-            .select({ value: count() })
-            .from(companies)
-            .where(eq(companies.workspaceId, workspaceId))
-
-          const [peopleTally] = await tx
-            .select({ value: count() })
-            .from(people)
-            .where(eq(people.workspaceId, workspaceId))
-
-          const alreadyHasData =
-            (companiesTally?.value ?? 0) > 0 || (peopleTally?.value ?? 0) > 0
-
-          if (alreadyHasData) {
-            throw AppError.conflict('This workspace already has CRM data')
-          }
-
+      try {
+        return await dependencies.transaction(
+          async ({ tx }) => {
           // Every stage this workspace carries, grouped by kind so a deal, an
           // opportunity, a raise and a partnership all resolve their fixture
           // stage slugs against the same read.
@@ -737,9 +722,18 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
             events: eventCount,
             attendances: attendanceCount,
           }
-        },
-        { workspaceId, actor: toEventActor(actor) },
-      )
+          },
+          { workspaceId, actor: toEventActor(actor) },
+        )
+      } catch (error: unknown) {
+        if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+          throw AppError.conflict(
+            'A company domain or person email in the sample set already exists in this workspace',
+          )
+        }
+
+        throw error
+      }
     },
   }
 }

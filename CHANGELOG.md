@@ -70,6 +70,12 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/server`, `@kelpie/ui`** — sample data install no longer
+  refuses a workspace that already has companies or people. Admin → Data
+  warns and asks for confirmation, then adds the fixture next to existing
+  records. A second install of the same set is still `409` when a sample
+  email or domain is already present.
+
 - **`@kelpie/ui`** — timezone fields on a Person, an Event, workspace
   settings, and account preferences now share one searchable IANA list
   instead of a free-text "Add…" control or a six-zone select.
