@@ -122,7 +122,18 @@ describe.skipIf(connectionString === undefined)('people', () => {
         phones: ['+61 400 000 000'],
         social_profiles: [{ network: 'github', url: 'https://github.com/grace' }],
         timezone: 'Australia/Melbourne',
-        location: 'Melbourne',
+        addresses: [
+          {
+            kind: 'home',
+            line1: null,
+            line2: null,
+            city: 'Melbourne',
+            region: null,
+            postal_code: null,
+            country: 'AU',
+            primary: true,
+          },
+        ],
       })
 
       expect(person.email).toBe('grace@example.com')
@@ -387,6 +398,37 @@ describe.skipIf(connectionString === undefined)('people', () => {
       expect(await matching('nobody')).toEqual([])
     })
 
+    it('matches city and postal code on an address', async () => {
+      await createPerson({
+        name: 'Ada Lovelace',
+        addresses: [
+          {
+            kind: 'home',
+            line1: null,
+            line2: null,
+            city: 'Melbourne',
+            region: null,
+            postal_code: '3000',
+            country: 'AU',
+            primary: true,
+          },
+        ],
+      })
+      await createPerson({ name: 'Someone Else', email: 'else@example.com' })
+
+      const matching = async (term: string): Promise<string[]> => {
+        const response = await client.send('GET', `/v1/people?q=${encodeURIComponent(term)}`, {
+          cookie: acme.cookie,
+        })
+
+        return readList(await response.json()).map((person) => String(person.name))
+      }
+
+      expect(await matching('melbourne')).toEqual(['Ada Lovelace'])
+      expect(await matching('3000')).toEqual(['Ada Lovelace'])
+      expect(await matching('home')).toEqual([])
+    })
+
     it('matches a first or last name the display name does not carry', async () => {
       await createPerson({ name: 'Kit', first_name: 'Katherine', last_name: 'Johnson' })
       await createPerson({ name: 'Someone Else', email: 'else@example.com' })
@@ -602,16 +644,31 @@ describe.skipIf(connectionString === undefined)('people', () => {
     })
 
     it('clears a nullable field with null', async () => {
-      const person = await createPerson({ name: 'Ada', email: 'ada@example.com', location: 'London' })
+      const person = await createPerson({
+        name: 'Ada',
+        email: 'ada@example.com',
+        addresses: [
+          {
+            kind: 'home',
+            line1: null,
+            line2: null,
+            city: 'London',
+            region: null,
+            postal_code: null,
+            country: 'GB',
+            primary: true,
+          },
+        ],
+      })
 
       const response = await client.send('PATCH', `/v1/people/${String(person.id)}`, {
-        body: { email: null, location: null },
+        body: { email: null, addresses: [] },
         cookie: acme.cookie,
       })
       const updated = readRecord(await response.json())
 
       expect(updated.email).toBeNull()
-      expect(updated.location).toBeNull()
+      expect(updated.addresses).toEqual([])
     })
 
     it('refuses null for a field that is not nullable', async () => {
@@ -817,7 +874,18 @@ describe.skipIf(connectionString === undefined)('people', () => {
         phones: ['+61 400 000 000'],
         social_profiles: [{ network: 'github', url: 'https://github.com/ada' }],
         timezone: 'Australia/Sydney',
-        location: 'Sydney',
+        addresses: [
+          {
+            kind: 'home',
+            line1: null,
+            line2: null,
+            city: 'Sydney',
+            region: null,
+            postal_code: null,
+            country: 'AU',
+            primary: true,
+          },
+        ],
         preferred_channel: 'call',
         influence: 'champion',
         relationship: 'strong',

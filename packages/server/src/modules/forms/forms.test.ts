@@ -493,6 +493,60 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(person?.phones).toEqual(['+61 400 000 000'])
     })
 
+    it('composes a mailing address and fills only blank parts on return', async () => {
+      const fields = [
+        { label: 'Name', type: 'text', map_to: 'person.name', required: true },
+        { label: 'Email', type: 'email', map_to: 'person.email', required: true },
+        { label: 'City', type: 'text', map_to: 'person.address.city' },
+        { label: 'Country', type: 'text', map_to: 'person.address.country' },
+        { label: 'Street', type: 'text', map_to: 'person.address.line1' },
+      ]
+      const form = await createForm({ fields })
+      const ids = fieldIds(form)
+      const key = readString(form, 'public_key')
+
+      await submit(key, {
+        [ids.Name ?? '']: 'Alex Rivera',
+        [ids.Email ?? '']: 'alex@example.com',
+        [ids.Street ?? '']: '1 Harbour',
+        [ids.City ?? '']: 'Melbourne',
+        [ids.Country ?? '']: 'Australia',
+      })
+
+      const [created] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.workspaceId, acme.workspaceId))
+
+      expect(created?.addresses).toEqual([
+        {
+          kind: 'mailing',
+          line1: '1 Harbour',
+          line2: null,
+          city: 'Melbourne',
+          region: null,
+          postalCode: null,
+          country: 'AU',
+          primary: true,
+        },
+      ])
+
+      await submit(key, {
+        [ids.Name ?? '']: 'Alex Rivera',
+        [ids.Email ?? '']: 'alex@example.com',
+        [ids.Street ?? '']: '99 Overwrite',
+        [ids.City ?? '']: 'Sydney',
+      })
+
+      const [updated] = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.workspaceId, acme.workspaceId))
+
+      expect(updated?.addresses[0]?.line1).toBe('1 Harbour')
+      expect(updated?.addresses[0]?.city).toBe('Melbourne')
+    })
+
     it('creates the Company, and the Position that carries the title', async () => {
       const result = await submitContact((ids) =>
         filledIn(ids, { [ids.Company ?? '']: 'Example Co', [ids['Job title'] ?? '']: 'Head of Ops' }),

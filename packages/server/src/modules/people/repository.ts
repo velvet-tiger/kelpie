@@ -74,6 +74,7 @@ function matchesTerm(term: string): SQL | undefined {
     ilike(people.email, pattern),
     ilike(people.summary, pattern),
     arrayContainsPattern(people.tags, pattern),
+    sql`kelpie_addresses_search_text(${people.addresses}) ilike ${pattern}`,
     heldPositionMatches(pattern),
   )
 }

@@ -25,6 +25,7 @@ import {
   valuesForObject,
 } from './applyMappedFields.ts'
 import type { MappedAnswers } from './mapping.ts'
+import { fillCompanyAddresses, fillPersonAddresses } from './fillAddresses.ts'
 
 const customFieldValues = createCustomFieldValues({ db: null as never })
 
@@ -32,7 +33,6 @@ const PERSON_FIELD_COLUMNS: Readonly<Record<string, keyof PersonRecord>> = {
   salutation: 'salutation',
   suffix: 'suffix',
   timezone: 'timezone',
-  location: 'location',
   preferred_channel: 'preferredChannel',
   influence: 'influence',
   relationship: 'relationship',
@@ -46,7 +46,6 @@ const COMPANY_FIELD_COLUMNS: Readonly<Record<string, keyof CompanyRecord>> = {
   description: 'description',
   stage: 'stage',
   size_band: 'sizeBand',
-  hq: 'hq',
   website: 'website',
   account_type: 'accountType',
   icp_fit: 'icpFit',
@@ -170,6 +169,7 @@ export async function applyPersonMappedFields(
   }
 
   const standardPatch = applyStandardFillBlank(person, 'person', values, columnLookup(PERSON_FIELD_COLUMNS))
+  const addresses = fillPersonAddresses(person.addresses, values.standard)
   const customFields = await buildCustomFieldsPatch(
     tx,
     workspaceId,
@@ -179,12 +179,13 @@ export async function applyPersonMappedFields(
     definitions,
   )
 
-  if (Object.keys(standardPatch).length === 0 && customFields === undefined) {
+  if (Object.keys(standardPatch).length === 0 && addresses === undefined && customFields === undefined) {
     return person
   }
 
   const updated = await peopleRepository.updatePerson(tx, workspaceId, person.id, {
     ...standardPatch,
+    ...(addresses === undefined ? {} : { addresses }),
     ...(customFields === undefined ? {} : { customFields }),
     updatedAt: now,
   })
@@ -212,6 +213,7 @@ export async function applyCompanyMappedFields(
     values,
     columnLookup(COMPANY_FIELD_COLUMNS),
   )
+  const addresses = fillCompanyAddresses(company.addresses, values.standard)
   const customFields = await buildCustomFieldsPatch(
     tx,
     workspaceId,
@@ -221,12 +223,13 @@ export async function applyCompanyMappedFields(
     definitions,
   )
 
-  if (Object.keys(standardPatch).length === 0 && customFields === undefined) {
+  if (Object.keys(standardPatch).length === 0 && addresses === undefined && customFields === undefined) {
     return company
   }
 
   const updated = await companyRepository.updateCompany(tx, workspaceId, company.id, {
     ...standardPatch,
+    ...(addresses === undefined ? {} : { addresses }),
     ...(customFields === undefined ? {} : { customFields }),
     updatedAt: now,
   })

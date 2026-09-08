@@ -1,4 +1,5 @@
 import type { CustomFieldObjectType, CustomFieldType, FormFieldType } from './values.ts'
+import { COMPANY_ADDRESS_KINDS, PERSON_ADDRESS_KINDS } from './address.ts'
 import {
   ACCOUNT_TYPES,
   COMPANY_STAGES,
@@ -102,7 +103,18 @@ const PERSON_STANDARD_FIELDS: readonly FormMapStandardField[] = [
   { field: 'email', label: 'email', valueType: 'email' },
   { field: 'phones', label: 'phone', valueType: 'phones' },
   { field: 'timezone', label: 'timezone', valueType: 'text' },
-  { field: 'location', label: 'location', valueType: 'text' },
+  {
+    field: 'address.kind',
+    label: 'address kind',
+    valueType: 'enum',
+    enumValues: PERSON_ADDRESS_KINDS,
+  },
+  { field: 'address.line1', label: 'address line 1', valueType: 'text' },
+  { field: 'address.line2', label: 'address line 2', valueType: 'text' },
+  { field: 'address.city', label: 'address city', valueType: 'text' },
+  { field: 'address.region', label: 'address region', valueType: 'text' },
+  { field: 'address.postal_code', label: 'address postal code', valueType: 'text' },
+  { field: 'address.country', label: 'address country', valueType: 'text' },
   {
     field: 'preferred_channel',
     label: 'preferred channel',
@@ -143,7 +155,18 @@ const COMPANY_STANDARD_FIELDS: readonly FormMapStandardField[] = [
     valueType: 'enum',
     enumValues: SIZE_BANDS,
   },
-  { field: 'hq', label: 'hq', valueType: 'text' },
+  {
+    field: 'address.kind',
+    label: 'address kind',
+    valueType: 'enum',
+    enumValues: COMPANY_ADDRESS_KINDS,
+  },
+  { field: 'address.line1', label: 'address line 1', valueType: 'text' },
+  { field: 'address.line2', label: 'address line 2', valueType: 'text' },
+  { field: 'address.city', label: 'address city', valueType: 'text' },
+  { field: 'address.region', label: 'address region', valueType: 'text' },
+  { field: 'address.postal_code', label: 'address postal code', valueType: 'text' },
+  { field: 'address.country', label: 'address country', valueType: 'text' },
   { field: 'website', label: 'website', valueType: 'url' },
   {
     field: 'account_type',
@@ -360,7 +383,7 @@ export function parseFormMapTarget(target: string): ParsedFormMapTarget | undefi
     }
   }
 
-  const standardMatch = /^([a-z_]+)\.([a-z_]+)$/.exec(target)
+  const standardMatch = /^([a-z_]+)\.([a-z][a-z0-9_.]*)$/.exec(target)
 
   if (standardMatch === null) {
     return undefined

@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { addressBody, companyAddressesSchema } from './address.ts'
+import type { CompanyAddress } from './address.ts'
 import { customFieldValuesBody, customFieldValuesSchema } from './customField.ts'
 import type { CustomFieldValue, CustomFieldValues } from './customField.ts'
 import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from './values.ts'
@@ -17,7 +19,7 @@ export interface Company extends RecordTimestamps {
   readonly description: string
   readonly stage: CompanyStage
   readonly sizeBand: SizeBand
-  readonly hq: string | null
+  readonly addresses: readonly CompanyAddress[]
   readonly website: string | null
   readonly accountType: AccountType
   readonly icpFit: IcpFit
@@ -39,7 +41,7 @@ export const companySchema: z.ZodType<Company, unknown> = z
     description: z.string(),
     stage: z.enum(COMPANY_STAGES),
     size_band: z.enum(SIZE_BANDS),
-    hq: z.string().nullable(),
+    addresses: companyAddressesSchema,
     website: z.string().nullable(),
     account_type: z.enum(ACCOUNT_TYPES),
     icp_fit: z.enum(ICP_FITS),
@@ -59,7 +61,7 @@ export const companySchema: z.ZodType<Company, unknown> = z
       description: wire.description,
       stage: wire.stage,
       sizeBand: wire.size_band,
-      hq: wire.hq,
+      addresses: wire.addresses,
       website: wire.website,
       accountType: wire.account_type,
       icpFit: wire.icp_fit,
@@ -80,7 +82,7 @@ export interface CompanyInput {
   readonly description?: string
   readonly stage?: CompanyStage
   readonly sizeBand?: SizeBand
-  readonly hq?: string | null
+  readonly addresses?: readonly CompanyAddress[]
   readonly website?: string | null
   readonly accountType?: AccountType
   readonly icpFit?: IcpFit
@@ -103,7 +105,7 @@ export function companyBody(input: CompanyInput): Record<string, unknown> {
     description: input.description,
     stage: input.stage,
     size_band: input.sizeBand,
-    hq: input.hq,
+    addresses: input.addresses?.map(addressBody),
     website: input.website,
     account_type: input.accountType,
     icp_fit: input.icpFit,

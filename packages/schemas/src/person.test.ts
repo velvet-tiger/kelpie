@@ -14,7 +14,18 @@ function wirePerson(overrides: Record<string, unknown> = {}): Record<string, unk
     phones: ['+1 555 0100'],
     social_profiles: [{ network: 'linkedin', url: 'https://linkedin.com/in/ada' }],
     timezone: 'Europe/London',
-    location: 'London, UK',
+    addresses: [
+      {
+        kind: 'home',
+        line1: null,
+        line2: null,
+        city: 'London',
+        region: null,
+        postal_code: null,
+        country: 'GB',
+        primary: true,
+      },
+    ],
     preferred_channel: 'email',
     influence: 'decision_maker',
     relationship: 'warm',
@@ -45,7 +56,18 @@ describe('personSchema', () => {
       phones: ['+1 555 0100'],
       socialProfiles: [{ network: 'linkedin', url: 'https://linkedin.com/in/ada' }],
       timezone: 'Europe/London',
-      location: 'London, UK',
+      addresses: [
+        {
+          kind: 'home',
+          line1: null,
+          line2: null,
+          city: 'London',
+          region: null,
+          postalCode: null,
+          country: 'GB',
+          primary: true,
+        },
+      ],
       preferredChannel: 'email',
       influence: 'decision_maker',
       relationship: 'warm',
@@ -84,20 +106,23 @@ describe('personSchema', () => {
 
   it('carries nullable fields through as null rather than defaulting them', () => {
     const person = personSchema.parse(
-      wirePerson({ email: null, timezone: null, location: null, last_contacted_at: null }),
+      wirePerson({ email: null, timezone: null, addresses: [], last_contacted_at: null }),
     )
 
     expect(person.email).toBeNull()
     expect(person.timezone).toBeNull()
-    expect(person.location).toBeNull()
+    expect(person.addresses).toEqual([])
     expect(person.lastContactedAt).toBeNull()
   })
 
-  it('accepts empty arrays for phones, social profiles, and tags', () => {
-    const person = personSchema.parse(wirePerson({ phones: [], social_profiles: [], tags: [] }))
+  it('accepts empty arrays for phones, social profiles, addresses, and tags', () => {
+    const person = personSchema.parse(
+      wirePerson({ phones: [], social_profiles: [], addresses: [], tags: [] }),
+    )
 
     expect(person.phones).toEqual([])
     expect(person.socialProfiles).toEqual([])
+    expect(person.addresses).toEqual([])
     expect(person.tags).toEqual([])
   })
 

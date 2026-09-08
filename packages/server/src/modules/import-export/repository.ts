@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm'
 
-import type { CustomFieldValue } from '@kelpie/schemas'
+import type { CompanyAddress, CustomFieldValue, PersonAddress } from '@kelpie/schemas'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { users } from '../auth/schema.ts'
 import { companies } from '../companies/schema.ts'
@@ -615,7 +615,7 @@ export interface ExportCompanyRow {
   readonly summary: string
   readonly tags: readonly string[]
   readonly website: string | null
-  readonly hq: string | null
+  readonly addresses: readonly CompanyAddress[]
   readonly customFields: Readonly<Record<string, CustomFieldValue>>
 }
 
@@ -638,7 +638,7 @@ export function readCompanies(
       summary: companies.summary,
       tags: companies.tags,
       website: companies.website,
-      hq: companies.hq,
+      addresses: companies.addresses,
       customFields: companies.customFields,
     })
     .from(companies)
@@ -656,7 +656,7 @@ export interface ExportPersonRow {
   readonly suffix: string | null
   readonly email: string | null
   readonly timezone: string | null
-  readonly location: string | null
+  readonly addresses: readonly PersonAddress[]
   readonly preferredChannel: string
   readonly influence: string
   readonly relationship: string
@@ -687,7 +687,7 @@ export async function readPeople(
       suffix: people.suffix,
       email: people.email,
       timezone: people.timezone,
-      location: people.location,
+      addresses: people.addresses,
       preferredChannel: people.preferredChannel,
       influence: people.influence,
       relationship: people.relationship,

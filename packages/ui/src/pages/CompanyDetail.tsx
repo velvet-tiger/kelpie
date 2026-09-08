@@ -1,4 +1,11 @@
-import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from '@kelpie/schemas'
+import {
+  ACCOUNT_TYPES,
+  COMPANY_ADDRESS_KIND_LABELS,
+  COMPANY_ADDRESS_KINDS,
+  COMPANY_STAGES,
+  ICP_FITS,
+  SIZE_BANDS,
+} from '@kelpie/schemas'
 import type { AccountType, Company, CompanyInput, CompanyStage, IcpFit, SizeBand } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
@@ -25,6 +32,7 @@ import {
   useUpdatePositionTitle,
 } from '../api/resources/positions.ts'
 import { useRaises } from '../api/resources/raises.ts'
+import { AddressesField } from '../components/AddressesField.tsx'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
@@ -316,14 +324,14 @@ function CompanySidebar({ company }: { readonly company: Company }): React.JSX.E
           displayClassName="not-italic text-[12px]"
         />
       </SidebarField>
-      <SidebarField label="HQ">
-        <InlineEdit
-          value={company.hq ?? ''}
-          onChange={(hq) => {
-            patch({ hq: hq.length > 0 ? hq : null })
+      <SidebarField label="Addresses">
+        <AddressesField
+          value={company.addresses}
+          kinds={COMPANY_ADDRESS_KINDS}
+          kindLabels={COMPANY_ADDRESS_KIND_LABELS}
+          onChange={(addresses) => {
+            patch({ addresses })
           }}
-          displayClassName="not-italic normal-case text-[12px]"
-          emptyLabel="Add HQ…"
         />
       </SidebarField>
       <SidebarField label="Website">

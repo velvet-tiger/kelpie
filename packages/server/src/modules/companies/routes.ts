@@ -1,4 +1,4 @@
-import { customFieldsPatchShape } from '@kelpie/schemas'
+import { addressBody, companyAddressesSchema, customFieldsPatchShape } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -25,7 +25,7 @@ const companyShape = {
   description: z.string(),
   stage: z.enum(COMPANY_STAGES),
   size_band: z.enum(SIZE_BANDS),
-  hq: z.string().nullable(),
+  addresses: companyAddressesSchema,
   website: z.string().nullable(),
   account_type: z.enum(ACCOUNT_TYPES),
   icp_fit: z.enum(ICP_FITS),
@@ -48,7 +48,7 @@ export const createBody = z.strictObject({
   description: companyShape.description.default(''),
   stage: companyShape.stage.default('startup'),
   size_band: companyShape.size_band.default('1-10'),
-  hq: companyShape.hq.default(null),
+  addresses: companyShape.addresses.default([]),
   website: companyShape.website.default(null),
   account_type: companyShape.account_type.default('prospect'),
   icp_fit: companyShape.icp_fit.default('unknown'),
@@ -73,7 +73,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateCompanyIn
     description: body.description,
     stage: body.stage,
     sizeBand: body.size_band,
-    hq: body.hq,
+    addresses: body.addresses,
     website: body.website,
     accountType: body.account_type,
     icpFit: body.icp_fit,
@@ -93,7 +93,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateCompanyIn
     ...(body.description === undefined ? {} : { description: body.description }),
     ...(body.stage === undefined ? {} : { stage: body.stage }),
     ...(body.size_band === undefined ? {} : { sizeBand: body.size_band }),
-    ...(body.hq === undefined ? {} : { hq: body.hq }),
+    ...(body.addresses === undefined ? {} : { addresses: body.addresses }),
     ...(body.website === undefined ? {} : { website: body.website }),
     ...(body.account_type === undefined ? {} : { accountType: body.account_type }),
     ...(body.icp_fit === undefined ? {} : { icpFit: body.icp_fit }),
@@ -114,7 +114,7 @@ export function companyResponse(company: CompanyView): Record<string, unknown> {
     description: company.description,
     stage: company.stage,
     size_band: company.sizeBand,
-    hq: company.hq,
+    addresses: company.addresses.map(addressBody),
     website: company.website,
     account_type: company.accountType,
     icp_fit: company.icpFit,

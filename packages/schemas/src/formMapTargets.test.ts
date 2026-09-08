@@ -42,6 +42,19 @@ describe('parseFormMapTarget', () => {
     })
   })
 
+  it('parses nested address fields', () => {
+    expect(parseFormMapTarget('person.address.city')).toEqual({
+      objectType: 'person',
+      fieldPath: 'address.city',
+      isCustomField: false,
+    })
+    expect(parseFormMapTarget('company.address.line1')).toEqual({
+      objectType: 'company',
+      fieldPath: 'address.line1',
+      isCustomField: false,
+    })
+  })
+
   it('parses custom field targets', () => {
     expect(parseFormMapTarget('person.custom_fields.budget_owner')).toEqual({
       objectType: 'person',

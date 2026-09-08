@@ -148,11 +148,12 @@ async function writeCompany(
       'company',
       write.draft.customFields,
     )
-    const { customFields: _draftCustomFields, tags, ...rest } = write.draft
+    const { customFields: _draftCustomFields, tags, addresses, ...rest } = write.draft
     const created = await companyRepository.insertCompany(tx, {
       ...NEW_COMPANY_DEFAULTS,
       ...rest,
       tags: tags === undefined ? undefined : [...tags],
+      addresses: addresses === undefined ? undefined : [...addresses],
       ...(customFields === undefined ? {} : { customFields }),
       id: dependencies.createId('company'),
       workspaceId,
@@ -169,7 +170,7 @@ async function writeCompany(
     throw AppError.notFound('Company not found')
   }
 
-  const { customFields: draftCustomFields, tags, ...rest } = write.draft
+  const { customFields: draftCustomFields, tags, addresses, ...rest } = write.draft
   const customMerge = await validatedCustomFieldsForUpdate(
     tx,
     workspaceId,
@@ -180,6 +181,7 @@ async function writeCompany(
   const columns = {
     ...rest,
     tags: tags === undefined ? undefined : [...tags],
+    addresses: addresses === undefined ? undefined : [...addresses],
     ...(customMerge === undefined ? {} : { customFields: customMerge.merged }),
   }
   const changedFields = [
@@ -298,12 +300,13 @@ async function writePerson(
       'person',
       write.draft.customFields,
     )
-    const { customFields: _draftCustomFields, phones, tags, ...rest } = write.draft
+    const { customFields: _draftCustomFields, phones, tags, addresses, ...rest } = write.draft
     const created = await peopleRepository.insertPerson(tx, {
       ...NEW_PERSON_DEFAULTS,
       ...rest,
       phones: phones === undefined ? undefined : [...phones],
       tags: tags === undefined ? undefined : [...tags],
+      addresses: addresses === undefined ? undefined : [...addresses],
       ...(customFields === undefined ? {} : { customFields }),
       id: dependencies.createId('person'),
       workspaceId,
@@ -332,7 +335,7 @@ async function writePerson(
     throw AppError.notFound('Person not found')
   }
 
-  const { customFields: draftCustomFields, phones, tags, ...rest } = write.draft
+  const { customFields: draftCustomFields, phones, tags, addresses, ...rest } = write.draft
   const customMerge = await validatedCustomFieldsForUpdate(
     tx,
     workspaceId,
@@ -344,6 +347,7 @@ async function writePerson(
     ...rest,
     phones: phones === undefined ? undefined : [...phones],
     tags: tags === undefined ? undefined : [...tags],
+    addresses: addresses === undefined ? undefined : [...addresses],
     ...(customMerge === undefined ? {} : { customFields: customMerge.merged }),
   }
   const changedFields = [

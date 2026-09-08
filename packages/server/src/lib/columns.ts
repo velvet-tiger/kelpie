@@ -60,6 +60,12 @@ export interface SearchVectorPart {
    * a generated column built on it.
    */
   readonly array?: boolean
+  /**
+   * True for an `addresses` jsonb column. Flattened by
+   * `kelpie_addresses_search_text`, a wrapper that migration `0045` adds so the
+   * generated vector reads city and postal code without the kind keys.
+   */
+  readonly addresses?: boolean
 }
 
 /**
@@ -78,9 +84,12 @@ export interface SearchVectorPart {
 const SPLIT_ON_PUNCTUATION = sql.raw("'[^[:alnum:]]+', ' ', 'g'")
 
 function searchVectorPart(part: SearchVectorPart): SQL {
-  const raw = part.array === true
-    ? sql`coalesce(kelpie_text_array_to_string(${part.column}), '')`
-    : sql`coalesce(${part.column}::text, '')`
+  const raw =
+    part.addresses === true
+      ? sql`coalesce(kelpie_addresses_search_text(${part.column}), '')`
+      : part.array === true
+        ? sql`coalesce(kelpie_text_array_to_string(${part.column}), '')`
+        : sql`coalesce(${part.column}::text, '')`
   const source = sql`regexp_replace(${raw}, ${SPLIT_ON_PUNCTUATION})`
 
   return sql`setweight(to_tsvector(${sql.raw(`'${SEARCH_CONFIGURATION}'`)}, ${source}), ${sql.raw(`'${part.weight}'`)})`

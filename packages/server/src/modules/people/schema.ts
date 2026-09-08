@@ -5,7 +5,7 @@ import {
   PREFERRED_CHANNELS,
   RELATIONSHIP_LEVELS,
 } from '@kelpie/schemas'
-import type { CustomFieldValue, SocialProfile } from '@kelpie/schemas'
+import type { CustomFieldValue, PersonAddress, SocialProfile } from '@kelpie/schemas'
 import { boolean, index, jsonb, pgTable, primaryKey, text, unique } from 'drizzle-orm/pg-core'
 
 import {
@@ -48,9 +48,10 @@ export type { SocialProfile }
  * Who you know. Job title is not here: it lives on Position, because a person can
  * hold titles at more than one company.
  *
- * `phones` and `social_profiles` are jsonb because nothing queries into them.
- * They are typed rather than left as `unknown`, and the route layer parses what
- * goes in, so a row read back is the shape it claims to be.
+ * `phones`, `social_profiles`, and `addresses` are jsonb because nothing
+ * queries into them. They are typed rather than left as `unknown`, and the
+ * route layer parses what goes in, so a row read back is the shape it claims
+ * to be.
  */
 export const people = pgTable(
   'people',
@@ -75,7 +76,7 @@ export const people = pgTable(
       .notNull()
       .default([]),
     timezone: text('timezone'),
-    location: text('location'),
+    addresses: jsonb('addresses').$type<readonly PersonAddress[]>().notNull().default([]),
     preferredChannel: text('preferred_channel').notNull(),
     influence: text('influence').notNull(),
     relationship: text('relationship').notNull(),
@@ -110,6 +111,7 @@ export const people = pgTable(
       { column: people.email, weight: 'B' },
       { column: people.summary, weight: 'B' },
       { column: people.tags, weight: 'C', array: true },
+      { column: people.addresses, weight: 'C', addresses: true },
     ]),
   },
   (table) => [

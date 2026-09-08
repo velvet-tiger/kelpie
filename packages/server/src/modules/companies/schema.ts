@@ -1,5 +1,5 @@
 import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from '@kelpie/schemas'
-import type { CustomFieldValue } from '@kelpie/schemas'
+import type { CompanyAddress, CustomFieldValue } from '@kelpie/schemas'
 import { boolean, index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
 import {
@@ -36,7 +36,7 @@ export const companies = pgTable(
     description: text('description').notNull().default(''),
     stage: text('stage').notNull(),
     sizeBand: text('size_band').notNull(),
-    hq: text('hq'),
+    addresses: jsonb('addresses').$type<readonly CompanyAddress[]>().notNull().default([]),
     website: text('website'),
     accountType: text('account_type').notNull(),
     icpFit: text('icp_fit').notNull(),
@@ -62,6 +62,7 @@ export const companies = pgTable(
       { column: companies.summary, weight: 'B' },
       { column: companies.tags, weight: 'C', array: true },
       { column: companies.techStack, weight: 'C', array: true },
+      { column: companies.addresses, weight: 'C', addresses: true },
     ]),
   },
   (table) => [

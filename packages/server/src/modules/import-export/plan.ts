@@ -11,6 +11,7 @@ import { pipelineKindForImport } from '@kelpie/schemas'
 
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
 import type { CustomFieldDefinitionRecord } from '../custom-fields/repository.ts'
+import { companyAddressesFromMapped, personAddressesFromMapped } from './addresses.ts'
 import {
   customFieldWireValues,
   extractCustomFieldRaw,
@@ -628,6 +629,29 @@ function withAffiliation(
   return { ...plan, write, ...(warnings.length > 0 ? { warnings } : {}) }
 }
 
+function withAddressWarnings(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+  plan: RowPlan,
+): RowPlan {
+  if (plan.action !== 'create' && plan.action !== 'update') {
+    return plan
+  }
+
+  const extra =
+    context.object === 'people'
+      ? personAddressesFromMapped(mapped).warnings
+      : context.object === 'companies'
+        ? companyAddressesFromMapped(mapped).warnings
+        : []
+
+  if (extra.length === 0) {
+    return plan
+  }
+
+  return { ...plan, warnings: [...(plan.warnings ?? []), ...extra] }
+}
+
 /**
  * @param mapped The row's cells by Kelpie column, from `mapRow`.
  * @returns What this row would do. `create` when its key matches nothing;
@@ -663,7 +687,7 @@ export function planRow(context: PlanContext, mapped: Readonly<Record<string, st
   const targetId = context.lookups.existing.get(key)
 
   if (targetId === undefined) {
-    return withAffiliation(context, mapped, { action: 'create', key, write })
+    return withAddressWarnings(context, mapped, withAffiliation(context, mapped, { action: 'create', key, write }))
   }
 
   // An empty string is the placeholder an in-file match carries: the record it
@@ -674,7 +698,11 @@ export function planRow(context: PlanContext, mapped: Readonly<Record<string, st
   // wants an existing person's position updated runs the job in `update` mode,
   // which is where the rename-in-place lives.
   return context.conflictMode === 'update'
-    ? withAffiliation(context, mapped, { action: 'update', key, targetId: resolved, write })
+    ? withAddressWarnings(
+        context,
+        mapped,
+        withAffiliation(context, mapped, { action: 'update', key, targetId: resolved, write }),
+      )
     : { action: 'skip', key, targetId: resolved }
 }
 

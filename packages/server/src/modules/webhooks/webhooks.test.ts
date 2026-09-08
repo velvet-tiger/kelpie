@@ -337,7 +337,20 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       expect(sent).toHaveLength(0)
 
       await client.send('PATCH', `/v1/people/${personId}`, {
-        body: { location: 'Melbourne' },
+        body: {
+          addresses: [
+            {
+              kind: 'home',
+              line1: null,
+              line2: null,
+              city: 'Melbourne',
+              region: null,
+              postal_code: null,
+              country: 'AU',
+              primary: true,
+            },
+          ],
+        },
         cookie: acme.cookie,
       })
       await harness.services.events.drain()
@@ -351,7 +364,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       expect(bodies.at(0)?.data).toEqual({
         object_type: 'person',
         record_id: personId,
-        changed_fields: ['location'],
+        changed_fields: ['addresses'],
       })
       expect(bodies.at(1)?.data).toEqual({ object_type: 'person', record_id: personId })
     })

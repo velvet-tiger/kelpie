@@ -1,3 +1,4 @@
+import { formatAddress, primaryAddress } from '@kelpie/schemas'
 import type { Person } from '@kelpie/schemas'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
@@ -137,10 +138,18 @@ export function PeoplePage(): React.JSX.Element {
         ),
     },
     {
-      key: 'location',
-      header: 'Location',
-      getSortValue: (person) => person.location,
-      render: (person) => person.location ?? '—',
+      key: 'addresses',
+      header: 'Address',
+      getSortValue: (person) => {
+        const address = primaryAddress(person.addresses)
+
+        return address === undefined ? null : formatAddress(address)
+      },
+      render: (person) => {
+        const address = primaryAddress(person.addresses)
+
+        return address === undefined ? '—' : formatAddress(address)
+      },
     },
     {
       key: 'timezone',

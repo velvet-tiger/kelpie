@@ -188,7 +188,7 @@ describe('defaultColumnMap', () => {
 
     expect(map.name).toBe('Record')
     expect(map.domain).toBe('Domains')
-    expect(map.hq).toBe('Primary location > Country')
+    expect(map.hq_country).toBe('Primary location > Country')
   })
 
   it('maps an Attio people export, linking the company by name', () => {
@@ -221,9 +221,37 @@ describe('defaultColumnMap', () => {
     expect(defaultColumnMap('hubspot', 'people', ['Email']).name).toBeNull()
   })
 
+  it('maps HubSpot address parts onto mailing and hq columns', () => {
+    const people = defaultColumnMap('hubspot', 'people', [
+      'Email',
+      'Address',
+      'Address 2',
+      'City',
+      'State/Region',
+      'Postal Code',
+      'Country',
+    ])
+    const companies = defaultColumnMap('hubspot', 'companies', [
+      'Name',
+      'Address',
+      'City',
+      'Country',
+    ])
+
+    expect(people.mailing_line1).toBe('Address')
+    expect(people.mailing_line2).toBe('Address 2')
+    expect(people.mailing_city).toBe('City')
+    expect(people.mailing_region).toBe('State/Region')
+    expect(people.mailing_postal_code).toBe('Postal Code')
+    expect(people.mailing_country).toBe('Country')
+    expect(companies.hq_line1).toBe('Address')
+    expect(companies.hq_city).toBe('City')
+    expect(companies.hq_country).toBe('Country')
+  })
+
   /** A Kelpie export writes its own column names, so it maps onto itself whole. */
   it('maps a Kelpie-native file with no preset at all', () => {
-    const headers = ['name', 'email', 'timezone', 'location']
+    const headers = ['name', 'email', 'timezone', 'mailing_city']
     const map = defaultColumnMap('custom', 'people', headers)
 
     expect(map).toMatchObject({ name: 'name', email: 'email', timezone: 'timezone' })

@@ -5,6 +5,8 @@ import {
   customFieldValuesSchema,
 } from './customField.ts'
 import type { CustomFieldValue, CustomFieldValues } from './customField.ts'
+import { addressBody, personAddressesSchema } from './address.ts'
+import type { PersonAddress } from './address.ts'
 import { personConsentSchema, personConsentWriteBody } from './personConsent.ts'
 import type { PersonConsent, PersonConsentInput } from './personConsent.ts'
 import {
@@ -43,7 +45,7 @@ export interface Person extends RecordTimestamps {
   readonly phones: readonly string[]
   readonly socialProfiles: readonly SocialProfile[]
   readonly timezone: string | null
-  readonly location: string | null
+  readonly addresses: readonly PersonAddress[]
   readonly preferredChannel: PreferredChannel
   readonly influence: Influence
   readonly relationship: Relationship
@@ -79,7 +81,7 @@ export const personSchema: z.ZodType<Person, unknown> = z
     phones: z.array(z.string()),
     social_profiles: z.array(socialProfileSchema),
     timezone: z.string().nullable(),
-    location: z.string().nullable(),
+    addresses: personAddressesSchema,
     preferred_channel: z.enum(PREFERRED_CHANNELS),
     influence: z.enum(INFLUENCE_LEVELS),
     relationship: z.enum(RELATIONSHIP_LEVELS),
@@ -103,7 +105,7 @@ export const personSchema: z.ZodType<Person, unknown> = z
       phones: wire.phones,
       socialProfiles: wire.social_profiles,
       timezone: wire.timezone,
-      location: wire.location,
+      addresses: wire.addresses,
       preferredChannel: wire.preferred_channel,
       influence: wire.influence,
       relationship: wire.relationship,
@@ -134,7 +136,7 @@ export interface PersonInput {
   readonly phones?: readonly string[]
   readonly socialProfiles?: readonly SocialProfile[]
   readonly timezone?: string | null
-  readonly location?: string | null
+  readonly addresses?: readonly PersonAddress[]
   readonly preferredChannel?: PreferredChannel
   readonly influence?: Influence
   readonly relationship?: Relationship
@@ -166,7 +168,7 @@ export function personBody(input: PersonInput): Record<string, unknown> {
     phones: input.phones,
     social_profiles: input.socialProfiles,
     timezone: input.timezone,
-    location: input.location,
+    addresses: input.addresses?.map(addressBody),
     preferred_channel: input.preferredChannel,
     influence: input.influence,
     relationship: input.relationship,

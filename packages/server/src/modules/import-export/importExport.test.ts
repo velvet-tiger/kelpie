@@ -17,6 +17,7 @@ import { deals } from '../deals/schema.ts'
 import { people } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { positions } from '../positions/schema.ts'
+import { headersFor, templateHeadersFor } from './exportRows.ts'
 import { importJobRows } from './schema.ts'
 
 /**
@@ -1075,10 +1076,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
       expect(response.status).toBe(200)
       expect(response.headers.get('Content-Type')).toContain('text/csv')
-      expect(await response.text()).toBe(
-        'name,salutation,first_name,last_name,suffix,email,timezone,location,preferred_channel,' +
-          'influence,relationship,summary,tags,phones\n',
-      )
+      expect(await response.text()).toBe(`${templateHeadersFor('people').join(',')}\n`)
     })
 
     it('round-trips the name parts, so an export reads back as itself', async () => {
@@ -1099,9 +1097,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
       const csv = await exportCsv('companies')
 
-      expect(csv.split('\n')[0]).toBe(
-        'name,domain,industry,stage,size_band,account_type,icp_fit,description,summary,tags,website,hq',
-      )
+      expect(csv.split('\n')[0]).toBe(headersFor('companies').join(','))
       expect(csv).toContain('Acme,acme.com,Software')
       expect(csv).toContain('Harbour Lane,harbour.io,Logistics')
     })
@@ -1132,7 +1128,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       const other = await client.owner('grace@example.com', 'harbour')
 
       expect(await exportCsv('companies', other.cookie)).toBe(
-        'name,domain,industry,stage,size_band,account_type,icp_fit,description,summary,tags,website,hq\n',
+        `${headersFor('companies').join(',')}\n`,
       )
     })
 
@@ -1143,7 +1139,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
     it('round-trips through import with no column map', async () => {
       await importCsv(COMPANIES_CSV)
       await importCsv(
-        'name,email,timezone,location,preferred_channel,influence,relationship,summary,tags,phones\nAda,ada@acme.com,UTC,Melbourne,call,champion,warm,Knows everyone,vip,+61 3 1',
+        'name,email,timezone,mailing_city,preferred_channel,influence,relationship,summary,tags,phones\nAda,ada@acme.com,UTC,Melbourne,call,champion,warm,Knows everyone,vip,+61 3 1',
         { object: 'people' },
       )
       await importCsv(

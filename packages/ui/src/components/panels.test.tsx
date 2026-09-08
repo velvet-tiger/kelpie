@@ -231,7 +231,7 @@ describe('ActivitiesPanel', () => {
 describe('activity after a record is edited', () => {
   /**
    * The bug this covers, found by clicking rather than by a test: editing a
-   * person's location saved, the server wrote the `updated` activity, and the
+     * person's addresses saved, the server wrote the `updated` activity, and the
    * timeline beside it went on showing the old list because the person resource
    * did not declare `activities` among what its writes invalidate.
    */
@@ -243,7 +243,7 @@ describe('activity after a record is edited', () => {
       phones: [],
       social_profiles: [],
       timezone: null,
-      location: 'Melbourne',
+      addresses: [],
       preferred_channel: 'email',
       influence: 'influencer',
       relationship: 'cold',
@@ -262,7 +262,23 @@ describe('activity after a record is edited', () => {
           <button
             type="button"
             onClick={() => {
-              update.run({ id: 'per_1', changes: { location: 'Melbourne' } })
+              update.run({
+                id: 'per_1',
+                changes: {
+                  addresses: [
+                    {
+                      kind: 'home',
+                      line1: null,
+                      line2: null,
+                      city: 'Melbourne',
+                      region: null,
+                      postalCode: null,
+                      country: 'AU',
+                      primary: true,
+                    },
+                  ],
+                },
+              })
             }}
           >
             edit

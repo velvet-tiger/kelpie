@@ -1,4 +1,4 @@
-import { CONSENT_STATUSES, composeName, customFieldsPatchShape } from '@kelpie/schemas'
+import { CONSENT_STATUSES, composeName, customFieldsPatchShape, personAddressesSchema, addressBody } from '@kelpie/schemas'
 import type { NameParts } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
@@ -60,7 +60,7 @@ const personShape = {
   phones: z.array(z.string().min(1)),
   social_profiles: z.array(socialProfileBody),
   timezone: z.string().nullable(),
-  location: z.string().nullable(),
+  addresses: personAddressesSchema,
   preferred_channel: z.enum(PREFERRED_CHANNELS),
   influence: z.enum(INFLUENCE_LEVELS),
   relationship: z.enum(RELATIONSHIP_LEVELS),
@@ -95,7 +95,7 @@ export const createBody = z
     phones: personShape.phones.default([]),
     social_profiles: personShape.social_profiles.default([]),
     timezone: personShape.timezone.default(null),
-    location: personShape.location.default(null),
+    addresses: personShape.addresses.default([]),
     preferred_channel: personShape.preferred_channel.default('email'),
     influence: personShape.influence.default('influencer'),
     relationship: personShape.relationship.default('cold'),
@@ -137,7 +137,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreatePersonInp
     phones: body.phones,
     socialProfiles: body.social_profiles,
     timezone: body.timezone,
-    location: body.location,
+    addresses: body.addresses,
     preferredChannel: body.preferred_channel,
     influence: body.influence,
     relationship: body.relationship,
@@ -173,7 +173,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdatePersonInp
     ...(body.phones === undefined ? {} : { phones: body.phones }),
     ...(body.social_profiles === undefined ? {} : { socialProfiles: body.social_profiles }),
     ...(body.timezone === undefined ? {} : { timezone: body.timezone }),
-    ...(body.location === undefined ? {} : { location: body.location }),
+    ...(body.addresses === undefined ? {} : { addresses: body.addresses }),
     ...(body.preferred_channel === undefined ? {} : { preferredChannel: body.preferred_channel }),
     ...(body.influence === undefined ? {} : { influence: body.influence }),
     ...(body.relationship === undefined ? {} : { relationship: body.relationship }),
@@ -221,7 +221,7 @@ export function personResponse(person: PersonView): Record<string, unknown> {
     phones: person.phones,
     social_profiles: person.socialProfiles,
     timezone: person.timezone,
-    location: person.location,
+    addresses: person.addresses.map(addressBody),
     preferred_channel: person.preferredChannel,
     influence: person.influence,
     relationship: person.relationship,

@@ -9,9 +9,10 @@ import {
   composeName,
 } from '@kelpie/schemas'
 
-import type { CustomFieldWireValue } from '@kelpie/schemas'
+import type { CompanyAddress, CustomFieldWireValue, PersonAddress } from '@kelpie/schemas'
 
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
+import { companyAddressesFromMapped, personAddressesFromMapped } from './addresses.ts'
 import { moneyToCents, splitList } from './mapping.ts'
 import { canonicalEnum } from './validation.ts'
 
@@ -36,7 +37,7 @@ export interface CompanyDraft {
   readonly description?: string
   readonly stage?: string
   readonly sizeBand?: string
-  readonly hq?: string
+  readonly addresses?: readonly CompanyAddress[]
   readonly website?: string
   readonly accountType?: string
   readonly icpFit?: string
@@ -54,7 +55,7 @@ export interface PersonDraft {
   readonly email?: string
   readonly phones?: readonly string[]
   readonly timezone?: string
-  readonly location?: string
+  readonly addresses?: readonly PersonAddress[]
   readonly preferredChannel?: string
   readonly influence?: string
   readonly relationship?: string
@@ -211,7 +212,7 @@ export function companyDraft(
     description: text(mapped, 'description'),
     stage: enumeration(mapped, 'stage', COMPANY_STAGES),
     sizeBand: enumeration(mapped, 'size_band', SIZE_BANDS),
-    hq: text(mapped, 'hq'),
+    addresses: companyAddressesFromMapped(mapped).addresses,
     website: text(mapped, 'website'),
     accountType: enumeration(mapped, 'account_type', ACCOUNT_TYPES),
     icpFit: enumeration(mapped, 'icp_fit', ICP_FITS),
@@ -246,7 +247,7 @@ export function personDraft(
     email: email === undefined ? undefined : (normaliseEmail(email) ?? undefined),
     phones: list(mapped, 'phones'),
     timezone: text(mapped, 'timezone'),
-    location: text(mapped, 'location'),
+    addresses: personAddressesFromMapped(mapped).addresses,
     preferredChannel: enumeration(mapped, 'preferred_channel', PREFERRED_CHANNELS),
     influence: enumeration(mapped, 'influence', INFLUENCE_LEVELS),
     relationship: enumeration(mapped, 'relationship', RELATIONSHIP_LEVELS),
@@ -274,7 +275,7 @@ export function affiliationCompanyDraft(mapped: Readonly<Record<string, string>>
     description: undefined,
     stage: undefined,
     sizeBand: undefined,
-    hq: undefined,
+    addresses: undefined,
     website: undefined,
     accountType: undefined,
     icpFit: undefined,

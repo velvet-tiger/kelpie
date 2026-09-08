@@ -1,4 +1,4 @@
-import type { CustomFieldWireValue } from '@kelpie/schemas'
+import type { CompanyAddress, CustomFieldWireValue } from '@kelpie/schemas'
 
 import { changedKeys } from '../../lib/changes.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
@@ -49,7 +49,7 @@ const COMPANY_FIELD_LABELS: FieldLabels = {
   description: 'Description',
   stage: 'Stage',
   sizeBand: 'Size',
-  hq: 'Headquarters',
+  addresses: 'Addresses',
   website: 'Website',
   accountType: 'Account type',
   icpFit: 'ICP fit',
@@ -69,7 +69,7 @@ export interface CreateCompanyInput {
   readonly description: string
   readonly stage: CompanyStage
   readonly sizeBand: SizeBand
-  readonly hq: string | null
+  readonly addresses: readonly CompanyAddress[]
   readonly website: string | null
   readonly accountType: AccountType
   readonly icpFit: IcpFit
@@ -114,7 +114,7 @@ function toStoredColumns(input: UpdateCompanyInput): Partial<repository.CompanyC
     ...(input.description === undefined ? {} : { description: input.description }),
     ...(input.stage === undefined ? {} : { stage: input.stage }),
     ...(input.sizeBand === undefined ? {} : { sizeBand: input.sizeBand }),
-    ...(input.hq === undefined ? {} : { hq: input.hq }),
+    ...(input.addresses === undefined ? {} : { addresses: input.addresses }),
     ...(input.website === undefined ? {} : { website: input.website }),
     ...(input.accountType === undefined ? {} : { accountType: input.accountType }),
     ...(input.icpFit === undefined ? {} : { icpFit: input.icpFit }),
@@ -180,7 +180,7 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
             description: input.description,
             stage: input.stage,
             sizeBand: input.sizeBand,
-            hq: input.hq,
+            addresses: input.addresses,
             website: input.website,
             accountType: input.accountType,
             icpFit: input.icpFit,

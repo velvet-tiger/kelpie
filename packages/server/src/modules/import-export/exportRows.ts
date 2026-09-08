@@ -1,6 +1,7 @@
 import { OBJECT_COLUMNS, customFieldObjectTypeForExport } from '@kelpie/schemas'
 import type { CsvColumn, CustomFieldValue, ExportObject } from '@kelpie/schemas'
 
+import { companyAddressCells, personAddressCells } from './addresses.ts'
 import type { CustomFieldDefinitionRecord } from '../custom-fields/repository.ts'
 import { customFieldCells, customFieldDefinitionCells, customFieldHeaderKeys } from './customFieldCsv.ts'
 import { centsToMoney } from './mapping.ts'
@@ -102,7 +103,7 @@ export function companyCells(
       row.summary,
       joinList(row.tags),
       row.website ?? '',
-      row.hq ?? '',
+      ...companyAddressCells(row.addresses),
     ],
     row.customFields,
     definitions,
@@ -122,7 +123,7 @@ export function personCells(
       row.suffix ?? '',
       row.email ?? '',
       row.timezone ?? '',
-      row.location ?? '',
+      ...personAddressCells(row.addresses),
       row.preferredChannel,
       row.influence,
       row.relationship,

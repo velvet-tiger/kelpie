@@ -58,6 +58,7 @@ function matchesTerm(term: string): SQL | undefined {
     ilike(companies.summary, pattern),
     ilike(companies.accountType, pattern),
     arrayContainsPattern(companies.tags, pattern),
+    sql`kelpie_addresses_search_text(${companies.addresses}) ilike ${pattern}`,
   )
 }
 

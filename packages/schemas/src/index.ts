@@ -184,6 +184,44 @@ export type { EventActor, EventTarget, KelpieEvent, UpdateEventData } from './ev
 
 export { composeName } from './names.ts'
 export type { NameParts } from './names.ts'
+
+export {
+  COUNTRIES,
+  COUNTRY_CODES,
+  countryName,
+  isCountryCode,
+  normaliseCountry,
+} from './countries.ts'
+export type { Country } from './countries.ts'
+
+export {
+  ADDRESS_PARTS,
+  COMPANY_ADDRESS_KINDS,
+  COMPANY_ADDRESS_KIND_LABELS,
+  PERSON_ADDRESS_KINDS,
+  PERSON_ADDRESS_KIND_LABELS,
+  addressBody,
+  addressColumnKey,
+  addressColumnLabel,
+  addressCsvColumns,
+  companyAddressColumnKeys,
+  companyAddressSchema,
+  companyAddressesSchema,
+  formatAddress,
+  personAddressColumnKeys,
+  personAddressSchema,
+  personAddressesSchema,
+  primaryAddress,
+} from './address.ts'
+export type {
+  AddressPart,
+  CompanyAddress,
+  CompanyAddressKind,
+  PersonAddress,
+  PersonAddressKind,
+  PostalAddress,
+} from './address.ts'
+
 export { personBody, personSchema } from './person.ts'
 export type { Person, PersonInput, SocialProfile } from './person.ts'
 

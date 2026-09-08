@@ -1,4 +1,4 @@
-import { ATTENDANCE_STATUS_LABELS } from '@kelpie/schemas'
+import { ATTENDANCE_STATUS_LABELS, PERSON_ADDRESS_KIND_LABELS, PERSON_ADDRESS_KINDS } from '@kelpie/schemas'
 import { CONSENT_PURPOSE_STATUS_LABELS, IN_PROCESS, PREFERRED_CHANNELS } from '@kelpie/schemas'
 import type {
   Candidate,
@@ -29,6 +29,7 @@ import {
   usePositions,
   useUpdatePositionTitle,
 } from '../api/resources/positions.ts'
+import { AddressesField } from '../components/AddressesField.tsx'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
@@ -496,13 +497,14 @@ function PersonSidebar({ person }: { readonly person: Person }): React.JSX.Eleme
           }}
         />
       </SidebarField>
-      <SidebarField label="Location">
-        <InlineEdit
-          value={person.location ?? ''}
-          onChange={(location) => {
-            patch({ location: location.length > 0 ? location : null })
+      <SidebarField label="Addresses">
+        <AddressesField
+          value={person.addresses}
+          kinds={PERSON_ADDRESS_KINDS}
+          kindLabels={PERSON_ADDRESS_KIND_LABELS}
+          onChange={(addresses) => {
+            patch({ addresses })
           }}
-          displayClassName="not-italic normal-case text-[12px]"
         />
       </SidebarField>
       <SidebarField label="Phone">

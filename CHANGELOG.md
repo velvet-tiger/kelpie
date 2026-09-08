@@ -12,6 +12,15 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **Labelled postal
+  addresses on Person and Company.** Stored as jsonb arrays (one entry per
+  kind: Person `home` / `work` / `mailing` / `other`; Company `hq` /
+  `billing` / `shipping` / `other`), with ISO 3166-1 alpha-2 countries.
+  Forms compose one address with fill-blank parts. Import and export use
+  flattened columns per kind. HubSpot, Salesforce, and Attio presets map
+  street / city / region / postal code / country instead of a single city
+  cell.
+
 - **`@kelpie/ui`** — **A modules step in the setup wizard.** After workspace
   create, the reader turns Deals, Opportunities, Fundraising, Partnerships,
   Events, and Forms on or off, each with a short explanation. Defaults and
@@ -75,6 +84,12 @@ While the major version is `0`, a minor bump may break the API.
   naming both keys.
 
 ### Removed
+
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **Person `location`
+  and Company `hq`.** Breaking on `/v1`: those free-text fields are gone.
+  Existing values migrated into `addresses` (the whole string in `city`,
+  kind `home` on a Person and `hq` on a Company). Event `location` (venue)
+  is unchanged.
 
 - **`@kelpie/ui`** — the assembled Daily brief on the dashboard. Attention,
   activity, notes, and decisions stay. Workspace agent tasks, including

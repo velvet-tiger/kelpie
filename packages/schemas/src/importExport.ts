@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { addressCsvColumns, COMPANY_ADDRESS_KINDS, PERSON_ADDRESS_KINDS } from './address.ts'
 import type { CustomFieldObjectType, PipelineKind } from './values.ts'
 import { idSchema, recordTimestamps } from './wire.ts'
 import type { RecordTimestamps } from './wire.ts'
@@ -181,7 +182,7 @@ export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>
     { key: 'summary', label: 'Summary', required: false },
     { key: 'tags', label: 'Tags', required: false },
     { key: 'website', label: 'Website', required: false },
-    { key: 'hq', label: 'HQ', required: false },
+    ...addressCsvColumns(COMPANY_ADDRESS_KINDS),
   ],
   people: [
     { key: 'name', label: 'Name', required: false },
@@ -191,7 +192,7 @@ export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>
     { key: 'suffix', label: 'Suffix', required: false },
     { key: 'email', label: 'Email', required: true },
     { key: 'timezone', label: 'Timezone', required: false },
-    { key: 'location', label: 'Location', required: false },
+    ...addressCsvColumns(PERSON_ADDRESS_KINDS),
     { key: 'preferred_channel', label: 'Preferred channel', required: false },
     { key: 'influence', label: 'Influence', required: false },
     { key: 'relationship', label: 'Relationship', required: false },

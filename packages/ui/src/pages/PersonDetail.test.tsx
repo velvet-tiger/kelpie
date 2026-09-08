@@ -54,7 +54,7 @@ function wirePerson(): Record<string, unknown> {
     phones: [],
     social_profiles: [],
     timezone: null,
-    location: null,
+    addresses: [],
     preferred_channel: 'email',
     influence: 'decision_maker',
     relationship: 'cold',

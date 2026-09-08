@@ -197,6 +197,37 @@ describe.skipIf(connectionString === undefined)('companies', () => {
       expect(await matching('renewal')).toEqual(['Third Corp'])
     })
 
+    it('matches city and postal code on an address', async () => {
+      await createCompany({
+        name: 'Analytical Engines',
+        addresses: [
+          {
+            kind: 'hq',
+            line1: '1 Harbour',
+            line2: null,
+            city: 'Sydney',
+            region: null,
+            postal_code: '2000',
+            country: 'AU',
+            primary: true,
+          },
+        ],
+      })
+      await createCompany({ name: 'Somewhere Else' })
+
+      const matching = async (term: string): Promise<string[]> => {
+        const response = await client.send('GET', `/v1/companies?q=${encodeURIComponent(term)}`, {
+          cookie: acme.cookie,
+        })
+
+        return readList(await response.json()).map((row) => String(row.name))
+      }
+
+      expect(await matching('sydney')).toEqual(['Analytical Engines'])
+      expect(await matching('2000')).toEqual(['Analytical Engines'])
+      expect(await matching('hq')).toEqual([])
+    })
+
     it('filters by person through positions', async () => {
       const company = await createCompany({ name: 'Analytical Engines' })
       await createCompany({ name: 'Somewhere Else' })
@@ -259,14 +290,28 @@ describe.skipIf(connectionString === undefined)('companies', () => {
     })
 
     it('clears a nullable field with null', async () => {
-      const company = await createCompany({ name: 'Analytical Engines', hq: 'London' })
+      const company = await createCompany({
+        name: 'Analytical Engines',
+        addresses: [
+          {
+            kind: 'hq',
+            line1: null,
+            line2: null,
+            city: 'London',
+            region: null,
+            postal_code: null,
+            country: 'GB',
+            primary: true,
+          },
+        ],
+      })
 
       const response = await client.send('PATCH', `/v1/companies/${String(company.id)}`, {
-        body: { hq: null },
+        body: { addresses: [] },
         cookie: acme.cookie,
       })
 
-      expect(readRecord(await response.json()).hq).toBeNull()
+      expect(readRecord(await response.json()).addresses).toEqual([])
     })
 
     it('answers 404 across a workspace boundary', async () => {
@@ -490,7 +535,18 @@ describe.skipIf(connectionString === undefined)('companies', () => {
         description: 'Warehouse-native analytics.',
         stage: 'growth',
         size_band: '11-50',
-        hq: 'Sydney',
+        addresses: [
+          {
+            kind: 'hq',
+            line1: null,
+            line2: null,
+            city: 'Sydney',
+            region: null,
+            postal_code: null,
+            country: 'AU',
+            primary: true,
+          },
+        ],
         website: 'https://harbour.dev',
         account_type: 'customer',
         icp_fit: 'high',

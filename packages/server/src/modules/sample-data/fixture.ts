@@ -1,4 +1,4 @@
-import type { AccountType, CompanyStage, IcpFit, SizeBand } from '@kelpie/schemas'
+import type { AccountType, CompanyAddress, CompanyStage, IcpFit, PersonAddress, SizeBand } from '@kelpie/schemas'
 import type { CandidateStatus, InterviewStage, RoleStatus } from '@kelpie/schemas'
 import type { Influence, PreferredChannel, Relationship } from '@kelpie/schemas'
 import type { PipelineKind, PlanItemStatus, RecordTargetType } from '@kelpie/schemas'
@@ -22,7 +22,7 @@ export interface FixtureCompany {
   readonly description: string
   readonly stage: CompanyStage
   readonly sizeBand: SizeBand
-  readonly hq: string | null
+  readonly addresses: readonly CompanyAddress[]
   readonly website: string | null
   readonly accountType: AccountType
   readonly icpFit: IcpFit
@@ -43,12 +43,49 @@ export interface FixturePerson {
   readonly firstName: string
   readonly lastName: string
   readonly email: string | null
-  readonly location: string | null
+  readonly addresses: readonly PersonAddress[]
   readonly preferredChannel: PreferredChannel
   readonly influence: Influence
   readonly relationship: Relationship
   readonly summary: string
   readonly tags: readonly string[]
+}
+
+function postalAddress<Kind extends string>(
+  kind: Kind,
+  parts: {
+    readonly line1?: string
+    readonly line2?: string
+    readonly city: string
+    readonly region?: string
+    readonly postalCode?: string
+    readonly country?: string
+    readonly primary?: boolean
+  },
+): {
+  readonly kind: Kind
+  readonly line1: string | null
+  readonly line2: string | null
+  readonly city: string
+  readonly region: string | null
+  readonly postalCode: string | null
+  readonly country: string
+  readonly primary: boolean
+} {
+  return {
+    kind,
+    line1: parts.line1 ?? null,
+    line2: parts.line2 ?? null,
+    city: parts.city,
+    region: parts.region ?? null,
+    postalCode: parts.postalCode ?? null,
+    country: parts.country ?? 'AU',
+    primary: parts.primary ?? false,
+  }
+}
+
+function cityAddress<Kind extends string>(kind: Kind, city: string): ReturnType<typeof postalAddress<Kind>> {
+  return postalAddress(kind, { city, primary: true })
 }
 
 export interface FixturePosition {
@@ -206,7 +243,21 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       description: 'Freight forwarding platform for mid-market importers.',
       stage: 'growth',
       sizeBand: '51-200',
-      hq: 'Melbourne, AU',
+      addresses: [
+        postalAddress('hq', {
+          line1: '120 Collins Street',
+          city: 'Melbourne',
+          region: 'VIC',
+          postalCode: '3000',
+          primary: true,
+        }),
+        postalAddress('billing', {
+          line1: 'PO Box 210',
+          city: 'Melbourne',
+          region: 'VIC',
+          postalCode: '8007',
+        }),
+      ],
       website: 'https://northwind.dev',
       accountType: 'customer',
       icpFit: 'high',
@@ -222,7 +273,15 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       description: 'Industrial IoT platform for factory operators.',
       stage: 'enterprise',
       sizeBand: '201+',
-      hq: 'Sydney, AU',
+      addresses: [
+        postalAddress('hq', {
+          line1: 'Level 12, 1 Farrer Place',
+          city: 'Sydney',
+          region: 'NSW',
+          postalCode: '2000',
+          primary: true,
+        }),
+      ],
       website: 'https://globex.example',
       accountType: 'prospect',
       icpFit: 'medium',
@@ -238,7 +297,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       description: 'Accounts payable automation for SMBs.',
       stage: 'startup',
       sizeBand: '11-50',
-      hq: 'Brisbane, AU',
+      addresses: [cityAddress('hq', 'Brisbane')],
       website: 'https://initech.example',
       accountType: 'prospect',
       icpFit: 'high',
@@ -254,7 +313,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       description: 'Search and discovery for local services.',
       stage: 'growth',
       sizeBand: '51-200',
-      hq: 'Perth, AU',
+      addresses: [cityAddress('hq', 'Perth')],
       website: 'https://hooli.example',
       accountType: 'partner',
       icpFit: 'medium',
@@ -270,7 +329,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       description: 'Contract manufacturing for defence primes.',
       stage: 'enterprise',
       sizeBand: '201+',
-      hq: 'Adelaide, AU',
+      addresses: [cityAddress('hq', 'Adelaide')],
       website: 'https://stark.example',
       accountType: 'prospect',
       icpFit: 'low',
@@ -286,7 +345,15 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       description: 'Seed-stage investor, one to five million cheque size.',
       stage: 'other',
       sizeBand: '11-50',
-      hq: 'Sydney, AU',
+      addresses: [
+        postalAddress('hq', {
+          line1: '88 Phillip Street',
+          city: 'Sydney',
+          region: 'NSW',
+          postalCode: '2000',
+          primary: true,
+        }),
+      ],
       website: 'https://southerncross.example',
       accountType: 'investor',
       icpFit: 'unknown',
@@ -302,7 +369,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       description: 'Twelve week program with a demo day and alumni network.',
       stage: 'other',
       sizeBand: '11-50',
-      hq: 'Melbourne, AU',
+      addresses: [cityAddress('hq', 'Melbourne')],
       website: 'https://sandbox.example',
       accountType: 'partner',
       icpFit: 'unknown',
@@ -319,7 +386,22 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       firstName: 'Ada',
       lastName: 'Lovelace',
       email: 'ada@northwind.dev',
-      location: 'Melbourne, AU',
+      addresses: [
+        postalAddress('home', {
+          line1: '42 Gertrude Street',
+          city: 'Fitzroy',
+          region: 'VIC',
+          postalCode: '3065',
+          primary: true,
+        }),
+        postalAddress('mailing', {
+          line1: 'Northwind Traders',
+          line2: '120 Collins Street',
+          city: 'Melbourne',
+          region: 'VIC',
+          postalCode: '3000',
+        }),
+      ],
       preferredChannel: 'email',
       influence: 'champion',
       relationship: 'strong',
@@ -332,7 +414,15 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       firstName: 'Grace',
       lastName: 'Hopper',
       email: 'grace@northwind.dev',
-      location: 'Melbourne, AU',
+      addresses: [
+        postalAddress('work', {
+          line1: '120 Collins Street',
+          city: 'Melbourne',
+          region: 'VIC',
+          postalCode: '3000',
+          primary: true,
+        }),
+      ],
       preferredChannel: 'email',
       influence: 'influencer',
       relationship: 'warm',
@@ -345,7 +435,21 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       firstName: 'Tom',
       lastName: 'Anderson',
       email: 'tom@globex.example',
-      location: 'Sydney, AU',
+      addresses: [
+        postalAddress('work', {
+          line1: 'Level 12, 1 Farrer Place',
+          city: 'Sydney',
+          region: 'NSW',
+          postalCode: '2000',
+          primary: true,
+        }),
+        postalAddress('home', {
+          line1: '15/200 Kent Street',
+          city: 'Sydney',
+          region: 'NSW',
+          postalCode: '2000',
+        }),
+      ],
       preferredChannel: 'call',
       influence: 'decision_maker',
       relationship: 'warm',
@@ -358,7 +462,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       firstName: 'Peter',
       lastName: 'Gibbons',
       email: 'peter@initech.example',
-      location: 'Brisbane, AU',
+      addresses: [cityAddress('home', 'Brisbane')],
       preferredChannel: 'email',
       influence: 'influencer',
       relationship: 'warm',
@@ -371,7 +475,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       firstName: 'Gavin',
       lastName: 'Belson',
       email: 'gavin@hooli.example',
-      location: 'Perth, AU',
+      addresses: [cityAddress('home', 'Perth')],
       preferredChannel: 'linkedin',
       influence: 'decision_maker',
       relationship: 'warm',
@@ -384,7 +488,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       firstName: 'Roelof',
       lastName: 'Nkosi',
       email: 'roelof@southerncross.example',
-      location: 'Sydney, AU',
+      addresses: [cityAddress('home', 'Sydney')],
       preferredChannel: 'email',
       influence: 'decision_maker',
       relationship: 'warm',
@@ -397,7 +501,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       firstName: 'Mei',
       lastName: 'Zhang',
       email: 'mei@sandbox.example',
-      location: 'Melbourne, AU',
+      addresses: [cityAddress('home', 'Melbourne')],
       preferredChannel: 'email',
       influence: 'influencer',
       relationship: 'warm',
@@ -410,7 +514,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       firstName: 'Charlotte',
       lastName: 'Rivera',
       email: 'charlotte@example.com',
-      location: 'Melbourne, AU',
+      addresses: [cityAddress('home', 'Melbourne')],
       preferredChannel: 'email',
       influence: 'end_user',
       relationship: 'warm',
@@ -423,7 +527,7 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       firstName: 'Omar',
       lastName: 'Haddad',
       email: 'omar@example.com',
-      location: 'Sydney, AU',
+      addresses: [cityAddress('home', 'Sydney')],
       preferredChannel: 'email',
       influence: 'end_user',
       relationship: 'cold',

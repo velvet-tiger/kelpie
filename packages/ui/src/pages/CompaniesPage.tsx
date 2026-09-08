@@ -1,3 +1,4 @@
+import { formatAddress, primaryAddress } from '@kelpie/schemas'
 import type { Company, IcpFit } from '@kelpie/schemas'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
@@ -32,7 +33,7 @@ const ICP_TONES: Readonly<Record<IcpFit, ChipTone>> = {
   unknown: 'neutral',
 }
 
-const DEFAULT_VISIBLE_KEYS: readonly string[] = ['name', 'domain', 'hq', 'type', 'updatedAt']
+const DEFAULT_VISIBLE_KEYS: readonly string[] = ['name', 'domain', 'type', 'updatedAt']
 
 const SERVER_SORT_KEYS: readonly string[] = ['name', 'created_at', 'updated_at']
 
@@ -85,10 +86,18 @@ export function CompaniesPage(): React.JSX.Element {
       render: (company) => company.industry ?? '—',
     },
     {
-      key: 'hq',
-      header: 'HQ',
-      getSortValue: (company) => company.hq,
-      render: (company) => company.hq ?? '—',
+      key: 'addresses',
+      header: 'Address',
+      getSortValue: (company) => {
+        const address = primaryAddress(company.addresses)
+
+        return address === undefined ? null : formatAddress(address)
+      },
+      render: (company) => {
+        const address = primaryAddress(company.addresses)
+
+        return address === undefined ? '—' : formatAddress(address)
+      },
     },
     {
       key: 'type',

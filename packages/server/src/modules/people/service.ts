@@ -1,4 +1,4 @@
-import type { ConsentStatus, CustomFieldWireValue } from '@kelpie/schemas'
+import type { ConsentStatus, CustomFieldWireValue, PersonAddress } from '@kelpie/schemas'
 
 import { changedKeys } from '../../lib/changes.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
@@ -70,7 +70,7 @@ const PERSON_FIELD_LABELS: FieldLabels = {
   phones: 'Phone numbers',
   socialProfiles: 'Social profiles',
   timezone: 'Timezone',
-  location: 'Location',
+  addresses: 'Addresses',
   preferredChannel: 'Preferred channel',
   influence: 'Influence',
   relationship: 'Relationship',
@@ -111,7 +111,7 @@ export interface CreatePersonInput {
   readonly phones: readonly string[]
   readonly socialProfiles: readonly SocialProfile[]
   readonly timezone: string | null
-  readonly location: string | null
+  readonly addresses: readonly PersonAddress[]
   readonly preferredChannel: PreferredChannel
   readonly influence: Influence
   readonly relationship: Relationship
@@ -162,7 +162,7 @@ function toStoredColumns(input: UpdatePersonInput): Partial<repository.PersonCol
     ...(input.phones === undefined ? {} : { phones: input.phones }),
     ...(input.socialProfiles === undefined ? {} : { socialProfiles: input.socialProfiles }),
     ...(input.timezone === undefined ? {} : { timezone: input.timezone }),
-    ...(input.location === undefined ? {} : { location: input.location }),
+    ...(input.addresses === undefined ? {} : { addresses: input.addresses }),
     ...(input.preferredChannel === undefined ? {} : { preferredChannel: input.preferredChannel }),
     ...(input.influence === undefined ? {} : { influence: input.influence }),
     ...(input.relationship === undefined ? {} : { relationship: input.relationship }),
@@ -242,7 +242,7 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
               phones: input.phones,
               socialProfiles: input.socialProfiles,
               timezone: input.timezone,
-              location: input.location,
+              addresses: input.addresses,
               preferredChannel: input.preferredChannel,
               influence: input.influence,
               relationship: input.relationship,
