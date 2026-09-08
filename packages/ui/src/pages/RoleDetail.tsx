@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCandidates, useCreateCandidate, useDeleteCandidate } from '../api/resources/candidates.ts'
+import { useModuleEnabled } from '../api/resources/moduleSettings.ts'
 import { useCreateNote, useDeleteNote, useUpdateNote } from '../api/resources/notes.ts'
 import { useCreatePerson, usePeople } from '../api/resources/people.ts'
 import { useDeleteRole, useRole, useUpdateRole } from '../api/resources/roles.ts'
@@ -47,6 +48,7 @@ export function RoleDetail(): React.JSX.Element {
   const navigate = useNavigate()
   const { record, isLoading, isNotFound, error } = useRole(id)
   const deleteRole = useDeleteRole()
+  const eventsEnabled = useModuleEnabled('events')
 
   if (isNotFound) {
     return <NotFoundPanel label="Role" backTo="/hiring" />
@@ -90,9 +92,11 @@ export function RoleDetail(): React.JSX.Element {
       </div>
 
       <RoleCandidates role={record} />
-      <div className="mt-8">
-        <LinkedEventsPanel targetType="role" targetId={record.id} />
-      </div>
+      {eventsEnabled && (
+        <div className="mt-8">
+          <LinkedEventsPanel targetType="role" targetId={record.id} />
+        </div>
+      )}
     </div>
   )
 }

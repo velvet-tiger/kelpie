@@ -41,6 +41,31 @@ export function useModuleSettings(): ModuleSettingsState {
   }
 }
 
+/**
+ * Whether this workspace currently has a toggleable module on.
+ *
+ * Record tabs that belong to a module (Events on a Person) must not render
+ * while that module is off: the page answers 403. Loading counts as off so the
+ * tab cannot flash on a workspace that has switched it off. A module missing
+ * from the list after load is treated as on, matching the sidebar: core
+ * surfaces that are not toggleable stay visible.
+ */
+export function useModuleEnabled(moduleId: string): boolean {
+  const { session } = useSession()
+  const { settings, isLoading } = useModuleSettings()
+
+  // No workspace yet (session still loading) is the same as settings still
+  // loading: treating a missing list as "on" would fetch attendances, then
+  // 403, on a workspace that has Events off.
+  if (session?.workspaceId === undefined || isLoading) {
+    return false
+  }
+
+  const setting = settings.find((entry) => entry.moduleId === moduleId)
+
+  return setting === undefined || setting.enabled
+}
+
 export interface SetModuleEnabledArguments {
   readonly moduleId: string
   readonly enabled: boolean

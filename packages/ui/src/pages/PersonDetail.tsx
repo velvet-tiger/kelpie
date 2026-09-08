@@ -21,6 +21,7 @@ import { useDeals } from '../api/resources/deals.ts'
 import { useEnquiries } from '../api/resources/enquiries.ts'
 import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
+import { useModuleEnabled } from '../api/resources/moduleSettings.ts'
 import { useDeletePerson, usePerson, useUpdatePerson } from '../api/resources/people.ts'
 import {
   useCreatePosition,
@@ -70,7 +71,8 @@ import { usePersonNames, useRoleTitles } from './hiringDirectory.ts'
  *
  * Hiring appears only when this person is up for a role, which is the mockup's
  * rule: a Person carries no hiring fields, so with no candidacy there is nothing
- * for the tab to hold.
+ * for the tab to hold. Events appears only when the workspace has that module
+ * on: the attendances list answers 403 otherwise.
  *
  * Influence and relationship warmth are not on this page. They are Person
  * columns in the API and fields on the mockup's own `Person` type, but the
@@ -86,6 +88,7 @@ export function PersonDetail(): React.JSX.Element {
   const deletePerson = useDeletePerson()
   const moduleTabs = inSlotOrder(useRecordTabs('person'))
   const hasCustomFields = useHasCustomFields('person')
+  const eventsEnabled = useModuleEnabled('events')
   const [activeTab, setActiveTab] = useState('overview')
   const candidacies = useCandidates({ personIds: id === undefined ? [] : [id] }, {
     enabled: id !== undefined,
@@ -93,7 +96,7 @@ export function PersonDetail(): React.JSX.Element {
   const formSubmissions = useFormSubmissionsForRecord('person', id)
   const attendances = useAttendances(
     { personIds: id === undefined ? [] : [id] },
-    { enabled: id !== undefined },
+    { enabled: id !== undefined && eventsEnabled },
   )
 
   if (isNotFound) {
@@ -115,7 +118,9 @@ export function PersonDetail(): React.JSX.Element {
     ...(candidacies.records.length === 0
       ? []
       : [{ id: 'hiring', label: 'Hiring', count: candidacies.records.length }]),
-    { id: 'events', label: 'Events', count: attendances.records.length },
+    ...(eventsEnabled
+      ? [{ id: 'events', label: 'Events', count: attendances.records.length }]
+      : []),
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },

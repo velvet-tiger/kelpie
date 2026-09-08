@@ -14,6 +14,7 @@ import {
 import { useDeals } from '../api/resources/deals.ts'
 import { useEnquiries } from '../api/resources/enquiries.ts'
 import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
+import { useModuleEnabled } from '../api/resources/moduleSettings.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
 import { usePartnerships } from '../api/resources/partnerships.ts'
 import { usePeople } from '../api/resources/people.ts'
@@ -76,6 +77,7 @@ export function CompanyDetail(): React.JSX.Element {
   const deleteCompany = useDeleteCompany()
   const moduleTabs = inSlotOrder(useRecordTabs('company'))
   const hasCustomFields = useHasCustomFields('company')
+  const eventsEnabled = useModuleEnabled('events')
   const [activeTab, setActiveTab] = useState('overview')
   const formSubmissions = useFormSubmissionsForRecord('company', id)
 
@@ -99,7 +101,7 @@ export function CompanyDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
-    { id: 'events', label: 'Events' },
+    ...(eventsEnabled ? [{ id: 'events', label: 'Events' }] : []),
     ...(formSubmissions.records.length === 0
       ? []
       : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),

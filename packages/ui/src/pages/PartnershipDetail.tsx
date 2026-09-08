@@ -12,6 +12,7 @@ import {
 } from '../api/resources/conversions.ts'
 import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
+import { useModuleEnabled } from '../api/resources/moduleSettings.ts'
 import {
   useDeletePartnership,
   usePartnership,
@@ -71,6 +72,7 @@ export function PartnershipDetail(): React.JSX.Element {
   const deletePartnership = useDeletePartnership()
   const moduleTabs = inSlotOrder(useRecordTabs('partnership'))
   const hasCustomFields = useHasCustomFields('partnership')
+  const eventsEnabled = useModuleEnabled('events')
   const [activeTab, setActiveTab] = useState('overview')
   const [showConvert, setShowConvert] = useState(false)
   const formSubmissions = useFormSubmissionsForRecord('partnership', id)
@@ -95,7 +97,7 @@ export function PartnershipDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
-    { id: 'events', label: 'Events' },
+    ...(eventsEnabled ? [{ id: 'events', label: 'Events' }] : []),
     ...(formSubmissions.records.length === 0
       ? []
       : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),

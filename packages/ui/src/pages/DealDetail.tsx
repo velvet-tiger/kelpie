@@ -13,6 +13,7 @@ import {
 import { useDeal, useDeleteDeal, useUpdateDeal } from '../api/resources/deals.ts'
 import { useFormSubmissionsForRecord } from '../api/resources/forms.ts'
 import { useMembers } from '../api/resources/members.ts'
+import { useModuleEnabled } from '../api/resources/moduleSettings.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { useRecordPlanItems } from '../api/resources/planItems.ts'
@@ -66,6 +67,7 @@ export function DealDetail(): React.JSX.Element {
   const deleteDeal = useDeleteDeal()
   const moduleTabs = inSlotOrder(useRecordTabs('deal'))
   const hasCustomFields = useHasCustomFields('deal')
+  const eventsEnabled = useModuleEnabled('events')
   const [activeTab, setActiveTab] = useState('overview')
   const [showConvert, setShowConvert] = useState(false)
   const formSubmissions = useFormSubmissionsForRecord('deal', id)
@@ -90,7 +92,7 @@ export function DealDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
-    { id: 'events', label: 'Events' },
+    ...(eventsEnabled ? [{ id: 'events', label: 'Events' }] : []),
     ...(formSubmissions.records.length === 0
       ? []
       : [{ id: 'forms', label: 'Forms', count: formSubmissions.records.length }]),

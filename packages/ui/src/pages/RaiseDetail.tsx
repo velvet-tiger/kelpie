@@ -11,6 +11,7 @@ import {
   useConvertPipelineRecord,
 } from '../api/resources/conversions.ts'
 import { useMembers } from '../api/resources/members.ts'
+import { useModuleEnabled } from '../api/resources/moduleSettings.ts'
 import { usePeople } from '../api/resources/people.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { useRecordPlanItems } from '../api/resources/planItems.ts'
@@ -70,6 +71,7 @@ export function RaiseDetail(): React.JSX.Element {
   const deleteRaise = useDeleteRaise()
   const moduleTabs = inSlotOrder(useRecordTabs('raise'))
   const hasCustomFields = useHasCustomFields('raise')
+  const eventsEnabled = useModuleEnabled('events')
   const [activeTab, setActiveTab] = useState('overview')
   const [showConvert, setShowConvert] = useState(false)
 
@@ -93,7 +95,7 @@ export function RaiseDetail(): React.JSX.Element {
     { id: 'notes', label: 'Notes' },
     { id: 'decisions', label: 'Decisions' },
     { id: 'lists', label: 'Lists' },
-    { id: 'events', label: 'Events' },
+    ...(eventsEnabled ? [{ id: 'events', label: 'Events' }] : []),
     ...moduleTabs.map((tab) => ({ id: tab.id, label: tab.label })),
   ]
   const active = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'overview'
