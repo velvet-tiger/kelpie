@@ -29,24 +29,52 @@ const work: PersonAddress = {
   primary: false,
 }
 
+function renderField(
+  value: readonly PersonAddress[],
+  onChange = vi.fn(),
+): ReturnType<typeof vi.fn> {
+  render(
+    <AddressesField
+      value={value}
+      kinds={PERSON_ADDRESS_KINDS}
+      kindLabels={PERSON_ADDRESS_KIND_LABELS}
+      onChange={onChange}
+    />,
+  )
+
+  return onChange
+}
+
 describe('AddressesField', () => {
-  it('marks one address as primary and clears the previous mark', () => {
-    const onChange = vi.fn()
+  it('shows Primary as a status chip, not as a list action', () => {
+    renderField([home, work])
 
-    render(
-      <AddressesField
-        value={[home, work]}
-        kinds={PERSON_ADDRESS_KINDS}
-        kindLabels={PERSON_ADDRESS_KIND_LABELS}
-        onChange={onChange}
-      />,
-    )
+    expect(screen.getByText('Primary')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Primary' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Make Primary' })).toBeNull()
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Primary' }))
+  it('marks one address as primary from the editor and clears the previous mark', () => {
+    const onChange = renderField([home, work])
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[1]!)
+    fireEvent.click(screen.getByRole('button', { name: 'Make Primary' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(onChange).toHaveBeenCalledWith([
       { ...home, primary: false },
       { ...work, primary: true },
     ])
+  })
+
+  it('does not change primary when the editor is cancelled', () => {
+    const onChange = renderField([home, work])
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[1]!)
+    fireEvent.click(screen.getByRole('button', { name: 'Make Primary' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Make Primary' })).toBeNull()
   })
 })

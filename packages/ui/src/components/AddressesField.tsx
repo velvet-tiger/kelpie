@@ -2,6 +2,7 @@ import { formatAddress, primaryAddress } from '@kelpie/schemas'
 import type { PostalAddress } from '@kelpie/schemas'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
+import { Chip } from './Chip.tsx'
 import { CountrySearch } from './CountrySearch.tsx'
 import { SidebarField } from './SidebarField.tsx'
 
@@ -201,6 +202,7 @@ export function AddressesField<Kind extends string>({
   const [pendingDraft, setPendingDraft] = useState<AddressDraft>(emptyDraft)
   const [editingKind, setEditingKind] = useState<Kind | null>(null)
   const [editDraft, setEditDraft] = useState<AddressDraft>(emptyDraft)
+  const [editPrimary, setEditPrimary] = useState(false)
 
   const available = useMemo(() => {
     const used = new Set(value.map((address) => address.kind))
@@ -270,6 +272,7 @@ export function AddressesField<Kind extends string>({
   function cancelEdit(): void {
     setEditingKind(null)
     setEditDraft(emptyDraft())
+    setEditPrimary(false)
   }
 
   function commitEdit(): void {
@@ -283,13 +286,13 @@ export function AddressesField<Kind extends string>({
       return
     }
 
-    onChange(
-      value.map((address) =>
-        address.kind === editingKind
-          ? { ...address, ...partsFromDraft(editDraft) }
-          : address,
-      ),
+    const next = value.map((address) =>
+      address.kind === editingKind
+        ? { ...address, ...partsFromDraft(editDraft) }
+        : address,
     )
+
+    onChange(editPrimary ? withPrimary(next, editingKind) : next)
     cancelEdit()
   }
 
@@ -302,9 +305,23 @@ export function AddressesField<Kind extends string>({
           if (editingKind === address.kind) {
             return (
               <li key={address.kind} className="py-1">
-                <div className="mb-1 text-[11px] font-medium text-ink-muted">{label}</div>
+                <div className="mb-1 flex items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-ink-muted">{label}</span>
+                  {editPrimary && <Chip tone="accent">Primary</Chip>}
+                </div>
                 <AddressPartInputs draft={editDraft} onChange={setEditDraft} />
-                <div className="mt-1.5 flex justify-end gap-1.5">
+                <div className="mt-1.5 flex items-center justify-end gap-1.5">
+                  {!editPrimary && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditPrimary(true)
+                      }}
+                      className="mr-auto rounded-md px-2 py-1 text-[11px] font-medium text-ink-muted hover:text-ink"
+                    >
+                      Make Primary
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={cancelEdit}
@@ -333,36 +350,22 @@ export function AddressesField<Kind extends string>({
             >
               <div className="flex items-start gap-1">
                 <div className="min-w-0 flex-1">
-                  <div className="text-[12px] leading-snug text-ink">
+                  <div className="flex items-center gap-1.5 text-[12px] leading-snug text-ink">
                     <span className="font-medium">{label}</span>
-                    {address.primary && (
-                      <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-ink-faint">
-                        Primary
-                      </span>
-                    )}
+                    {address.primary && <Chip tone="accent">Primary</Chip>}
                   </div>
                   {summary.length > 0 && (
                     <div className="text-[12px] leading-snug text-ink-muted">{summary}</div>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center">
-                  {!address.primary && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onChange(withPrimary(value, address.kind))
-                      }}
-                      className="rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-faint hover:bg-surface-raised hover:text-ink"
-                    >
-                      Primary
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={() => {
                       cancelPending()
                       setEditingKind(address.kind)
                       setEditDraft(fromAddress(address))
+                      setEditPrimary(address.primary)
                     }}
                     className="rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-faint hover:bg-surface-raised hover:text-ink"
                   >
