@@ -288,6 +288,15 @@ function PersonHeading({
           emptyLabel="Add email…"
         />
       </div>
+      {person.phones.length > 0 && (
+        <ul className="mt-1 space-y-0.5" aria-label="Phone numbers">
+          {person.phones.map((phone, index) => (
+            <li key={`${phone}-${String(index)}`} className="text-[13px] text-ink-muted">
+              {phone}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

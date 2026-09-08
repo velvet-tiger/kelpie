@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -94,6 +94,7 @@ interface PersonWireOptions {
   readonly socialProfiles?: readonly Record<string, unknown>[]
   readonly positions?: readonly Record<string, unknown>[]
   readonly companies?: readonly Record<string, unknown>[]
+  readonly phones?: readonly string[]
 }
 
 function wirePerson(options: PersonWireOptions = {}): Record<string, unknown> {
@@ -105,7 +106,7 @@ function wirePerson(options: PersonWireOptions = {}): Record<string, unknown> {
     last_name: 'Lovelace',
     suffix: null,
     email: 'ada@example.com',
-    phones: [],
+    phones: options.phones ?? [],
     social_profiles: options.socialProfiles ?? [],
     timezone: null,
     addresses: options.addresses ?? [],
@@ -346,5 +347,33 @@ describe('PersonDetail Positions tab', () => {
       screen.getByRole('tab', { name: /Positions/u }).getAttribute('aria-selected'),
     ).toBe('true')
     expect(screen.getByText(/Titles this person holds/u)).toBeTruthy()
+  })
+
+  it('shows each phone below the email when the person has one', async () => {
+    renderPerson(false, {
+      positions: [WIRE_POSITION],
+      companies: [WIRE_COMPANY],
+      phones: ['+61 400 000 000', '+61 3 9000 0000'],
+    })
+
+    await screen.findByText('ada@example.com')
+    const headingPhones = screen.getByRole('list', { name: 'Phone numbers' })
+
+    expect(within(headingPhones).getByText('+61 400 000 000')).toBeTruthy()
+    expect(within(headingPhones).getByText('+61 3 9000 0000')).toBeTruthy()
+    expect(headingPhones.compareDocumentPosition(screen.getByText('ada@example.com'))).toBe(
+      Node.DOCUMENT_POSITION_PRECEDING,
+    )
+  })
+
+  it('does not show a phone line when the person has none', async () => {
+    renderPerson(false, {
+      positions: [WIRE_POSITION],
+      companies: [WIRE_COMPANY],
+    })
+
+    await screen.findByText('ada@example.com')
+
+    expect(screen.queryByRole('list', { name: 'Phone numbers' })).toBeNull()
   })
 })
