@@ -69,7 +69,6 @@ const WIRE_COMPANY = {
   stage: 'growth',
   size_band: '11-50',
   addresses: [],
-  website: null,
   account_type: 'customer',
   icp_fit: 'high',
   tech_stack: [],

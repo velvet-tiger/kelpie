@@ -50,7 +50,6 @@ const COMPANY_FIELD_LABELS: FieldLabels = {
   stage: 'Stage',
   sizeBand: 'Size',
   addresses: 'Addresses',
-  website: 'Website',
   accountType: 'Account type',
   icpFit: 'ICP fit',
   techStack: 'Tech stack',
@@ -70,7 +69,6 @@ export interface CreateCompanyInput {
   readonly stage: CompanyStage
   readonly sizeBand: SizeBand
   readonly addresses: readonly CompanyAddress[]
-  readonly website: string | null
   readonly accountType: AccountType
   readonly icpFit: IcpFit
   readonly techStack: readonly string[]
@@ -102,7 +100,7 @@ function toView(record: CompanyRecord): CompanyView {
  * The stored form of what the caller sent. A domain arrives however someone
  * pasted it and is reduced to a host; blank becomes null, because the domain is
  * unique per workspace and a stored `''` would make the second company without a
- * website a 409.
+ * domain a 409.
  */
 function toStoredColumns(input: UpdateCompanyInput): Partial<repository.CompanyColumns> {
   return {
@@ -115,7 +113,6 @@ function toStoredColumns(input: UpdateCompanyInput): Partial<repository.CompanyC
     ...(input.stage === undefined ? {} : { stage: input.stage }),
     ...(input.sizeBand === undefined ? {} : { sizeBand: input.sizeBand }),
     ...(input.addresses === undefined ? {} : { addresses: input.addresses }),
-    ...(input.website === undefined ? {} : { website: input.website }),
     ...(input.accountType === undefined ? {} : { accountType: input.accountType }),
     ...(input.icpFit === undefined ? {} : { icpFit: input.icpFit }),
     ...(input.techStack === undefined ? {} : { techStack: [...input.techStack] }),
@@ -181,7 +178,6 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
             stage: input.stage,
             sizeBand: input.sizeBand,
             addresses: input.addresses,
-            website: input.website,
             accountType: input.accountType,
             icpFit: input.icpFit,
             techStack: [...input.techStack],

@@ -102,7 +102,6 @@ export function companyCells(
       row.description,
       row.summary,
       joinList(row.tags),
-      row.website ?? '',
       ...companyAddressCells(row.addresses),
     ],
     row.customFields,

@@ -614,7 +614,6 @@ export interface ExportCompanyRow {
   readonly description: string
   readonly summary: string
   readonly tags: readonly string[]
-  readonly website: string | null
   readonly addresses: readonly CompanyAddress[]
   readonly customFields: Readonly<Record<string, CustomFieldValue>>
 }
@@ -637,7 +636,6 @@ export function readCompanies(
       description: companies.description,
       summary: companies.summary,
       tags: companies.tags,
-      website: companies.website,
       addresses: companies.addresses,
       customFields: companies.customFields,
     })

@@ -192,7 +192,6 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
               stage: record.stage,
               sizeBand: record.sizeBand,
               addresses: [...record.addresses],
-              website: record.website,
               accountType: record.accountType,
               icpFit: record.icpFit,
               techStack: [...record.techStack],

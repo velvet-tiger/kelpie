@@ -181,7 +181,6 @@ export const OBJECT_COLUMNS: Readonly<Record<ImportObject, readonly CsvColumn[]>
     { key: 'description', label: 'Description', required: false },
     { key: 'summary', label: 'Summary', required: false },
     { key: 'tags', label: 'Tags', required: false },
-    { key: 'website', label: 'Website', required: false },
     ...addressCsvColumns(COMPANY_ADDRESS_KINDS),
   ],
   people: [

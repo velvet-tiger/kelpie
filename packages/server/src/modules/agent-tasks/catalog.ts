@@ -128,7 +128,7 @@ Append a Note, update summary only when clearly supported, propose Plan items on
     targetTypes: ['company'],
     placement: 'primary',
     handbookSlugs: ['ideal-customer-profile', 'agent-faq'],
-    instructions: `Research this Company. Update description, stage, sizeBand, techStack, website/linkedin when evidenced, tags, and summary.
+    instructions: `Research this Company. Update description, stage, sizeBand, techStack, domain when evidenced, tags, and summary.
 Append a Note listing sources. Prefer notes over guesses for uncertain facts.`,
   }),
   task({

@@ -74,6 +74,14 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **Company `website`
+  is gone.** Domain is the one homepage field: unique per workspace, used
+  for email-domain matching, and shown under the company name. Hover shows
+  Visit (opens `https://` plus the domain) and Edit. A migration fills a
+  blank domain from the old website URL, then drops the column. Forms that
+  mapped `company.website` now map `company.domain`. HubSpot's Website URL
+  column is no longer a separate import field.
+
 - **`@kelpie/server`, `@kelpie/ui`** — sample data install no longer
   refuses a workspace that already has companies or people. Admin → Data
   warns and asks for confirmation, then adds the fixture next to existing

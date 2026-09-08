@@ -20,7 +20,6 @@ export interface Company extends RecordTimestamps {
   readonly stage: CompanyStage
   readonly sizeBand: SizeBand
   readonly addresses: readonly CompanyAddress[]
-  readonly website: string | null
   readonly accountType: AccountType
   readonly icpFit: IcpFit
   readonly techStack: readonly string[]
@@ -42,7 +41,6 @@ export const companySchema: z.ZodType<Company, unknown> = z
     stage: z.enum(COMPANY_STAGES),
     size_band: z.enum(SIZE_BANDS),
     addresses: companyAddressesSchema,
-    website: z.string().nullable(),
     account_type: z.enum(ACCOUNT_TYPES),
     icp_fit: z.enum(ICP_FITS),
     tech_stack: z.array(z.string()),
@@ -62,7 +60,6 @@ export const companySchema: z.ZodType<Company, unknown> = z
       stage: wire.stage,
       sizeBand: wire.size_band,
       addresses: wire.addresses,
-      website: wire.website,
       accountType: wire.account_type,
       icpFit: wire.icp_fit,
       techStack: wire.tech_stack,
@@ -83,7 +80,6 @@ export interface CompanyInput {
   readonly stage?: CompanyStage
   readonly sizeBand?: SizeBand
   readonly addresses?: readonly CompanyAddress[]
-  readonly website?: string | null
   readonly accountType?: AccountType
   readonly icpFit?: IcpFit
   readonly techStack?: readonly string[]
@@ -106,7 +102,6 @@ export function companyBody(input: CompanyInput): Record<string, unknown> {
     stage: input.stage,
     size_band: input.sizeBand,
     addresses: input.addresses?.map(addressBody),
-    website: input.website,
     account_type: input.accountType,
     icp_fit: input.icpFit,
     tech_stack: input.techStack,

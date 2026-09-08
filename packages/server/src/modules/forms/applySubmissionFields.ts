@@ -46,7 +46,6 @@ const COMPANY_FIELD_COLUMNS: Readonly<Record<string, keyof CompanyRecord>> = {
   description: 'description',
   stage: 'stage',
   size_band: 'sizeBand',
-  website: 'website',
   account_type: 'accountType',
   icp_fit: 'icpFit',
   tech_stack: 'techStack',

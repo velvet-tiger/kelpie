@@ -217,6 +217,22 @@ describe('defaultColumnMap', () => {
     expect(defaultColumnMap('custom', 'companies', ['name']).domain).toBeNull()
   })
 
+  it('maps a Website header onto domain when domain is unmapped', () => {
+    expect(defaultColumnMap('custom', 'companies', ['name', 'Website URL']).domain).toBe(
+      'Website URL',
+    )
+  })
+
+  it('prefers a HubSpot domain column over Website URL', () => {
+    const map = defaultColumnMap('hubspot', 'companies', [
+      'Name',
+      'Company Domain Name',
+      'Website URL',
+    ])
+
+    expect(map.domain).toBe('Company Domain Name')
+  })
+
   it('ignores a preset header the file does not carry', () => {
     expect(defaultColumnMap('hubspot', 'people', ['Email']).name).toBeNull()
   })

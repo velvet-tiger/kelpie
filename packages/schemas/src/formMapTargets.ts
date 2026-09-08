@@ -167,7 +167,6 @@ const COMPANY_STANDARD_FIELDS: readonly FormMapStandardField[] = [
   { field: 'address.region', label: 'address region', valueType: 'text' },
   { field: 'address.postal_code', label: 'address postal code', valueType: 'text' },
   { field: 'address.country', label: 'address country', valueType: 'text' },
-  { field: 'website', label: 'website', valueType: 'url' },
   {
     field: 'account_type',
     label: 'account type',

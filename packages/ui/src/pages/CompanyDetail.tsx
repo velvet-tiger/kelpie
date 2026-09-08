@@ -212,6 +212,7 @@ function CompanyHeading({ company }: { readonly company: Company }): React.JSX.E
           onChange={(domain) => {
             patch({ domain: domain.length > 0 ? domain : null })
           }}
+          visitable
           displayClassName="text-[13px] font-mono text-ink-muted not-italic"
           emptyLabel="Add domain…"
         />
@@ -339,17 +340,6 @@ function CompanySidebar({
         />
       </SidebarField>
       <AddressSidebarLink addresses={company.addresses} onOpen={onOpenAddresses} />
-      <SidebarField label="Website">
-        <InlineEdit
-          value={company.website ?? ''}
-          onChange={(website) => {
-            patch({ website: website.length > 0 ? website : null })
-          }}
-          type="url"
-          displayClassName="not-italic normal-case text-[12px]"
-          emptyLabel="Add website…"
-        />
-      </SidebarField>
       <SidebarField label="Tech stack">
         <InlineEdit
           value={company.techStack.join(', ')}

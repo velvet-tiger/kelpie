@@ -38,7 +38,6 @@ export interface CompanyDraft {
   readonly stage?: string
   readonly sizeBand?: string
   readonly addresses?: readonly CompanyAddress[]
-  readonly website?: string
   readonly accountType?: string
   readonly icpFit?: string
   readonly summary?: string
@@ -213,7 +212,6 @@ export function companyDraft(
     stage: enumeration(mapped, 'stage', COMPANY_STAGES),
     sizeBand: enumeration(mapped, 'size_band', SIZE_BANDS),
     addresses: companyAddressesFromMapped(mapped).addresses,
-    website: text(mapped, 'website'),
     accountType: enumeration(mapped, 'account_type', ACCOUNT_TYPES),
     icpFit: enumeration(mapped, 'icp_fit', ICP_FITS),
     summary: text(mapped, 'summary'),
@@ -276,7 +274,6 @@ export function affiliationCompanyDraft(mapped: Readonly<Record<string, string>>
     stage: undefined,
     sizeBand: undefined,
     addresses: undefined,
-    website: undefined,
     accountType: undefined,
     icpFit: undefined,
     summary: undefined,

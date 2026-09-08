@@ -75,6 +75,7 @@ describe.skipIf(connectionString === undefined)('companies', () => {
 
       expect(company.id).toMatch(/^com_/u)
       expect(company.domain).toBeNull()
+      expect(company).not.toHaveProperty('website')
       expect(company.industry).toBeNull()
       expect(company.description).toBe('')
       expect(company.stage).toBe('startup')
@@ -547,7 +548,6 @@ describe.skipIf(connectionString === undefined)('companies', () => {
             primary: true,
           },
         ],
-        website: 'https://harbour.dev',
         account_type: 'customer',
         icp_fit: 'high',
         tech_stack: ['postgres'],

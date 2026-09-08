@@ -22,7 +22,12 @@ interface TextProps extends CommonProps {
   readonly value: string
   readonly onChange: (value: string) => void
   readonly multiline?: boolean
-          readonly type?: 'text' | 'number' | 'date' | 'datetime-local' | 'url' | 'email'
+  readonly type?: 'text' | 'number' | 'date' | 'datetime-local' | 'url' | 'email'
+  /**
+   * When the value is set, hover shows Visit (opens the address) and Edit
+   * instead of making the whole value a click-to-edit control.
+   */
+  readonly visitable?: boolean
   readonly options?: never
 }
 
@@ -32,9 +37,17 @@ interface SelectProps extends CommonProps {
   readonly options: readonly { readonly value: string; readonly label: string }[]
   readonly multiline?: never
   readonly type?: never
+  readonly visitable?: never
 }
 
 export type InlineEditProps = TextProps | SelectProps
+
+const ACTION_CLASS =
+  'rounded-md px-2 py-0.5 text-[11px] font-medium text-ink-muted hover:bg-surface-sunken hover:text-ink'
+
+function hrefForVisit(value: string): string {
+  return /^https?:\/\//iu.test(value) ? value : `https://${value}`
+}
 
 export function InlineEdit(props: InlineEditProps): React.JSX.Element {
   const {
@@ -157,6 +170,27 @@ export function InlineEdit(props: InlineEditProps): React.JSX.Element {
   }
 
   const isEmpty = value.length === 0 || value === '—'
+
+  if (props.options === undefined && props.visitable === true && !isEmpty) {
+    return (
+      <div className={`group relative inline-flex max-w-full items-baseline ${className}`.trim()}>
+        <span className={`text-[13px] leading-snug ${displayClassName}`.trim()}>{display ?? value}</span>
+        <span className="absolute left-full top-1/2 flex -translate-y-1/2 gap-0.5 pl-1 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+          <a
+            href={hrefForVisit(value)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${ACTION_CLASS} hover:text-accent`}
+          >
+            Visit
+          </a>
+          <button type="button" onClick={() => setEditing(true)} className={ACTION_CLASS}>
+            Edit
+          </button>
+        </span>
+      </div>
+    )
+  }
 
   return (
     <button

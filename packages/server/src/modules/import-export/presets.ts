@@ -22,7 +22,6 @@ export const SOURCE_PRESETS: Readonly<Record<ImportSource, SourcePreset>> = {
       name: 'Name',
       domain: 'Company Domain Name',
       industry: 'Industry',
-      website: 'Website URL',
       hq_line1: 'Address',
       hq_line2: 'Address 2',
       hq_city: 'City',
@@ -222,6 +221,9 @@ export function aliasedStageSlug(raw: string): string | undefined {
   return ALIASES_BY_SQUASHED_NAME.get(squash(raw))
 }
 
+/** A file that names a website but not a domain still has a homepage. */
+const DOMAIN_HEADER_ALIASES = new Set(['website', 'website url', 'url'])
+
 /**
  * The column map to use when a request sends none.
  *
@@ -250,6 +252,14 @@ export function defaultColumnMap(
 
     map[column.key] =
       headers.find((header) => header.toLowerCase() === column.key.toLowerCase()) ?? null
+  }
+
+  if (object === 'companies' && map.domain === null) {
+    const alias = headers.find((header) => DOMAIN_HEADER_ALIASES.has(header.toLowerCase()))
+
+    if (alias !== undefined) {
+      map.domain = alias
+    }
   }
 
   return map

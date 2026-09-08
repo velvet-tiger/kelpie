@@ -23,7 +23,6 @@ export interface FixtureCompany {
   readonly stage: CompanyStage
   readonly sizeBand: SizeBand
   readonly addresses: readonly CompanyAddress[]
-  readonly website: string | null
   readonly accountType: AccountType
   readonly icpFit: IcpFit
   readonly techStack: readonly string[]
@@ -258,7 +257,6 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
           postalCode: '8007',
         }),
       ],
-      website: 'https://northwind.dev',
       accountType: 'customer',
       icpFit: 'high',
       techStack: ['Postgres', 'Node', 'React'],
@@ -282,7 +280,6 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
           primary: true,
         }),
       ],
-      website: 'https://globex.example',
       accountType: 'prospect',
       icpFit: 'medium',
       techStack: ['Java', 'Kafka'],
@@ -298,7 +295,6 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       stage: 'startup',
       sizeBand: '11-50',
       addresses: [cityAddress('hq', 'Brisbane')],
-      website: 'https://initech.example',
       accountType: 'prospect',
       icpFit: 'high',
       techStack: ['Python', 'Postgres'],
@@ -314,7 +310,6 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       stage: 'growth',
       sizeBand: '51-200',
       addresses: [cityAddress('hq', 'Perth')],
-      website: 'https://hooli.example',
       accountType: 'partner',
       icpFit: 'medium',
       techStack: ['Go', 'gRPC'],
@@ -330,7 +325,6 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       stage: 'enterprise',
       sizeBand: '201+',
       addresses: [cityAddress('hq', 'Adelaide')],
-      website: 'https://stark.example',
       accountType: 'prospect',
       icpFit: 'low',
       techStack: [],
@@ -354,7 +348,6 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
           primary: true,
         }),
       ],
-      website: 'https://southerncross.example',
       accountType: 'investor',
       icpFit: 'unknown',
       techStack: [],
@@ -370,7 +363,6 @@ export const SAMPLE_DATA_FIXTURE: Fixture = {
       stage: 'other',
       sizeBand: '11-50',
       addresses: [cityAddress('hq', 'Melbourne')],
-      website: 'https://sandbox.example',
       accountType: 'partner',
       icpFit: 'unknown',
       techStack: [],

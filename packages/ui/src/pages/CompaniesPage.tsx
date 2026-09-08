@@ -72,14 +72,6 @@ export function CompaniesPage(): React.JSX.Element {
       ),
     },
     {
-      key: 'website',
-      header: 'Website',
-      getSortValue: (company) => company.website,
-      render: (company) => (
-        <span className="font-mono text-[12px] text-ink-muted">{company.website ?? '—'}</span>
-      ),
-    },
-    {
       key: 'industry',
       header: 'Industry',
       getSortValue: (company) => company.industry,
