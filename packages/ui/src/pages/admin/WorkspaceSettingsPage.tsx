@@ -18,6 +18,7 @@ import { EntitySearch } from '../../components/EntitySearch.tsx'
 import type { SearchOption } from '../../components/EntitySearch.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
+import { TimezoneSearch } from '../../components/TimezoneSearch.tsx'
 
 /**
  * Workspace settings, and the one screen that can end a workspace.
@@ -31,22 +32,6 @@ import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
  * workspace-wide, and the slug appears in URLs, so committing on each character
  * would be a stream of half-typed addresses.
  */
-
-/**
- * The timezones the mockup offered, plus whatever this workspace already holds.
- *
- * A full IANA list belongs in a combo box, which is its own piece of work. An
- * unlisted value must still survive a save, so it joins the list rather than
- * being silently rewritten to the first option.
- */
-const COMMON_TIMEZONES = [
-  'Australia/Sydney',
-  'Australia/Melbourne',
-  'America/Los_Angeles',
-  'America/New_York',
-  'Europe/London',
-  'UTC',
-] as const
 
 export function WorkspaceSettingsPage(): React.JSX.Element {
   const { workspace, isLoading, error } = useWorkspace()
@@ -77,9 +62,6 @@ function WorkspaceSettingsForm({
   const [saved, setSaved] = useState(false)
 
   const canEdit = session?.role === 'owner' || session?.role === 'admin'
-  const timezones = COMMON_TIMEZONES.includes(timezone as (typeof COMMON_TIMEZONES)[number])
-    ? [...COMMON_TIMEZONES]
-    : [timezone, ...COMMON_TIMEZONES]
 
   function save(event: FormEvent): void {
     event.preventDefault()
@@ -130,20 +112,15 @@ function WorkspaceSettingsForm({
         </Field>
 
         <Field label="Timezone">
-          <select
-            value={timezone}
-            onChange={(event) => {
-              setTimezone(event.target.value)
-            }}
-            disabled={!canEdit}
-            className="w-full max-w-md rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent disabled:opacity-60"
-          >
-            {timezones.map((zone) => (
-              <option key={zone} value={zone}>
-                {zone}
-              </option>
-            ))}
-          </select>
+          <div className="max-w-md">
+            <TimezoneSearch
+              value={timezone}
+              onChange={setTimezone}
+              required
+              disabled={!canEdit}
+              size="md"
+            />
+          </div>
         </Field>
 
         {update.error !== null && (

@@ -62,6 +62,7 @@ import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
 import { SidebarField } from '../components/SidebarField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
+import { TimezoneSearch } from '../components/TimezoneSearch.tsx'
 import { formatDateTime } from '../lib/dates.ts'
 import { useRecordTabs } from '../registry/context.ts'
 import { inSlotOrder } from '../registry/registry.ts'
@@ -349,13 +350,12 @@ function EventSidebar({ event }: { readonly event: CrmEvent }): React.JSX.Elemen
         />
       </SidebarField>
       <SidebarField label="Timezone">
-        <InlineEdit
+        <TimezoneSearch
           value={event.timezone}
           onChange={(timezone) => {
             patch({ timezone })
           }}
-          displayClassName="not-italic text-[12px]"
-          emptyLabel="Set timezone…"
+          required
         />
       </SidebarField>
       <SidebarField label="Location">

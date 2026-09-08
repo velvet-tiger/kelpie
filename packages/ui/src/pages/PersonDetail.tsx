@@ -49,6 +49,7 @@ import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
 import { SidebarField } from '../components/SidebarField.tsx'
 import { SocialProfilesField } from '../components/SocialProfilesField.tsx'
+import { TimezoneSearch } from '../components/TimezoneSearch.tsx'
 import { PhonesField } from '../components/PhonesField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { useRecordTabs } from '../registry/context.ts'
@@ -488,12 +489,11 @@ function PersonSidebar({ person }: { readonly person: Person }): React.JSX.Eleme
         />
       </SidebarField>
       <SidebarField label="Timezone">
-        <InlineEdit
+        <TimezoneSearch
           value={person.timezone ?? ''}
           onChange={(timezone) => {
             patch({ timezone: timezone.length > 0 ? timezone : null })
           }}
-          displayClassName="not-italic normal-case text-[12px]"
         />
       </SidebarField>
       <SidebarField label="Location">

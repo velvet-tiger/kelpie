@@ -56,6 +56,10 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/ui`** — timezone fields on a Person, an Event, workspace
+  settings, and account preferences now share one searchable IANA list
+  instead of a free-text "Add…" control or a six-zone select.
+
 - **`@kelpie/ui`** — the non-production environment strip now uses a
   different colour per known site name (`dev` amber, `demo` teal,
   `staging` violet, `test` slate, `cloud` blue) so installs open side by

@@ -8,9 +8,9 @@ import {
   useTheme,
   useUpdateAccountPreferences,
 } from '../../api/resources/account.ts'
-import { EntitySearch } from '../../components/EntitySearch.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
+import { TimezoneSearch } from '../../components/TimezoneSearch.tsx'
 import { Field } from './Field.tsx'
 
 /**
@@ -26,31 +26,6 @@ const THEME_LABELS: Readonly<Record<ThemePreference, string>> = {
   light: 'Light',
   dark: 'Dark',
 }
-
-/**
- * Every zone this runtime's ICU knows, matching what the server's
- * `timezoneSchema` will accept. Falls back to the zones the mockup offered if
- * `Intl.supportedValuesOf` is missing, for a browser old enough to lack it.
- *
- * `UTC` is prepended because `supportedValuesOf` omits it in some engines even
- * though ECMA-402 guarantees `Intl.DateTimeFormat` accepts it as a zone name.
- * Without this, a very common choice would be searchable only by accident of
- * already being the stored value.
- */
-const ALL_TIMEZONES: readonly string[] = (() => {
-  try {
-    return ['UTC', ...Intl.supportedValuesOf('timeZone')]
-  } catch {
-    return [
-      'UTC',
-      'Australia/Sydney',
-      'Australia/Melbourne',
-      'America/Los_Angeles',
-      'America/New_York',
-      'Europe/London',
-    ]
-  }
-})()
 
 export function PreferencesPage(): React.JSX.Element {
   const { preferences, isLoading, error } = useAccountPreferences()
@@ -78,8 +53,6 @@ function PreferencesForm({
   const [mentionEmails, setMentionEmails] = useState(preferences.mentionEmails)
   const [productUpdates, setProductUpdates] = useState(preferences.productUpdates)
   const [saved, setSaved] = useState(false)
-
-  const zones = ALL_TIMEZONES.includes(timezone) ? ALL_TIMEZONES : [timezone, ...ALL_TIMEZONES]
 
   function save(event: FormEvent): void {
     event.preventDefault()
@@ -135,15 +108,7 @@ function PreferencesForm({
             label="Timezone"
             hint="Stored on your account. Dates across Kelpie use this zone."
           >
-            <EntitySearch
-              options={zones.map((zone) => ({ id: zone, label: zone }))}
-              value={timezone}
-              onChange={setTimezone}
-              placeholder="Search time zones…"
-              limit={20}
-              required
-              size="md"
-            />
+            <TimezoneSearch value={timezone} onChange={setTimezone} required size="md" />
           </Field>
         </div>
 

@@ -145,6 +145,8 @@ export { SocialProfilesField } from './components/SocialProfilesField.tsx'
 export type { SocialProfilesFieldProps } from './components/SocialProfilesField.tsx'
 export { SummaryBlock } from './components/SummaryBlock.tsx'
 export type { SummaryBlockProps } from './components/SummaryBlock.tsx'
+export { TimezoneSearch } from './components/TimezoneSearch.tsx'
+export type { TimezoneSearchProps } from './components/TimezoneSearch.tsx'
 
 export { CompaniesPage } from './pages/CompaniesPage.tsx'
 export { CompanyDetail } from './pages/CompanyDetail.tsx'
