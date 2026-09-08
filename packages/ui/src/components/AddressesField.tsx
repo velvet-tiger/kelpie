@@ -1,14 +1,44 @@
-import { formatAddress } from '@kelpie/schemas'
+import { formatAddress, primaryAddress } from '@kelpie/schemas'
 import type { PostalAddress } from '@kelpie/schemas'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { CountrySearch } from './CountrySearch.tsx'
+import { SidebarField } from './SidebarField.tsx'
 
 export interface AddressesFieldProps<Kind extends string> {
   readonly value: readonly PostalAddress<Kind>[]
   readonly kinds: readonly Kind[]
   readonly kindLabels: Readonly<Record<Kind, string>>
   readonly onChange: (addresses: readonly PostalAddress<Kind>[]) => void
+}
+
+export interface AddressSidebarLinkProps {
+  readonly addresses: readonly PostalAddress[]
+  readonly onOpen: () => void
+}
+
+/**
+ * The primary address as a single sidebar link. Clicking it opens the Addresses
+ * tab; the editor itself does not live in the aside.
+ */
+export function AddressSidebarLink({
+  addresses,
+  onOpen,
+}: AddressSidebarLinkProps): React.JSX.Element {
+  const address = primaryAddress(addresses)
+  const text = address === undefined ? 'Add address…' : formatAddress(address)
+
+  return (
+    <SidebarField label="Address">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="text-left text-[12px] font-medium text-accent transition hover:text-accent-hover hover:underline"
+      >
+        {text}
+      </button>
+    </SidebarField>
+  )
 }
 
 interface AddressDraft {

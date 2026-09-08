@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -42,7 +42,20 @@ const WORKSPACE = {
   timezone: 'UTC',
 }
 
-function wirePerson(): Record<string, unknown> {
+const HOME_ADDRESS = {
+  kind: 'home',
+  line1: '42 Gertrude Street',
+  line2: null,
+  city: 'Fitzroy',
+  region: 'VIC',
+  postal_code: '3065',
+  country: 'AU',
+  primary: true,
+}
+
+function wirePerson(
+  addresses: readonly Record<string, unknown>[] = [],
+): Record<string, unknown> {
   return {
     id: PERSON_ID,
     name: 'Ada Lovelace',
@@ -54,7 +67,7 @@ function wirePerson(): Record<string, unknown> {
     phones: [],
     social_profiles: [],
     timezone: null,
-    addresses: [],
+    addresses,
     preferred_channel: 'email',
     influence: 'decision_maker',
     relationship: 'cold',
@@ -69,7 +82,11 @@ function wirePerson(): Record<string, unknown> {
   }
 }
 
-function personClient(eventsEnabled: boolean, listed: string[]): ApiClient {
+function personClient(
+  eventsEnabled: boolean,
+  listed: string[],
+  addresses: readonly Record<string, unknown>[] = [],
+): ApiClient {
   return stubClient({
     get: (path) => {
       if (path === '/auth/me') {
@@ -77,7 +94,7 @@ function personClient(eventsEnabled: boolean, listed: string[]): ApiClient {
       }
 
       if (path === `/people/${PERSON_ID}`) {
-        return wirePerson()
+        return wirePerson(addresses)
       }
 
       if (path === '/account/preferences') {
@@ -109,7 +126,10 @@ function tabLabels(): readonly string[] {
   return screen.getAllByRole('tab').map((tab) => tab.textContent ?? '')
 }
 
-function renderPerson(eventsEnabled: boolean): string[] {
+function renderPerson(
+  eventsEnabled: boolean,
+  addresses: readonly Record<string, unknown>[] = [],
+): string[] {
   const listed: string[] = []
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -118,7 +138,7 @@ function renderPerson(eventsEnabled: boolean): string[] {
   render(
     <ApiProvider
       baseUrl="http://localhost/v1"
-      client={personClient(eventsEnabled, listed)}
+      client={personClient(eventsEnabled, listed, addresses)}
       queryClient={queryClient}
     >
       <MemoryRouter initialEntries={[`/people/${PERSON_ID}`]}>
@@ -151,5 +171,49 @@ describe('PersonDetail Events tab', () => {
     await waitFor(() => {
       expect(tabLabels()).toContain('Events')
     })
+  })
+})
+
+describe('PersonDetail Addresses tab', () => {
+  it('keeps the editor on the Addresses tab, not the sidebar', async () => {
+    renderPerson(false)
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Addresses' })).toBeTruthy()
+    })
+
+    expect(screen.getByRole('button', { name: 'Add address…' })).toBeTruthy()
+    expect(screen.queryByText(/Mark one as primary/u)).toBeNull()
+    expect(
+      screen.getByRole('tab', { name: 'Addresses' }).getAttribute('aria-selected'),
+    ).toBe('false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add address…' }))
+
+    expect(
+      screen.getByRole('tab', { name: 'Addresses' }).getAttribute('aria-selected'),
+    ).toBe('true')
+    expect(screen.getByText(/Mark one as primary/u)).toBeTruthy()
+  })
+
+  it('opens the Addresses tab from the primary address in the sidebar', async () => {
+    renderPerson(false, [HOME_ADDRESS])
+
+    const link = await screen.findByRole('button', {
+      name: '42 Gertrude Street, Fitzroy, VIC, 3065, Australia',
+    })
+
+    expect(
+      screen.getByRole('tab', { name: /Addresses/u }).getAttribute('aria-selected'),
+    ).toBe('false')
+    expect(screen.queryByText('Home')).toBeNull()
+
+    fireEvent.click(link)
+
+    expect(
+      screen.getByRole('tab', { name: /Addresses/u }).getAttribute('aria-selected'),
+    ).toBe('true')
+    expect(screen.getByText('Home')).toBeTruthy()
+    expect(screen.getByText('Primary')).toBeTruthy()
   })
 })

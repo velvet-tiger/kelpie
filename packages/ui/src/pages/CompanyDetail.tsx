@@ -32,7 +32,7 @@ import {
   useUpdatePositionTitle,
 } from '../api/resources/positions.ts'
 import { useRaises } from '../api/resources/raises.ts'
-import { AddressesField } from '../components/AddressesField.tsx'
+import { AddressSidebarLink, AddressesField } from '../components/AddressesField.tsx'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
@@ -61,9 +61,10 @@ import { toOptions, toTags } from './fields.ts'
 /**
  * One company.
  *
- * Overview, Activity, Notes, Decisions, Lists and People render today. The
- * tabs for Deals, Opportunities, Partnerships and Raises wait for their
- * endpoints. A UI module can add its own through the `company` record-tab slot.
+ * Overview, Addresses, Activity, Notes, Decisions, Lists and People render
+ * today. The tabs for Deals, Opportunities, Partnerships and Raises wait for
+ * their endpoints. A UI module can add its own through the `company`
+ * record-tab slot.
  */
 
 const STAGE_OPTIONS = toOptions(COMPANY_STAGES)
@@ -103,6 +104,7 @@ export function CompanyDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'addresses', label: 'Addresses', count: record.addresses.length },
     ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'activity', label: 'Activity' },
     { id: 'people', label: 'People' },
@@ -154,6 +156,7 @@ export function CompanyDetail(): React.JSX.Element {
             ariaLabel="Company sections"
           >
             {active === 'overview' && <CompanyOverview company={record} />}
+            {active === 'addresses' && <CompanyAddresses company={record} />}
             {active === 'fields' && <CompanyFields company={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="company" targetId={record.id} />}
             {active === 'people' && <CompanyPeople company={record} />}
@@ -169,7 +172,12 @@ export function CompanyDetail(): React.JSX.Element {
         </div>
 
         <aside className="space-y-4 text-[12px] lg:sticky lg:top-6">
-          <CompanySidebar company={record} />
+          <CompanySidebar
+            company={record}
+            onOpenAddresses={() => {
+              setActiveTab('addresses')
+            }}
+          />
         </aside>
       </div>
     </div>
@@ -254,7 +262,13 @@ function CompanyOverview({ company }: { readonly company: Company }): React.JSX.
   )
 }
 
-function CompanySidebar({ company }: { readonly company: Company }): React.JSX.Element {
+function CompanySidebar({
+  company,
+  onOpenAddresses,
+}: {
+  readonly company: Company
+  readonly onOpenAddresses: () => void
+}): React.JSX.Element {
   const { patch, error } = useCompanyPatch(company)
 
   return (
@@ -324,16 +338,7 @@ function CompanySidebar({ company }: { readonly company: Company }): React.JSX.E
           displayClassName="not-italic text-[12px]"
         />
       </SidebarField>
-      <SidebarField label="Addresses">
-        <AddressesField
-          value={company.addresses}
-          kinds={COMPANY_ADDRESS_KINDS}
-          kindLabels={COMPANY_ADDRESS_KIND_LABELS}
-          onChange={(addresses) => {
-            patch({ addresses })
-          }}
-        />
-      </SidebarField>
+      <AddressSidebarLink addresses={company.addresses} onOpen={onOpenAddresses} />
       <SidebarField label="Website">
         <InlineEdit
           value={company.website ?? ''}
@@ -388,6 +393,28 @@ function CompanySidebar({ company }: { readonly company: Company }): React.JSX.E
         />
       </SidebarField>
     </section>
+  )
+}
+
+function CompanyAddresses({ company }: { readonly company: Company }): React.JSX.Element {
+  const { patch, error } = useCompanyPatch(company)
+
+  return (
+    <div className="max-w-lg space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <SectionHeader
+        title="Addresses"
+        description="One address per kind. Mark one as primary for lists and the sidebar."
+      />
+      <AddressesField
+        value={company.addresses}
+        kinds={COMPANY_ADDRESS_KINDS}
+        kindLabels={COMPANY_ADDRESS_KIND_LABELS}
+        onChange={(addresses) => {
+          patch({ addresses })
+        }}
+      />
+    </div>
   )
 }
 

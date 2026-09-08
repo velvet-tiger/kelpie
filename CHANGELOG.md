@@ -19,7 +19,8 @@ While the major version is `0`, a minor bump may break the API.
   Forms compose one address with fill-blank parts. Import and export use
   flattened columns per kind. HubSpot, Salesforce, and Attio presets map
   street / city / region / postal code / country instead of a single city
-  cell.
+  cell. Person and Company detail pages keep the list on an Addresses tab
+  and show only the primary address in the sidebar, as a link to that tab.
 
 - **`@kelpie/ui`** — **A modules step in the setup wizard.** After workspace
   create, the reader turns Deals, Opportunities, Fundraising, Partnerships,

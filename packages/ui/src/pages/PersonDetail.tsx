@@ -29,7 +29,7 @@ import {
   usePositions,
   useUpdatePositionTitle,
 } from '../api/resources/positions.ts'
-import { AddressesField } from '../components/AddressesField.tsx'
+import { AddressSidebarLink, AddressesField } from '../components/AddressesField.tsx'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { AgentTasks } from '../components/AgentTasks.tsx'
 import { Chip } from '../components/Chip.tsx'
@@ -66,10 +66,10 @@ import { usePersonNames, useRoleTitles } from './hiringDirectory.ts'
 /**
  * One person.
  *
- * The mockup carried eight tabs. Overview, Activity, Notes, Decisions and Hiring
- * are here; the remaining three read Deals, Opportunities or Partnerships, and
- * return with their pages. A UI module can add its own through the `person`
- * record-tab slot.
+ * The mockup carried eight tabs. Overview, Addresses, Activity, Notes, Decisions
+ * and Hiring are here; the remaining three read Deals, Opportunities or
+ * Partnerships, and return with their pages. A UI module can add its own
+ * through the `person` record-tab slot.
  *
  * Hiring appears only when this person is up for a role, which is the mockup's
  * rule: a Person carries no hiring fields, so with no candidacy there is nothing
@@ -115,6 +115,7 @@ export function PersonDetail(): React.JSX.Element {
 
   const tabs: readonly RecordTabDescriptor<string>[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'addresses', label: 'Addresses', count: record.addresses.length },
     ...(hasCustomFields ? [{ id: 'fields', label: 'Fields' }] : []),
     { id: 'activity', label: 'Activity' },
     ...(candidacies.records.length === 0
@@ -165,6 +166,7 @@ export function PersonDetail(): React.JSX.Element {
 
           <RecordTabs tabs={tabs} active={active} onChange={setActiveTab} ariaLabel="Person sections">
             {active === 'overview' && <PersonOverview person={record} />}
+            {active === 'addresses' && <PersonAddresses person={record} />}
             {active === 'fields' && <PersonFields person={record} />}
             {active === 'activity' && <ActivitiesPanel targetType="person" targetId={record.id} />}
             {active === 'hiring' && (
@@ -181,7 +183,12 @@ export function PersonDetail(): React.JSX.Element {
 
         <aside className="space-y-4 text-[12px] lg:sticky lg:top-6">
           <PersonNameParts person={record} />
-          <PersonSidebar person={record} />
+          <PersonSidebar
+            person={record}
+            onOpenAddresses={() => {
+              setActiveTab('addresses')
+            }}
+          />
           <PersonConsents person={record} />
           <PersonPositions person={record} />
         </aside>
@@ -469,7 +476,13 @@ function PersonNameParts({ person }: { readonly person: Person }): React.JSX.Ele
   )
 }
 
-function PersonSidebar({ person }: { readonly person: Person }): React.JSX.Element {
+function PersonSidebar({
+  person,
+  onOpenAddresses,
+}: {
+  readonly person: Person
+  readonly onOpenAddresses: () => void
+}): React.JSX.Element {
   const { patch, error } = usePersonPatch(person)
 
   return (
@@ -497,16 +510,7 @@ function PersonSidebar({ person }: { readonly person: Person }): React.JSX.Eleme
           }}
         />
       </SidebarField>
-      <SidebarField label="Addresses">
-        <AddressesField
-          value={person.addresses}
-          kinds={PERSON_ADDRESS_KINDS}
-          kindLabels={PERSON_ADDRESS_KIND_LABELS}
-          onChange={(addresses) => {
-            patch({ addresses })
-          }}
-        />
-      </SidebarField>
+      <AddressSidebarLink addresses={person.addresses} onOpen={onOpenAddresses} />
       <SidebarField label="Phone">
         <PhonesField
           value={person.phones}
@@ -545,6 +549,28 @@ function PersonSidebar({ person }: { readonly person: Person }): React.JSX.Eleme
         />
       </SidebarField>
     </section>
+  )
+}
+
+function PersonAddresses({ person }: { readonly person: Person }): React.JSX.Element {
+  const { patch, error } = usePersonPatch(person)
+
+  return (
+    <div className="max-w-lg space-y-4">
+      {error !== null && <ErrorPanel error={error} />}
+      <SectionHeader
+        title="Addresses"
+        description="One address per kind. Mark one as primary for lists and the sidebar."
+      />
+      <AddressesField
+        value={person.addresses}
+        kinds={PERSON_ADDRESS_KINDS}
+        kindLabels={PERSON_ADDRESS_KIND_LABELS}
+        onChange={(addresses) => {
+          patch({ addresses })
+        }}
+      />
+    </div>
   )
 }
 
