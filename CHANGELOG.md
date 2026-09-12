@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-13
+
 ### Added
 
 - **`@kelpie/server`** — **Background job port over pg-boss.** Modules
