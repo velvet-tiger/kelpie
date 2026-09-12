@@ -10,6 +10,7 @@ import {
   resolveClientIpFrom,
   runMigrations,
   serveWebBundle,
+  startWorker,
 } from '@kelpie/server'
 
 import kelpieConfig from '../kelpie.config.ts'
@@ -33,15 +34,28 @@ function reportFatal(message: string): void {
 }
 
 async function start(): Promise<void> {
-  const { config, logger, database, createId, credentials, contributions } = await bootAssembly(
-    kelpieConfig,
-    process.env,
-  )
+  const boot = await bootAssembly(kelpieConfig, process.env)
+  const { config, logger, database, createId, credentials, contributions, jobs } = boot
 
   if (process.argv.includes('--no-migrate')) {
     logger.info('skipping migrations', { reason: '--no-migrate' })
   } else {
     await runMigrations(database.db, contributions.schemas, logger)
+    await jobs.migrate()
+  }
+
+  // The API always opens a boss instance: a service enqueues jobs inside its
+  // own transaction on request, so `boss.send` must be reachable even when
+  // this process runs no work loops. `startWorker` on top adds the `work()`
+  // calls; `--no-worker` skips them (cloud sets that flag on the API and
+  // runs a separate worker process).
+  const workerDisabled = process.argv.includes('--no-worker')
+
+  if (workerDisabled) {
+    logger.info('skipping inline worker', { reason: '--no-worker' })
+    await jobs.start()
+  } else {
+    await startWorker(boot)
   }
 
   const app = createApp({
@@ -85,8 +99,12 @@ async function start(): Promise<void> {
     logger.info('shutting down', { signal })
     server.close(() => {
       // Drain before closing the pool: a handler mid-flight may still be writing.
-      void contributions.events
-        .drain()
+      // Order: stop the job worker (waits for in-flight jobs), drain the event
+      // bus (which may still be delivering post-commit handlers), then close
+      // the database.
+      void jobs
+        .stop()
+        .then(() => contributions.events.drain())
         .then(() => database.close())
         .then(() => process.exit(0))
     })

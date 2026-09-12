@@ -9,6 +9,7 @@ import type { DatabaseProbe } from '../lib/database.ts'
 import { createCaptureTransport, createLogger } from '../lib/logger.ts'
 import { rateLimitConfigFrom, rateLimitConfigSchema } from '../lib/rateLimit.ts'
 import type { RateLimitConfig } from '../lib/rateLimit.ts'
+import type { JobRegistry } from '../lib/jobs.ts'
 import type { KelpieModule } from '../runtime/module.ts'
 import type { ModuleContributions } from '../runtime/registry.ts'
 import type { EntitlementRegistry } from '../runtime/entitlements.ts'
@@ -69,6 +70,12 @@ export interface TestAppOptions {
   readonly signupsEnabled?: boolean
   /** Reported through `GET /v1/public/config`. Defaults to `[]`. */
   readonly regions?: readonly PublicRegion[]
+  /**
+   * Jobs registry to hand each module at register time. Optional: tests that
+   * never define a job (the common case) leave this unset, and a stub
+   * refuses `define` with a boot-time bug message that names the module.
+   */
+  readonly jobs?: JobRegistry
 }
 
 export interface TestApp {
@@ -102,6 +109,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     ...(options.entitlements === undefined ? {} : { entitlements: options.entitlements }),
     ...(options.moduleConfig === undefined ? {} : { moduleConfig: options.moduleConfig }),
     ...(options.resolveActor === undefined ? {} : { resolveActor: options.resolveActor }),
+    ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
     services: {
       ...services,
       ...(options.signupsEnabled === undefined ? {} : { signupsEnabled: options.signupsEnabled }),

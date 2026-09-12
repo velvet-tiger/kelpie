@@ -10,6 +10,20 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`** — **Background job port over pg-boss.** Modules
+  declare a handle at register time with `context.jobs.define(name, schema,
+  handler, defaults)` and enqueue against it from a service with
+  `tx.jobs.enqueue(handle, data, options)`. The insert lives in the same
+  Drizzle transaction as the surrounding write, so a rollback discards both.
+  Handlers run out of process — on the standalone worker
+  (`apps/kelpie/src/worker.ts`, `npm run worker`), or inline in the API
+  unless `--no-worker` is set. Each defined job gets a `<name>.dead`
+  dead-letter queue. pg-boss owns its own schema (`pgboss`); `npm run
+  migrate` and the boot migration step migrate it alongside the core
+  schema. See [`docs/modules.md`](../docs/modules.md#background-jobs).
+
 ## [0.13.0] - 2026-09-08
 
 ### Added

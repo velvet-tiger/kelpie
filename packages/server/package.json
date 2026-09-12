@@ -59,6 +59,7 @@
     "hono": "^4.13.7",
     "mailgen": "^2.0.36",
     "nodemailer": "^9.0.5",
+    "pg-boss": "^12.31.0",
     "postgres": "^3.4.9",
     "ulid": "^3.0.2",
     "winston": "^3.19.0",

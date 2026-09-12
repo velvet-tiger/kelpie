@@ -5,6 +5,7 @@ import type { Actor } from '../lib/actor.ts'
 import type { Database } from '../lib/database.ts'
 import type { EmailSender } from '../lib/email.ts'
 import type { IdFactory } from '../lib/ids.ts'
+import type { JobRegistry } from '../lib/jobs.ts'
 import type { Logger } from '../lib/logger.ts'
 import type { SecretEncryptionConfig } from '../lib/secrets.ts'
 import type { EntitlementRegistry } from './entitlements.ts'
@@ -240,6 +241,17 @@ export interface ModuleContext extends ModuleServices {
    * commits, and must be idempotent.
    */
   readonly events: EventBus
+  /**
+   * Declares a background job. Modules call `context.jobs.define(...)` at
+   * register time and receive a typed handle to enqueue against. The insert
+   * lives inside the caller's transaction (`services.transaction`) so a
+   * rollback discards the job.
+   *
+   * A second `define` with the same name fails boot. Handlers run out of
+   * process on the worker entry point, or inline when the API runs its own
+   * worker.
+   */
+  readonly jobs: JobRegistry
   /**
    * Declare capabilities and check grants. Every check is granted and unlimited
    * until a module registers a provider.

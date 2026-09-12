@@ -2,6 +2,11 @@ import type { EventActor, EventTarget, KelpieEvent } from '@kelpie/schemas'
 
 import type { Database } from '../lib/database.ts'
 import type { IdFactory } from '../lib/ids.ts'
+import type {
+  EnqueueOptions,
+  JobHandle,
+  TransactionJobs,
+} from '../lib/jobs.ts'
 import type { Logger } from '../lib/logger.ts'
 import { checkEventCycle, currentEventChain } from './events.ts'
 import type { EventBus, EventName, KelpieEventMap } from './events.ts'
@@ -43,6 +48,13 @@ export interface BufferedEvents {
 export interface TransactionContext {
   readonly tx: Transaction
   readonly events: BufferedEvents
+  /**
+   * Enqueues background work on the caller's transaction. The insert runs
+   * inside `tx` via pg-boss's Drizzle adapter, so a rolled-back scope
+   * discards the job with the write. Unlike `events`, this is not buffered:
+   * the return value carries the pg-boss job id, awaited inside the scope.
+   */
+  readonly jobs: TransactionJobs
 }
 
 export interface TransactionOptions {
@@ -69,6 +81,17 @@ interface BufferedEvent {
 
 const SYSTEM_ACTOR: EventActor = { kind: 'system' }
 
+/**
+ * Inserts a background job on `tx`. Bound to the pg-boss provider in
+ * production (`runtime/jobs.ts`) and to a stub in tests that never enqueue.
+ */
+export type EnqueueOnTransaction = <Data>(
+  tx: Transaction,
+  handle: JobHandle<Data>,
+  data: Data,
+  options?: EnqueueOptions,
+) => Promise<string | null>
+
 export interface TransactionScopeDependencies {
   readonly db: Database
   readonly bus: EventBus
@@ -78,11 +101,26 @@ export interface TransactionScopeDependencies {
   readonly now?: () => Date
   /** Chain-depth cap. Reads `KELPIE_EVENT_MAX_DEPTH`; otherwise 8. */
   readonly maxDepth?: number
+  /**
+   * How `tx.jobs.enqueue(...)` reaches pg-boss. Optional so unit tests that
+   * never enqueue can build the scope without a runtime; a call from a
+   * scope built without one rejects with a boot-time bug message.
+   */
+  readonly enqueueOnTx?: EnqueueOnTransaction
 }
 
 export function createTransactionScope(dependencies: TransactionScopeDependencies): TransactionScope {
   const now = dependencies.now ?? ((): Date => new Date())
   const maxDepth = dependencies.maxDepth ?? readMaxDepthFromEnv() ?? 8
+
+  const enqueueOnTx: EnqueueOnTransaction =
+    dependencies.enqueueOnTx ??
+    (() =>
+      Promise.reject(
+        new Error(
+          'jobs.enqueue used but no jobs runtime was wired into the transaction scope',
+        ),
+      ))
 
   return async function runInTransaction(work, options) {
     const actor = options?.actor ?? SYSTEM_ACTOR
@@ -92,6 +130,11 @@ export function createTransactionScope(dependencies: TransactionScopeDependencie
     const result = await dependencies.db.transaction((tx) =>
       work({
         tx,
+        jobs: {
+          enqueue(handle, data, enqueueOptions) {
+            return enqueueOnTx(tx, handle, data, enqueueOptions)
+          },
+        },
         events: {
           emit(name, target, data) {
             if (workspaceId === undefined || workspaceId.length === 0) {

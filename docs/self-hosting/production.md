@@ -120,11 +120,31 @@ Replacing `SECRET_ENCRYPTION_KEY` outright makes every sealed secret unreadable,
 3. Run `npm run reseal`. It rewrites every row still sealed under the old key, is safe to run more than once, and exits non-zero naming any row it could not open.
 4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
 
+## Background work
+
+Kelpie runs background jobs over Postgres, using [pg-boss](https://pgboss.io). It is not optional: every assembly boots a job runtime against the same `DATABASE_URL`, and pg-boss keeps its schema under `pgboss`.
+
+**One container, by default.** `npm start` runs the worker inline in the API process. One Kelpie machine both serves requests and drains queues. Nothing to configure.
+
+**Separate worker, when you scale out.** Set `--no-worker` on the API command and run `npm run worker` as its own process. The API still opens the boss instance (enqueue needs the connection) but skips the work loops. Use this shape when a slow handler might starve request handling, or when you want to scale the two independently.
+
+**Migrations.** `npm run migrate` applies the core schema and `pg-boss`'s schema in one step. Multi-instance deploys already run this in a release step and start instances with `--no-migrate`; no change to that flow.
+
+Retries are pg-boss's: a handler that throws is retried up to the queue's `retryLimit`, then routed to a `<name>.dead` dead-letter queue. Inspect a failed queue in `pgboss.job`:
+
+```sql
+select id, data, output, created_on
+from pgboss.job
+where name = 'webhooks.deliver.dead'
+order by created_on desc
+limit 20;
+```
+
 ## Operational caveats
 
-Two subsystems run in-process with no durable queue, by design:
+Two subsystems still have their own quirks:
 
-- **Webhook deliveries** retry three times over about twenty seconds. A crash mid-retry loses that delivery; the registration then reads `failing` and recovers on its own when an attempt lands. Receivers should treat deliveries as at-least-once and poll the API to reconcile anything critical.
+- **Webhook deliveries** retry three times over about twenty seconds. A crash mid-retry loses that in-process retry loop; the registration then reads `failing` and recovers on its own when an attempt lands. Receivers should treat deliveries as at-least-once and poll the API to reconcile anything critical. (Moving delivery onto the job port is a follow-up.)
 - **Imports over 500 rows** run in the background. A restart mid-run strands the job in `validating` or `committing`; the remedy is to upload the file again, which is safe because commits are idempotent.
 
 Neither needs routine attention; both are worth knowing before you read a log at 2 a.m.

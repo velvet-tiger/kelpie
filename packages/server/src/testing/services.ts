@@ -9,6 +9,7 @@ import { createEventBus } from '../runtime/events.ts'
 import type { EventBus } from '../runtime/events.ts'
 import type { ModuleServices } from '../runtime/module.ts'
 import { createTransactionScope } from '../runtime/transaction.ts'
+import type { EnqueueOnTransaction } from '../runtime/transaction.ts'
 
 /**
  * The collaborators a module needs, wired for tests.
@@ -40,6 +41,12 @@ export interface TestServicesOptions {
   readonly appBaseUrl?: string
   /** Threaded through to `ModuleServices.secretEncryption`, so a test exercises the preferred path. */
   readonly secretEncryption?: SecretEncryptionConfig
+  /**
+   * How `tx.jobs.enqueue(...)` reaches its backing runtime. Omitted, the
+   * transaction scope rejects the call with a boot-time bug message; tests
+   * that never enqueue leave this unset.
+   */
+  readonly enqueueOnTx?: EnqueueOnTransaction
 }
 
 export interface TestServices extends ModuleServices {
@@ -81,7 +88,14 @@ export function createTestServices(options: TestServicesOptions = {}): TestServi
 
   return {
     db,
-    transaction: createTransactionScope({ db, bus: events, logger, createId, now }),
+    transaction: createTransactionScope({
+      db,
+      bus: events,
+      logger,
+      createId,
+      now,
+      ...(options.enqueueOnTx === undefined ? {} : { enqueueOnTx: options.enqueueOnTx }),
+    }),
     createId,
     now,
     emailSender: sender,

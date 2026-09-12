@@ -11,6 +11,8 @@ import { readModuleConfigFile } from './lib/moduleConfig.ts'
 import { resolveActorFrom } from './modules/auth/credentials.ts'
 import type { CredentialDependencies } from './modules/auth/credentials.ts'
 import { createEventBus } from './runtime/events.ts'
+import { createJobsRuntime } from './runtime/jobs.ts'
+import type { JobsRuntime } from './runtime/jobs.ts'
 import { registerModules } from './runtime/registry.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 import { createTransactionScope } from './runtime/transaction.ts'
@@ -34,6 +36,14 @@ export interface AssemblyBoot {
   readonly createId: IdFactory
   readonly credentials: CredentialDependencies
   readonly contributions: ModuleContributions
+  /**
+   * The pg-boss-backed job runtime the modules registered against. The
+   * entry point owns its lifecycle: call `jobs.migrate()` alongside
+   * `runMigrations`, `jobs.start()` before serving, and — on the worker —
+   * `jobs.startWorking()` right after. `jobs.stop()` drains before
+   * `database.close()`.
+   */
+  readonly jobs: JobsRuntime
 }
 
 /**
@@ -60,6 +70,7 @@ export async function bootAssembly(
   })
   const database = connectDatabase(config.databaseUrl, logger)
   const events = createEventBus(logger)
+  const jobs = createJobsRuntime({ connectionString: config.databaseUrl, logger })
   const createId = createIdFactory()
   const credentials: CredentialDependencies = { db: database.db, now: () => new Date() }
   const moduleConfig = readModuleConfigFile(config.moduleConfigPath)
@@ -69,10 +80,17 @@ export async function bootAssembly(
     logger,
     events,
     moduleConfig,
+    jobs: jobs.registry,
     resolveActor: (context) => resolveActorFrom(credentials, context),
     services: {
       db: database.db,
-      transaction: createTransactionScope({ db: database.db, bus: events, logger, createId }),
+      transaction: createTransactionScope({
+        db: database.db,
+        bus: events,
+        logger,
+        createId,
+        enqueueOnTx: jobs.enqueueOnTx,
+      }),
       createId,
       now: () => new Date(),
       appBaseUrl: config.appBaseUrl,
@@ -86,5 +104,5 @@ export async function bootAssembly(
     email: { provider: config.email.EMAIL_PROVIDER, from: config.email.EMAIL_FROM },
   })
 
-  return { config, logger, database, createId, credentials, contributions }
+  return { config, logger, database, createId, credentials, contributions, jobs }
 }

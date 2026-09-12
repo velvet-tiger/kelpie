@@ -7,6 +7,7 @@ import type { Environment } from '../lib/config.ts'
 import { createLogEmailSender } from '../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import { AppError, describeThrown, describeValidationIssue, toErrorDetails } from '../lib/errors.ts'
+import type { JobRegistry } from '../lib/jobs.ts'
 import type { Logger } from '../lib/logger.ts'
 import { createEntitlementRegistry, requireCapability } from './entitlements.ts'
 import type { EntitlementRegistry } from './entitlements.ts'
@@ -242,6 +243,13 @@ export interface ModuleRuntimeOptions {
    */
   readonly additionalEmailProviders?: ReadonlyMap<string, EmailSender> | undefined
   /**
+   * The job registry modules bind to at register time. Bound to the pg-boss
+   * runtime in production (`runtime/jobs.ts`) and to a stub in unit tests
+   * that never define a job. A module that calls `context.jobs.define` when
+   * this is absent gets a boot-time error naming the module.
+   */
+  readonly jobs?: JobRegistry | undefined
+  /**
    * The deploy-time module override (`lib/moduleConfig.ts`), parsed. A locked
    * module id wins over whatever a workspace's own settings say.
    */
@@ -349,6 +357,21 @@ interface RegisteredProvider {
   readonly registeredBy: string
 }
 
+/**
+ * Refuses `define` for a module that reached `context.jobs` when the runtime
+ * booted without a jobs registry. Named so a boot log points at the module
+ * whose declaration cannot be honoured, rather than a bare stack trace.
+ */
+function createMissingJobsRegistry(moduleId: string): JobRegistry {
+  return {
+    define() {
+      throw new ModuleBootError([
+        `module "${moduleId}" defines a job but the assembly booted without a jobs runtime`,
+      ])
+    },
+  }
+}
+
 function createModuleContext(
   module: KelpieModule,
   accumulator: Accumulator,
@@ -363,6 +386,7 @@ function createModuleContext(
   return {
     ...options.services,
     email: emailProxy,
+    jobs: options.jobs ?? createMissingJobsRegistry(module.id),
 
     provideExternalSignIn(handler) {
       externalSignIn.install(module.id, handler)

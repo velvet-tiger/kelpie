@@ -9,6 +9,22 @@ export type { AppDependencies, AppBindings } from './app.ts'
 export { bootAssembly } from './boot.ts'
 export type { AssemblyBoot } from './boot.ts'
 
+export { startWorker } from './worker.ts'
+
+export { createJobsRuntime } from './runtime/jobs.ts'
+export type { JobsRuntime, JobsRuntimeOptions } from './runtime/jobs.ts'
+export { deadLetterQueueName } from './lib/jobs.ts'
+export type {
+  EnqueueOptions,
+  JobContext,
+  JobDefaults,
+  JobDefinition,
+  JobHandle,
+  JobHandler,
+  JobRegistry,
+  TransactionJobs,
+} from './lib/jobs.ts'
+
 export { WebBundleError, serveWebBundle } from './webBundle.ts'
 export type { WebBundleOptions } from './webBundle.ts'
 
@@ -143,6 +159,7 @@ export type { ModuleEventCatalog } from './runtime/module.ts'
 export { createTransactionScope } from './runtime/transaction.ts'
 export type {
   BufferedEvents,
+  EnqueueOnTransaction,
   Transaction,
   TransactionContext,
   TransactionOptions,

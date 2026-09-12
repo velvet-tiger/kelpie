@@ -9,6 +9,7 @@
     "dev:web": "vite",
     "start": "node --conditions=kelpie-source src/server.ts",
     "migrate": "node --conditions=kelpie-source --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/migrate.ts",
+    "worker": "node --conditions=kelpie-source --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/worker.ts",
     "reseal": "node --conditions=kelpie-source --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/reseal.ts",
     "build": "vite build",
     "preview": "vite preview",

@@ -63,6 +63,10 @@ make test     # run every suite
 
 Set `EMAIL_PROVIDER=log` for local development. Invite and password-reset links print to the API log. For SMTP, set `EMAIL_PROVIDER=smtp` and fill in `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE` in `.env.local`. `SMTP_USER` and `SMTP_PASSWORD` are optional and paired: set both to authenticate against the relay, or omit both to connect without SMTP AUTH — for local catch-alls like maildev, MailHog, or smtp4dev.
 
+### Background work
+
+Kelpie runs durable background jobs over Postgres, using [pg-boss](https://pgboss.io). `make dev` runs the worker inline in the API process by default, so one container both serves and works. To run a standalone worker (the Cloud deployment shape), use `npm run worker`; to run the API without a worker, pass `--no-worker`. pg-boss keeps its schema under `pgboss` and `npm run migrate` migrates it alongside the core schema. Read the [background jobs](../docs/modules.md#background-jobs) section for the port and semantics.
+
 ### Configuration
 
 Every required variable stops the service at boot with a clear error if missing. See [`.env.example`](.env.example) for the full list with comments, or [docs/development.md](docs/development.md) for how `.env` and `.env.local` interact.

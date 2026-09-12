@@ -6,6 +6,8 @@ import { connectDatabase } from '../lib/database.ts'
 import type { DatabaseConnection } from '../lib/database.ts'
 import { createLogger } from '../lib/logger.ts'
 import { coreModules } from '../modules/core.ts'
+import { createJobsRuntime } from '../runtime/jobs.ts'
+import type { JobsRuntime } from '../runtime/jobs.ts'
 import { runMigrations } from '../runtime/migrate.ts'
 import { registerModules } from '../runtime/registry.ts'
 import { TEST_ENVIRONMENT } from './environment.ts'
@@ -30,6 +32,12 @@ const silentLogger = createLogger({ level: 'error', transports: [] })
 export interface TestDatabase extends DatabaseConnection {
   /** Empties every table. Cheaper than truncating or re-migrating between tests. */
   readonly truncateAll: () => Promise<void>
+  /**
+   * The pg-boss-backed jobs runtime, migrated onto the same test database.
+   * Tests that need workers running call `jobs.startWorking()`; tests that
+   * only enqueue can leave it stopped, since `enqueueOnTx` needs no worker.
+   */
+  readonly jobs: JobsRuntime
 }
 
 /**
@@ -90,18 +98,28 @@ export async function connectTestDatabase(connectionString: string): Promise<Tes
   await ensureDatabaseExists(connectionString)
 
   const connection = connectDatabase(connectionString, silentLogger)
-  const services = createTestServices({ db: connection.db })
+  const jobs = createJobsRuntime({
+    connectionString,
+    logger: silentLogger,
+    // A short poll floor so a test that enqueues and waits for the handler
+    // never blocks on the 30 s NOTIFY backstop when notify is unavailable
+    // (e.g. connection dropped between tests). Real workers stay at 30 s.
+    pollingIntervalSeconds: 0.5,
+  })
+  const services = createTestServices({ db: connection.db, enqueueOnTx: jobs.enqueueOnTx })
   const contributions = await registerModules({
     modules: coreModules,
     // Enough for core modules to configure themselves; no test reads it further.
     environment: TEST_ENVIRONMENT,
     logger: silentLogger,
     services,
+    jobs: jobs.registry,
     email: { provider: TEST_EMAIL_PROVIDER, from: TEST_EMAIL_FROM },
     additionalEmailProviders: new Map([[TEST_EMAIL_PROVIDER, services.emailSender]]),
   })
 
   await runMigrations(connection.db, contributions.schemas, silentLogger)
+  await jobs.migrate()
 
   let cachedReset: string | undefined
 
@@ -189,7 +207,22 @@ export async function connectTestDatabase(connectionString: string): Promise<Tes
     if (cachedReset !== undefined) {
       await connection.db.execute(sql.raw(cachedReset))
     }
+
+    // Clear pg-boss's job table too. Every test starts with an empty queue
+    // regardless of whether the previous test's worker consumed everything.
+    // A TRUNCATE would rebuild the partition heap on every call; delete stays
+    // fast against a mostly-empty table.
+    await connection.db.execute(sql`delete from pgboss.job`)
   }
 
-  return { ...connection, truncateAll }
+  async function close(): Promise<void> {
+    // Order matters: pg-boss owns its own connection pool, so stop it first
+    // so it can `unlisten` and drain workers. Then close the postgres.js pool
+    // the app uses. Idempotent for tests that never started the worker;
+    // `jobs.stop()` returns early when nothing is running.
+    await jobs.stop()
+    await connection.close()
+  }
+
+  return { ...connection, close, truncateAll, jobs }
 }
