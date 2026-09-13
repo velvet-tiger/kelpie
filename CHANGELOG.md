@@ -26,6 +26,16 @@ While the major version is `0`, a minor bump may break the API.
   migrate` and the boot migration step migrate it alongside the core
   schema. See [`docs/modules.md`](../docs/modules.md#background-jobs).
 
+### Fixed
+
+- **`@kelpie/server`** — **Retries no longer wait up to 30 seconds.**
+  pg-boss's LISTEN/NOTIFY wakes a worker immediately on a fresh `send()`,
+  but its own retry re-insert never notifies, so a retried job was only
+  ever picked up by the fallback poll — hardcoded to 30 seconds regardless
+  of `retryDelay`. That poll now shares the runtime's own
+  `pollingIntervalSeconds` (2s by default), so a retry runs on the next
+  regular poll instead of the notify backstop.
+
 ## [0.13.0] - 2026-09-08
 
 ### Added

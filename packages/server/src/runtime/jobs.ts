@@ -44,12 +44,6 @@ const PGBOSS_SCHEMA = 'pgboss'
 
 const DEFAULT_LOCAL_CONCURRENCY = 5
 
-/**
- * Base polling floor. `useListenNotify` wakes workers immediately on a
- * `notify: true` queue, so polling is a slow backstop.
- */
-const NOTIFY_POLLING_INTERVAL_SECONDS = 30
-
 interface RegisteredJob<Data> {
   readonly definition: JobDefinition<Data>
   readonly handle: JobHandle<Data>
@@ -59,10 +53,13 @@ export interface JobsRuntimeOptions {
   readonly connectionString: string
   readonly logger: Logger
   /**
-   * Polling floor for queues where LISTEN/NOTIFY is unavailable. Kept high
-   * in production (default 30s) so idle workers cost nothing; tests pass a
-   * short value so a job runs within one tick of enqueue even if the
-   * listener never opened.
+   * Polling floor. LISTEN/NOTIFY wakes a worker immediately when a job is
+   * inserted via `send()`, but pg-boss's own retry re-insert (inside
+   * `fail()`) never notifies, so a retried job is only ever picked up by
+   * this poll — as is a fresh job if the listener never opened. Also used
+   * as pg-boss's `notifyPollingIntervalSeconds`, so NOTIFY-active queues
+   * poll no slower than this either. Default 2s in production; tests pass
+   * a shorter value so a retry runs within the test's own budget.
    */
   readonly pollingIntervalSeconds?: number
   /**
@@ -252,7 +249,7 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
           batchSize: 1,
           localConcurrency,
           pollingIntervalSeconds,
-          notifyPollingIntervalSeconds: NOTIFY_POLLING_INTERVAL_SECONDS,
+          notifyPollingIntervalSeconds: pollingIntervalSeconds,
         },
         async (batch: Job<unknown>[]) => {
           const job = batch[0]
