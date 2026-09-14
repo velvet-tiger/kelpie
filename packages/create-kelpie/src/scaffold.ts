@@ -51,6 +51,7 @@ const TEMPLATE_FILES: ReadonlyMap<string, string> = new Map([
   ['kelpie.ui.config.ts', 'kelpie.ui.config.ts'],
   ['src/server.ts', 'src/server.ts'],
   ['src/migrate.ts', 'src/migrate.ts'],
+  ['src/worker.ts', 'src/worker.ts'],
   ['src/reseal.ts', 'src/reseal.ts'],
   ['web/index.html', 'web/index.html'],
   ['web/main.tsx', 'web/main.tsx'],

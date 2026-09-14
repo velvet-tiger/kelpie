@@ -20,6 +20,8 @@ package.json           @kelpie/server and @kelpie/ui, pinned to this version
 kelpie.config.ts       the server module list
 kelpie.ui.config.ts    the UI module list
 src/server.ts          the entry point: config, modules, migrations, serve
+src/migrate.ts         `npm run migrate`: applies core and pg-boss migrations
+src/worker.ts          `npm run worker`: pg-boss consumer, for scaling jobs apart from HTTP
 src/reseal.ts          re-seals stored secrets after a SECRET_ENCRYPTION_KEY change
 web/index.html         the web entry
 web/main.tsx

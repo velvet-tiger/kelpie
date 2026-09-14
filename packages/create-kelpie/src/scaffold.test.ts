@@ -77,6 +77,7 @@ describe('scaffold', () => {
       'src/migrate.ts',
       'src/reseal.ts',
       'src/server.ts',
+      'src/worker.ts',
       'tsconfig.server.json',
       'tsconfig.web.json',
       'vite.config.ts',

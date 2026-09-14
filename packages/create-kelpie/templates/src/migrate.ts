@@ -24,10 +24,12 @@ function reportFatal(message: string): void {
 }
 
 async function migrate(): Promise<void> {
-  const { database, contributions, logger } = await bootAssembly(kelpieConfig, process.env)
+  const { database, contributions, jobs, logger } = await bootAssembly(kelpieConfig, process.env)
 
   try {
     await runMigrations(database.db, contributions.schemas, logger)
+    await jobs.migrate()
+    logger.info('pg-boss schema migrated')
   } finally {
     await database.close()
   }

@@ -10,6 +10,7 @@ import {
   resolveClientIpFrom,
   runMigrations,
   serveWebBundle,
+  startWorker,
 } from '@kelpie/server'
 
 import kelpieConfig from '../kelpie.config.ts'
@@ -25,6 +26,11 @@ import kelpieConfig from '../kelpie.config.ts'
  *
  * `--no-migrate` skips the migration step, for deployments where `npm run migrate`
  * migrates once in a release step and many instances then start.
+ *
+ * `--no-worker` skips the pg-boss `work()` loops. This process still opens the
+ * boss instance so a service can enqueue jobs inside its own transaction; the
+ * work loops themselves live in the separate `worker` process (`src/worker.ts`).
+ * The default is to run both inline, so one container both serves and works.
  */
 
 function reportFatal(message: string): void {
@@ -32,15 +38,26 @@ function reportFatal(message: string): void {
 }
 
 async function start(): Promise<void> {
-  const { config, logger, database, createId, credentials, contributions } = await bootAssembly(
-    kelpieConfig,
-    process.env,
-  )
+  const boot = await bootAssembly(kelpieConfig, process.env)
+  const { config, logger, database, createId, credentials, contributions, jobs } = boot
 
   if (process.argv.includes('--no-migrate')) {
     logger.info('skipping migrations', { reason: '--no-migrate' })
   } else {
     await runMigrations(database.db, contributions.schemas, logger)
+    await jobs.migrate()
+  }
+
+  // The API always opens a boss instance: a service enqueues jobs inside its
+  // own transaction on request, so `boss.send` must be reachable even when
+  // this process runs no work loops. `startWorker` on top adds the `work()`
+  // calls; `--no-worker` skips them, for deployments that run a separate
+  // `src/worker.ts` process alongside.
+  if (process.argv.includes('--no-worker')) {
+    logger.info('skipping inline worker', { reason: '--no-worker' })
+    await jobs.start()
+  } else {
+    await startWorker(boot)
   }
 
   const app = createApp({
@@ -81,8 +98,12 @@ async function start(): Promise<void> {
     logger.info('shutting down', { signal })
     server.close(() => {
       // Drain before closing the pool: a handler mid-flight may still be writing.
-      void contributions.events
-        .drain()
+      // Order: stop the job worker (waits for in-flight jobs), drain the event
+      // bus (which may still be delivering post-commit handlers), then close
+      // the database.
+      void jobs
+        .stop()
+        .then(() => contributions.events.drain())
         .then(() => database.close())
         .then(() => process.exit(0))
     })

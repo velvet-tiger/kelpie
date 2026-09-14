@@ -128,7 +128,21 @@ stops rather than answering every browser with a blank page.
 
 Migrations apply at boot. Running more than one instance makes that a race, so
 migrate once with `npm run migrate` in a release step, then start the instances
-with `--no-migrate`. That command is forward-only and safe to re-run.
+with `--no-migrate`. That command is forward-only and safe to re-run. It also
+applies pg-boss's own schema, so the worker has the tables it needs.
+
+Background jobs run on pg-boss. The default deployment runs the work loops
+inline from `npm start`, so one process both serves and works. To scale the two
+sides on their own — for example when a slow handler must not compete with
+request handling — run a second process alongside:
+
+```bash
+WEB_BUNDLE_DIR=./dist npm start -- --no-worker   # HTTP only, still enqueues
+npm run worker                                    # pg-boss consumer, no HTTP
+```
+
+Both processes read the same `.env`, connect to the same database, and load
+the same modules. Neither owns state the other needs.
 
 TLS, reverse proxies, systemd, health checks, and backups:
 [docs/self-hosting/production.md](https://github.com/velvet-tiger/kelpie/blob/main/docs/self-hosting/production.md).
