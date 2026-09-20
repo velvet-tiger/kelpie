@@ -10,6 +10,38 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-20
+
+### Added
+
+- **`@kelpie/ui`** — **Dashboard search.** A search box sits below the
+  dashboard title, slightly larger than the header search, and submits
+  to `/search?q=`.
+
+- **`@kelpie/ui`** — **Raised wells around dashboard lists.** The four
+  dashboard sections sit in raised panels that separate them at a
+  glance. Needs attention uses a sunken well with a danger edge so
+  overdue work stands apart.
+
+- **`create-kelpie`** — **Optional worker process for pg-boss jobs.** A
+  scaffolded project ships `src/worker.ts` and an `npm run worker`
+  script, so it can run the pg-boss consumer as its own process the
+  same way `apps/kelpie` does. `src/server.ts` gains a `--no-worker`
+  branch, and `src/migrate.ts` applies pg-boss's schema. The default
+  remains inline: one process both serves and works until the
+  self-hoster splits them.
+
+### Fixed
+
+- **`@kelpie/ui`** — **Plain message when the API is unreachable.** A
+  downed API used to surface as "Could not reach the service. Unexpected
+  end of JSON input", because `readJson` parsed the body before
+  checking `response.ok` and a Vite proxy 504 with an empty body threw
+  a raw `SyntaxError`. A true fetch rejection leaked "Failed to fetch"
+  the same way. The client now parses the error body defensively, maps
+  502/503/504 and fetch rejections onto a `service_unreachable`
+  `ApiError`, and lets `QueryState.describe` render its own sentence.
+
 ## [0.14.0] - 2026-09-13
 
 ### Added
