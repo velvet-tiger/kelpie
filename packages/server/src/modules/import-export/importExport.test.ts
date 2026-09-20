@@ -629,9 +629,13 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
     )
     const bigCsv = ['name,domain', ...rows].join('\n')
 
-    /** Polls the job until it settles, the way a caller does. */
+    /**
+     * Polls the job until it settles, the way a caller does. The window is
+     * wide because a 501-row commit under CI load can spend a few seconds
+     * behind pg-boss's own poll, and each test carries its own 120s timeout.
+     */
     async function settle(jobId: string): Promise<Record<string, unknown>> {
-      for (let attempt = 0; attempt < 200; attempt += 1) {
+      for (let attempt = 0; attempt < 600; attempt += 1) {
         const job = readRecord(
           await (await client.send('GET', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })).json(),
         )
@@ -640,7 +644,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
           return job
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 50))
+        await new Promise((resolve) => setTimeout(resolve, 100))
       }
 
       throw new Error(`Job ${jobId} never settled`)
