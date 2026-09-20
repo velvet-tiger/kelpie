@@ -128,9 +128,16 @@ function buildUrl(baseUrl: string, path: string, query: QueryParameters | undefi
  * Turns a failed response into an `ApiError`. A body that does not match the
  * documented error shape still produces an error carrying the HTTP status,
  * because the alternative is a rejected promise with no cause.
+ *
+ * `502`, `503` and `504` from a dev or reverse proxy mean the API itself is
+ * down, so they get a friendly `service_unreachable` code that `QueryState`
+ * turns into a plain sentence instead of "HTTP 504".
  */
 function readErrorBody(status: number, payload: unknown): ApiError {
-  const unreadable = new ApiError(status, 'internal_error', `Unreadable error response (HTTP ${status})`)
+  const unreadable =
+    status === 502 || status === 503 || status === 504
+      ? new ApiError(status, 'service_unreachable', 'The service is unreachable. Try again in a moment.')
+      : new ApiError(status, 'internal_error', `Unreadable error response (HTTP ${status})`)
 
   if (!isRecord(payload) || !isRecord(payload.error)) {
     return unreadable
@@ -160,7 +167,21 @@ function readPage<T>(payload: unknown, decodeItem: Decoder<T>): Page<T> {
 }
 
 export function createApiClient(options: ApiClientOptions): ApiClient {
-  const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis)
+  const rawFetch = options.fetch ?? globalThis.fetch.bind(globalThis)
+
+  /**
+   * A fetch that turns a rejection into an `ApiError`. `fetch` rejects only
+   * when the network layer failed (DNS, connection refused, offline), and the
+   * raw rejection is a `TypeError` whose message is either "Failed to fetch"
+   * or "Load failed" depending on the browser. Neither belongs in the UI.
+   */
+  async function doFetch(url: string, init: RequestInit): Promise<Response> {
+    try {
+      return await rawFetch(url, init)
+    } catch {
+      throw new ApiError(0, 'service_unreachable', 'The service is unreachable. Check that the API is running.')
+    }
+  }
 
   function headersFor(body: unknown): Record<string, string> {
     return body === undefined
@@ -180,15 +201,21 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     })
   }
 
-  /** Reads a JSON response, converting any non-2xx into an `ApiError`. */
+  /**
+   * Reads a JSON response, converting any non-2xx into an `ApiError`.
+   *
+   * The body is parsed defensively on failure: a dev proxy answering `504` with
+   * an empty body, or a reverse proxy answering `502` with an HTML page, would
+   * otherwise throw `SyntaxError: Unexpected end of JSON input` and hide the
+   * status that explains the failure.
+   */
   async function readJson(response: Response): Promise<unknown> {
-    const payload: unknown = await response.json()
-
     if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => null)
       throw readErrorBody(response.status, payload)
     }
 
-    return payload
+    return response.json()
   }
 
   async function send<T>(method: string, url: string, decode: Decoder<T>, body?: unknown): Promise<T> {

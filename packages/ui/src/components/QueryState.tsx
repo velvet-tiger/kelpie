@@ -72,7 +72,14 @@ export function ErrorPanel({ error, onRetry }: ErrorPanelProps): React.JSX.Eleme
 
 function describe(error: Error): string {
   if (!(error instanceof ApiError)) {
-    return `Could not reach the service. ${error.message}`
+    // A non-`ApiError` here is a decoder throwing on an unexpected shape, or a
+    // programmer error. Neither is actionable, so name the class of failure and
+    // keep the raw message out of the UI.
+    return 'The response could not be read. Reload the page, or check the service logs.'
+  }
+
+  if (error.code === 'service_unreachable') {
+    return error.message
   }
 
   if (error.status === 403) {
