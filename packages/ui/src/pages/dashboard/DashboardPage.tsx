@@ -1,4 +1,6 @@
 import type { Dashboard } from '@kelpie/schemas'
+import { useState } from 'react'
+import { useNavigate } from 'react-router'
 
 import { useTimezone } from '../../api/resources/account.ts'
 import { useDashboard } from '../../api/resources/dashboard.ts'
@@ -24,6 +26,8 @@ export function DashboardPage(): React.JSX.Element {
   const { workspace } = useWorkspace()
   const { nameById } = useMembers()
   const timezone = useTimezone()
+  const navigate = useNavigate()
+  const [query, setQuery] = useState('')
   const workspaceName = workspace?.name ?? 'This workspace'
 
   return (
@@ -41,6 +45,30 @@ export function DashboardPage(): React.JSX.Element {
           ) : undefined
         }
       />
+
+      <form
+        className="mb-6"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const term = query.trim()
+
+          if (term.length === 0) {
+            return
+          }
+
+          void navigate(`/search?q=${encodeURIComponent(term)}`)
+        }}
+      >
+        <input
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value)
+          }}
+          aria-label="Search"
+          placeholder="Search…"
+          className="w-full max-w-xl rounded-md border border-transparent bg-surface-sunken px-3 py-2 text-[15px] text-ink outline-none transition placeholder:text-ink-faint focus:border-border focus:bg-surface-raised"
+        />
+      </form>
 
       {error !== null && <ErrorPanel error={error} />}
       {isLoading && <LoadingPanel label="Loading the workspace…" />}
