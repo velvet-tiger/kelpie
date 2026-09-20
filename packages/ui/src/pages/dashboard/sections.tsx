@@ -70,15 +70,39 @@ function EmptyOr({
   return isEmpty ? <p className="text-[13px] text-ink-faint">{empty}</p> : <>{children}</>
 }
 
+/** Shared inner-list chrome: row rules only — the well is the outer edge. */
+const LIST_DIVIDE = 'divide-y divide-border'
+
+function SectionWell({
+  children,
+  tone = 'raised',
+}: {
+  readonly children: ReactNode
+  readonly tone?: 'raised' | 'attention'
+}): React.JSX.Element {
+  if (tone === 'attention') {
+    return (
+      <section className="relative overflow-hidden rounded-md border border-border bg-surface-sunken p-4 pl-5">
+        <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-danger" />
+        {children}
+      </section>
+    )
+  }
+
+  return (
+    <section className="rounded-md border border-border bg-surface-raised p-4">{children}</section>
+  )
+}
+
 export function AttentionList({ rows }: { readonly rows: readonly AttentionRow[] }): React.JSX.Element {
   return (
-    <section>
+    <SectionWell tone="attention">
       <SectionHeader
         title="Needs attention"
         description="Overdue Plans, partnership touchpoints, and contacts going cold."
       />
       <EmptyOr isEmpty={rows.length === 0} empty="Nothing urgent right now.">
-        <ul className="divide-y divide-border border-y border-border">
+        <ul className={LIST_DIVIDE}>
           {rows.map((row) => (
             <li key={row.id} className="py-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -102,7 +126,7 @@ export function AttentionList({ rows }: { readonly rows: readonly AttentionRow[]
           ))}
         </ul>
       </EmptyOr>
-    </section>
+    </SectionWell>
   )
 }
 
@@ -118,13 +142,13 @@ export function ActivityFeed({
   readonly timezone: string
 }): React.JSX.Element {
   return (
-    <section>
+    <SectionWell>
       <SectionHeader
         title="Recent activity"
         description="The latest events across people, companies, and pipelines."
       />
       <EmptyOr isEmpty={activities.length === 0} empty="No activity yet.">
-        <ol className="divide-y divide-border border-y border-border">
+        <ol className={LIST_DIVIDE}>
           {activities.map((activity, index) => (
             <li key={activity.id} className="flex gap-2 py-3">
               <div className="relative flex w-5 shrink-0 justify-center">
@@ -167,7 +191,7 @@ export function ActivityFeed({
           ))}
         </ol>
       </EmptyOr>
-    </section>
+    </SectionWell>
   )
 }
 
@@ -198,10 +222,10 @@ export function NotesList({
   readonly timezone: string
 }): React.JSX.Element {
   return (
-    <section>
+    <SectionWell>
       <SectionHeader title="Recent notes" description="Pinned notes surface first." />
       <EmptyOr isEmpty={notes.length === 0} empty="No notes yet.">
-        <ul className="divide-y divide-border border-y border-border">
+        <ul className={LIST_DIVIDE}>
           {notes.map((note) => (
             <li key={note.id} className="py-3">
               <div className="flex items-start justify-between gap-2">
@@ -227,7 +251,7 @@ export function NotesList({
           ))}
         </ul>
       </EmptyOr>
-    </section>
+    </SectionWell>
   )
 }
 
@@ -241,7 +265,7 @@ export function DecisionsList({
   readonly timezone: string
 }): React.JSX.Element {
   return (
-    <section>
+    <SectionWell>
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-[13px] font-semibold text-ink">Recent decisions</h2>
@@ -254,7 +278,7 @@ export function DecisionsList({
         </Link>
       </div>
       <EmptyOr isEmpty={decisions.length === 0} empty="No decisions yet.">
-        <ul className="divide-y divide-border border-y border-border">
+        <ul className={LIST_DIVIDE}>
           {decisions.map((decision) => (
             <li key={decision.id} className="py-3">
               <p className="text-[13px] font-medium text-ink">{decision.body}</p>
@@ -276,6 +300,6 @@ export function DecisionsList({
           ))}
         </ul>
       </EmptyOr>
-    </section>
+    </SectionWell>
   )
 }
