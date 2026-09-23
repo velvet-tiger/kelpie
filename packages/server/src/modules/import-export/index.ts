@@ -14,9 +14,8 @@ import { registerImportExportTools } from './tools.ts'
  * `activities` is the timeline entry each imported record carries, written in
  * the same transaction as the record itself.
  *
- * The import and export MCP tools are not registered: there is no MCP
- * endpoint yet, so a tool would be a definition nothing mounts. They land with
- * the MCP server, against these same services.
+ * The five import and export MCP tools (`tools.ts`) call these same services,
+ * so an agent on `POST /mcp` and a client on the REST routes get one behaviour.
  */
 export function createImportExportModule(migrationsDirectory: string): KelpieModule {
   return {

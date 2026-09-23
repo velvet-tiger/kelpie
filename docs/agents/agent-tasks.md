@@ -1,6 +1,6 @@
 # Agent tasks
 
-Kelpie ships 69 prompt recipes — enrich this company, draft outreach in our voice, brief me for this meeting, sweep the pipeline for records with no plan. Each one resolves into a complete, context-packed prompt from your workspace's own data. You bring the agent that runs it.
+Kelpie ships 78 prompt recipes — enrich this company, draft outreach in our voice, brief me for this meeting, sweep the pipeline for records with no plan. Each one resolves into a complete, context-packed prompt from your workspace's own data. You bring the agent that runs it.
 
 ## Two paths to an agent
 

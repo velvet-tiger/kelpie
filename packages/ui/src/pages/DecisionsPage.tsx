@@ -30,7 +30,9 @@ import { useListView } from '../lib/listView.ts'
  *
  * The "Linked to" column joins client-side against one page each of people,
  * companies, deals, opportunities, raises and partnerships, because the API
- * has no include-expansion and no list takes a set of bare ids. A target past
+ * has no include-expansion. The repeatable id filters (`?person_id=`,
+ * `?company_id=`, …) match a foreign key; no list filters on its own `?id=`,
+ * so there is no way to fetch just the targets by id. A target past
  * those pages, or one whose type has no page yet (candidate), names its record
  * type instead — better than a raw id or a link to a route that does not exist.
  */

@@ -18,7 +18,8 @@ import { formatDateTime } from '../../lib/dates.ts'
  *
  * Person and company names are joined client-side against one page each, the
  * same way the Decisions page does it: the API has no include-expansion, and
- * neither list takes a set of bare ids. A record past those pages is still
+ * neither list filters on its own `?id=` (the repeatable id filters match a
+ * foreign key, not the record's id). A record past those pages is still
  * linked, by its type rather than its name, which beats a raw id.
  *
  * A row opens `/forms/:id/submissions/:submissionId`. Inline person/company
