@@ -53,7 +53,7 @@ export function postgresErrorCode(error: unknown): string | undefined {
 /**
  * The table that still references the row a delete tried to remove.
  *
- * Postgres names the *referencing* table, which is what `api.md` wants in the
+ * Postgres names the *referencing* table, which is what the API wants in the
  * `details` of the 409: the caller needs to know what to detach, not which
  * constraint object refused.
  *
@@ -66,7 +66,7 @@ export function referenceViolationTable(error: unknown): string | undefined {
 
 /**
  * True when the database refused a write because another row still references the
- * target. `api.md` renders this as `409` with the referencing types in `details`.
+ * target. The API renders this as `409` with the referencing types in `details`.
  */
 export function isReferenceViolation(error: unknown): boolean {
   const code = postgresErrorCode(error)

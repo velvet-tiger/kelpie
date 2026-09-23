@@ -73,7 +73,7 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
     const note = await repository.findNote(dependencies.db, workspaceId, id)
 
     // A note in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed, per `docs/self-hosting/security.md`.
     if (note === undefined) {
       throw AppError.notFound('Note not found')
     }

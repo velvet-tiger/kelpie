@@ -139,7 +139,7 @@ export const forms = pgTable(
  * never crosses the wire — the form body carries a `list_ids: [...]` array
  * and the service reconciles it by set-diff. Both fks cascade: deleting a
  * list drops the action from every form naming it, keeping the promise in
- * `lists.md` that a list delete is never blocked.
+ * `docs/guides/forms.md` that a list delete is never blocked.
  */
 export const formLists = pgTable(
   'form_lists',

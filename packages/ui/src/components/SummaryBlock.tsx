@@ -9,7 +9,7 @@ export interface SummaryBlockProps {
  * The agent-facing summary, at the top of a record's overview.
  *
  * It sits above everything else because it is the field an agent reads first;
- * `brief.md` makes it a record field rather than something buried in notes.
+ * it is a record field rather than something buried in notes.
  */
 export function SummaryBlock({ value, onChange }: SummaryBlockProps): React.JSX.Element {
   return (

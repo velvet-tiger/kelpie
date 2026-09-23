@@ -15,7 +15,7 @@ import type {
   UpdateCompanyInput,
 } from './service.ts'
 
-/** Wire shapes for `/v1/companies`. Bodies are strict; an unknown field is a 422, per `api.md`. */
+/** Wire shapes for `/v1/companies`. Bodies are strict; an unknown field is a 422. */
 
 /** The full field set, without defaults. `createBody` adds those; `updateBody` makes it partial. */
 const companyShape = {

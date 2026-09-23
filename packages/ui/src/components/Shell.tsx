@@ -52,7 +52,7 @@ const CORE_NAV: readonly NavItem[] = [
 ]
 
 /**
- * `nav.primary` is one flat slot (`modules.md`); the shell renders it as visual
+ * `nav.primary` is one flat slot; the shell renders it as visual
  * groups: an unheaded top section, an unheaded directory pair (People,
  * Companies), a headed "CRM" section for pipeline objects, then a headed
  * "Tools" section for Lists and Forms. Presentation only — it stays here rather

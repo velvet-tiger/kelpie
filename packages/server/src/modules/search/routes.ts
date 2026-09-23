@@ -26,7 +26,7 @@ export interface SearchRoutesDependencies extends CredentialDependencies {
 /**
  * `?q=`, required and never blank.
  *
- * `api.md` makes a blank filter value a 422 rather than something to ignore,
+ * A blank filter value is a 422 rather than something to ignore,
  * because an empty search and a search for everything are different questions and
  * only one of them was asked.
  */
@@ -51,8 +51,9 @@ function readTerm(context: Context): string {
 const COLLECTIONS = new Set<string>(SEARCH_COLLECTIONS)
 
 /**
- * `?type=`, repeatable in the same way an id filter is (`api.md`): naming it twice
- * asks for either. Absent means every collection.
+ * `?type=`, repeatable in the same way an id filter is
+ * (`docs/agents/api-and-webhooks.md`): naming it twice asks for either. Absent
+ * means every collection.
  *
  * An unknown value is a 422 rather than an empty group. Silently searching eight
  * collections when nine were named is the kind of answer a caller cannot tell from

@@ -2,9 +2,9 @@
  * Handbook slugs: the stable handle a page is addressed by.
  *
  * Hyphenated rather than the underscores a pipeline stage uses, because these are
- * the ones already written down. `onboarding.md` seeds `ideal-customer-profile`,
- * and `agent-tasks.md` names pages by exactly those strings in a task's
- * `handbookSlugs`.
+ * the ones already written down. The starter handbook seeds
+ * `ideal-customer-profile`, and agent tasks (`docs/agents/agent-tasks.md`) name
+ * pages by exactly those strings in a task's `handbookSlugs`.
  */
 
 /** Long enough for a real page title, short enough to stay a handle. Matches the route's `slug` bound. */

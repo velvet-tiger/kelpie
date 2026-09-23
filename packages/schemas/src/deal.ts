@@ -17,7 +17,7 @@ export interface Deal extends RecordTimestamps {
   readonly valueCents: number | null
   readonly currency: string | null
   readonly ownerId: string | null
-  /** `YYYY-MM-DD`, per `api.md` date-only fields. */
+  /** `YYYY-MM-DD`, a date-only field. */
   readonly expectedClose: string | null
   readonly personIds: readonly string[]
   readonly competitors: readonly string[]

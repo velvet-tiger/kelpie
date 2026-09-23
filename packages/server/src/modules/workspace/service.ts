@@ -101,7 +101,7 @@ export interface SeedHandbookResult {
 }
 
 /**
- * A partial update, on `api.md`'s rule: an absent field is not being changed,
+ * A partial update: an absent field is not being changed,
  * and `null` clears one.
  *
  * Every field spells out `| undefined` because a caller reaches this with the
@@ -205,7 +205,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
   /**
    * A workspace the actor does not belong to is indistinguishable from one that
-   * does not exist, per `api.md`.
+   * does not exist.
    *
    * A workspace key has no member row: it is bound to its workspace at creation,
    * and that binding is the membership. `memberId` is null for it, so anything
@@ -311,7 +311,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
    * Refuses an actor whose account has not verified its email address.
    *
    * Creating a workspace is the one action that turns a bare account into
-   * something with real access (`schema.md`), so it is where the gate lives:
+   * something with real access, so it is where the gate lives:
    * every CRM endpoint already refuses an actor with no workspace, which means
    * blocking this one call is enough to block the rest.
    */
@@ -331,7 +331,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
    * The membership being acted on.
    *
    * A member of another workspace is not found rather than forbidden, for the
-   * same reason `api.md` gives for records: an id that answers differently when
+   * same reason as for records: an id that answers differently when
    * it exists elsewhere tells the caller it exists elsewhere.
    */
   async function requireTarget(workspaceId: string, memberId: string): Promise<repository.MemberRecord> {
@@ -676,7 +676,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         )
       }
 
-      // `schema.md`: removing a member is restricted while they own records.
+      // Removing a member is restricted while they own records.
       // Reported before the delete so every referencing type can be named, which
       // is what the caller needs to know what to reassign.
       const references = await repository.countMemberReferences(dependencies.db, workspaceId, target.id)

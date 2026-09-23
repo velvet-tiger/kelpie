@@ -20,14 +20,15 @@ import type { IdempotencyKeyRecord } from './idempotencyRepository.ts'
 import type { StoredIdempotentResponse } from './schema.ts'
 
 /**
- * `POST /v1/*` accepts an optional `Idempotency-Key` header (`api.md`). Applied
- * once here rather than per route, because every module's `POST` gets the same
- * behaviour and none of them decide it individually.
+ * `POST /v1/*` accepts an optional `Idempotency-Key` header
+ * (`docs/agents/api-and-webhooks.md`). Applied once here rather than per route,
+ * because every module's `POST` gets the same behaviour and none of them decide
+ * it individually.
  */
 
 const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key'
 
-/** `api.md`: a replayed key returns the original response within this window. */
+/** `docs/agents/api-and-webhooks.md`: a replayed key returns the original response within this window. */
 export const IDEMPOTENCY_REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000
 
 export interface IdempotencyMiddlewareDependencies {

@@ -179,7 +179,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(response.status).toBe(422)
     })
 
-    it('refuses an unknown field on the body, per api.md', async () => {
+    it('refuses an unknown field on the body', async () => {
       const response = await client.send('POST', '/v1/forms', {
         body: { name: 'Broken', fields: CONTACT_FIELDS, colour: 'blue' },
         cookie: acme.cookie,
@@ -397,7 +397,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect((await client.send('GET', `/v1/public/forms/${publicKey}/embed`)).status).toBe(403)
     })
 
-    it('creates the Person with the defaults from forms.md', async () => {
+    it('creates the Person with the defaults', async () => {
       await submitContact((ids) => ({
         [ids.Email ?? '']: 'Alex@Example.com',
         [ids.Name ?? '']: 'Alex Rivera',

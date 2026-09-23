@@ -72,8 +72,7 @@ export async function findPosition(
  *
  * A form submit needs the whole set rather than one row: a person may hold two
  * titles at the same company, and the submit prefers the one whose title
- * matches before it falls back to filling in a blank on any of them
- * (`forms.md` submit rule 5).
+ * matches before it falls back to filling in a blank on any of them.
  */
 export function listPositionsAt(
   db: Queryable,

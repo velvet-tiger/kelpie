@@ -430,14 +430,14 @@ export const THEME_PREFERENCES = ['system', 'light', 'dark'] as const
 
 export type ThemePreference = (typeof THEME_PREFERENCES)[number]
 
-/** A paused form still exists and still renders; its submit answers 409 (`forms.md`). */
+/** A paused form still exists and still renders; its submit answers 409. */
 export const FORM_STATUSES = ['active', 'paused'] as const
 
 export type FormStatus = (typeof FORM_STATUSES)[number]
 
 /**
- * What a field renders as in the embed. Deliberately short: `forms.md` puts file
- * uploads, multi-page forms and branching out of scope, and every type here is
+ * What a field renders as in the embed. Deliberately short: file uploads,
+ * multi-page forms and branching are out of scope, and every type here is
  * one `<input>`, `<textarea>` or `<select>`.
  */
 export const FORM_FIELD_TYPES = ['text', 'email', 'textarea', 'select', 'consent', 'notice'] as const
@@ -579,7 +579,7 @@ export const WEBHOOK_STATUS_LABELS: Readonly<Record<WebhookStatus, string>> = {
 /**
  * What an agent task can point at: the seven attachable record types, plus
  * three surfaces that carry tasks without being note targets — a Role, a
- * Handbook page, and the workspace itself (`agent-tasks.md`).
+ * Handbook page, and the workspace itself.
  */
 export const AGENT_TASK_TARGET_TYPES = [
   'person',
@@ -606,8 +606,8 @@ export type AgentTaskPlacement = (typeof AGENT_TASK_PLACEMENTS)[number]
 /**
  * Where a run's dispatch stands. The lifecycle describes the POST to the
  * registered agent, not the agent's own work: Kelpie hands the prompt over and
- * records whether the handover landed. `agent-tasks.md` defines no callback for
- * an agent to report completion, so anything past the dispatch would be a guess.
+ * records whether the handover landed. There is no callback for an agent to
+ * report completion, so anything past the dispatch would be a guess.
  */
 export const AGENT_RUN_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as const
 

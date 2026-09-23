@@ -7,7 +7,7 @@ import type { ListQueryParameters, Page } from './pagination.ts'
 /** The parsing every route repeats: read the wire, reject it, or hand back a typed value. */
 
 /**
- * Where unauthenticated routes mount (`architecture.md` boot step 5).
+ * Where unauthenticated routes mount.
  *
  * Shared because two places need to agree on it: the app mounts the public
  * routers here, and a module that builds an absolute URL to one of its own
@@ -32,8 +32,8 @@ export function requestOrigin(context: Context): string {
  * Reads and validates a JSON request body.
  *
  * @throws AppError 400 when the body is not JSON at all, 422 when it is JSON the
- *   schema refuses. The two are different client mistakes and `api.md` gives them
- *   different statuses.
+ *   schema refuses. The two are different client mistakes with different
+ *   statuses.
  */
 export async function readJsonBody<T>(context: Context, schema: z.ZodType<T>): Promise<T> {
   const raw: unknown = await context.req.json().catch(() => {
@@ -58,7 +58,7 @@ export function readListParameters(context: Context): ListQueryParameters {
 }
 
 /**
- * The most ids one filter may name, matching the `?limit=` ceiling in `api.md`.
+ * The most ids one filter may name, matching the `?limit=` ceiling.
  *
  * The two are the same number on purpose. A caller resolving a page of records
  * asks about at most one page of ids, so a filter that allowed fewer would make
@@ -100,7 +100,7 @@ export function readIdFilter(context: Context, name: string): readonly string[] 
   return values
 }
 
-/** The `{ data, next_cursor }` envelope from `api.md`. */
+/** The `{ data, next_cursor }` list envelope. */
 export function pageBody<T>(
   page: Page<T>,
   render: (item: T) => Record<string, unknown>,

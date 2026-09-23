@@ -1,5 +1,5 @@
 /**
- * Values stored in a normalised form, per `schema.md`. The columns are `citext`
+ * Values stored in a normalised form. The columns are `citext`
  * as a second line of defence, so a missed normalisation still compares
  * correctly rather than creating a duplicate.
  *

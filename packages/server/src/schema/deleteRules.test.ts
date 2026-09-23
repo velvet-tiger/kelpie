@@ -16,9 +16,9 @@ import { insertWorkspaceFixture } from '../testing/fixtures.ts'
 import type { WorkspaceFixture } from '../testing/fixtures.ts'
 
 /**
- * Delete semantics from `schema.md` and roadmap decision 2, asserted against real
- * Postgres. These are database-level rules: cascade to dependents, restrict on
- * independent references, set null on evidence records.
+ * Delete semantics, asserted against real Postgres. These are database-level
+ * rules: cascade to dependents, restrict on independent references, set null
+ * on evidence records.
  *
  * The polymorphic dependents (notes, activities, decisions, plan items) have no
  * database foreign key by design, so their cleanup is a service-layer concern and

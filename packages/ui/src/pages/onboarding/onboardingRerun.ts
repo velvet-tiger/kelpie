@@ -22,7 +22,7 @@ export function isOnboardingRerun(searchParams: URLSearchParams): boolean {
 /**
  * Keep the rerun flag and the organisation type when moving between onboarding
  * routes. `org` is how the modules step knows which defaults to offer; nothing
- * else is held in the browser (`onboarding.md`).
+ * else is held in the browser.
  */
 export function onboardingPath(path: string, rerun: boolean, org?: string | null): string {
   const params = new URLSearchParams()

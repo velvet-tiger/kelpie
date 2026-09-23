@@ -83,7 +83,7 @@ function relatedRank(vector: PgColumn, query: SQL): SQL<number> {
  * The number of matching records, which is not the number of rows returned.
  *
  * A window function is evaluated before `LIMIT`, so this counts every group the
- * query found and the page below it stays capped. `api.md` has no envelope for
+ * query found and the page below it stays capped. No envelope is defined for
  * this endpoint and the dashboard's precedent is an exact total beside a short
  * list, because a capped list cannot answer "how many".
  *
@@ -132,7 +132,7 @@ export async function searchPeople(
     .where(and(eq(people.workspaceId, workspaceId), matches(people.searchVector, query)))
 
   // A person is found by the title they hold, which is on Position and never on
-  // Person (`brief.md`). `?q=` on people already reaches the same way.
+  // Person. `?q=` on people already reaches the same way.
   const byTitle = db
     .select({ id: positions.personId, rank: relatedRank(positions.searchVector, query).as('rank') })
     .from(positions)

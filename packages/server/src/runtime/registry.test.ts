@@ -86,7 +86,7 @@ describe('module routes', () => {
     expect(await response.json()).toEqual({ greeting: 'Hello, ada' })
   })
 
-  it('leaves unmatched paths under /v1 as 404 in the api.md shape', async () => {
+  it('leaves unmatched paths under /v1 as 404 in the API error shape', async () => {
     const { app } = await createTestApp({
       modules: [greetingModule],
       environment: { GREETING_WORD: 'Hello' },

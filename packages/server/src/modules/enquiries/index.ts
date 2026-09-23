@@ -15,8 +15,7 @@ import { registerEnquiriesTools } from './tools.ts'
  * and owner are all in the caller's workspace before linking them, and
  * `activities` because every write leaves its timeline entry in the same
  * transaction. `deals` is required for `convertToDeal`, which inserts into
- * the deals table directly (the standard cross-module write pattern, per
- * `architecture.md`).
+ * the deals table directly (the standard cross-module write pattern).
  */
 export function createEnquiriesModule(migrationsDirectory: string): KelpieModule {
   return {

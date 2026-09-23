@@ -63,8 +63,7 @@ const NAMED_TARGET_TABLES = [
 
 /**
  * The target-name half of `?q=`. Reads the other modules' *tables*, never their
- * repositories, the rule set for a filter spanning a relation
- * (`architecture.md`).
+ * repositories, the rule set for a filter spanning a relation.
  */
 function targetNameMatches(pattern: string): SQL[] {
   return NAMED_TARGET_TABLES.map(
@@ -171,7 +170,7 @@ export async function deleteDecision(
  *
  * The target is polymorphic and carries no foreign key, so nothing in the
  * database deletes these. The service that deletes the target calls this inside
- * the same transaction (`schema.md`).
+ * the same transaction.
  */
 export async function deleteForTarget(
   db: Queryable,

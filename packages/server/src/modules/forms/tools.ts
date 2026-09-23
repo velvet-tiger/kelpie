@@ -14,8 +14,7 @@ import { FORM_STATUSES } from './schema.ts'
 import type { FormsService } from './service.ts'
 
 /**
- * `forms_*` and `form_submissions_list`, mirroring form management as `forms.md`
- * scopes it.
+ * `forms_*` and `form_submissions_list`, mirroring form management.
  *
  * No submit tool and no embed tool. Public submit is HTTP-only for browser
  * embeds, and an agent that wants to record an inbound contact creates the Person

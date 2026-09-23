@@ -124,7 +124,7 @@ export function interviewStageAfter(
 
 /**
  * @throws AppError 422 when the stage and the status cannot both be true. An
- *   unknown enum is a 422 at the boundary per `api.md`, and so is a known one
+ *   unknown enum is a 422 at the boundary, and so is a known one
  *   that contradicts the record it is being written to.
  */
 function requireStageFits(
@@ -205,7 +205,8 @@ export function createCandidatesService(dependencies: CandidatesDependencies): C
   /**
    * Every named person must be in the caller's workspace. The foreign keys are
    * global, so this is what makes the tenancy boundary hold, and a person on the
-   * far side of it reports as missing rather than as forbidden, per `api.md`.
+   * far side of it reports as missing rather than as forbidden, per
+   * `docs/self-hosting/security.md`.
    *
    * @returns Their names, for the timeline rows that name them.
    */

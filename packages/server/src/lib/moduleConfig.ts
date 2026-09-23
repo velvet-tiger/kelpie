@@ -3,10 +3,11 @@ import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 
 /**
- * Reads `modules.md`'s deploy-time module override file, the mechanism a
- * self-hoster uses to lock a module on or off for every workspace the process
- * serves, ahead of whatever a workspace's own settings screen would otherwise
- * decide (`runtime/moduleConfig.ts` is where that override wins).
+ * Reads the deploy-time module override file described in
+ * `docs/self-hosting/configuration.md`, the mechanism a self-hoster uses to
+ * lock a module on or off for every workspace the process serves, ahead of
+ * whatever a workspace's own settings screen would otherwise decide
+ * (`runtime/moduleConfig.ts` is where that override wins).
  *
  * Shape:
  * ```json

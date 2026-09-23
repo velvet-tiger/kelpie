@@ -10,7 +10,7 @@ import type { RecordTimestamps } from './wire.ts'
  *
  * `authorId` is a workspace member id, not a user id. It is null when no member
  * was behind the write, which today means a workspace API key. Resolving it to a
- * name is the caller's job: `api.md` has no include-expansion, so a panel joins
+ * name is the caller's job: the API has no include-expansion, so a panel joins
  * against the workspace member list it already holds.
  */
 

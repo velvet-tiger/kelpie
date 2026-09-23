@@ -11,7 +11,7 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import { incrementRateLimitBucket, pruneExpiredRateLimitBuckets } from './repository.ts'
 
 /**
- * The three budgets `api.md` describes for `/v1`: public form submissions,
+ * The three budgets for `/v1`: public form submissions,
  * unauthenticated auth endpoints, and everything else called with an API key.
  * Split into two middlewares rather than one, because the forms budget has to
  * sit *inside* `PUBLIC_CORS` in `app.ts` — a throw ahead of it would strip the

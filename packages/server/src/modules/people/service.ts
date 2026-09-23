@@ -184,7 +184,7 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
     const person = await repository.findPerson(dependencies.db, workspaceId, id)
 
     // A person in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed.
     if (person === undefined) {
       throw AppError.notFound('Person not found')
     }

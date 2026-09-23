@@ -18,8 +18,9 @@ afterEach(cleanup)
  * and whether a row belongs to the record being looked at.
  *
  * Both panels resolve a member id to a name against the workspace member list,
- * because `api.md` has no include-expansion. Getting that join wrong renders
- * "Unknown" beside real work, which is what these assert against.
+ * because the API has no include-expansion (`docs/api-reference.md`). Getting
+ * that join wrong renders "Unknown" beside real work, which is what these
+ * assert against.
  */
 
 const MEMBER = {

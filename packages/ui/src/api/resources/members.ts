@@ -15,8 +15,8 @@ import { useSession } from './session.ts'
  * endpoint answers the whole team in one page rather than a cursor list.
  *
  * Notes carry an `author_id` and activities an `actor_member_id`, both workspace
- * member ids. `api.md` has no include-expansion, so the panel showing them joins
- * against this list. One request per page, not one per row.
+ * member ids. The API has no include-expansion (`docs/api-reference.md`), so
+ * the panel showing them joins against this list. One request per page, not one per row.
  */
 
 export interface MemberDirectory {

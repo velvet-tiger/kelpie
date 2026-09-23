@@ -13,7 +13,7 @@ import { RegionSwitcher } from './RegionSwitcher.tsx'
  * those steps: a session already exists on this origin.
  */
 
-/** Onboarding, per `onboarding.md`: workspace, organisation, modules, invites, handbook. */
+/** Onboarding, per `docs/guides/getting-started.md`: workspace, organisation, modules, invites, handbook. */
 const ONBOARDING_STEPS = [1, 2, 3, 4, 5] as const
 
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number]

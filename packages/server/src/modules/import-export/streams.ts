@@ -23,8 +23,7 @@ import * as repository from './repository.ts'
  * A whole object as CSV, a page of records at a time.
  *
  * A generator rather than a string, because a workspace's records do not have to
- * fit in memory to be downloaded and `import-export.md` says the endpoint
- * streams. The route pipes this straight into the response.
+ * fit in memory to be downloaded and the endpoint streams. The route pipes this straight into the response.
  *
  * Paging is a keyset on `id`. Ids are ULIDs, so that is creation order, and
  * unlike an offset it cannot skip or repeat a record when one is written while

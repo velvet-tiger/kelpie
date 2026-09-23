@@ -61,7 +61,7 @@ function readListIds(form: unknown): string[] {
   })
 }
 
-/** The `details` of an error body, as `api.md` shapes them. */
+/** The `details` of an error body, as `docs/agents/api-and-webhooks.md` shapes them. */
 function readErrorFields(payload: unknown): string[] {
   if (!isRecord(payload) || !isRecord(payload.error) || !Array.isArray(payload.error.details)) {
     throw new Error(`Expected error details, got ${JSON.stringify(payload)}`)

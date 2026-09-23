@@ -11,7 +11,7 @@ import { mountPipelineConvertRoute } from '../conversions/routes.ts'
 import type { ConversionsService } from '../conversions/index.ts'
 import type { CreateEnquiryInput, EnquiriesService, EnquiryView, UpdateEnquiryInput } from './service.ts'
 
-/** Wire shapes for `/v1/enquiries`. Bodies are strict; an unknown field is a 422, per `api.md`. */
+/** Wire shapes for `/v1/enquiries`. Bodies are strict; an unknown field is a 422. */
 
 /**
  * The full field set, without defaults. `createBody` adds those; `updateBody`

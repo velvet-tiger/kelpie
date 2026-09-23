@@ -2,7 +2,7 @@ import type { ExtensibleRecordType } from '@kelpie/schemas'
 import type { ReactNode } from 'react'
 
 /**
- * What a UI module may add to the shell, per the slot table in `modules.md`.
+ * What a UI module may add to the shell.
  *
  * Every slot renders nothing when empty. A core page has to look finished with
  * no modules loaded at all, because the open-source assembly is exactly that.

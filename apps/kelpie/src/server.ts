@@ -20,8 +20,8 @@ import kelpieConfig from '../kelpie.config.ts'
  * the configured modules, applies migrations, wires the dependencies, and serves.
  *
  * The config, database, and registration pass come from `bootAssembly`, shared
- * with the standalone `migrate` command. Registration runs before migrations,
- * which reverses `architecture.md` boot steps 2 and 3. It has to: modules declare
+ * with the standalone `migrate` command. Registration runs before migrations.
+ * It has to: modules declare
  * their migrations directory during `register`, so there is nothing to migrate
  * until the pass has run. Registration touches no database.
  *

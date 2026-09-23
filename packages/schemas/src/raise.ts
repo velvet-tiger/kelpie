@@ -21,7 +21,7 @@ export interface Raise extends RecordTimestamps {
   /** Why they said no. Meaningful whenever set, not only in the passed stage. */
   readonly passReason: string | null
   readonly ownerId: string | null
-  /** `YYYY-MM-DD`, per `api.md` date-only fields. */
+  /** `YYYY-MM-DD`, a date-only field. */
   readonly expectedClose: string | null
   readonly personIds: readonly string[]
   readonly summary: string

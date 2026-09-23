@@ -19,7 +19,7 @@ import { urlProblem } from './url.ts'
 /**
  * Wire shapes for `/v1/webhooks`.
  *
- * Bodies are strict: `api.md` makes an unknown field a 422 rather than
+ * Bodies are strict: an unknown field is a 422 rather than
  * something dropped in silence.
  */
 

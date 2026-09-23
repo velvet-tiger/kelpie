@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /**
- * The date-only wire format from `api.md`: `YYYY-MM-DD`.
+ * The date-only wire format: `YYYY-MM-DD`.
  *
  * The shape check alone is not enough. `2026-02-30` matches the pattern, and
  * Postgres refuses it at insert time, which reaches the caller as a 500 for what

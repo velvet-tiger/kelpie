@@ -15,9 +15,8 @@ import { resolvedTaskResponse } from './wire.ts'
 /**
  * Wire shapes for `/v1/agent-tasks`, `/v1/agent-runs` and `/v1/agents`.
  *
- * Bodies are strict: `api.md` makes an unknown field a 422 rather than
- * something dropped in silence. Everything is `snake_case` on the wire —
- * `agent-tasks.md`'s examples predate that convention and `api.md` wins.
+ * Bodies are strict: an unknown field is a 422 rather than something dropped
+ * in silence. Everything is `snake_case` on the wire.
  */
 
 const CREDENTIALS_MESSAGE = 'Remove the credentials from the URL; use auth_header instead'
@@ -125,7 +124,7 @@ function readEnumFilter<Value extends string>(
   return parsed.data
 }
 
-/** A blank id filter asks a different question than the one intended, per `api.md`. */
+/** A blank id filter asks a different question than the one intended. */
 function readIdQuery(context: Context, name: string): string | undefined {
   const raw = context.req.query(name)
 

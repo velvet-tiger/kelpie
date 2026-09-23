@@ -10,8 +10,8 @@ import type { SearchService } from './service.ts'
 /**
  * `search_query`, and nothing else. Nothing here writes.
  *
- * Named for what it does rather than for the REST verb. `api.md` builds a tool
- * name from the path segment and the verb, which would give `search_get`; that
+ * Named for what it does rather than for the REST verb. A tool name is usually
+ * built from the path segment and the verb, which would give `search_get`; that
  * reads as fetching a saved search, and a tool an agent picks from a list of
  * dozens is chosen by its name before its description.
  *

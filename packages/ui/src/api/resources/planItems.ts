@@ -31,7 +31,7 @@ const planItems = createResourceHooks<PlanItem, CreatePlanItemInput, PlanItemInp
   updateBody: planItemBody,
 })
 
-/** The `?limit=` ceiling from `api.md`. A caller asking for a bounded set may ask for all of it. */
+/** The `?limit=` ceiling from `docs/agents/api-and-webhooks.md`. A caller asking for a bounded set may ask for all of it. */
 export const MAX_PAGE_SIZE = 200
 
 export interface PlanItemFilters {

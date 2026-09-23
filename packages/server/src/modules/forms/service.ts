@@ -42,7 +42,7 @@ import type {
 import type { FormStatus } from './schema.ts'
 
 /**
- * Managing forms: the authenticated half of `forms.md`.
+ * Managing forms: the authenticated half.
  *
  * A form is returned with its fields nested, and written the same way. Fields
  * are not their own resource: a form without them cannot be rendered or
@@ -289,7 +289,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
     const form = await repository.findForm(dependencies.db, workspaceId, id)
 
     // A form in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed.
     if (form === undefined) {
       throw AppError.notFound('Form not found')
     }
@@ -301,7 +301,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
    * A stage a form's created records of `kind` may open in: in this workspace,
    * and in the matching pipeline.
    *
-   * The wrong-workspace case reads as missing, per `api.md`. The wrong-pipeline
+   * The wrong-workspace case reads as missing. The wrong-pipeline
    * case is a request naming a real stage that can never hold a record of
    * `kind`, which is a validation error rather than a missing record. Same rule
    * the deals service applies to `stage_id`.
@@ -563,7 +563,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
 
     // list_ids and attach_targets are per-form, so a list-page fetch takes them
     // in one round trip per form. In practice a list page is small (25 rows by
-    // default, per api.md), and the sets themselves are short.
+    // default), and the sets themselves are short.
     return Promise.all(
       records.map(async (record) => {
         const [listRows, attachTargets] = await Promise.all([
@@ -835,7 +835,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
     /**
      * Deletes the form, its fields, and its submissions.
      *
-     * Submissions go with it: `schema.md` makes them dependents of the form, and
+     * Submissions go with it: they are dependents of the form, and
      * the records a submission created are independent and stay. Their links
      * were already `set null` on the submission side, so nothing in the CRM
      * loses a reference.

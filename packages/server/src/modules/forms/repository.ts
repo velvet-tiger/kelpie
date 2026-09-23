@@ -153,7 +153,8 @@ export function listFields(db: Queryable, formId: string): Promise<FormFieldReco
  * The fields of a page of forms, in one query.
  *
  * A list of forms renders each one's field count and mapping summary, and
- * `api.md` has no `include` expansion, so the alternative is one query per row.
+ * the API has no `include` expansion (`docs/api-reference.md`), so the
+ * alternative is one query per row.
  */
 export function listFieldsFor(
   db: Queryable,

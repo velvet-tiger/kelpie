@@ -31,8 +31,6 @@ import type { Transaction } from './transaction.ts'
  * The API and the worker both call `start()`: the API needs a boss instance
  * to insert jobs on request-scoped transactions; the worker adds a
  * `startWorking()` step that runs `work()` per handle.
- *
- * @see modules.md for how jobs sit next to the event bus.
  */
 
 /**

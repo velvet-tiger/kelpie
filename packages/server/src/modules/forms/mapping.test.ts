@@ -15,7 +15,7 @@ import type { FormFieldRecord } from './repository.ts'
 import type { FormFieldMapTarget, FormFieldType, StoredFormFieldOption } from './schema.ts'
 
 /**
- * The submit rules from `forms.md` that need no database.
+ * The submit rules that need no database.
  *
  * These decide what an inbound answer map becomes before a single row is
  * written, so they are the cheapest place to pin the behaviour the mockup's

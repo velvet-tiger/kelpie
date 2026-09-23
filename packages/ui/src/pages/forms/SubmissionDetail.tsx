@@ -18,7 +18,7 @@ import { formatDateTime } from '../../lib/dates.ts'
  * rather than the forms list.
  */
 
-/** `api.md`: `?limit=` maxes out at 200. */
+/** `?limit=` maxes out at 200 (`docs/agents/api-and-webhooks.md`). */
 const MAX_PAGE = 200
 
 export function SubmissionDetail(): React.JSX.Element {

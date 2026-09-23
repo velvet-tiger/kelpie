@@ -112,7 +112,7 @@ describe('GET /v1/public/config', () => {
 })
 
 describe('errors', () => {
-  it('renders unknown routes in the api.md error shape', async () => {
+  it('renders unknown routes in the API error shape', async () => {
     const { app } = await buildApp({ reachable: true })
 
     const response = await app.request('/does-not-exist')

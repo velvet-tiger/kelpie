@@ -113,7 +113,7 @@ export function DealsPage(): React.JSX.Element {
   const visibleDeals = deals.records.filter((deal) => visibleStageIds.has(deal.stageId))
 
   // The next-step column asks about the deals on screen by id. `?target_id=`
-  // takes at most one page of them (`api.md`), so past that ceiling the rest
+  // takes at most one page of them (`docs/agents/api-and-webhooks.md`), so past that ceiling the rest
   // read as having no plan; the note under the table says so.
   const askedDealIds = visibleDeals.slice(0, MAX_PAGE_SIZE).map((deal) => deal.id)
   const planItems = usePlanItems(

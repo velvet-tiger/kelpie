@@ -34,7 +34,7 @@ import { ModuleBootError, orderModules } from './order.ts'
  */
 export interface ModuleContributions {
   readonly routers: readonly ModuleRouter[]
-  /** Routers for `/v1/public`: no credentials, CORS open. `architecture.md` boot step 5. */
+  /** Routers for `/v1/public`: no credentials, CORS open. */
   readonly publicRouters: readonly ModuleRouter[]
   /** Middleware declared on the app itself. Applied before every `appRoutes` entry. */
   readonly appMiddleware: readonly AppMiddlewareContribution[]
@@ -473,7 +473,7 @@ function createModuleContext(
           description: definition.description,
           inputSchema: definition.inputSchema,
           // Parsing here is what keeps MCP and REST from drifting: both surfaces
-          // validate with the module's schema and fail with the same api.md error.
+          // validate with the module's schema and fail with the same API error.
           invoke: async (rawInput, actor) => {
             const parsed = definition.inputSchema.safeParse(rawInput)
 

@@ -9,10 +9,10 @@ import type { WorkspaceService } from './service.ts'
 /**
  * `workspace_*`: settings, the team, and invitations.
  *
- * No workspace id argument anywhere. `api.md` makes the workspace implicit, a key
- * is bound to one at creation, and `/v1/workspaces/{id}` carries the id only
- * because a path needs a subject. Taking one here would offer a caller a choice
- * it does not have.
+ * No workspace id argument anywhere. The workspace is implicit
+ * (`docs/agents/api-and-webhooks.md`), a key is bound to one at creation, and
+ * `/v1/workspaces/{id}` carries the id only because a path needs a subject.
+ * Taking one here would offer a caller a choice it does not have.
  *
  * Three REST operations have no tool. Creating a workspace and accepting an
  * invitation both need a browser session, which this endpoint does not take, and

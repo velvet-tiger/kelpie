@@ -161,7 +161,7 @@ export function createOpportunitiesService(
   /**
    * A stage an opportunity may sit in: exists in this workspace and belongs to
    * the opportunity pipeline. The wrong-workspace case reads as missing, per
-   * `api.md`; the wrong-pipeline case is a request naming a real stage that can
+   * `docs/self-hosting/security.md`; the wrong-pipeline case is a request naming a real stage that can
    * never hold an opportunity, which is a validation error rather than a missing
    * record.
    */

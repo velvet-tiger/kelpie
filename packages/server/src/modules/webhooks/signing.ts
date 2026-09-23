@@ -5,16 +5,17 @@ import type { WebhookEvent } from './payloads.ts'
 /**
  * What goes on the wire, and the signature over it.
  *
- * The body is rendered once and everything downstream uses that exact string:
- * `api.md` computes the signature over the raw body, so re-serialising before
- * sending would produce a signature for text the receiver never saw.
+ * The body is rendered once and everything downstream uses that exact string: the
+ * signature is computed over the raw body (`docs/agents/api-and-webhooks.md`), so
+ * re-serialising before sending would produce a signature for text the receiver
+ * never saw.
  */
 
-/** `api.md` fixes this name and the `sha256=` prefix. */
+/** `docs/agents/api-and-webhooks.md` fixes this name and the `sha256=` prefix. */
 export const SIGNATURE_HEADER = 'Kelpie-Signature'
 
 /**
- * Not in `api.md`, and both earn their place. Delivery is at-least-once, so a
+ * Both earn their place. Delivery is at-least-once, so a
  * receiver needs a stable key to recognise a repeat; and reading the event name
  * off a header lets one route the request before parsing the body.
  */
@@ -26,9 +27,10 @@ export interface DeliveryEnvelope {
   readonly event: WebhookEvent
   readonly sentAt: Date
   /**
-   * Included even though `api.md` keeps the workspace implicit everywhere else.
-   * A REST caller's workspace comes from its credential; a receiver has no
-   * credential, and two workspaces may point their webhooks at one endpoint.
+   * Included even though the workspace is implicit everywhere else
+   * (`docs/agents/api-and-webhooks.md`). A REST caller's workspace comes from its
+   * credential; a receiver has no credential, and two workspaces may point their
+   * webhooks at one endpoint.
    */
   readonly workspaceId: string
   readonly data: Record<string, unknown>
@@ -62,10 +64,10 @@ export function signDeliveryBody(secret: string, body: string): string {
  * Joins one or more signatures into the header value.
  *
  * A rotation with an overlap window signs under both the new secret and the old
- * one, so an endpoint that has not been redeployed yet still finds a value it
- * can verify. `api.md` therefore tells a receiver to split on `,` and accept if
- * **any** value matches, rather than comparing the header to one expected
- * string.
+ * one, so an endpoint that has not been redeployed yet still finds a value it can
+ * verify. `docs/agents/api-and-webhooks.md` therefore tells a receiver to split
+ * on `,` and accept if **any** value matches, rather than comparing the header to
+ * one expected string.
  *
  * That instruction has to hold outside a rotation too, which is why this is the
  * only way the header is ever built. A receiver that compares the whole header

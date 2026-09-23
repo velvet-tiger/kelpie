@@ -21,7 +21,7 @@ import { raises } from './raises/schema.ts'
  * belongs to another workspace. This is where that is refused instead.
  *
  * Reading seven modules' tables rather than composing seven repositories is the
- * rule already set for a filter that spans a relation (`architecture.md`): the
+ * rule already set for a filter that spans a relation: the
  * alternative here is a switch that imports seven services to ask each of them
  * one boolean.
  */
@@ -111,7 +111,7 @@ export async function missingTargets(
  * Whether a target exists inside one workspace.
  *
  * @returns false both for a target that never existed and for one in another
- *   workspace. The caller turns either into the same 404, per `api.md`.
+ *   workspace. The caller turns either into the same 404.
  */
 export async function targetExists(
   db: Queryable,

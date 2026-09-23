@@ -7,14 +7,14 @@ import { createImportExportService } from './service.ts'
 import { registerImportExportTools } from './tools.ts'
 
 /**
- * Import and export: CSV in and out, per `import-export.md`.
+ * Import and export: CSV in and out.
  *
  * It requires every object it writes, and `pipelines` because a deal row names a
  * stage by slug and has to resolve it against this workspace's own board.
  * `activities` is the timeline entry each imported record carries, written in
  * the same transaction as the record itself.
  *
- * The MCP tools `import-export.md` lists are not registered: there is no MCP
+ * The import and export MCP tools are not registered: there is no MCP
  * endpoint yet, so a tool would be a definition nothing mounts. They land with
  * the MCP server, against these same services.
  */

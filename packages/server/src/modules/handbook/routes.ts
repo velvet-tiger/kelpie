@@ -15,7 +15,7 @@ import type {
 
 /**
  * Wire shapes for `/v1/handbook_pages`. Bodies are strict; an unknown field is a
- * 422, per `api.md`.
+ * 422.
  */
 
 const slugField = z
@@ -28,7 +28,7 @@ const slugField = z
  * `slug` is optional on both verbs and stays put on a rename.
  *
  * The mockup rewrites a page's slug every time its title is edited. Agent tasks
- * name handbook pages by slug (`agent-tasks.md`), so a slug that follows the
+ * name handbook pages by slug (`docs/agents/agent-tasks.md`), so a slug that follows the
  * title would break a task definition the first time somebody fixes a typo. This
  * is the rule pipeline stages already follow: the label renames, the import alias
  * does not. Moving a slug on purpose is a separate field in the same request.
@@ -42,7 +42,7 @@ export const createBody = z.strictObject({
 
 /**
  * `parent_id` and `sort_order` are the move. `null` on `parent_id` lifts a page
- * to the top level, which is what `api.md` says null means on a nullable field.
+ * to the top level, which is what null means on a nullable field.
  */
 export const updateBody = z
   .strictObject({

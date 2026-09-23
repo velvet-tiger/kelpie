@@ -8,7 +8,7 @@ import type { OrganisationChoiceId } from './handbookTemplates.ts'
  * what writes the first `workspace_module_settings` rows for these six.
  *
  * Labels stay the domain names. Defaults and explanations follow the
- * organisation type chosen on the previous step (`onboarding.md`).
+ * organisation type chosen on the previous step (`docs/guides/getting-started.md`).
  */
 
 export type OnboardingModuleId =

@@ -8,10 +8,11 @@ import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 /**
  * Turns optional modules on or off for this workspace.
  *
- * A module a deploy-time config file locks (`modules.md`) shows as disabled
- * with a note rather than being left out of the list: a workspace admin should
- * see that the choice exists and is not theirs, not wonder why a module they
- * expect is simply missing from the page.
+ * A module a deploy-time config file locks
+ * (`docs/self-hosting/configuration.md`) shows as disabled with a note rather
+ * than being left out of the list: a workspace admin should see that the
+ * choice exists and is not theirs, not wonder why a module they expect is
+ * simply missing from the page.
  *
  * Known ids get a friendlier label; an id this page has never heard of still
  * renders, title-cased, because the module catalog is meant to grow without

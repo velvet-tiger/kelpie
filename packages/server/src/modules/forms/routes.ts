@@ -31,8 +31,7 @@ import type {
 } from './service.ts'
 
 /**
- * Wire shapes for `/v1/forms`. Bodies are strict; an unknown field is a 422, per
- * `api.md`.
+ * Wire shapes for `/v1/forms`. Bodies are strict; an unknown field is a 422.
  *
  * Fields are nested rather than their own resource, and a write carries the
  * whole list. Field ids therefore never appear in a request: they are assigned

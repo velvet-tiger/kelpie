@@ -9,7 +9,7 @@ import { AgentTasks } from './AgentTasks.tsx'
 afterEach(cleanup)
 
 /**
- * The two triggers `agent-tasks.md` defines: Copy resolves and takes the
+ * The two triggers `docs/agents/agent-tasks.md` defines: Copy resolves and takes the
  * prompt, Run resolves and dispatches to a registered agent. Both go through
  * the same resolve request, which is what these tests pin.
  */

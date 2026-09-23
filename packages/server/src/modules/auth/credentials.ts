@@ -15,8 +15,8 @@ import * as repository from './repository.ts'
 import { SESSION_COOKIE } from './session.ts'
 
 /**
- * Turns credentials into an `Actor`. Two kinds are accepted, and `api.md` says
- * they must behave identically once resolved: same endpoints, same shapes, same
+ * Turns credentials into an `Actor`. Two kinds are accepted, and they must
+ * behave identically once resolved: same endpoints, same shapes, same
  * errors.
  *
  * A bearer key wins over a cookie. A client sending both is being explicit about

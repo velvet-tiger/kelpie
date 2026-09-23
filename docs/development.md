@@ -6,9 +6,7 @@ reference, and how packaging and releasing work.
 
 If you want to run Kelpie rather than build it, see the [README](../README.md)
 instead. To build a module against the published packages without cloning this
-repository, see [extending/writing-a-module.md](extending/writing-a-module.md). For product direction and the wire-level specs, see `brief.md`,
-`roadmap.md`, `architecture.md`, `api.md`, `schema.md` and `modules.md`
-alongside this repository.
+repository, see [extending/writing-a-module.md](extending/writing-a-module.md).
 
 ## Layout
 
@@ -25,7 +23,7 @@ packages/create-kelpie/
 apps/kelpie/       The open-source assembly. Boots the server, builds the UI.
 ```
 
-`@kelpie/server` never starts a listener on import. `apps/kelpie` is the executable. The cloud repo assembles the same packages with private modules, per `modules.md`.
+`@kelpie/server` never starts a listener on import. `apps/kelpie` is the executable. The cloud repo assembles the same packages with private modules.
 
 `apps/kelpie` is the dev harness and the reference assembly, not the thing a self-hoster runs. They get their own directory from `npm create kelpie`. The two are the same shape and drift apart if nobody looks, which is why `verify:packaging` builds the scaffolded one rather than this one.
 
@@ -36,13 +34,13 @@ in-process state with the server; every screen goes through `/v1`.
 
 Three pieces, in `packages/ui/src/api/`:
 
-- **`client.ts`** speaks `api.md`: the list envelope, the error shape, the write
-  verbs. Every method takes a `Decoder<T>` and returns what the decoder produced,
+- **`client.ts`** speaks the [wire conventions](agents/api-and-webhooks.md#conventions-in-sixty-seconds):
+  the list envelope, the error shape, the write verbs. Every method takes a `Decoder<T>` and returns what the decoder produced,
   so no response is asserted into a type it was not checked against.
 - **`@kelpie/schemas`** supplies those decoders. One module per resource holding
   the record the UI works with, a Zod schema that parses the `snake_case`
   response into it, and a function that builds a request body back out. The
-  `snake_case` ↔ `camelCase` mapping `api.md` describes happens there and nowhere
+  `snake_case` ↔ `camelCase` mapping happens there and nowhere
   else.
 - **`resource.ts`** turns a path plus a decoder into the five hooks a CRM
   resource needs, over TanStack Query. Optimistic updates and their rollback live
@@ -280,7 +278,7 @@ order (`time`, `level`, `message` last) is preserved bit-for-bit.
 Two rules live in there rather than in each entry point:
 
 - **A deep link gets `index.html`.** The app decides what to draw from the address, so `/people/per_01J…` has to answer with the shell even though no file sits at that path.
-- **An unknown API path does not.** `app.notFound` renders `api.md`'s JSON 404 and only fires when nothing matched, so a bare catch-all would answer `GET /v1/typo` with the shell and a 200. The fallback skips the API prefixes, and skips any method other than `GET` and `HEAD`.
+- **An unknown API path does not.** `app.notFound` renders the API's JSON 404 and only fires when nothing matched, so a bare catch-all would answer `GET /v1/typo` with the shell and a 200. The fallback skips the API prefixes, and skips any method other than `GET` and `HEAD`.
 
 Boot fails when `WEB_BUNDLE_DIR` names a directory with no `index.html` in it. A deployment whose build did not run should stop, not serve an API whose pages are invisible.
 

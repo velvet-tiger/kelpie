@@ -290,7 +290,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       expect(response.status).toBe(422)
     })
 
-    /** `import-export.md` makes the commit a separate call. */
+    /** `docs/guides/import-and-export.md` makes the commit a separate call. */
     it('refuses a create claiming not to be a dry run', async () => {
       const response = await upload(COMPANIES_CSV, { dry_run: 'false' })
 
@@ -364,7 +364,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       expect(rows[0]).toMatchObject({ kind: 'created', action: 'created Company via upload.csv' })
     })
 
-    /** `import-export.md`: re-POSTing a completed job succeeds and writes nothing more. */
+    /** `docs/guides/import-and-export.md`: re-POSTing a completed job succeeds and writes nothing more. */
     it('is idempotent: re-committing writes nothing and answers the same job', async () => {
       const jobId = readString(await createJob(COMPANIES_CSV), 'id')
 
@@ -446,7 +446,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
   /**
    * A corrected mapping is a new job over the same file, so nothing removes the
-   * one it replaced. This is the way out, per `import-export.md`.
+   * one it replaced. This is the way out.
    */
   describe('deleting a job', () => {
     function remove(jobId: string, cookie = acme.cookie): Promise<Response> {
@@ -620,7 +620,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
   /**
    * Over `SYNC_IMPORT_ROWS` the work runs detached and the caller polls, per
-   * `import-export.md`. Both requests answer 202 with a transient status.
+   * `docs/api-reference.md`. Both requests answer 202 with a transient status.
    */
   describe('a file too large to answer inside the request', () => {
     const rows = Array.from(

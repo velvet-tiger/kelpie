@@ -356,7 +356,7 @@ describe('planRow', () => {
       expect(plan.action === 'error' && plan.errors[0]?.field).toBe('stage')
     })
 
-    /** `import-export.md`: a deal never creates a stub company. */
+    /** `docs/guides/import-and-export.md`: a deal never creates a stub company. */
     it('fails a row whose company is not here rather than inventing one', () => {
       const plan = planRow(contextFor('deals', { lookups }), {
         ...row,

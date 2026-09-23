@@ -123,8 +123,8 @@ export async function deleteMember(db: Queryable, id: string): Promise<void> {
  *
  * The `owner_id` and `author_id` columns are `ON DELETE RESTRICT`, so the
  * database would refuse the delete on its own. It would only name one table
- * while doing it, and `api.md` wants every referencing type in the `409`
- * details, so the counts are read first and the refusal is the service's.
+ * while doing it, and the `409` details should name every referencing type,
+ * so the counts are read first and the refusal is the service's.
  *
  * This is the one place the workspace module reads other modules' tables. The
  * alternative is each of them registering a "does this member matter to you"
@@ -244,7 +244,7 @@ export async function findOwner(
  * The member a record is assigned to when nobody chose one.
  *
  * A public form submit has no actor, so a Deal it creates has no natural owner
- * and `forms.md` gives it the workspace's default member. That is the owner: the
+ * and it gets the workspace's default member. That is the owner: the
  * account that created the workspace, and the one person guaranteed to be able
  * to reassign it.
  *

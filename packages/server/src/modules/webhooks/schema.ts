@@ -25,10 +25,10 @@ export const webhooks = pgTable(
     /**
      * The signing secret, sealed by `lib/secrets.ts`.
      *
-     * Not a hash, unlike every other secret in the schema, because `api.md`
-     * signs each delivery *with* this secret and the receiver holds the
-     * plaintext we showed them once. A hash could never produce a signature
-     * anything off the shelf can verify.
+     * Not a hash, unlike every other secret in the schema, because each delivery
+     * is signed *with* this secret (`docs/agents/api-and-webhooks.md`) and the
+     * receiver holds the plaintext we showed them once. A hash could never
+     * produce a signature anything off the shelf can verify.
      */
     secretEncrypted: text('secret_encrypted').notNull(),
     secretPrefix: text('secret_prefix').notNull(),

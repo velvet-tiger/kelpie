@@ -1,6 +1,6 @@
 /**
  * Client for the public `/v1` API. The UI is one more API consumer, exactly like
- * an agent, so this file encodes only what `api.md` documents: the list envelope,
+ * an agent, so this file encodes only what the API documents: the list envelope,
  * the error shape, and the write verbs.
  *
  * Responses are untrusted input. Every method takes a `Decoder` and returns what
@@ -40,7 +40,7 @@ export class ApiError extends Error {
   }
 }
 
-/** A cursor page: `{ data, next_cursor }` from `api.md`. */
+/** A cursor page: `{ data, next_cursor }` from `docs/agents/api-and-webhooks.md`. */
 export interface Page<T> {
   readonly items: readonly T[]
   readonly nextCursor: string | null
@@ -48,7 +48,8 @@ export interface Page<T> {
 
 /**
  * Query string values. An array becomes a repeated parameter, which is how
- * `api.md` names a set of ids: `?person_id=per_1&person_id=per_2`.
+ * the API names a set of ids: `?person_id=per_1&person_id=per_2`
+ * (`docs/agents/api-and-webhooks.md`).
  */
 export type QueryParameters = Readonly<
   Record<string, string | number | boolean | readonly string[] | undefined>
@@ -78,7 +79,7 @@ export interface ApiClient {
    */
   postForm<T>(path: string, form: FormData, decode: Decoder<T>): Promise<T>
   /**
-   * A `POST` whose success carries no body. `api.md` has resource writes return
+   * A `POST` whose success carries no body. Resource writes return
    * the resulting object, but the session endpoints have nothing to return:
    * logout answers `204`, and a password reset request answers `202`.
    */
@@ -287,7 +288,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     delete: async (path, query) => {
       const response = await request('DELETE', buildUrl(options.baseUrl, path, query))
 
-      // Stricter than `response.ok`: `api.md` says a successful delete is `204`,
+      // Stricter than `response.ok`: a successful delete is `204`,
       // and anything else means the server is not doing what it documents.
       if (response.status !== 204) {
         throw await readEmptyError(response)

@@ -223,8 +223,7 @@ export async function deleteCandidate(
 /**
  * The names of these people in this workspace, keyed by id. An id missing from
  * the map does not exist here, which is how `person_id` and `referrer_person_id`
- * are validated. Reads the `people` *table*, per the cross-relation rule in
- * `architecture.md`.
+ * are validated. Reads the `people` *table*, per the cross-relation rule.
  */
 export async function findPeopleNamed(
   db: Queryable,

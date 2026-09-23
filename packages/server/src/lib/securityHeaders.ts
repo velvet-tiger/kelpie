@@ -2,7 +2,7 @@ import { secureHeaders } from 'hono/secure-headers'
 import type { MiddlewareHandler } from 'hono'
 
 /**
- * `api.md`'s security headers, in two layers.
+ * The response headers from `docs/self-hosting/security.md`, in two layers.
  *
  * `hono/secure-headers` (bundled with `hono` already; no new dependency)
  * covers `Strict-Transport-Security`, `X-Content-Type-Options` and

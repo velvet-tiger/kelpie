@@ -11,7 +11,7 @@ import { INVITABLE_ROLES, MEMBER_ROLES } from './roles.ts'
 import type { InviteView, MemberView, ModuleSettingView, WorkspaceService, WorkspaceView } from './service.ts'
 import { HANDBOOK_TEMPLATE_IDS } from './starters.ts'
 
-/** Wire shapes for `/v1/workspaces`, per `onboarding.md`'s API sketch. */
+/** Wire shapes for `/v1/workspaces`. */
 
 /** Lowercase letters, digits, and hyphens: it appears in URLs. */
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u

@@ -155,7 +155,7 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
     const agent = await repository.findAgent(dependencies.db, workspaceId, id)
 
     // An agent in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed.
     if (agent === undefined) {
       throw AppError.notFound('Agent not found')
     }

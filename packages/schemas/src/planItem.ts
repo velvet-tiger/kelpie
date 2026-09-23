@@ -9,7 +9,7 @@ import type { RecordTimestamps } from './wire.ts'
  * Wire and write shapes for `/v1/plan_items`.
  *
  * A plan item is a dated action on a pipeline record or an Event. It replaces any
- * next-step text field (`brief.md`): the date, the owner, and the status are
+ * next-step text field: the date, the owner, and the status are
  * columns, so "what is overdue" is a query rather than a read of prose.
  *
  * `ownerId` is a workspace member id and is null when nobody has taken it. The
@@ -21,7 +21,7 @@ export interface PlanItem extends RecordTimestamps {
   readonly id: string
   readonly targetType: PlanItemTargetType
   readonly targetId: string
-  /** `YYYY-MM-DD`, per `api.md` date-only fields. */
+  /** `YYYY-MM-DD`, a date-only field. */
   readonly date: string
   readonly title: string
   readonly ownerId: string | null

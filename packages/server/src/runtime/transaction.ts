@@ -12,7 +12,7 @@ import { checkEventCycle, currentEventChain } from './events.ts'
 import type { EventBus, EventName, KelpieEventMap } from './events.ts'
 
 /**
- * One service call, one transaction, per `architecture.md`.
+ * One service call, one transaction.
  *
  * Events emitted inside the work are buffered and published only after the
  * transaction commits. A transaction that rolls back publishes nothing, so no

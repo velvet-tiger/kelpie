@@ -18,7 +18,7 @@ export interface Opportunity extends RecordTimestamps {
   /** Nullable: a speaking slot or a grant need not belong to a company on file. */
   readonly companyId: string | null
   readonly ownerId: string | null
-  /** `YYYY-MM-DD`, per `api.md` date-only fields. */
+  /** `YYYY-MM-DD`, a date-only field. */
   readonly expectedClose: string | null
   readonly personIds: readonly string[]
   readonly summary: string

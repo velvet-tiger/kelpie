@@ -105,7 +105,7 @@ export interface SignUpInput {
   readonly location?: string
 }
 
-/** Only what the caller sent. An absent field is left alone, per `api.md`. */
+/** Only what the caller sent. An absent field is left alone. */
 export interface UpdateAccountChanges {
   readonly name?: string
   readonly email?: string
@@ -141,7 +141,7 @@ function toPreferenceValues(record: repository.UserPreferencesRecord): Preferenc
   }
 }
 
-/** Emails are stored and compared lowercase, per `schema.md`. */
+/** Emails are stored and compared lowercase. */
 function normaliseEmail(email: string): string {
   return email.trim().toLowerCase()
 }
@@ -615,7 +615,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       if (removed === 0) {
         // Another user's session id is indistinguishable from one that never
-        // existed, which is what `api.md` requires of a cross-tenant miss.
+        // existed, which is what a cross-tenant miss requires.
         throw AppError.notFound('Session not found')
       }
     },

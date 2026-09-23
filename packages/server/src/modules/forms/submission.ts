@@ -69,7 +69,7 @@ import {
 } from './applySubmissionFields.ts'
 
 /**
- * The public submit: `forms.md` rules 1 to 7, server-side.
+ * The public submit rules, server-side.
  *
  * This is the port of `processFormSubmission` from `mockups/src/data/seed.ts`.
  * The pure half of those rules lives in `mapping.ts`; what is left here is the
@@ -94,9 +94,9 @@ const FORM_ACTOR: SystemActor = { kind: 'system', label: 'Form' }
 const DEFAULT_DEAL_NAME_TEMPLATE = '{{company.name}}'
 
 /**
- * Defaults for a Company a submit invents, from `forms.md` rule 4.
+ * Defaults for a Company a submit invents.
  *
- * `sizeBand` is not in that list and the column is `NOT NULL`, so it takes the
+ * `sizeBand` has no given default and the column is `NOT NULL`, so it takes the
  * smallest band: the honest reading of a company nobody has told us anything
  * about yet.
  */
@@ -108,10 +108,10 @@ const NEW_COMPANY_DEFAULTS = {
 } as const
 
 /**
- * Defaults for a Person a submit invents, from `forms.md`.
+ * Defaults for a Person a submit invents.
  *
- * No tags. The mockup tags new records `inbound` and `form`; `forms.md` says the
- * summary and tags start empty, and provenance is already carried by the
+ * No tags. The mockup tags new records `inbound` and `form`, but the summary
+ * and tags start empty, and provenance is already carried by the
  * timeline entry and by the FormSubmission's own links.
  */
 const NEW_PERSON_DEFAULTS = {
@@ -350,7 +350,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
 
   /**
    * Upserts the Company, by domain when there is one and by name otherwise
-   * (`forms.md` rule 4).
+   * (`docs/guides/forms.md`).
    *
    * @returns undefined when the answers said nothing about a company, which is
    *   the ordinary case for a form collecting only a name and an address.
@@ -755,7 +755,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
   /**
    * The form behind a public key, ready to accept answers.
    *
-   * @throws AppError 404 for an unknown key, 409 for a paused form (`forms.md`).
+   * @throws AppError 404 for an unknown key, 409 for a paused form.
    */
   async function requireOpenForm(publicKey: string): Promise<FormRecord> {
     const form = await repository.findFormByPublicKey(dependencies.db, publicKey)

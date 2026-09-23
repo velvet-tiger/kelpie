@@ -15,7 +15,7 @@ afterEach(cleanup)
 /**
  * The account tab strip, and the `nav.account` slot it renders.
  *
- * That slot was declared in `modules.md` and read by nobody: `Shell.tsx` asks
+ * That slot was declared and read by nobody: `Shell.tsx` asks
  * for `primary` and `admin` only, so a module contributing an account tab got a
  * page with no way in. These cover the fix, the ordering rule that lets a
  * module land between two core tabs, and the case that made the shell and this

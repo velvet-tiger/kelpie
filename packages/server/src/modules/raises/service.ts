@@ -34,7 +34,7 @@ import type { RaiseFilters, RaiseRecord } from './repository.ts'
 /**
  * Raises: one fundraising process per firm per round, ending at closed or
  * passed. The firm is `company_id`; the ongoing relationship with that firm
- * stays a Partnership (`brief.md`).
+ * stays a Partnership.
  *
  * Key people attach through `person_links` and appear as `person_ids` on the
  * wire, and the check size is integer cents plus an ISO 4217 code, both the
@@ -172,7 +172,7 @@ export function createRaisesService(dependencies: RaisesDependencies): RaisesSer
 
   /**
    * A stage a raise may sit in: exists in this workspace and belongs to the
-   * raise pipeline. The wrong-workspace case reads as missing, per `api.md`;
+   * raise pipeline. The wrong-workspace case reads as missing;
    * the wrong-pipeline case is a request naming a real stage that can never
    * hold a raise, which is a validation error rather than a missing record.
    */

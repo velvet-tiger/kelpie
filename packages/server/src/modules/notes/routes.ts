@@ -14,8 +14,8 @@ import type { CreateNoteInput, NoteView, NotesService, UpdateNoteInput } from '.
 /**
  * Wire shapes for `/v1/notes`.
  *
- * Bodies are strict: `api.md` makes an unknown field a 422 rather than something
- * dropped in silence.
+ * Bodies are strict: an unknown field is a 422 rather than something dropped in
+ * silence.
  */
 
 export const createBody = z.strictObject({
@@ -71,7 +71,7 @@ export function noteResponse(note: NoteView): Record<string, unknown> {
  * note list in the mockup, and answering one by accident through an omitted
  * filter would page a workspace's entire note history to render one panel.
  *
- * `?target_id=` repeats to name a set, per `api.md`, so a page rendering a note
+ * `?target_id=` repeats to name a set, per `docs/agents/api-and-webhooks.md`, so a page rendering a note
  * per row resolves them in one request instead of one per row. `?target_type=`
  * stays single: the ids in one set are all the same kind of record, and a
  * request mixing them would need the type paired with each id rather than

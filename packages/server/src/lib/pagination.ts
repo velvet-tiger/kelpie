@@ -5,8 +5,8 @@ import { z } from 'zod'
 import { AppError } from './errors.ts'
 
 /**
- * Cursor pagination from `api.md`: `?limit=` and `?cursor=`, an opaque cursor,
- * and `{ data, next_cursor }` on the wire.
+ * Cursor pagination: `?limit=` and `?cursor=`, an opaque cursor, and
+ * `{ data, next_cursor }` on the wire.
  *
  * The cursor is a keyset rather than an offset. It carries the sort value and id
  * of the last row on the page, so a page boundary stays put when rows are
@@ -145,7 +145,7 @@ function decodeCursor(raw: string): z.infer<typeof cursorSchema> {
 }
 
 /**
- * Reads `?limit=` against the `api.md` range.
+ * Reads `?limit=` against the allowed range.
  *
  * Exported for the endpoints that take the same parameter without being paged
  * lists. The dashboard is the case: it caps several embedded lists at once and

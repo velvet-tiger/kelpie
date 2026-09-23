@@ -23,8 +23,8 @@ import { registerWebhooksTools } from './tools.ts'
  * them — a payload carries the record's type and id and nothing else, which is
  * what keeps this module from growing a dependency on every CRM module in turn.
  *
- * Subscription happens during `register`, and `architecture.md` fixes this
- * module near the end of the core order, so every emitting module is already in
+ * Subscription happens during `register`, and this module sits near the end
+ * of the core order, so every emitting module is already in
  * place. Nothing depends on that: the bus resolves handlers at publication.
  */
 export interface WebhooksModuleOptions {

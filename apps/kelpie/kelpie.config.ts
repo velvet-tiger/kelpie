@@ -109,8 +109,8 @@ export default defineKelpieConfig({
     from: fromEnv('EMAIL_FROM', z.string().min(1)),
   },
 
-  // Budgets applied per `api.md`. Every leaf has a default in `lib/rateLimit.ts`;
-  // override in code here, or with the env vars below.
+  // Budgets per `docs/self-hosting/configuration.md`. Every leaf has a default
+  // in `lib/rateLimit.ts`; override in code here, or with the env vars below.
   rateLimit: {
     forms: {
       limit: fromEnv('RATE_LIMIT_FORMS_LIMIT', positiveInt, 20),

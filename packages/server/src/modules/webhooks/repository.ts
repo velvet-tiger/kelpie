@@ -102,7 +102,7 @@ export function listSubscribed(
 /**
  * The most recent settled delivery per webhook, for the `last_delivery_*` fields.
  *
- * Derived rather than stored. `schema.md` gives `webhooks` no delivery columns,
+ * Derived rather than stored. The `webhooks` table has no delivery columns,
  * and a denormalised copy of the log's newest row is a second source of truth
  * that can only ever drift from it.
  *

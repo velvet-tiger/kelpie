@@ -12,7 +12,7 @@ import { mountPipelineConvertRoute } from '../conversions/routes.ts'
 import type { ConversionsService } from '../conversions/index.ts'
 import type { CreateRaiseInput, RaiseView, RaisesService, UpdateRaiseInput } from './service.ts'
 
-/** Wire shapes for `/v1/raises`. Bodies are strict; an unknown field is a 422, per `api.md`. */
+/** Wire shapes for `/v1/raises`. Bodies are strict; an unknown field is a 422. */
 
 /** The full field set, without defaults. `createBody` adds those; `updateBody` makes it partial. */
 const raiseShape = {

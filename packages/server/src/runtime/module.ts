@@ -13,8 +13,9 @@ import type { EventBus } from './events.ts'
 import type { TransactionScope } from './transaction.ts'
 
 /**
- * The module contract from `modules.md`. Core features register through this
- * same runtime, so anything core can do, a module can do.
+ * The module contract, described in `docs/extending/writing-a-module.md`. Core
+ * features register through this same runtime, so anything core can do, a
+ * module can do.
  *
  * Composition is build-time: an assembly lists its modules in `kelpie.config.ts`
  * and the runtime registers them. There is no runtime plugin loading.
@@ -109,10 +110,10 @@ export type ExternalSignInHandler = (
 /**
  * What a module gets to build with, beyond its own contributions.
  *
- * `modules.md` does not list these. A module that contributes tables has no way
+ * The module contract does not list these. A module that contributes tables has no way
  * to query them without a handle, and every write needs the transaction scope so
  * its events publish after commit rather than during. Recorded here as the
- * builder decision the spec left open.
+ * builder decision the contract left open.
  */
 export interface ModuleServices {
   readonly db: Database
@@ -191,7 +192,7 @@ export interface ModuleContext extends ModuleServices {
    *
    * The alternative is a module writing core's `sessions` table itself, which
    * ties it to core's token hashing, cookie flags and expiry with nothing
-   * keeping the two in step (`modules.md`).
+   * keeping the two in step.
    *
    * @throws ExternalSignInError when the identity is unverified, or unknown and
    *   the module asked for `provision: 'refuse'`.

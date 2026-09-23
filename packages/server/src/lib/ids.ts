@@ -2,7 +2,7 @@ import { ulid } from 'ulid'
 
 /**
  * Identifiers are `<prefix>_<ulid>`. This table is the single source of the
- * prefixes documented in `api.md`; nothing else may hardcode one.
+ * id prefixes; nothing else may hardcode one.
  */
 export const idPrefixes = {
   workspace: 'ws',
@@ -34,7 +34,7 @@ export const idPrefixes = {
   /**
    * Never returns over the wire either: `person_links` has no routes of its
    * own — the link surfaces as a `person_ids` array on each pipeline record —
-   * so the prefix is not in `api.md`'s public prefix table, matching `idem`
+   * so the prefix is not a public one, matching `idem`
    * and `rl`. It still comes from this factory rather than a bare ULID call,
    * so every id in the database is generated the same, injectable way.
    */
@@ -46,7 +46,7 @@ export const idPrefixes = {
   formField: 'ff',
   formSubmission: 'sub',
   webhook: 'wh',
-  /** One settled delivery. `api.md` gained the prefix with the delivery log. */
+  /** One settled delivery. The prefix arrived with the delivery log. */
   webhookDelivery: 'whd',
   agentRegistration: 'ag',
   agentRun: 'run',
@@ -55,7 +55,7 @@ export const idPrefixes = {
   moduleSetting: 'mset',
   /**
    * `idempotency_keys` has no routes of its own and never returns this id over
-   * the wire, so it is not in `api.md`'s public prefix table. It still comes
+   * the wire, so it is not a public prefix. It still comes
    * from this factory rather than a bare `ulid()` call, so every id in the
    * database is generated the same, injectable way.
    */

@@ -4,7 +4,7 @@ import type { AgentTaskTargetType } from '@kelpie/schemas'
  * The resolved-task wire shape, in its own file because it has two consumers:
  * the resolve route renders it as a response, and the dispatch engine POSTs it
  * to a registered agent. One renderer is what keeps Copy and Run identical,
- * which `agent-tasks.md` makes the whole point of resolve.
+ * which is the whole point of resolve.
  */
 
 export interface ContextPackView {

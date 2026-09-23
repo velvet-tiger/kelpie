@@ -7,7 +7,7 @@ import type { RecordObjectType } from '../../runtime/events.ts'
 /**
  * The bridge from the internal event catalog to what a webhook receiver sees.
  *
- * `modules.md` makes the webhooks engine a consumer of the bus, so this is the
+ * The webhooks engine is a consumer of the bus, so this is the
  * only place that knows both vocabularies. Everything downstream works with a
  * `WebhookEventPayload` and never sees an internal event key.
  *
@@ -17,7 +17,8 @@ import type { RecordObjectType } from '../../runtime/events.ts'
  * `.stage_changed` on a deal, a `.added` on a note) never reach a receiver
  * that never subscribed to them.
  *
- * Payload keys are `snake_case`, matching `api.md`, because a receiver has no
+ * Payload keys are `snake_case`, matching the REST API
+ * (`docs/agents/api-and-webhooks.md`), because a receiver has no
  * reason to expect a different convention from a webhook than from the REST
  * surface it also calls.
  */
@@ -95,7 +96,7 @@ export function translateEnvelopeEvent(
   if (suffix === 'submitted') {
     // Form submission is the only `.submitted` wire event today. The forms
     // module emits its envelope with `formId` and `submissionId` in `data`,
-    // plus (per forms.md §Webhooks) the opportunity/partnership ids the
+    // plus the opportunity/partnership ids the
     // post-submit runner created and one status per configured action. The
     // per-action `detail` string is deliberately omitted — the authenticated
     // Submissions read carries it in full, the webhook only says what ran.

@@ -22,8 +22,8 @@ import type {
  * Wire shape for `GET /v1/dashboard`.
  *
  * One resource, no id and no collection, so there is no `{ data, next_cursor }`
- * envelope: `api.md` gives that to lists, and this is a single object made of
- * several of them.
+ * envelope: `docs/agents/api-and-webhooks.md` gives that to lists, and this is
+ * a single object made of several of them.
  *
  * `?limit=` caps every embedded list at once. It is the only parameter, because
  * the thresholds are the definition of the signal rather than a caller's choice:

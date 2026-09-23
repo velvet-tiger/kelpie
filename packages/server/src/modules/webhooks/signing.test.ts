@@ -31,7 +31,7 @@ describe('deliveryBody', () => {
     })
   })
 
-  /** `api.md` fixes ISO 8601 UTC with milliseconds on every timestamp. */
+  /** Every timestamp is ISO 8601 UTC with milliseconds. */
   it('renders the timestamp with milliseconds', () => {
     expect(deliveryBody(envelope).created_at).toBe('2026-08-05T01:02:03.456Z')
   })

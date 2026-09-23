@@ -64,7 +64,8 @@ export const invites = pgTable(
 )
 
 /**
- * A workspace's own choice for one toggleable module (`modules.md`). No row
+ * A workspace's own choice for one toggleable module
+ * (`docs/extending/writing-a-module.md`). No row
  * means enabled: the default every module ships with, and the state a
  * workspace that has never opened the settings screen is in.
  *
@@ -98,8 +99,8 @@ export interface StoredIdempotentResponse {
 
 /**
  * Replayed `Idempotency-Key` requests return the stored response instead of
- * re-executing (`api.md`). Workspace-scoped because a key is only meaningful
- * within the workspace whose credentials sent it.
+ * re-executing (`docs/agents/api-and-webhooks.md`). Workspace-scoped because a
+ * key is only meaningful within the workspace whose credentials sent it.
  *
  * `response` is nullable: the middleware reserves the row (inserts it with a
  * null response) before running the handler, so a concurrent replay of the
@@ -107,9 +108,9 @@ export interface StoredIdempotentResponse {
  * running the handler twice. It is filled in once the handler returns.
  *
  * `id` follows the `<prefix>_<ulid>` convention (`idem`, `lib/ids.ts`) for
- * consistency with every other table, but it is never returned by any
- * endpoint — this table has no routes of its own — so it does not appear in
- * `api.md`'s public prefix table.
+ * consistency with every other table, but it is never returned by any endpoint —
+ * this table has no routes of its own — so it is not one of the public id
+ * prefixes.
  */
 export const idempotencyKeys = pgTable(
   'idempotency_keys',

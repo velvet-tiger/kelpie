@@ -9,7 +9,7 @@ export const KEY_KINDS = ['workspace', 'personal'] as const
 
 export type KeyKind = (typeof KEY_KINDS)[number]
 
-/** `api.md` pins these strings; they appear in every customer's credential store. */
+/** These strings are fixed; they appear in every customer's credential store. */
 const SECRET_PREFIXES: Readonly<Record<KeyKind, string>> = {
   workspace: 'kp_live_',
   personal: 'kp_user_',

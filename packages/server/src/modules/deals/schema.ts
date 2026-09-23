@@ -11,7 +11,7 @@ import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 
 /**
  * The sales pipeline. Money is integer cents plus a currency code, never a float
- * (`api.md`).
+ * (`docs/agents/api-and-webhooks.md`).
  *
  * Company, stage, and owner are all restrict: deleting any of them while a deal
  * points at it returns 409 rather than quietly destroying the deal.

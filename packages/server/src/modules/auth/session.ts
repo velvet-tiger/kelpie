@@ -5,8 +5,9 @@ import type { Context } from 'hono'
  * The session cookie. Turning credentials into an actor lives in
  * `credentials.ts`, which handles bearer keys too.
  *
- * `api.md`: the workspace is always implicit. It comes from the session or the
- * key, never from a header, a path segment, or a request body.
+ * The workspace is always implicit (`docs/agents/api-and-webhooks.md`). It
+ * comes from the session or the key, never from a header, a path segment, or
+ * a request body.
  */
 
 export const SESSION_COOKIE = 'kelpie_session'

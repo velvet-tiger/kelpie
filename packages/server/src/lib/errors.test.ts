@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { AppError, describeThrown, internalErrorBody, toErrorBody, toErrorDetails } from './errors.ts'
 
 describe('AppError', () => {
-  it('maps each code to the status api.md documents', () => {
+  it('maps each code to its status', () => {
     expect(new AppError('validation_failed', 'bad').status).toBe(422)
     expect(new AppError('conflict', 'clash').status).toBe(409)
     expect(AppError.notFound().status).toBe(404)

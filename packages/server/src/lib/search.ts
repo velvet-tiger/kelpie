@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import type { Column, SQL } from 'drizzle-orm'
 
 /**
- * The `?q=` free-text filter from `api.md`: a case-insensitive substring match
+ * The `?q=` free-text filter: a case-insensitive substring match
  * over the fields the mockup's `FilterBar` matches for that object.
  *
  * Substring matching, not full-text search. A user typing three characters into a

@@ -15,7 +15,8 @@ import { clearSessionCookie, describeClient, writeSessionCookie } from './sessio
 import type { SessionCookieOptions } from './session.ts'
 
 /**
- * Wire shapes for `/v1/auth/*`. Bodies are `snake_case` per `api.md`; the service
+ * Wire shapes for `/v1/auth/*`. Bodies are `snake_case` per
+ * `docs/agents/api-and-webhooks.md`; the service
  * layer speaks `camelCase`. The mapping happens here and nowhere else.
  */
 
@@ -98,7 +99,7 @@ export interface AuthRoutesDependencies extends CredentialDependencies {
   readonly cookie: SessionCookieOptions
 }
 
-/** Parses a body into `T` or throws the `422` `api.md` describes. */
+/** Parses a body into `T` or throws a `422`. */
 async function readBody<T>(context: Context, schema: z.ZodType<T>): Promise<T> {
   const raw: unknown = await context.req.json().catch(() => {
     throw new AppError('bad_request', 'Body must be valid JSON')

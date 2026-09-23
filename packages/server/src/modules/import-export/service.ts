@@ -164,7 +164,7 @@ import type { ImportJobRecord, KeyedRecord } from './repository.ts'
 import { streamExport } from './streams.ts'
 
 /**
- * CSV import jobs and CSV export, per `import-export.md`.
+ * CSV import jobs and CSV export.
  *
  * The shape of a job is: upload, which stores the file; a dry run, which plans
  * each line against the workspace and reports what would happen; then a commit,
@@ -293,7 +293,7 @@ export function createImportExportService(
     const job = await repository.findJob(dependencies.db, workspaceId, id)
 
     // A job in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed, per `docs/self-hosting/security.md`.
     if (job === undefined) {
       throw AppError.notFound('Import job not found')
     }
@@ -1069,7 +1069,7 @@ export function createImportExportService(
      * Commits a job that a dry run left `ready`, applying the file handed back.
      *
      * Re-committing a `completed` job answers with it and writes nothing, per
-     * `import-export.md`, and does not need the file to do so. Anything else is
+     * `docs/guides/import-and-export.md`, and does not need the file to do so. Anything else is
      * a conflict: a job still validating has no plan to apply, one already
      * committing is being applied by somebody else, and a failed one has nothing
      * to apply.

@@ -17,7 +17,7 @@ import { CANDIDATE_STATUSES, INTERVIEW_STAGES, ROLE_STATUSES } from './schema.ts
 
 /**
  * Wire shapes for `/v1/roles` and `/v1/candidates`. Bodies are strict; an
- * unknown field is a 422, per `api.md`.
+ * unknown field is a 422.
  */
 
 const roleShape = {

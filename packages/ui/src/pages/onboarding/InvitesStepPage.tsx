@@ -18,7 +18,7 @@ import { isOnboardingRerun } from './onboardingRerun.ts'
  * this because it sent nothing. Here a row carries its own outcome, a sent one
  * is never sent twice, and the step only advances once nothing is outstanding.
  *
- * Skippable, per `onboarding.md`. Admin → Team does the same job later.
+ * Skippable, per `docs/guides/getting-started.md`. Admin → Team does the same job later.
  */
 
 interface InviteRow {

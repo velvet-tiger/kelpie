@@ -109,7 +109,7 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
     const page = await repository.findPage(dependencies.db, workspaceId, id)
 
     // A page in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed, per `docs/self-hosting/security.md`.
     if (page === undefined) {
       throw AppError.notFound('Handbook page not found')
     }

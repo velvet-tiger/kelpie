@@ -17,7 +17,7 @@ import { formatDateTime } from '../../lib/dates.ts'
  * What has arrived through this form.
  *
  * Person and company names are joined client-side against one page each, the
- * same way the Decisions page does it: `api.md` has no include-expansion, and
+ * same way the Decisions page does it: the API has no include-expansion, and
  * neither list takes a set of bare ids. A record past those pages is still
  * linked, by its type rather than its name, which beats a raw id.
  *
@@ -26,7 +26,7 @@ import { formatDateTime } from '../../lib/dates.ts'
  * also open the submission.
  */
 
-/** `api.md`: `?limit=` maxes out at 200. */
+/** `?limit=` maxes out at 200 (`docs/agents/api-and-webhooks.md`). */
 const MAX_PAGE = 200
 
 export interface SubmissionsTableProps {

@@ -163,7 +163,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   app.use('/v1/*', createApiKeyScopeMiddleware(dependencies.credentials))
 
   // Every module's `POST` gets this the same way, decided once here rather than
-  // per route (`api.md`). It skips `/v1/public/*` itself — a public request has
+  // per route. It skips `/v1/public/*` itself — a public request has
   // no `Actor` to scope a key to — so it is mounted ahead of the public CORS
   // middleware without conflicting with it.
   app.use(
@@ -226,7 +226,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
     logger: dependencies.logger,
   })
 
-  // The transport takes bearer keys only (`api.md`), so every call that
+  // The transport takes bearer keys only, so every call that
   // reaches it is already the `api_key` traffic the `api` budget above
   // exists for. Shared with `/v1` rather than a separate budget: one key's
   // usage is one thing to protect the workspace from, whichever surface it

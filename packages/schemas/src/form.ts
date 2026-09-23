@@ -18,7 +18,7 @@ import type { RecordTimestamps } from './wire.ts'
 
 /**
  * Wire and write shapes for `/v1/forms`, the embeddable inbound capture from
- * [`forms.md`](../../../forms.md).
+ * `docs/guides/forms.md`.
  *
  * Fields come back nested inside their form rather than as their own resource.
  * A form without its fields cannot be rendered or validated, so every caller

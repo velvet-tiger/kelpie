@@ -22,7 +22,7 @@ export const DEFAULT_NOTE_SORT = '-created_at'
 export interface NoteFilters {
   readonly targetType: RecordTargetType
   /**
-   * `?target_id=`, repeatable per `api.md`. Never empty: a note list always
+   * `?target_id=`, repeatable per `docs/agents/api-and-webhooks.md`. Never empty: a note list always
    * names the records it is for, and an omitted filter is a 422 at the route.
    */
   readonly targetIds: readonly string[]
@@ -107,7 +107,7 @@ export async function deleteNote(db: Queryable, workspaceId: string, id: string)
  *
  * The target is polymorphic and carries no foreign key, so nothing in the
  * database deletes these. The service that deletes the target calls this inside
- * the same transaction (`schema.md`).
+ * the same transaction.
  */
 export async function deleteForTarget(
   db: Queryable,

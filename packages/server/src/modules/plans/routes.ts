@@ -20,7 +20,7 @@ import type {
 /**
  * Wire shapes for `/v1/plan_items`.
  *
- * Bodies are strict: `api.md` makes an unknown field a 422 rather than something
+ * Bodies are strict: an unknown field is a 422 rather than something
  * dropped in silence.
  */
 

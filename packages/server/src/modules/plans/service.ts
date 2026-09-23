@@ -84,7 +84,7 @@ export function createPlansService(dependencies: PlansDependencies): PlansServic
     const item = await repository.findPlanItem(dependencies.db, workspaceId, id)
 
     // A plan item in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed.
     if (item === undefined) {
       throw AppError.notFound('Plan item not found')
     }

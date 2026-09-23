@@ -540,9 +540,10 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
   })
 
   /**
-   * `schema.md` calls the log retention-pruned. There is no scheduler in the
-   * service, so the engine prunes a webhook's expired rows in the same
-   * transaction that records its next delivery — the only place the log grows.
+   * The delivery log is retention-pruned (`docs/agents/api-and-webhooks.md`).
+   * There is no scheduler in the service, so the engine prunes a webhook's
+   * expired rows in the same transaction that records its next delivery — the
+   * only place the log grows.
    */
   describe('retention', () => {
     const DAY_MS = 86_400_000

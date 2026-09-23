@@ -80,7 +80,7 @@ const dashboardPipelineSchema: z.ZodType<DashboardPipeline, unknown> = z.object(
  */
 export interface DashboardPlanItem extends TargetRef {
   readonly id: string
-  /** `YYYY-MM-DD`, per `api.md` date-only fields. */
+  /** `YYYY-MM-DD`, a date-only field. */
   readonly date: string
   readonly title: string
   readonly ownerId: string | null

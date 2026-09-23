@@ -104,7 +104,8 @@ export const importJobs = pgTable(
      * it hashes to anything else, which buys the same "this is the file you
      * approved" guarantee as storing it for 64 characters instead of up to ten
      * megabytes. Null only on a job from before this, which cannot be committed;
-     * the remedy is the one `import-export.md` already gives — upload it again.
+     * the remedy is the one `docs/guides/import-and-export.md` already gives —
+     * upload it again.
      */
     fileSha256: text('file_sha256'),
     fileName: text('file_name'),
@@ -157,8 +158,7 @@ export const importJobRows = pgTable(
   },
   (table) => [
     // The job and the line already identify a row, so it needs no id of its own.
-    // A `<prefix>_<ulid>` here would also mean a prefix `api.md` does not
-    // document, for something that never appears on the wire.
+    // A `<prefix>_<ulid>` here would also mean an undocumented prefix, for something that never appears on the wire.
     primaryKey({ columns: [table.jobId, table.rowNumber] }),
     index('import_job_rows_workspace_idx').on(table.workspaceId),
     checkOneOf('import_job_rows_action_check', table.action, IMPORT_ROW_ACTIONS),

@@ -13,9 +13,9 @@ import { coreModules } from '../core.ts'
 import { idempotencyKeys } from './schema.ts'
 
 /**
- * `Idempotency-Key` handling on `POST /v1/*` (`api.md`), exercised against
- * `/v1/people` as a representative endpoint: the middleware is generic across
- * every module, so one resource's routes are enough to prove it.
+ * `Idempotency-Key` handling on `POST /v1/*` (`docs/agents/api-and-webhooks.md`),
+ * exercised against `/v1/people` as a representative endpoint: the middleware is
+ * generic across every module, so one resource's routes are enough to prove it.
  */
 
 const connectionString = testDatabaseUrl(process.env)

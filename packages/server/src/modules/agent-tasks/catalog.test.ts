@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_TASK_DEFINITIONS, SHARED_WRITE_POLICY, findTask, tasksFor } from './catalog.ts'
 
 describe('agent task catalog', () => {
-  it('carries the 78 tasks agent-tasks.md names, with unique ids', () => {
+  it('carries the 78 tasks, with unique ids', () => {
     expect(AGENT_TASK_DEFINITIONS).toHaveLength(78)
     expect(new Set(AGENT_TASK_DEFINITIONS.map((task) => task.id)).size).toBe(78)
   })

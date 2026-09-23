@@ -16,7 +16,7 @@ import type { ActivityRecord } from './repository.ts'
  * Read-only. Rows are written by the services that make the change, through the
  * recorder, inside the same transaction (`recorder.ts`). There is deliberately
  * no create, update or delete route: a history a client can edit is not a
- * history, and `schema.md` gives the table no `updated_at` to support one.
+ * history, and the table has no `updated_at` to support one.
  *
  * A timeline is not only the rows filed against the record. A person's timeline
  * includes the deals and partnerships they are on; a company's includes its

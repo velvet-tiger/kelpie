@@ -8,7 +8,7 @@ import * as schema from './schema.ts'
 import { createAgentTasksService } from './service.ts'
 
 /**
- * Agent tasks (`agent-tasks.md`): the task catalog, resolve, run dispatch, and
+ * Agent tasks: the task catalog, resolve, run dispatch, and
  * registered agents.
  *
  * `requires` names every module whose tables resolve reads — the dashboard

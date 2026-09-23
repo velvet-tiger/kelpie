@@ -240,7 +240,7 @@ export function useAcceptInvite(): MutationResult<{ readonly token: string }, Wo
 /**
  * Creates the account's first workspace.
  *
- * Signup makes an account and nothing else (`onboarding.md`), so without this a
+ * Signup makes an account and nothing else, so without this a
  * new account reaches the app and gets `403` from every CRM endpoint.
  */
 export function useCreateWorkspace(): MutationResult<CreateWorkspaceInput, Workspace> {

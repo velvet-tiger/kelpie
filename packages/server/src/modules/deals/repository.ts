@@ -37,7 +37,7 @@ export interface DealFilters {
 
 /**
  * The company half of `?q=`. Reads the `companies` *table*, never its
- * repository, the rule set for a filter spanning a relation (`architecture.md`).
+ * repository, the rule set for a filter spanning a relation.
  */
 function companyNameMatches(pattern: string): SQL {
   return sql`exists (

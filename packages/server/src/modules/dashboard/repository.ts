@@ -24,7 +24,7 @@ import { workspaces } from '../workspace/schema.ts'
  *
  * Ten tables, no repository imports. Composing ten other modules' repositories
  * would mean asking each of them for a page and counting it here, which is the
- * one thing `architecture.md` says a repository may cross a module boundary to
+ * one thing a repository may cross a module boundary to
  * avoid: schema imports already cross everywhere, repository imports still do
  * not.
  *
@@ -394,7 +394,8 @@ export function listRecentActivity(
 /**
  * Pinned notes first, then newest.
  *
- * Pinning is how a workspace tells an agent which notes matter (`brief.md`), so
+ * Pinning is how a workspace tells an agent which notes matter
+ * (`docs/guides/planning-and-decisions.md`), so
  * the ordering is the point of the list rather than a display preference.
  */
 export function listRecentNotes(

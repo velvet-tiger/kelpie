@@ -5,7 +5,8 @@ import { users } from '../auth/schema.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
- * Both kinds of key are bound to one workspace at creation (`api.md`). A null
+ * Both kinds of key are bound to one workspace at creation
+ * (`docs/agents/api-and-webhooks.md`). A null
  * `user_id` is a workspace key; a set one is a personal key acting as that user
  * within that workspace.
  */

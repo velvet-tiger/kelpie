@@ -9,7 +9,7 @@ import { createFormSubmitService } from './submission.ts'
 import { registerFormsTools } from './tools.ts'
 
 /**
- * Forms: embeddable inbound capture, per `forms.md`.
+ * Forms: embeddable inbound capture.
  *
  * The only core module with a public surface. Managing forms needs credentials
  * like everything else; submitting one needs nothing but the form's `publicKey`,

@@ -8,7 +8,7 @@ import { describeThrown } from '../lib/errors.ts'
 import type { Logger } from '../lib/logger.ts'
 
 /**
- * In-process typed domain events, per `modules.md`.
+ * In-process typed domain events (`docs/extending/writing-a-module.md`).
  *
  * Delivery is at-least-once within the process, with no durable queue. A crash
  * between commit and dispatch loses the event. A durable outbox is a known

@@ -24,7 +24,7 @@ import { CONTACT_FORM_FIELDS } from './forms/template.ts'
  * loaded array, so they match forms this page has not paged to yet.
  *
  * There is no submissions count column. The mockup had one because its seed data
- * was a local array; here it would be one request per row, and `api.md` has no
+ * was a local array; here it would be one request per row, and the API has no
  * expansion to fold that into the list. The count lives on the detail page,
  * where the submissions are already being fetched.
  */

@@ -26,7 +26,7 @@ import type { SettledRowAction } from './schema.ts'
  *
  * The lookup functions read the `people`, `companies`, `positions`, `deals`,
  * `pipeline_stages` and `workspace_members` **tables** rather than their
- * repositories. That is the cross-relation rule in `architecture.md`: an import
+ * repositories. That is the cross-relation rule: an import
  * asks one question about ten thousand rows at a time, and composing sibling
  * repositories would answer it one record per round trip.
  */

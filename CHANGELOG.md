@@ -777,7 +777,7 @@ While the major version is `0`, a minor bump may break the API.
 
 - A vendor-managed provider (Resend, Postmark, Mailtrap, SendGrid) needs an
   account core does not manage, so it belongs in a module rather than this
-  switch, per `modules.md`'s split test.
+  switch.
 
 ## [0.4.0] - 2026-08-12
 
@@ -786,8 +786,7 @@ While the major version is `0`, a minor bump may break the API.
 - **`@kelpie/server`, `@kelpie/ui`** — the integration framework is now cloud,
   not core. Integrations need vendor accounts the cloud manages, and a
   self-hosted CRM is not broken without a catalog page listing providers it
-  cannot connect to, so core no longer carries the half it had. `modules.md`
-  records the change.
+  cannot connect to, so core no longer carries the half it had.
 
   Gone from `@kelpie/server`: the `integration_connections` table, its
   `integrations` module, and the `integrationConnection` id prefix. Gone from

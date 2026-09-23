@@ -32,8 +32,9 @@ export interface CompanyFilters {
 }
 
 /**
- * `api.md` has no `include` expansion, so without this filter a person detail
- * page would fetch the person's positions and then one company per position.
+ * The API has no `include` expansion (`docs/api-reference.md`), so without
+ * this filter a person detail page would fetch the person's positions and then
+ * one company per position.
  *
  * Reads the `positions` table, never its repository. See the same note in the
  * people repository.
@@ -123,7 +124,7 @@ export async function findCompanyByDomain(
  * domain.
  *
  * Names are not unique, so this is a weaker match than the domain one and is
- * only ever tried second (`forms.md` submit rule 4). The oldest row wins, which
+ * only ever tried second (`docs/guides/forms.md`). The oldest row wins, which
  * makes a repeat submission attach to the same company every time rather than
  * following whichever duplicate was edited last.
  *

@@ -19,7 +19,7 @@ import * as personLinks from './personLinks.ts'
 import * as planRepository from './plans/repository.ts'
 
 /**
- * The polymorphic delete rule from `schema.md`, in one place.
+ * The polymorphic delete rule, in one place.
  *
  * Notes, activities and decisions attach to a target through `target_type` plus
  * `target_id` with no foreign key, so no cascade removes them. Whoever deletes
@@ -133,8 +133,8 @@ export async function deleteEventAssociationsForTarget(
  * and owns attached records, which is why it is the only one with a helper here.
  *
  * Reads the `candidates` *table* rather than the hiring repository: the module
- * that owns those rows registers after `people`, and `architecture.md` allows a
- * table read where a repository import would invert the dependency.
+ * that owns those rows registers after `people`, and a table read is allowed
+ * where a repository import would invert the dependency.
  *
  * @param db Must be the caller's transaction, so a refused person delete brings
  *   these rows back with it.

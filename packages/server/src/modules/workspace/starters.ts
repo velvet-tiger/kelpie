@@ -1,6 +1,5 @@
 /**
- * What a new workspace starts with, per `onboarding.md` step 4 and the seeding
- * rule in `schema.md`.
+ * What a new workspace starts with.
  *
  * Both lists are data, not migrations: they are per-workspace rows a workspace
  * owner can then rename, reorder, or delete.
@@ -267,7 +266,7 @@ export const HANDBOOK_TEMPLATES: Readonly<Record<HandbookTemplateId, HandbookTem
   },
 }
 
-/** Default startup template pages — same list `onboarding.md` names. */
+/** Default startup template pages. */
 export const STARTER_HANDBOOK_PAGES: readonly StarterHandbookPage[] = STARTUP_PAGES
 
 export function isStarterHandbookBody(page: { readonly slug: string; readonly body: string }): boolean {

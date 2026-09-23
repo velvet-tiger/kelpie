@@ -34,11 +34,11 @@ export interface PersonFilters {
  * The position half of `?q=`: a person matches when a title they hold, or the
  * name of a company they hold it at, matches.
  *
- * `architecture.md` keeps repositories inside their own feature, and this reaches
- * across two. It reads the `positions` and `companies` *tables*, never their
- * repositories, which is the same thing every schema file already does. The
- * alternative was three round trips ending in an `in (…)` list of every matching
- * person id, unbounded by the page size. Recorded in `architecture.md`.
+ * Repositories stay inside their own feature, and this reaches across two. It
+ * reads the `positions` and `companies` *tables*, never their repositories, which
+ * is the same thing every schema file already does. The alternative was three
+ * round trips ending in an `in (…)` list of every matching person id, unbounded
+ * by the page size.
  */
 function heldPositionMatches(pattern: string): SQL {
   return sql`exists (

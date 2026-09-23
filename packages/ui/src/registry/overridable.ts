@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 
 /**
- * The override escape hatch from `modules.md`: a module replaces a core
+ * The override escape hatch: a module replaces a core
  * component outright. Prefer a slot; this is for the cases a slot cannot reach.
  *
  * A core component is replaceable only if it hands out a token, and the token

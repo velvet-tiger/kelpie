@@ -1,10 +1,10 @@
 import { z } from 'zod'
 
 /**
- * Budgets for the request classes `api.md` rate-limits: public form submissions,
+ * Budgets for the rate-limited request classes: public form submissions,
  * unauthenticated auth endpoints by IP, login by account, and everything else
- * under an API key. Roadmap Phase 6: self-host packaging calls for this with
- * nothing to configure, so every variable here is optional and defaulted.
+ * under an API key. Self-host packaging calls for this with nothing to
+ * configure, so every variable here is optional and defaulted.
  */
 
 export interface RateLimitBudget {

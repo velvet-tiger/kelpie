@@ -6,12 +6,12 @@ import type { FormFieldRecord } from './repository.ts'
 import { PERSON_EMAIL_TARGET } from './schema.ts'
 
 /**
- * The submit rules from `forms.md` that need no database: what an answer map
- * means, and whether it is one this form accepts.
+ * The submit rules that need no database: what an answer map means, and
+ * whether it is one this form accepts.
  *
- * Pure on purpose. These are the rules a reader of `forms.md` would check by
- * hand, they have no clock and no workspace, and they are the half of a submit
- * worth a unit test. `submission.ts` holds the half that writes rows.
+ * Pure on purpose. These are the rules a reader would check by hand, they have
+ * no clock and no workspace, and they are the half of a submit worth a unit
+ * test. `submission.ts` holds the half that writes rows.
  */
 
 /** An answer map as it arrives: field id to the text or option key given. */
@@ -168,15 +168,15 @@ export function parseConsentAnswer(raw: string | undefined): readonly string[] {
 }
 
 /**
- * Everything wrong with an answer map, as `api.md` field details.
+ * Everything wrong with an answer map, as `422` field details.
  *
  * All of it at once rather than the first problem: a form is filled in by a
  * person, and telling them about one missing field at a time is how a contact
  * form gets abandoned.
  *
  * A missing `person.email` is deliberately not reported here. It is the one
- * failure that is about the form rather than the answers, `forms.md` gives it
- * its own status, and the caller raises it before reaching this.
+ * failure that is about the form rather than the answers, it has its own
+ * status, and the caller raises it before reaching this.
  */
 export function findAnswerProblems(
   fields: readonly FormFieldRecord[],
@@ -259,7 +259,7 @@ function resolveDomain(mapped: MappedAnswers): string | undefined {
  * Reads an answer map into what the submit will write.
  *
  * @returns undefined when no usable `person.email` answer was given, which is
- *   the `422` from `forms.md`. A value that is not an address at all fails the
+ *   the `422`. A value that is not an address at all fails the
  *   same way: it would otherwise create a person nobody can reply to.
  */
 export function readIntent(mapped: MappedAnswers): SubmitIntent | undefined {
@@ -356,7 +356,7 @@ export function expandNameTemplate(
 /**
  * The union merge for a form's tag actions. The stored order is preserved and
  * new tags land at the end, so the timeline reads oldest-first. Never removes
- * a tag a human set: `forms.md` §Tags is explicit on that.
+ * a tag a human set: `docs/guides/forms.md` is explicit on that.
  *
  * @returns The merged list, and `changed` = true when at least one new tag
  *   landed. The caller uses `changed` to decide whether to emit an update
@@ -387,10 +387,10 @@ export function mergeTags(
   return { next: [...stored, ...additions], changed: true }
 }
 
-/** How far ahead a deal created by a form is expected to close (`forms.md` rule 6). */
+/** How far ahead a deal created by a form is expected to close. */
 export const DEAL_CLOSE_HORIZON_DAYS = 30
 
-/** `YYYY-MM-DD`, `days` after `from`. Date-only, per `api.md`. */
+/** `YYYY-MM-DD`, `days` after `from`. Date-only. */
 export function expectedCloseFrom(from: Date, days: number): string {
   const due = new Date(from.getTime())
 

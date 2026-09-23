@@ -15,7 +15,7 @@ import type {
   UpdateStageInput,
 } from './service.ts'
 
-/** Wire shapes for `/v1/pipeline_stages`. Bodies are strict; an unknown field is a 422, per `api.md`. */
+/** Wire shapes for `/v1/pipeline_stages`. Bodies are strict; an unknown field is a 422. */
 
 export const createBody = z.strictObject({
   kind: z.enum(PIPELINE_KINDS),

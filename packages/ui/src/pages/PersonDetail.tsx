@@ -209,7 +209,7 @@ export function PersonDetail(): React.JSX.Element {
   )
 }
 
-/** A committed inline edit is one `PATCH` of one field, which is what `api.md` asks for. */
+/** A committed inline edit is one `PATCH` of one field. */
 function usePersonPatch(person: Person): PatchResult<PersonInput> {
   return usePatch(useUpdatePerson, person)
 }
@@ -672,7 +672,7 @@ function PersonFields({ person }: { readonly person: Person }): React.JSX.Elemen
  * The companies this person holds a title at.
  *
  * Two requests, not one per position: `?person_id=` on both lists is exactly the
- * filter `api.md` documents for this, and it exists so a detail page is not N+1.
+ * filter `docs/api-reference.md` documents for this, and it exists so a detail page is not N+1.
  */
 function PersonPositions({ person }: { readonly person: Person }): React.JSX.Element {
   const positions = usePositions({ personIds: [person.id] })

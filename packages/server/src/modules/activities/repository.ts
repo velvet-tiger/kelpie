@@ -58,8 +58,7 @@ export async function insertActivity(
  * they can be attached to.
  *
  * Reads the pipeline tables directly rather than composing their repositories,
- * which is the rule already set for a query spanning a relation
- * (`architecture.md`).
+ * which is the rule already set for a query spanning a relation.
  *
  * @returns The roll-up targets only. The caller adds the record's own.
  */
@@ -172,7 +171,7 @@ export function listActivities(
  *
  * The target is polymorphic and carries no foreign key, so nothing in the
  * database deletes these. The service that deletes the target calls this inside
- * the same transaction (`schema.md`).
+ * the same transaction.
  */
 export async function deleteForTarget(
   db: Queryable,

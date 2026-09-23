@@ -133,7 +133,7 @@ export function createCompaniesService(dependencies: CompaniesDependencies): Com
     const company = await repository.findCompany(dependencies.db, workspaceId, id)
 
     // A company in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed.
     if (company === undefined) {
       throw AppError.notFound('Company not found')
     }

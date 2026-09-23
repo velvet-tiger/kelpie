@@ -87,7 +87,7 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
     const decision = await repository.findDecision(dependencies.db, workspaceId, id)
 
     // A decision in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed.
     if (decision === undefined) {
       throw AppError.notFound('Decision not found')
     }

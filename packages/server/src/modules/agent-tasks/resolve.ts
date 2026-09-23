@@ -29,7 +29,7 @@ import type { HandbookPageReference, PromptInputs, RelatedIdList, WorkspaceSigna
  * renderer needs, gathered from the modules that own each table.
  *
  * This file reads eleven other modules' tables and none of their repositories,
- * the crossing `architecture.md` rule 3 permits and the dashboard set the
+ * the crossing the layering rules permit and the dashboard set the
  * precedent for. The module's `requires` names every one, so an assembly that
  * omits one fails at boot rather than querying an unmigrated table.
  */
@@ -284,7 +284,7 @@ async function personLinkIds(
 }
 
 /**
- * The related record ids `agent-tasks.md`'s context recipe names, per target
+ * The related record ids the context recipe names, per target
  * type: positions for a person, people on a deal, the company behind a raise,
  * candidates on a role, and so on. Only relations the data model records — no
  * key is ever inferred.
@@ -699,7 +699,7 @@ export async function collectWorkspaceSignals(
   return []
 }
 
-/** The four target types Plan items attach to, per `schema.md`. */
+/** The four target types Plan items attach to. */
 const PLAN_TARGET_TYPES: ReadonlySet<AgentTaskTargetType> = new Set([
   'deal',
   'opportunity',

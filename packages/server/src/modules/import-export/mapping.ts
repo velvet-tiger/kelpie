@@ -39,7 +39,7 @@ export function mapRow(
   return mapped
 }
 
-/** A pipe-separated cell (`a|b|c`), per `import-export.md`. Blank entries are dropped. */
+/** A pipe-separated cell (`a|b|c`). Blank entries are dropped. */
 export function splitList(value: string | undefined): readonly string[] {
   return (value ?? '')
     .split('|')

@@ -5,10 +5,10 @@ import type { McpServerInfo } from './protocol.ts'
  *
  * Not a `KelpieModule`: its tools come from every module that registered one, so
  * there is nothing to mount until the whole registration pass has finished. The
- * app mounts it after the `/v1` routers, which is `architecture.md` boot step 6.
+ * app mounts it after the `/v1` routers.
  */
 
-/** Where the transport mounts. `brief.md` and the client config snippets say `/mcp`. */
+/** Where the transport mounts. `docs/agents/connect-an-agent.md` and the client config snippets say `/mcp`. */
 export const MCP_ROUTE_PREFIX = '/mcp'
 
 /**
@@ -24,7 +24,7 @@ export const MCP_SERVER_INFO: McpServerInfo = {
 
 /**
  * Sent on `initialize`. An agent reads this before it reads a tool description,
- * so it says what the data is for and which habits `brief.md` asks of it, not
+ * so it says what the data is for and which habits are asked of it, not
  * what the tools are named.
  */
 export const MCP_INSTRUCTIONS = [

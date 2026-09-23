@@ -60,7 +60,7 @@ export interface FindFieldProblemsOptions {
 }
 
 /**
- * Everything wrong with a field list, as `api.md` field details.
+ * Everything wrong with a field list, as `422` field details.
  *
  * All of it at once: a field builder sends the whole list, so reporting one
  * problem per request would make fixing three of them three round trips.

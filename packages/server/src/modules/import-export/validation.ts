@@ -38,8 +38,7 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/u
 /**
  * A fixed value set, matched case-insensitively.
  *
- * `import-export.md` says an unknown enum is a row error rather than silently
- * coerced, and that still holds: `Prospect` and `prospect` are the same value
+ * An unknown enum is a row error rather than silently coerced, and that still holds: `Prospect` and `prospect` are the same value
  * written two ways, which is what a person exports from a spreadsheet, while
  * `Client` is unknown and fails.
  */

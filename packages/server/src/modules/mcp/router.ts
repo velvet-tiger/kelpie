@@ -37,7 +37,7 @@ import type {
 } from './protocol.ts'
 
 /**
- * The Streamable HTTP transport, mounted at `/mcp` (`architecture.md` boot step 6).
+ * The Streamable HTTP transport, mounted at `/mcp`.
  *
  * Kelpie never initiates a message, so the transport is one `POST` and nothing
  * else: `GET` would open a server-to-client stream there is nothing to put on,
@@ -313,7 +313,7 @@ export interface McpEndpoint {
   readonly catalog: Hono
 }
 
-/** The `tools/list` entry, rendered in `api.md`'s `snake_case`. */
+/** The `tools/list` entry, rendered in the wire's `snake_case`. */
 function catalogEntry(tool: PublishedTool): Record<string, unknown> {
   return { name: tool.name, description: tool.description, input_schema: tool.inputSchema }
 }

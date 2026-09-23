@@ -34,7 +34,7 @@ import { createWebhooksModule } from './webhooks/index.ts'
 import { createWorkspaceModule } from './workspace/index.ts'
 
 /**
- * The core feature modules, in the order `architecture.md` fixes. Core registers
+ * The core feature modules, in a fixed order. Core registers
  * through the same runtime modules do; if core could not be built on these
  * extension points, neither could anything else.
  *

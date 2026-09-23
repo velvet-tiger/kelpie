@@ -28,7 +28,7 @@ import type {
  * Pure.
  */
 
-/** Pipe-separated, per `import-export.md`. */
+/** Pipe-separated. */
 function joinList(values: readonly string[]): string {
   return values.join('|')
 }

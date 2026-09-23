@@ -3,7 +3,7 @@
  *
  * A self-referencing foreign key can express a tree but not its bounds: nothing
  * in Postgres refuses a page nested under its own child, and nothing counts
- * levels. `schema.md` puts both in the service, and they live here rather than in
+ * levels. Both belong in the service, and they live here rather than in
  * `service.ts` so they can be exercised without a database.
  *
  * Every function takes one workspace's pages. They are small enough to walk in

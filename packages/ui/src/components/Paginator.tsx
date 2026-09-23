@@ -3,7 +3,7 @@ import type { Paged } from '../api/resource.ts'
 /**
  * Prev / Next with a page indicator and an optional page size selector.
  *
- * The API is cursor-only (`api.md`), so there is no total count and no jump
+ * The API is cursor-only, so there is no total count and no jump
  * to page N. `pageIndex` is one-based on screen but zero-based in `Paged` —
  * the label adds one so page 1 does not read as page 0.
  *

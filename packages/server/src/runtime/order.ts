@@ -40,8 +40,8 @@ function findStructuralProblems(modules: readonly KelpieModule[], byId: Readonly
 /**
  * Sorts modules so each one registers after everything it `requires`.
  *
- * Independent modules keep their declared order, which is how `architecture.md`
- * pins the core module sequence. Nothing else about runtime behaviour may depend
+ * Independent modules keep their declared order, which is how the core module
+ * sequence is pinned. Nothing else about runtime behaviour may depend
  * on ordering.
  *
  * @throws ModuleBootError on duplicate ids, unmet `requires`, or a dependency cycle.

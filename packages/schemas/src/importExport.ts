@@ -6,8 +6,7 @@ import { idSchema, recordTimestamps } from './wire.ts'
 import type { RecordTimestamps } from './wire.ts'
 
 /**
- * Wire shapes and shared catalogues for `/v1/import` and `/v1/export`, per
- * `import-export.md`.
+ * Wire shapes and shared catalogues for `/v1/import` and `/v1/export`.
  *
  * The column catalogue lives here rather than in the server module because both
  * ends need it: the server validates a row against it, and the browser renders
@@ -36,7 +35,7 @@ export const IMPORT_CONFLICT_MODES = ['skip', 'update'] as const
  * `skip` imports the person and leaves the affiliation unlinked, reporting it as
  * a row warning. `create` invents the company from the row's own domain and name
  * so the position can be linked. Only the People import reads this; the other
- * objects fail a missing company outright, per `import-export.md`.
+ * objects fail a missing company outright.
  */
 export const ON_MISSING_COMPANY = ['skip', 'create'] as const
 
@@ -75,7 +74,7 @@ export type ImportRowAction = (typeof IMPORT_ROW_ACTIONS)[number]
 /** A row that has been planned. What a dry run and a commit both write back. */
 export type SettledRowAction = Exclude<ImportRowAction, 'pending'>
 
-/** Limits from `import-export.md`. Placeholders until billing exists. */
+/** Limits from `docs/guides/import-and-export.md`. Placeholders until billing exists. */
 export const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024
 export const MAX_IMPORT_ROWS = 10_000
 
@@ -151,7 +150,7 @@ export interface CsvColumn {
 }
 
 /**
- * The canonical Kelpie CSV columns per object (`import-export.md`).
+ * The canonical Kelpie CSV columns per object.
  *
  * Order is the header order of an export and of a template, so a file Kelpie
  * wrote maps onto itself by exact header match with no preset involved.
@@ -352,7 +351,7 @@ export function knownImportColumnKeys(
   return [...new Set([...base, ...customFieldKeys])]
 }
 
-/** Columns whose value is a pipe-separated list (`a|b|c`), per `import-export.md`. */
+/** Columns whose value is a pipe-separated list (`a|b|c`). */
 export const LIST_COLUMNS: ReadonlySet<string> = new Set([
   'tags',
   'phones',
@@ -544,9 +543,9 @@ const previewRowSchema = z.object({
 })
 
 /**
- * `workspace_id` is not on this body, unlike the sample in `import-export.md`.
- * `api.md` makes the workspace implicit on every endpoint and no other resource
- * returns it; one that did would be the odd one out for no gain.
+ * `workspace_id` is not on this body. The workspace is implicit on every
+ * endpoint and no other resource returns it; one that did would be the odd one
+ * out for no gain.
  */
 export const importJobSchema: z.ZodType<ImportJob, unknown> = z
   .object({

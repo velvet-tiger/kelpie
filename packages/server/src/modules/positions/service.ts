@@ -94,7 +94,7 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
    * The foreign keys alone would let a request link to a record in another
    * workspace, because they are global. Checking here is what makes the tenancy
    * boundary hold, and a record on the far side of it reports as missing rather
-   * than as forbidden, per `api.md`.
+   * than as forbidden.
    *
    * @returns Both names. The link activity names the far side on each end's
    *   timeline, and re-reading two rows that were just read to say so would be

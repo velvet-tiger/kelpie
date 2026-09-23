@@ -12,7 +12,7 @@ import type {
   UpdatePositionInput,
 } from './service.ts'
 
-/** Wire shapes for `/v1/positions`. Bodies are strict; an unknown field is a 422, per `api.md`. */
+/** Wire shapes for `/v1/positions`. Bodies are strict; an unknown field is a 422. */
 
 export const createBody = z.strictObject({
   person_id: z.string().min(1),

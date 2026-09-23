@@ -7,14 +7,14 @@ import { z } from 'zod'
  * Distinct from `lib/tokens.ts`, and the difference is what a secret is *for*.
  * A session cookie or an API key is only ever compared against, so it is stored
  * as a SHA-256 hash and nothing can read it back. A webhook signing secret is
- * different: `api.md` computes the delivery signature *with* it, and the
+ * different: the delivery signature is computed *with* it, and the
  * receiver holds the plaintext we showed them once, so the service must be able
  * to produce the same bytes months later. Hashing it would make signing
  * impossible; storing it bare would put every workspace's signing secret in any
  * database dump.
  *
- * `schema.md` already anticipates this for `agent_registrations.auth_header_encrypted`,
- * and `modules.md` for integration connection records. They share this module.
+ * The same need is anticipated for `agent_registrations.auth_header_encrypted`
+ * and for integration connection records. They share this module.
  */
 
 /** AES-256-GCM: authenticated, so a tampered ciphertext fails rather than decodes to noise. */

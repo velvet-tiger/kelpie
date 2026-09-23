@@ -1,8 +1,7 @@
 import type { AgentTaskDefinition, AgentTaskTargetType } from '@kelpie/schemas'
 
 /**
- * The task catalog, ported from `mockups/src/data/agentTasks.ts`. Ids, labels,
- * instructions and handbook slugs match `agent-tasks.md` exactly.
+ * The task catalog, ported from `mockups/src/data/agentTasks.ts`.
  *
  * The catalog ships in code rather than in a table: a task is a prompt recipe
  * the product defines, not workspace data. `agent_runs.task_id` is therefore a
@@ -10,7 +9,7 @@ import type { AgentTaskDefinition, AgentTaskTargetType } from '@kelpie/schemas'
  * edit.
  */
 
-/** Embedded in every resolved prompt, per `agent-tasks.md`'s conventions. */
+/** Embedded in every resolved prompt. */
 export const SHARED_WRITE_POLICY = `- Prefer appending a Note over inventing facts.
 - Do not invent pricing, legal commitments, or security certifications not in the handbook or notes.
 - Do not change pipeline stage unless the human confirmed or this task explicitly allows it with evidence.

@@ -150,7 +150,7 @@ export function createWebhooksService(dependencies: WebhooksDependencies): Webho
     const webhook = await repository.findWebhook(dependencies.db, workspaceId, id)
 
     // A webhook in another workspace is indistinguishable from one that never
-    // existed, per `api.md`.
+    // existed.
     if (webhook === undefined) {
       throw AppError.notFound('Webhook not found')
     }

@@ -133,7 +133,7 @@ Non-2xx, a timeout, or a redirect (redirects are never followed) marks the run `
 | `GET /v1/agent-runs` | List runs; filter `?agent_id=` and `?status=` |
 | `GET /v1/agent-runs/:id` | Poll one run |
 
-Full wire detail: the [API reference](../api-reference.md) and the canonical spec [`agent-tasks.md`](../../../docs/agent-tasks.md) beside this repository.
+Full wire detail: the [API reference](../api-reference.md).
 
 ## Where the boundaries are
 

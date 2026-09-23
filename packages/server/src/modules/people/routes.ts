@@ -20,7 +20,7 @@ import type { CreatePersonInput, PeopleService, PersonView, UpdatePersonInput } 
 /**
  * Wire shapes for `/v1/people`.
  *
- * Bodies are strict: `api.md` makes an unknown field a 422 rather than something
+ * Bodies are strict: an unknown field is a 422 rather than something
  * dropped in silence, because a client misspelling `summry` should hear about it
  * on the first request, not on the day someone notices the field is empty.
  */

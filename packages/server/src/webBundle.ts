@@ -60,7 +60,7 @@ function isApiRequestFor(prefixes: readonly string[]): (path: string) => boolean
  * Restricts a handler to requests for the web app.
  *
  * The API exclusion is the point of the whole file. `app.notFound` renders
- * `api.md`'s JSON 404, and it only fires when no route matched, so a bare
+ * the API's JSON 404, and it only fires when no route matched, so a bare
  * catch-all registered after `createApp` would answer `GET /v1/typo` with the
  * app shell and a 200. A client asking for data would get a web page and no
  * indication it had misspelled anything.

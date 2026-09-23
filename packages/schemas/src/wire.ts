@@ -3,14 +3,14 @@ import { z } from 'zod'
 /**
  * Pieces every resource schema in this package is built from.
  *
- * `api.md` puts `snake_case` on the wire and `camelCase` in TypeScript, and says
- * the mapping happens at the boundary. For a client, this package is that
+ * The wire uses `snake_case` and TypeScript uses `camelCase`, and the mapping
+ * happens at the boundary. For a client, this package is that
  * boundary: each resource declares a schema over the wire shape and transforms
  * it into the record the UI holds, so no component ever reads a `snake_case`
  * key.
  */
 
-/** An `id` from `api.md`: `<prefix>_<ulid>`. Only checked for non-emptiness. */
+/** An `id`: `<prefix>_<ulid>`. Only checked for non-emptiness. */
 export const idSchema = z.string().min(1)
 
 /** An ISO 8601 UTC timestamp, read as a `Date`. */

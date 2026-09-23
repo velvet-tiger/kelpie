@@ -13,7 +13,7 @@ import { AuthMethods } from './AuthMethods.tsx'
 /**
  * Creating an account, against `POST /v1/auth/signup`.
  *
- * Signup makes the user and nothing else, per `onboarding.md`, so success
+ * Signup makes the user and nothing else, so success
  * lands on the email-verification screen rather than in the app or the first
  * onboarding step: the account cannot create a workspace until it verifies.
  * The response sets the session cookie, which is why that next page can

@@ -28,7 +28,7 @@ import { toError } from './errors.ts'
 
 /**
  * The default page size when a caller does not name one via `query.limit`.
- * Matches the `/v1` default from `api.md`.
+ * Matches the `/v1` default.
  */
 export const DEFAULT_PAGE_SIZE = 50
 
@@ -50,7 +50,7 @@ export interface Paged {
   readonly nextPage: () => void
   /**
    * Changes the API `?limit=` and returns the reader to page 1. The API caps
-   * `?limit=` at 200 (`api.md`); a larger value is coerced by the server, not
+   * `?limit=` at 200 (`docs/agents/api-and-webhooks.md`); a larger value is coerced by the server, not
    * refused by this hook.
    */
   readonly setPageSize: (size: number) => void
@@ -70,7 +70,7 @@ export interface RecordResult<TRecord> {
   readonly record: TRecord | undefined
   readonly isLoading: boolean
   readonly error: Error | null
-  /** The record is not in this workspace, which `api.md` makes indistinguishable from not existing. */
+  /** The record is not in this workspace, which the API makes indistinguishable from not existing. */
   readonly isNotFound: boolean
 }
 
@@ -160,9 +160,8 @@ function keysFor(name: string): ResourceKeys {
 /**
  * Applies a partial update to a record.
  *
- * `undefined` means "not sent" and `null` means "clear this field", per
- * `api.md`, so an undefined value must leave the existing one alone rather than
- * overwrite it.
+ * `undefined` means "not sent" and `null` means "clear this field", so an
+ * undefined value must leave the existing one alone rather than overwrite it.
  */
 function mergeDefined<TRecord extends object>(record: TRecord, changes: Partial<TRecord>): TRecord {
   const merged = { ...record }
@@ -235,7 +234,7 @@ export interface PagedListInput<TRecord> {
  * and the three custom collections whose paths carry a parent id
  * (`useFormSubmissions`, `useListMembers`, `useWebhookDeliveries`).
  *
- * The API is cursor-only (`api.md`), so pages are fetched forward. Already
+ * The API is cursor-only, so pages are fetched forward. Already
  * fetched pages stay cached in `useInfiniteQuery`, and `pageIndex` selects
  * which one is on screen — so going back to a visited page is instant and
  * going forward past the fetched set kicks off exactly one new request.

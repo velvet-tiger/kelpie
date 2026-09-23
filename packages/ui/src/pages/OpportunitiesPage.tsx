@@ -109,7 +109,7 @@ export function OpportunitiesPage(): React.JSX.Element {
   )
 
   // The next-step column asks about the records on screen by id. `?target_id=`
-  // takes at most one page of them (`api.md`), so past that ceiling the rest
+  // takes at most one page of them (`docs/agents/api-and-webhooks.md`), so past that ceiling the rest
   // read as having no plan; the note under the table says so.
   const askedIds = visibleOpportunities.slice(0, MAX_PAGE_SIZE).map((opportunity) => opportunity.id)
   const planItems = usePlanItems(

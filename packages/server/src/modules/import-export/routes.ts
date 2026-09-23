@@ -19,7 +19,7 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { ImportExportService, ImportJobView } from './service.ts'
 
 /**
- * `/v1/export` and `/v1/import`, per `import-export.md`.
+ * `/v1/export` and `/v1/import`.
  *
  * The upload is `multipart/form-data` rather than JSON, because the thing being
  * uploaded is a file and base64 in a JSON body would put a third of the ten
@@ -211,8 +211,8 @@ export function mountImportExportRoutes(
   /**
    * Creates a job and dry-runs it.
    *
-   * `dry_run` must be `true`: `import-export.md` makes the commit a separate
-   * call, so a create claiming otherwise is asking for something this endpoint
+   * `dry_run` must be `true`: `docs/guides/import-and-export.md` makes the
+   * commit a separate call, so a create claiming otherwise is asking for something this endpoint
    * will not do rather than something it can quietly ignore.
    */
   router.post('/import/jobs', async (context) => {

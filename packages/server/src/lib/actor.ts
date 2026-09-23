@@ -28,7 +28,7 @@ export interface SessionActor {
 }
 
 /**
- * A bearer key, always bound to one workspace at creation (`api.md`).
+ * A bearer key, always bound to one workspace at creation.
  *
  * `userId` is set for a personal key, which acts as its user, and null for a
  * workspace key, which acts as the workspace itself.
@@ -56,9 +56,9 @@ export function actorWorkspaceId(actor: Actor): string | null {
  * The same thing, for the endpoints that cannot work without one.
  *
  * CRM routes carry no workspace path segment and read no workspace header: a key
- * is bound to its workspace at creation and a session carries its active one
- * (`api.md`). The only actor without a workspace is an account between signup and
- * its first workspace create.
+ * is bound to its workspace at creation and a session carries its active one.
+ * The only actor without a workspace is an account between signup and its first
+ * workspace create.
  *
  * @throws AppError 403 when the actor has no workspace.
  */

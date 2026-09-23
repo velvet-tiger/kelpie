@@ -19,9 +19,10 @@ import { canonicalEnum } from './validation.ts'
 /**
  * A mapped row, as the columns a write would set.
  *
- * **A mapped column whose cell is blank is left out.** `import-export.md` says
- * update overwrites mapped fields, and the tempting reading is that a blank cell
- * blanks the field. It does not: a partial export with an empty Summary column
+ * **A mapped column whose cell is blank is left out.**
+ * `docs/guides/import-and-export.md` says update overwrites mapped fields, and
+ * the tempting reading is that a blank cell blanks the field. It does not: a
+ * partial export with an empty Summary column
  * would then erase every summary in the workspace, and no author of a
  * spreadsheet expects an empty cell to delete anything. A blank cell says
  * nothing about the field. Clearing one stays a job for the record's own PATCH.

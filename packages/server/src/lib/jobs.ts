@@ -98,7 +98,7 @@ export interface JobRegistry {
 /**
  * Options a caller may override per `enqueue`. Deliberately narrow: features
  * beyond retries, a singleton key, and a deferred start are out of scope until
- * a consumer needs them (`crm-brief.md` cost/maintainability trade-offs).
+ * a consumer needs them (cost and maintainability trade-offs).
  */
 export interface EnqueueOptions {
   readonly retryLimit?: number

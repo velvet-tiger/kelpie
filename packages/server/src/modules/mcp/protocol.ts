@@ -280,7 +280,7 @@ function completeResult(
  *
  * MCP draws that line deliberately: a protocol error means the call never
  * happened, while a tool that ran and refused is an answer the model should see
- * and can act on. The body is the same `api.md` error shape the REST route would
+ * and can act on. The body is the same error shape the REST route would
  * have returned, so a 404 reads identically on both surfaces.
  */
 function toolFailure(logger: Logger, toolName: string, error: unknown): Record<string, unknown> {

@@ -4,7 +4,7 @@
  * Every value type serialises as itself with one exception: currency lives in
  * the store as `{amountCents, currency}` (camelCase, from
  * `customFieldValuesSchema`'s transform) and goes back over the wire as
- * `{amount_cents, currency}` per the api.md snake_case rule. Every record
+ * `{amount_cents, currency}` per the snake_case wire rule. Every record
  * module's response mapper calls this from one place so the two shapes cannot
  * drift.
  */

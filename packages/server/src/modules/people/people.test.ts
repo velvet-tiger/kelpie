@@ -21,7 +21,7 @@ import { eq } from 'drizzle-orm'
 
 const connectionString = testDatabaseUrl(process.env)
 
-/** ISO 8601 UTC with milliseconds, which is the only timestamp shape `api.md` allows. */
+/** ISO 8601 UTC with milliseconds, which is the only timestamp shape the API allows. */
 const ISO_8601_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u
 
 describe.skipIf(connectionString === undefined)('people', () => {

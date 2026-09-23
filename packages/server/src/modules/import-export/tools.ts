@@ -16,7 +16,7 @@ import { importJobResponse } from './routes.ts'
 import type { ImportExportService } from './service.ts'
 
 /**
- * The four tools `import-export.md` names: `export_csv`, `import_preview`,
+ * The four import and export tools: `export_csv`, `import_preview`,
  * `import_commit`, `import_job_get`.
  *
  * The file arrives as a string rather than as multipart, which is the one

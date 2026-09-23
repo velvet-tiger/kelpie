@@ -7,7 +7,7 @@ import { usePositions } from '../api/resources/positions.ts'
  * Titles and company names for the people on screen, and head counts for the
  * companies on screen.
  *
- * A list row needs data from three resources, and `api.md` has no
+ * A list row needs data from three resources, and the API has no
  * include-expansion. What it does have is repeatable id filters, so each of
  * these asks about exactly the rows the page is rendering: two extra requests
  * for the page, not one per row, and no cap that a real workspace could grow
@@ -18,7 +18,7 @@ import { usePositions } from '../api/resources/positions.ts'
  * answer rather than a slow one.
  */
 
-/** `api.md`: `?limit=` and an id filter both max out at 200. */
+/** `?limit=` and an id filter both max out at 200 (`docs/agents/api-and-webhooks.md`). */
 const MAX_PAGE = 200
 
 export interface PeopleDirectory {

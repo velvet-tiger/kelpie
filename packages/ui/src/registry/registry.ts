@@ -14,7 +14,7 @@ import { createOverrideStore } from './overridable.ts'
 import type { Overridable, OverrideStore } from './overridable.ts'
 
 /**
- * The build-time UI extension registry from `modules.md`.
+ * The build-time UI extension registry.
  *
  * Composition is build-time, like the server runtime: an assembly lists its UI
  * modules and this collects what they contribute. Nothing is loaded at runtime,
@@ -34,7 +34,7 @@ export interface UiModuleContext {
   dashboardCard(card: DashboardCard): void
   /** Another way to sign in, rendered beside the password form on `/login` and `/signup`. */
   authMethod(method: AuthMethod): void
-  /** Replaces a core component. Prefer a slot; see `modules.md`. */
+  /** Replaces a core component. Prefer a slot. */
   override<Props>(token: Overridable<Props>, component: ComponentType<Props>): void
 }
 
@@ -200,6 +200,6 @@ export function registerUiModules(modules: readonly UiModule[]): UiExtensions {
  * tree without a provider sees.
  *
  * Every slot is empty and every overridable renders its core fallback, which is
- * the state `modules.md` requires core pages to look finished in.
+ * the state core pages are required to look finished in.
  */
 export const NO_UI_MODULES: UiExtensions = registerUiModules([])

@@ -9,7 +9,8 @@ import type { DashboardService } from './service.ts'
  * `dashboard_get`, and nothing else. The resource is read-only, so there is no
  * tool that writes one.
  *
- * This is the tool the `workspace.*` tasks in `agent-tasks.md` read from: a
+ * This is the tool the `workspace.*` tasks in `docs/agents/agent-tasks.md` read
+ * from: a
  * daily brief, a stale-relationship triage and a pipeline review all start from
  * the same snapshot, and each of them would otherwise open with several list
  * calls and a client-side join to name the records.

@@ -19,9 +19,9 @@ import type { RecordTimestamps } from './wire.ts'
  * request. Definition-aware checks (this key exists on this object type, this
  * select value is one of the options) run in the service.
  *
- * Merge semantics on the record's `custom_fields` (documented in `api.md`): a
- * `PATCH` sends the keys that change; `null` clears a key; an unknown key is
- * `422` naming `custom_fields.<key>`.
+ * Merge semantics on the record's `custom_fields` (documented in
+ * `docs/agents/api-and-webhooks.md`): a `PATCH` sends the keys that change;
+ * `null` clears a key; an unknown key is `422` naming `custom_fields.<key>`.
  */
 
 /**

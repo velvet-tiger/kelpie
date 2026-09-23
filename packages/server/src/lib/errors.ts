@@ -1,6 +1,6 @@
 /**
  * The one error type services throw and routes render. Wire shape and status
- * usage are fixed by `api.md`; this module is the only place that mapping lives.
+ * usage are fixed by the API contract; this module is the only place that mapping lives.
  */
 
 export type ErrorCode =
@@ -20,12 +20,12 @@ const statusByCode = {
   unauthorized: 401,
   forbidden: 403,
   not_found: 404,
-  // Extends the api.md status list, for the MCP transport. Its Streamable HTTP
+  // Extends the API's status list, for the MCP transport. Its Streamable HTTP
   // spec fixes 405 as the answer a server gives for the methods it does not
   // offer, and a client reads it as "stop trying" rather than "try again".
   method_not_allowed: 405,
   conflict: 409,
-  // Extends the api.md status list: the plan does not include this, which is
+  // Extends the API's status list: the plan does not include this, which is
   // neither a role problem nor a conflict. 402 would imply Kelpie takes payment,
   // which a self-hosted install does not.
   entitlement_required: 403,
@@ -106,7 +106,7 @@ const EXTERNAL_SIGN_IN_MESSAGE: Record<ExternalSignInRefusal, string> = {
 /**
  * An external sign-in core would not complete.
  *
- * An `AppError`, so an uncaught one still renders as the `api.md` body. No new
+ * An `AppError`, so an uncaught one still renders as the standard error body. No new
  * `ErrorCode`: refusing an unverified identity is an ordinary `401`, and both
  * refusing to provision and signups being closed are an ordinary `403`.
  */
@@ -121,7 +121,7 @@ export class ExternalSignInError extends AppError {
 }
 
 /**
- * Renders an `AppError` into the wire body from `api.md`. `details` is omitted
+ * Renders an `AppError` into the wire error body. `details` is omitted
  * rather than sent as null when the error carries none.
  */
 export function toErrorBody(error: AppError): ErrorBody {

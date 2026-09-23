@@ -37,7 +37,7 @@ export const DEFAULT_HANDBOOK_PAGE_SORT = 'title'
 export interface HandbookPageFilters {
   /** `?q=`: title and body. A handbook is searched for what it says, not only for what it is called. */
   readonly term?: string | undefined
-  /** `?slug=`, repeatable: the stable handle agent tasks name pages by (`agent-tasks.md`). */
+  /** `?slug=`, repeatable: the stable handle agent tasks name pages by (`docs/agents/agent-tasks.md`). */
   readonly slugs?: readonly string[] | undefined
 }
 

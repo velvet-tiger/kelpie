@@ -10,12 +10,12 @@ import { useRoles } from '../api/resources/roles.ts'
  * The counts and names the hiring pages need beside their own records.
  *
  * A candidacy carries two ids and no words, so every page showing one needs a
- * second resource to render it. `api.md` has no include-expansion; it has
+ * second resource to render it. The API has no include-expansion; it has
  * repeatable id filters, so each of these asks about exactly the rows on screen:
  * one extra request for the page rather than one per row.
  */
 
-/** `api.md`: `?limit=` and an id filter both max out at 200. */
+/** `?limit=` and an id filter both max out at 200 (`docs/agents/api-and-webhooks.md`). */
 const MAX_PAGE = 200
 
 export interface RoleCandidateCounts {

@@ -17,7 +17,7 @@ export interface Partnership extends RecordTimestamps {
   readonly stageId: string
   /** Free text ("Integration", "Co-marketing", …), not an enum: the seed's own kinds vary by workspace. */
   readonly kind: string
-  /** `YYYY-MM-DD`, per `api.md` date-only fields. */
+  /** `YYYY-MM-DD`, a date-only field. */
   readonly nextTouchpoint: string | null
   readonly ownerId: string | null
   readonly goals: string

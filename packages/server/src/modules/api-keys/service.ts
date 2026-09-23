@@ -163,7 +163,7 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
       const record = await repository.findApiKey(dependencies.db, workspaceId, id)
 
       // A key in another workspace is indistinguishable from one that never
-      // existed, per `api.md`.
+      // existed.
       if (record === undefined) {
         throw AppError.notFound('API key not found')
       }

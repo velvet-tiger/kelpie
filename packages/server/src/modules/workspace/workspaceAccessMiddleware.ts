@@ -9,11 +9,11 @@ import { WORKSPACE_ACCESS } from './capabilities.ts'
 
 /**
  * `POST /v1/*` and every `/mcp` call carry a fixed workspace for the whole
- * request (`api.md`): a session or key resolves to one `Actor.workspaceId`,
- * and every query it makes is scoped to that workspace server-side. This
- * blocks the request outright when that workspace's `workspace.access`
- * entitlement is not granted — inert in a self-hosted assembly, since
- * nothing registers a `GrantProvider` that answers it there
+ * request (`docs/agents/api-and-webhooks.md`): a session or key resolves to one
+ * `Actor.workspaceId`, and every query it makes is scoped to that workspace
+ * server-side. This blocks the request outright when that workspace's
+ * `workspace.access` entitlement is not granted — inert in a self-hosted
+ * assembly, since nothing registers a `GrantProvider` that answers it there
  * (`capabilities.ts`).
  *
  * Mounted the same way as `createIdempotencyMiddleware`: tolerates the

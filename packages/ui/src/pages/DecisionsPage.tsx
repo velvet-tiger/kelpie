@@ -29,13 +29,13 @@ import { useListView } from '../lib/listView.ts'
  * matches target names the loaded page may not even hold.
  *
  * The "Linked to" column joins client-side against one page each of people,
- * companies, deals, opportunities, raises and partnerships, because `api.md`
+ * companies, deals, opportunities, raises and partnerships, because the API
  * has no include-expansion and no list takes a set of bare ids. A target past
  * those pages, or one whose type has no page yet (candidate), names its record
  * type instead — better than a raw id or a link to a route that does not exist.
  */
 
-/** `api.md`: `?limit=` maxes out at 200. */
+/** `?limit=` maxes out at 200 (`docs/agents/api-and-webhooks.md`). */
 const MAX_PAGE = 200
 
 const TARGET_LABELS: Readonly<Record<RecordTargetType, string>> = {

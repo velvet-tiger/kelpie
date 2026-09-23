@@ -15,7 +15,7 @@ import {
 import type { RecordTimestamps } from './wire.ts'
 
 /**
- * Agent tasks (`agent-tasks.md`): prompt recipes over the workspace's own data.
+ * Agent tasks (`docs/agents/agent-tasks.md`): prompt recipes over the workspace's own data.
  *
  * The task catalog ships in code, so a TaskDefinition has no timestamps and no
  * body builder — it is read-only on the wire. A ResolvedTask is the one payload

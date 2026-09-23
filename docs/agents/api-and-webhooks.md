@@ -32,7 +32,7 @@ Anything the app can do, you can do — the pages consume this same public API. 
 
 ## Custom fields
 
-Every record on the six taggable types (Person, Company, Deal, Opportunity, Partnership, Raise) carries a `custom_fields` object over the wire. The keys are workspace-defined: list `GET /v1/custom_fields?object_type=deal` (or call `custom_fields_list` over MCP) before writing values so you know which keys the workspace accepts and what type each one expects. A record `PATCH` on `custom_fields` is a partial merge — send only the keys you're changing, use `null` to clear a key, and expect `422` on an unknown key. `custom_fields.field.*` events fire on definition CRUD but are not bridged to webhooks (they're workspace configuration, not record events). Full details in `custom-fields.md` beside this repository.
+Every record on the six taggable types (Person, Company, Deal, Opportunity, Partnership, Raise) carries a `custom_fields` object over the wire. The keys are workspace-defined: list `GET /v1/custom_fields?object_type=deal` (or call `custom_fields_list` over MCP) before writing values so you know which keys the workspace accepts and what type each one expects. A record `PATCH` on `custom_fields` is a partial merge — send only the keys you're changing, use `null` to clear a key, and expect `422` on an unknown key. `custom_fields.field.*` events fire on definition CRUD but are not bridged to webhooks (they're workspace configuration, not record events).
 
 ## Webhooks
 
@@ -109,4 +109,4 @@ A dispatch is a POST with `Content-Type: application/json` and an optional `Auth
 
 Answer **2xx within 10 seconds**. Kelpie records the dispatch, not your agent's work. **One attempt, no retries** — dedupe on `run_id`. Redirects are not followed. There is no completion callback.
 
-Full contract, what works as a receiver, and the REST endpoints: [Agent tasks](agent-tasks.md). Wire rules: [`agent-tasks.md`](../../../docs/agent-tasks.md) and [`api.md`](../../../docs/api.md) beside this repository.
+Full contract, what works as a receiver, and the REST endpoints: [Agent tasks](agent-tasks.md). Wire rules: [Conventions in sixty seconds](#conventions-in-sixty-seconds).

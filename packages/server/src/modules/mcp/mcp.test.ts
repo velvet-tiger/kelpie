@@ -113,7 +113,7 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
     return JSON.parse(content[0]?.text ?? 'null')
   }
 
-  /** The `api.md` error body a failing tool reports instead of a JSON-RPC error. */
+  /** The error body a failing tool reports instead of a JSON-RPC error. */
   async function callToolError(name: string, args: unknown, bearer = workspaceKey): Promise<Record<string, unknown>> {
     const body = await envelope(await post(request(1, 'tools/call', { name, arguments: args }), bearer))
     const result = readRecord(body.result)

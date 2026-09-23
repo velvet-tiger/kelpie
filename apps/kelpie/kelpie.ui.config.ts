@@ -9,7 +9,7 @@ import type { UiModule } from '@kelpie/ui'
  * different anyway: a module can contribute to one surface without the other,
  * and most of them do.
  *
- * Open source ships no UI modules. Every slot is empty, which is the state
- * `modules.md` requires core pages to look finished in.
+ * Open source ships no UI modules. Every slot is empty, and core pages must
+ * look finished in that state.
  */
 export const uiModules: readonly UiModule[] = []

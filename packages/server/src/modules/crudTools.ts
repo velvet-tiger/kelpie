@@ -13,8 +13,8 @@ import type { McpToolRegistry } from '../runtime/module.ts'
  *
  * Written once because every resource's service is the same five methods. A tool
  * that reached for a repository, or re-derived a wire shape of its own, would be
- * the drift `api.md` forbids: MCP mirrors the endpoints one for one, same auth,
- * same shapes, same errors.
+ * the drift `docs/api-reference.md` rules out: MCP mirrors the endpoints one
+ * for one, same auth, same shapes, same errors.
  */
 
 /** What every CRM service offers. Filters differ per resource; the verbs do not. */
@@ -31,7 +31,7 @@ export const idArg = z.string().min(1)
 
 /**
  * A filter naming one id or a set of them, mirroring the repeated query parameter
- * `?person_id=a&person_id=b` from `api.md`.
+ * `?person_id=a&person_id=b` from `docs/api-reference.md`.
  *
  * A bare string is accepted because asking about one record is the ordinary case
  * and an agent should not have to wrap it in an array to do so. The ceiling is the

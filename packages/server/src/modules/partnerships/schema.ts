@@ -11,7 +11,7 @@ import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 
 /**
  * Ongoing two-way relationships. Status is a pipeline stage of kind
- * `partnership`. There is no favour ledger (`brief.md` non-goal).
+ * `partnership`. There is no favour ledger (a v0 non-goal).
  */
 export const partnerships = pgTable(
   'partnerships',
