@@ -17,6 +17,7 @@ import type {
   CompletedSignIn,
   ExternalSignInHandler,
   KelpieModule,
+  McpAuthorization,
   McpTool,
   ModuleCatalogEntry,
   ModuleContext,
@@ -42,6 +43,8 @@ export interface ModuleContributions {
   readonly appRoutes: readonly AppRouteContribution[]
   readonly schemas: readonly SchemaContribution[]
   readonly mcpTools: readonly McpTool[]
+  /** What the MCP endpoint's `401` advertises. Undefined when no module installed it. */
+  readonly mcpAuthorization?: McpAuthorization | undefined
   /** The bus every module subscribed to. Services publish through it after commit. */
   readonly events: EventBus
   /** Everything the modules declared, and any provider they registered. */
@@ -276,6 +279,7 @@ interface Accumulator {
   readonly appRoutes: AppRouteContribution[]
   readonly schemas: SchemaContribution[]
   readonly mcpTools: McpTool[]
+  mcpAuthorization?: { readonly value: McpAuthorization; readonly installedBy: string }
 }
 
 /**
@@ -394,6 +398,16 @@ function createModuleContext(
 
     completeExternalSignIn(context, identity) {
       return externalSignIn.complete(context, identity)
+    },
+
+    provideMcpAuthorization(authorization) {
+      if (accumulator.mcpAuthorization !== undefined) {
+        throw new ModuleBootError([
+          `module "${module.id}" provides MCP authorization, but module "${accumulator.mcpAuthorization.installedBy}" already did`,
+        ])
+      }
+
+      accumulator.mcpAuthorization = { value: authorization, installedBy: module.id }
     },
 
     provideEmailSender(name, build) {
@@ -685,6 +699,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     appRoutes: accumulator.appRoutes,
     schemas: accumulator.schemas,
     mcpTools: accumulator.mcpTools,
+    mcpAuthorization: accumulator.mcpAuthorization?.value,
     events,
     entitlements,
   }

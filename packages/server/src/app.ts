@@ -15,11 +15,13 @@ import type { RateLimitConfig } from './lib/rateLimit.ts'
 import { securityHeadersMiddleware } from './lib/securityHeaders.ts'
 import type { CredentialDependencies } from './modules/auth/credentials.ts'
 import { MCP_INSTRUCTIONS, MCP_ROUTE_PREFIX, MCP_SERVER_INFO } from './modules/mcp/index.ts'
+import { OAUTH_ROUTE_PREFIX } from './modules/oauth/paths.ts'
 import { createMcpEndpoint } from './modules/mcp/router.ts'
 import { createApiKeyScopeMiddleware } from './modules/api-keys/scopeMiddleware.ts'
 import {
   createAuthAndApiRateLimitMiddleware,
   createFormSubmitRateLimitMiddleware,
+  createOAuthRateLimitMiddleware,
 } from './modules/rate-limit/middleware.ts'
 import { createIdempotencyMiddleware } from './modules/workspace/idempotencyMiddleware.ts'
 import { createWorkspaceAccessMiddleware } from './modules/workspace/workspaceAccessMiddleware.ts'
@@ -224,6 +226,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
     serverInfo: MCP_SERVER_INFO,
     instructions: MCP_INSTRUCTIONS,
     logger: dependencies.logger,
+    authorization: dependencies.contributions.mcpAuthorization,
   })
 
   // The transport takes bearer keys only, so every call that
@@ -240,6 +243,12 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
 
   app.route(MCP_ROUTE_PREFIX, mcp.transport)
   app.route('/v1', mcp.catalog)
+
+  // The OAuth protocol endpoints are declared by core's `oauth` module through
+  // `appRoute`, which puts nothing in front of a route. They take no Kelpie
+  // credential, so they get a per-IP budget of their own. Mounted here, ahead
+  // of every declared route.
+  app.use(`${OAUTH_ROUTE_PREFIX}/*`, createOAuthRateLimitMiddleware(rateLimitDependencies))
 
   // Module declarations on the app itself, outside /v1 (`runtime/module.ts`).
   // Middleware first, all of it, then routes: within one request Hono

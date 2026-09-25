@@ -77,8 +77,8 @@ export function McpPage(): React.JSX.Element {
           </li>
           <li className="flex gap-2">
             <span className="text-accent">→</span>
-            Signing in with a browser session does not work here. The endpoint takes bearer keys
-            only.
+            A browser session does not work here. The endpoint takes an API key, or a token from
+            OAuth sign-in.
           </li>
         </ul>
       </section>
@@ -91,6 +91,19 @@ export function McpPage(): React.JSX.Element {
         <code className="mt-3 block rounded-md border border-border bg-surface px-3 py-2.5 font-mono text-[13px] break-all text-ink">
           {endpoint}
         </code>
+      </section>
+
+      <section className="rounded-md border border-border p-5">
+        <h2 className="text-[13px] font-semibold text-ink">Sign in with OAuth</h2>
+        <p className="mt-1 max-w-2xl text-[12px] text-ink-muted">
+          A client that supports MCP sign-in, such as a Claude.ai connector, needs only the endpoint
+          URL above. It opens a Kelpie page where you choose a workspace and approve the access. You
+          can disconnect it at any time under{' '}
+          <Link to="/account/connected-apps" className="text-accent hover:underline">
+            Connected apps
+          </Link>
+          .
+        </p>
       </section>
 
       <section className="rounded-md border border-border p-5">

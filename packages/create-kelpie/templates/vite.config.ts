@@ -68,6 +68,11 @@ export default defineConfig(({ mode, command }) => {
         // that address is right in production and dead here, so anyone copying
         // it out of the page would be debugging the wrong thing.
         '/mcp': { target: apiOrigin, changeOrigin: false },
+        // OAuth sign-in for MCP clients, and the discovery documents a client
+        // reads first. Trailing slashes, so a source file Vite serves at a
+        // path that merely starts with the same letters is not proxied.
+        '/oauth/': { target: apiOrigin, changeOrigin: false },
+        '/.well-known/': { target: apiOrigin, changeOrigin: false },
       },
     },
   }

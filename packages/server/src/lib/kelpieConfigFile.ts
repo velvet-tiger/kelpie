@@ -143,6 +143,7 @@ export interface RateLimitInput {
   readonly auth?: RateLimitBudgetInput
   readonly loginAccount?: RateLimitBudgetInput
   readonly api?: RateLimitBudgetInput
+  readonly oauth?: RateLimitBudgetInput
 }
 
 /**
@@ -155,6 +156,7 @@ const RATE_LIMIT_DEFAULTS = {
   auth: { limit: 10, windowSeconds: 60 },
   loginAccount: { limit: 10, windowSeconds: 900 },
   api: { limit: 600, windowSeconds: 60 },
+  oauth: { limit: 60, windowSeconds: 60 },
 } as const
 
 /**
@@ -271,6 +273,7 @@ interface ResolvedRateLimit {
   readonly auth?: { readonly limit?: number; readonly windowSeconds?: number }
   readonly loginAccount?: { readonly limit?: number; readonly windowSeconds?: number }
   readonly api?: { readonly limit?: number; readonly windowSeconds?: number }
+  readonly oauth?: { readonly limit?: number; readonly windowSeconds?: number }
 }
 
 function describeRegionProblems(regions: readonly unknown[]): string[] {
@@ -343,6 +346,7 @@ function buildRateLimitConfig(resolved: ResolvedRateLimit | undefined): RateLimi
     auth: budget('auth', resolved?.auth),
     loginAccount: budget('loginAccount', resolved?.loginAccount),
     api: budget('api', resolved?.api),
+    oauth: budget('oauth', resolved?.oauth),
   }
 }
 

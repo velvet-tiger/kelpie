@@ -6,6 +6,7 @@ import type { Hono, MiddlewareHandler } from 'hono'
 
 import type { AppBindings } from './app.ts'
 import { MCP_ROUTE_PREFIX } from './modules/mcp/index.ts'
+import { OAUTH_ROUTE_PREFIX, WELL_KNOWN_PREFIX } from './modules/oauth/paths.ts'
 
 /**
  * Serves a built web bundle from the same origin as the API.
@@ -54,9 +55,16 @@ export class WebBundleError extends Error {
  * client probes `/.well-known/oauth-protected-resource` to learn how to
  * authenticate, and the app shell with a 200 reads as a malformed answer
  * rather than as "not supported". A module that serves one there registers
- * it through `appRoute`, ahead of this fallback.
+ * it through `appRoute`, ahead of this fallback. `/oauth` holds the OAuth
+ * protocol endpoints, which answer OAuth libraries, not people.
  */
-const CORE_API_PREFIXES: readonly string[] = ['/v1', MCP_ROUTE_PREFIX, '/healthz', '/.well-known']
+const CORE_API_PREFIXES: readonly string[] = [
+  '/v1',
+  MCP_ROUTE_PREFIX,
+  '/healthz',
+  WELL_KNOWN_PREFIX,
+  OAUTH_ROUTE_PREFIX,
+]
 
 function isApiRequestFor(prefixes: readonly string[]): (path: string) => boolean {
   return (path) => prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))

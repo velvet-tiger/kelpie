@@ -36,7 +36,11 @@ import { WORKSPACE_ACCESS } from './capabilities.ts'
 const WORKSPACE_DELETE_PATH = /^\/v1\/workspaces\/[^/]+$/u
 
 function isExempt(method: string, path: string): boolean {
-  return path.startsWith('/v1/auth/') || path.startsWith('/v1/account') ||
+  // `/v1/oauth/` is the consent page and the connected apps list: account
+  // pages in all but path, which a person must reach whatever the state of
+  // their active workspace. A grant for a suspended workspace is refused at
+  // `/mcp`, where the gate runs again.
+  return path.startsWith('/v1/auth/') || path.startsWith('/v1/account') || path.startsWith('/v1/oauth/') ||
     (method === 'DELETE' && WORKSPACE_DELETE_PATH.test(path))
 }
 

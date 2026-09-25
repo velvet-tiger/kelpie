@@ -26,6 +26,48 @@ While the major version is `0`, a minor bump may break the API.
   The agent response carries `managed_by` and `settings_path`. A module
   owns at most one row per workspace: a partial unique index on
   `(workspace_id, managed_by)` lets it upsert. Migration `0047`.
+- **`@kelpie/server`**, **`@kelpie/schemas`**, **`@kelpie/ui`** — **OAuth
+  sign-in for MCP clients.** A new structural core module, `oauth`, makes
+  Kelpie an OAuth 2.1 authorization server for its own `/mcp`, so a client
+  that connects only through OAuth (a Claude.ai connector, say) needs only
+  the endpoint URL. It serves protected resource metadata (RFC 9728) and
+  authorization server metadata (RFC 8414), accepts Client ID Metadata
+  Documents and Dynamic Client Registration, requires PKCE (S256), binds
+  every token to `<APP_BASE_URL origin>/mcp`, puts `iss` on every
+  authorization response, and rotates refresh tokens, revoking the grant
+  when one is reused. The `401` from `/mcp` now carries `resource_metadata`
+  and `scope`, and a tool call an OAuth token's scopes do not cover answers
+  `403` with `error="insufficient_scope"`. A grant acts as its user in one
+  workspace, narrowed by the API key scopes it was given; it ends when the
+  membership does. Access tokens (`kp_oat_`) work at `/mcp` only, and `/v1`
+  answers `401` to one. New UI: the consent page at `/consent/:request_id`,
+  and Account → Connected apps. New session-only endpoints under
+  `/v1/oauth`. `/oauth/*` has its own per-IP rate limit budget,
+  `RATE_LIMIT_OAUTH_LIMIT` / `RATE_LIMIT_OAUTH_WINDOW_SECONDS` (default
+  60 / 60 s), also settable as `rateLimit.oauth` in `kelpie.config.ts`;
+  it is separate from the auth budget because a hosted client makes every
+  user's token requests from a few shared addresses. The page fallback leaves
+  `/oauth` to the API, and the dev proxies forward `/oauth/` and
+  `/.well-known/`. Migration `0048`.
+
+### Changed
+
+- **Breaking, `@kelpie/server`** — `Actor` has a third kind, `OAuthActor`
+  (`kind: 'oauth'`). A check written as `actor.kind === 'api_key'` does
+  not see it, so a module that scopes bearer credentials that way lets an
+  OAuth grant through unchecked. Use the new `isBearerActor(actor)`, and
+  `bearerCredentialId(actor)` where you need the key or grant id. Core's
+  own checks (scopes, the rate limiter, workspace membership, API key
+  management) now use it. Only `/mcp` resolves an OAuth token, so this
+  reaches a module through its MCP tools.
+- **`@kelpie/server`** — `ModuleContext` has `provideMcpAuthorization`,
+  which core's `oauth` module calls, and `ModuleContributions` has
+  `mcpAuthorization`. `resolveActor` takes an optional third argument,
+  `{ acceptOAuth }`; `resolveActorFrom` sets it from the request path.
+- **`@kelpie/server`** — The `api` rate limiter no longer answers `401`
+  itself for a credential it cannot resolve. It lets the request through
+  to the handler, which answers the `401`, so the `/mcp` challenge header
+  is not lost.
 
 ### Fixed
 

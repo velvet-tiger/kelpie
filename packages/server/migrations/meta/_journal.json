@@ -337,6 +337,13 @@
       "when": 1789100000000,
       "tag": "0047_agent_managed_by",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1789200000000,
+      "tag": "0048_oauth",
+      "breakpoints": true
     }
   ]
 }

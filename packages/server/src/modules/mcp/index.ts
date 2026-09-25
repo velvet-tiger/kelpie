@@ -8,8 +8,8 @@ import type { McpServerInfo } from './protocol.ts'
  * app mounts it after the `/v1` routers.
  */
 
-/** Where the transport mounts. `docs/agents/connect-an-agent.md` and the client config snippets say `/mcp`. */
-export const MCP_ROUTE_PREFIX = '/mcp'
+/** Where the transport mounts. The client config snippets say `/mcp`. */
+export { MCP_ROUTE_PREFIX, isMcpPath } from './paths.ts'
 
 /**
  * `version` is the `@kelpie/server` package version. Both sit at `0.0.0` until

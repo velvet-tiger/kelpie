@@ -7,7 +7,7 @@ import { useVisibleNavItems } from '../../registry/visibleNav.ts'
 /**
  * Tabs across the account's own settings, from the mockup's `AccountNav`.
  *
- * Three of its five tabs are core's. The rest come from `nav.account`, which is
+ * Five tabs are core's. The rest come from `nav.account`, which is
  * where a module's own account page announces itself: a module route mounts as
  * a sibling of `/account` rather than a child of it, so without this the page
  * would render with no tab strip and nothing anywhere pointing at it.
@@ -21,6 +21,7 @@ const CORE_TABS: readonly NavItem[] = [
   { id: 'security', to: '/account/security', label: 'Security', order: 200 },
   { id: 'preferences', to: '/account/preferences', label: 'Preferences', order: 300 },
   { id: 'api-keys', to: '/account/api-keys', label: 'API keys', order: 400 },
+  { id: 'connected-apps', to: '/account/connected-apps', label: 'Connected apps', order: 500 },
 ]
 
 function tabClass({ isActive }: { isActive: boolean }): string {

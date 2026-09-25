@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono'
 
+import { bearerCredentialId, isBearerActor } from '../../lib/actor.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import { PUBLIC_ROUTE_PREFIX } from '../../lib/http.ts'
@@ -77,6 +78,7 @@ function maxWindowMs(config: RateLimitConfig): number {
     config.auth.windowMs,
     config.loginAccount.windowMs,
     config.api.windowMs,
+    config.oauth.windowMs,
   )
 }
 
@@ -167,6 +169,28 @@ export function createFormSubmitRateLimitMiddleware(
 }
 
 /**
+ * Guards the OAuth protocol endpoints, keyed by the caller's IP.
+ *
+ * They take no Kelpie credential: `/oauth/register` creates a client for
+ * anyone, and `/oauth/token` is where a stolen code or refresh token would be
+ * tried. The discovery documents under `/.well-known` are static and are not
+ * metered. Its own budget rather than the `auth` one: a hosted client makes
+ * every one of its users' token requests from a few shared addresses.
+ */
+export function createOAuthRateLimitMiddleware(
+  dependencies: RateLimitMiddlewareDependencies,
+): MiddlewareHandler {
+  return async (context, next) => {
+    await enforceBudget(dependencies, context, {
+      scope: 'oauth',
+      key: dependencies.resolveClientIp(context),
+      budget: dependencies.config.oauth,
+    })
+    await next()
+  }
+}
+
+/**
  * Guards the unauthenticated auth endpoints (by IP) and every other `/v1/*`
  * request made with an API key (by that key) — the budget that protects a
  * workspace rather than the world. Session traffic, the product's own UI,
@@ -213,9 +237,9 @@ export function createAuthAndApiRateLimitMiddleware(
       return
     }
 
-    // Only a bearer credential can resolve to an `api_key` actor, the only
-    // kind this budget applies to, so a cookie-only request — the ordinary
-    // browser session — never pays for an actor resolution here at all.
+    // Only a bearer credential can resolve to an API key or an OAuth grant,
+    // the kinds this budget applies to, so a cookie-only request — the
+    // ordinary browser session — never pays for an actor resolution here at all.
     const bearer = readBearerToken(context.req.header('Authorization'))
 
     if (bearer === undefined || bearer.length === 0) {
@@ -223,16 +247,25 @@ export function createAuthAndApiRateLimitMiddleware(
       return
     }
 
-    const actor = await resolveActorFrom(dependencies.credentials, context)
+    const actor = await resolveActorFrom(dependencies.credentials, context).catch((error: unknown) => {
+      if (error instanceof AppError && error.code === 'unauthorized') {
+        // No live credential to count against. The handler answers the 401
+        // itself, and on `/mcp` that answer carries the `WWW-Authenticate`
+        // challenge a client needs; refusing here would drop it.
+        return undefined
+      }
 
-    if (actor.kind !== 'api_key') {
+      throw error
+    })
+
+    if (actor === undefined || !isBearerActor(actor)) {
       await next()
       return
     }
 
     await enforceBudget(dependencies, context, {
       scope: 'api',
-      key: actor.apiKeyId,
+      key: bearerCredentialId(actor),
       budget: dependencies.config.api,
     })
     await next()

@@ -433,6 +433,19 @@ export type {
 export { apiKeySchema, createApiKeyBody, createdApiKeySchema } from './apiKey.ts'
 export type { ApiKey, CreateApiKeyInput, CreatedApiKey } from './apiKey.ts'
 export {
+  approveOAuthRequestBody,
+  oauthDecisionSchema,
+  oauthGrantSchema,
+  oauthRequestSchema,
+} from './oauth.ts'
+export type {
+  ApproveOAuthRequestInput,
+  OAuthDecision,
+  OAuthGrant,
+  OAuthRequest,
+  OAuthWorkspaceChoice,
+} from './oauth.ts'
+export {
   API_KEY_ADMIN_RESOURCES,
   API_KEY_GRANULAR_SCOPES,
   API_KEY_OBJECT_CONFIG_RESOURCES,

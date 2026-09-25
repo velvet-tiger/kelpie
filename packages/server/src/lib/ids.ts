@@ -14,6 +14,17 @@ export const idPrefixes = {
   teamMember: 'mem',
   invite: 'inv',
   apiKey: 'key',
+  /** An MCP client known to the authorization server. Deployment-wide, like a user. */
+  oauthClient: 'ocl',
+  /**
+   * A pending authorize request, between `/oauth/authorize` and the consent
+   * page's answer. Appears in the consent page's URL.
+   */
+  oauthRequest: 'oar',
+  /** One user's approval of one client for one workspace. */
+  oauthGrant: 'ogr',
+  /** Never returned over the wire: a code or token row is found by its hash. */
+  oauthToken: 'otk',
   person: 'per',
   company: 'com',
   position: 'pos',

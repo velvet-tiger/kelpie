@@ -3,6 +3,7 @@ import { API_KEY_SCOPES, dedupeApiKeyScopes } from '@kelpie/schemas'
 
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
+import { isBearerActor } from '../../lib/actor.ts'
 import { hasApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Actor } from '../auth/actor.ts'
@@ -125,7 +126,7 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
         requireAdmin(actor)
       }
 
-      if (actor.kind === 'api_key' && !hasApiKeyScope(actor, 'api_keys:write')) {
+      if (isBearerActor(actor) && !hasApiKeyScope(actor, 'api_keys:write')) {
         throw new AppError('forbidden', 'This API key does not have the api_keys:write scope')
       }
 
@@ -176,7 +177,7 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
         throw AppError.notFound('API key not found')
       }
 
-      if (actor.kind === 'api_key' && !hasApiKeyScope(actor, 'api_keys:write')) {
+      if (isBearerActor(actor) && !hasApiKeyScope(actor, 'api_keys:write')) {
         throw new AppError('forbidden', 'This API key does not have the api_keys:write scope')
       }
 

@@ -128,6 +128,10 @@ export default defineKelpieConfig({
       limit: fromEnv('RATE_LIMIT_API_LIMIT', positiveInt, 600),
       windowSeconds: fromEnv('RATE_LIMIT_API_WINDOW_SECONDS', positiveInt, 60),
     },
+    oauth: {
+      limit: fromEnv('RATE_LIMIT_OAUTH_LIMIT', positiveInt, 60),
+      windowSeconds: fromEnv('RATE_LIMIT_OAUTH_WINDOW_SECONDS', positiveInt, 60),
+    },
   },
 
   // Boot registers these in order, after resolving `requires`. An unknown id,

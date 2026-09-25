@@ -8,6 +8,9 @@ import { AppError } from '../../lib/errors.ts'
 import { hashToken } from '../../lib/tokens.ts'
 import * as apiKeyRepository from '../api-keys/repository.ts'
 import { readBearerToken } from '../api-keys/keys.ts'
+import { isMcpPath, MCP_ROUTE_PREFIX } from '../mcp/paths.ts'
+import * as oauthRepository from '../oauth/repository.ts'
+import { isAccessToken } from '../oauth/tokens.ts'
 import { parseMemberRole } from '../workspace/roles.ts'
 import type { MemberRole } from '../workspace/roles.ts'
 import type { Actor } from './actor.ts'
@@ -15,12 +18,13 @@ import * as repository from './repository.ts'
 import { SESSION_COOKIE } from './session.ts'
 
 /**
- * Turns credentials into an `Actor`. Two kinds are accepted, and they must
- * behave identically once resolved: same endpoints, same shapes, same
- * errors.
+ * Turns credentials into an `Actor`. A session cookie and an API key are
+ * accepted everywhere, and they must behave identically once resolved: same
+ * endpoints, same shapes, same errors. An OAuth access token is accepted at
+ * `/mcp` only; everywhere else it answers `401`.
  *
- * A bearer key wins over a cookie. A client sending both is being explicit about
- * which identity it wants.
+ * A bearer credential wins over a cookie. A client sending both is being
+ * explicit about which identity it wants.
  */
 
 /**
@@ -127,14 +131,79 @@ async function resolveApiKeyActor(
 }
 
 /**
- * @throws AppError 401 when no credential is present, or the one presented is
- *   unknown or expired.
+ * An OAuth grant, from its access token.
+ *
+ * The token must be live, issued for `/mcp` (its RFC 8707 audience), and its
+ * user must still be a member of the grant's workspace. The last check is the
+ * same one a personal key gets: access ends with the membership, whether or
+ * not the `workspace.member.removed` subscriber has run.
+ */
+async function resolveOAuthActor(dependencies: CredentialDependencies, secret: string): Promise<Actor> {
+  const now = dependencies.now()
+  const found = await oauthRepository.findLiveAccessToken(dependencies.db, hashToken(secret), now)
+
+  if (found === undefined || !isMcpResource(found.token.resource)) {
+    throw AppError.unauthorized('That OAuth token is not valid or has expired')
+  }
+
+  const { grant, token } = found
+  const membership = await repository.findMembership(dependencies.db, grant.workspaceId, grant.userId)
+
+  if (membership === undefined) {
+    throw AppError.unauthorized('That OAuth token is not valid or has expired')
+  }
+
+  if (grant.lastUsedAt === null || now.getTime() - grant.lastUsedAt.getTime() > LAST_USED_RESOLUTION_MS) {
+    await oauthRepository.touchGrant(dependencies.db, grant.id, now)
+  }
+
+  return {
+    kind: 'oauth',
+    grantId: grant.id,
+    clientId: found.clientId,
+    userId: grant.userId,
+    workspaceId: grant.workspaceId,
+    role: roleFromMembership(membership.role),
+    scopes: token.scopes as ApiKeyScope[],
+    memberId: membership.id,
+  }
+}
+
+/** The authorization server issues tokens for `<origin>/mcp` and nothing else. */
+function isMcpResource(resource: string): boolean {
+  try {
+    return new URL(resource).pathname === MCP_ROUTE_PREFIX
+  } catch {
+    return false
+  }
+}
+
+export interface ResolveActorOptions {
+  /**
+   * Whether an OAuth access token may resolve. True for `/mcp` only: a token
+   * is issued for that resource, and `/v1` stays sessions and API keys.
+   */
+  readonly acceptOAuth?: boolean
+}
+
+/**
+ * @throws AppError 401 when no credential is present, the one presented is
+ *   unknown or expired, or it is an OAuth token on a surface that takes none.
  */
 export async function resolveActor(
   dependencies: CredentialDependencies,
   credentials: { readonly bearer?: string | undefined; readonly cookie?: string | undefined },
+  options: ResolveActorOptions = {},
 ): Promise<Actor> {
   if (credentials.bearer !== undefined && credentials.bearer.length > 0) {
+    if (isAccessToken(credentials.bearer)) {
+      if (options.acceptOAuth !== true) {
+        throw AppError.unauthorized('An OAuth token works only at /mcp. Use an API key for the REST API')
+      }
+
+      return resolveOAuthActor(dependencies, credentials.bearer)
+    }
+
     return resolveApiKeyActor(dependencies, credentials.bearer)
   }
 
@@ -145,13 +214,23 @@ export async function resolveActor(
   throw AppError.unauthorized('Sign in or present an API key to continue')
 }
 
-/** Reads both credential carriers off a request. */
+/**
+ * Reads both credential carriers off a request.
+ *
+ * The path decides whether an OAuth token is accepted, so the middleware that
+ * runs on both `/v1` and `/mcp` (the rate limiter, the workspace access gate)
+ * gets the right answer on each without being told.
+ */
 export function resolveActorFrom(
   dependencies: CredentialDependencies,
   context: Context,
 ): Promise<Actor> {
-  return resolveActor(dependencies, {
-    bearer: readBearerToken(context.req.header('Authorization')),
-    cookie: getCookie(context, SESSION_COOKIE),
-  })
+  return resolveActor(
+    dependencies,
+    {
+      bearer: readBearerToken(context.req.header('Authorization')),
+      cookie: getCookie(context, SESSION_COOKIE),
+    },
+    { acceptOAuth: isMcpPath(context.req.path) },
+  )
 }

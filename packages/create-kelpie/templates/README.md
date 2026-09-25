@@ -91,6 +91,7 @@ egress, module-locking, and per-account login-limit settings — is
 | `RATE_LIMIT_FORMS_LIMIT` / `RATE_LIMIT_FORMS_WINDOW_SECONDS` | Optional. Requests per window per IP on a public form submit, default 20 / 60 |
 | `RATE_LIMIT_AUTH_LIMIT` / `RATE_LIMIT_AUTH_WINDOW_SECONDS` | Optional. Requests per window per IP on signup, login, and password reset, default 10 / 60 |
 | `RATE_LIMIT_API_LIMIT` / `RATE_LIMIT_API_WINDOW_SECONDS` | Optional. Requests per window per API key on the rest of `/v1`, default 600 / 60 |
+| `RATE_LIMIT_OAUTH_LIMIT` / `RATE_LIMIT_OAUTH_WINDOW_SECONDS` | Optional. Requests per window per IP on the OAuth endpoints MCP clients sign in through, default 60 / 60 |
 | `TRUSTED_PROXY_HOP_COUNT` | Optional, default 0. The number of reverse proxies in front of the service. Set the real hop count so rate limits meter the actual client from `X-Forwarded-For`, not your proxy |
 
 ### Rotating the encryption key

@@ -10,7 +10,7 @@ import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { limitFor } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
-import { toEventActor } from '../../lib/actor.ts'
+import { isBearerActor, toEventActor } from '../../lib/actor.ts'
 import type { Actor, SessionActor } from '../auth/actor.ts'
 import './events.ts'
 import * as authRepository from '../auth/repository.ts'
@@ -216,7 +216,9 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
     workspaceId: string,
     required: MemberRole,
   ): Promise<{ memberId: string | null; role: MemberRole }> {
-    if (actor.kind === 'api_key') {
+    // A key or an OAuth grant is bound to one workspace. Its user may belong to
+    // others, but this credential reaches only the one it was issued for.
+    if (isBearerActor(actor)) {
       if (actor.workspaceId !== workspaceId) {
         throw AppError.notFound('Workspace not found')
       }

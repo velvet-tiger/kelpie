@@ -100,7 +100,7 @@ describe('the account tab strip', () => {
     renderWith([])
 
     await waitFor(() => {
-      expect(tabLabels()).toEqual(['Profile', 'Security', 'Preferences', 'API keys'])
+      expect(tabLabels()).toEqual(['Profile', 'Security', 'Preferences', 'API keys', 'Connected apps'])
     })
   })
 
@@ -113,7 +113,7 @@ describe('the account tab strip', () => {
     renderWith([mailboxModule])
 
     await waitFor(() => {
-      expect(tabLabels()).toEqual(['Profile', 'Security', 'Mailbox', 'Preferences', 'API keys'])
+      expect(tabLabels()).toEqual(['Profile', 'Security', 'Mailbox', 'Preferences', 'API keys', 'Connected apps'])
     })
   })
 
@@ -121,7 +121,7 @@ describe('the account tab strip', () => {
     renderWith([mailboxModule], { disabled: ['gmail-sync'] })
 
     await waitFor(() => {
-      expect(tabLabels()).toEqual(['Profile', 'Security', 'Preferences', 'API keys'])
+      expect(tabLabels()).toEqual(['Profile', 'Security', 'Preferences', 'API keys', 'Connected apps'])
     })
   })
 

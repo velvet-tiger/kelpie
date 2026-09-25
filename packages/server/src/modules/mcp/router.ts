@@ -2,10 +2,11 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 
 import type { Actor } from '../../lib/actor.ts'
+import { hasApiKeyScope, resolveMcpScope } from '../../lib/apiKeyScopes.ts'
 import { AppError } from '../../lib/errors.ts'
 import { requestOrigin } from '../../lib/http.ts'
 import type { Logger } from '../../lib/logger.ts'
-import type { McpTool } from '../../runtime/module.ts'
+import type { McpAuthorization, McpTool } from '../../runtime/module.ts'
 import { readBearerToken } from '../api-keys/keys.ts'
 import { resolveActor, resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -79,6 +80,68 @@ export interface McpRouterDependencies extends CredentialDependencies {
   readonly serverInfo: McpServerInfo
   readonly instructions: string
   readonly logger: Logger
+  /**
+   * What the `401` challenge advertises, from the module running the
+   * authorization server. Undefined leaves a bare `Bearer`.
+   */
+  readonly authorization?: McpAuthorization | undefined
+}
+
+/**
+ * The `WWW-Authenticate` value for a refusal.
+ *
+ * With an authorization server installed it carries `resource_metadata`, which
+ * is how an MCP client finds out it can sign in (RFC 9728 §5.1), and the
+ * scopes to ask for. `error` is set only when a token was presented and
+ * refused (RFC 6750 §3.1): a request with none gets the bare challenge.
+ */
+function bearerChallenge(
+  authorization: McpAuthorization | undefined,
+  parameters: { readonly error?: string; readonly scope?: readonly string[]; readonly description?: string },
+): string {
+  if (authorization === undefined) {
+    return 'Bearer'
+  }
+
+  const scope = parameters.scope ?? authorization.defaultScopes
+  const parts = [
+    ...(parameters.error === undefined ? [] : [`error="${parameters.error}"`]),
+    `resource_metadata="${authorization.resourceMetadataUrl}"`,
+    `scope="${scope.join(' ')}"`,
+    ...(parameters.description === undefined ? [] : [`error_description="${parameters.description}"`]),
+  ]
+
+  return `Bearer ${parts.join(', ')}`
+}
+
+/**
+ * The scopes an OAuth grant is missing for the tool calls in one POST, all
+ * together, so the client asks the user once rather than once per scope.
+ *
+ * An API key gets no such answer: nobody can grant it more from here, so its
+ * missing scope stays an in-band tool error, as before.
+ */
+function missingOAuthScopes(actor: Actor, messages: readonly (JsonRpcMessage | undefined)[]): string[] {
+  if (actor.kind !== 'oauth') {
+    return []
+  }
+
+  const missing = new Set<string>()
+
+  for (const message of messages) {
+    if (message?.method !== 'tools/call') {
+      continue
+    }
+
+    const name = readParamsName(message.params)
+    const required = name === undefined ? null : resolveMcpScope(name)
+
+    if (required !== null && !hasApiKeyScope(actor, required)) {
+      missing.add(required)
+    }
+  }
+
+  return [...missing]
 }
 
 /** True when the client will take a plain JSON reply. */
@@ -114,7 +177,11 @@ function acceptsEventStream(header: string | undefined): boolean {
  * @throws AppError 401 when no key is presented, or it is not a live one.
  */
 function resolveKeyActor(dependencies: McpRouterDependencies, context: Context): Promise<Actor> {
-  return resolveActor(dependencies, { bearer: readBearerToken(context.req.header('Authorization')) })
+  return resolveActor(
+    dependencies,
+    { bearer: readBearerToken(context.req.header('Authorization')) },
+    { acceptOAuth: true },
+  )
 }
 
 /**
@@ -350,8 +417,13 @@ export function createMcpEndpoint(dependencies: McpRouterDependencies): McpEndpo
     const actor = await resolveKeyActor(dependencies, context).catch((error: unknown) => {
       if (error instanceof AppError && error.code === 'unauthorized') {
         // The header is what tells a client it may retry with a credential
-        // rather than that the endpoint is gone.
-        context.header('WWW-Authenticate', 'Bearer')
+        // rather than that the endpoint is gone, and where to get one.
+        const presented = readBearerToken(context.req.header('Authorization')) !== undefined
+
+        context.header(
+          'WWW-Authenticate',
+          bearerChallenge(dependencies.authorization, presented ? { error: 'invalid_token' } : {}),
+        )
       }
 
       throw error
@@ -393,6 +465,21 @@ export function createMcpEndpoint(dependencies: McpRouterDependencies): McpEndpo
         ),
         400,
       )
+    }
+
+    const missingScopes = missingOAuthScopes(actor, parsed)
+
+    if (missingScopes.length > 0) {
+      const description = `This OAuth token does not have the ${missingScopes.join(', ')} scope`
+
+      // RFC 6750 §3.1 and the MCP step-up flow: a 403 the client can act on by
+      // asking the user for more access, rather than a tool error it cannot.
+      context.header(
+        'WWW-Authenticate',
+        bearerChallenge(dependencies.authorization, { error: 'insufficient_scope', scope: missingScopes, description }),
+      )
+
+      throw new AppError('forbidden', description)
     }
 
     const responses: JsonRpcResponse[] = []

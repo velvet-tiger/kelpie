@@ -20,6 +20,7 @@ import { createHiringModule } from './hiring/index.ts'
 import { createImportExportModule } from './import-export/index.ts'
 import { createListsModule } from './lists/index.ts'
 import { createNotesModule } from './notes/index.ts'
+import { createOAuthModule } from './oauth/index.ts'
 import { createOpportunitiesModule } from './opportunities/index.ts'
 import { createPartnershipsModule } from './partnerships/index.ts'
 import { createPeopleModule } from './people/index.ts'
@@ -51,6 +52,7 @@ export const coreModules: readonly KelpieModule[] = [
   createAuthModule(coreMigrationsDirectory),
   createWorkspaceModule(coreMigrationsDirectory),
   createApiKeysModule(coreMigrationsDirectory),
+  createOAuthModule(coreMigrationsDirectory),
   // Structural. Registers before People, Forms, Lists, and Import-Export so
   // its table is defined when their fks and per-person consent join reach it.
   createConsentPurposesModule(coreMigrationsDirectory),

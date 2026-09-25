@@ -108,6 +108,23 @@ export type ExternalSignInHandler = (
 ) => Promise<CompletedSignIn>
 
 /**
+ * How an MCP client learns to authenticate, installed by the module that runs
+ * the authorization server (core's `oauth`).
+ *
+ * The MCP endpoint is mounted by the app, not by a module, so it cannot read a
+ * module's configuration. This is the one thing it needs from one: where the
+ * protected resource metadata lives, and which scopes to ask a client for. Its
+ * `401` then carries `resource_metadata` and `scope`. Without an installer the
+ * challenge is a bare `Bearer`, which is what an assembly with no OAuth needs.
+ */
+export interface McpAuthorization {
+  /** Absolute URL of the RFC 9728 protected resource metadata for `/mcp`. */
+  readonly resourceMetadataUrl: string
+  /** Scopes a client should ask for when it has no better information. */
+  readonly defaultScopes: readonly string[]
+}
+
+/**
  * What a module gets to build with, beyond its own contributions.
  *
  * The module contract does not list these. A module that contributes tables has no way
@@ -198,6 +215,11 @@ export interface ModuleContext extends ModuleServices {
    *   the module asked for `provision: 'refuse'`.
    */
   completeExternalSignIn(context: Context, identity: VerifiedIdentity): Promise<CompletedSignIn>
+  /**
+   * Installs what the MCP endpoint's `401` tells a client about OAuth. Core's
+   * `oauth` module calls this; a second caller fails boot.
+   */
+  provideMcpAuthorization(authorization: McpAuthorization): void
   /**
    * Registers routes that mount under `/v1/public`, take no credentials, and
    * answer cross-origin requests from any site.

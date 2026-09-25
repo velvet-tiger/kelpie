@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from 'hono'
 
+import { isBearerActor } from '../../lib/actor.ts'
 import { requireApiKeyScope, resolveRestScope } from '../../lib/apiKeyScopes.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -21,7 +22,7 @@ export function createApiKeyScopeMiddleware(
 
     const actor = await resolveActorFrom(dependencies, context)
 
-    if (actor.kind === 'api_key') {
+    if (isBearerActor(actor)) {
       requireApiKeyScope(actor, required)
     }
 

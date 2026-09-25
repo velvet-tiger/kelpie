@@ -1,6 +1,7 @@
 import type { ApiKeyGranularScope, ApiKeyScope } from '@kelpie/schemas'
 import { satisfiesApiKeyScope } from '@kelpie/schemas'
 
+import { isBearerActor } from './actor.ts'
 import type { Actor } from './actor.ts'
 import { AppError } from './errors.ts'
 
@@ -27,6 +28,11 @@ function isExempt(method: string, path: string): boolean {
   }
 
   if (path.startsWith('/v1/account')) {
+    return true
+  }
+
+  // Session only: the service refuses every bearer credential with 403.
+  if (path.startsWith('/v1/oauth/')) {
     return true
   }
 
@@ -110,16 +116,25 @@ const ROUTE_SCOPE_RULES: readonly RouteScopeRule[] = [
 ]
 
 function storedScopes(actor: Actor): readonly ApiKeyScope[] {
-  if (actor.kind !== 'api_key') {
+  if (!isBearerActor(actor)) {
     return []
   }
 
   return actor.scopes
 }
 
+/**
+ * Sessions are never scoped. For an API key an empty list means full access;
+ * for an OAuth grant it means nothing, because a grant is always issued with
+ * at least one scope and an empty one can only be a defect.
+ */
 export function hasApiKeyScope(actor: Actor, required: ApiKeyGranularScope): boolean {
-  if (actor.kind !== 'api_key') {
+  if (!isBearerActor(actor)) {
     return true
+  }
+
+  if (actor.kind === 'oauth' && actor.scopes.length === 0) {
+    return false
   }
 
   return satisfiesApiKeyScope(actor.scopes, required)
@@ -130,7 +145,9 @@ export function requireApiKeyScope(actor: Actor, required: ApiKeyGranularScope):
     return
   }
 
-  throw new AppError('forbidden', `This API key does not have the ${required} scope`)
+  const credential = actor.kind === 'oauth' ? 'OAuth token' : 'API key'
+
+  throw new AppError('forbidden', `This ${credential} does not have the ${required} scope`)
 }
 
 export function resolveRestScope(method: string, path: string): ApiKeyGranularScope | null {

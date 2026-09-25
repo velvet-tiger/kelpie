@@ -52,14 +52,15 @@ Back this key up alongside your database. A restored database without it cannot 
 
 ## Rate limits
 
-Four fixed-window budgets. Each takes a `_LIMIT` and a `_WINDOW_SECONDS` pair; all are optional, with the defaults shown. Over budget answers `429` with a `Retry-After` header.
+Five fixed-window budgets. Each takes a `_LIMIT` and a `_WINDOW_SECONDS` pair; all are optional, with the defaults shown. Over budget answers `429` with a `Retry-After` header.
 
 | Budget | Guards | Counted per | Default |
 | --- | --- | --- | --- |
 | `RATE_LIMIT_FORMS_*` | Public form submit and embed | Client IP | 20 / 60 s |
 | `RATE_LIMIT_AUTH_*` | Signup, login, password reset | Client IP | 10 / 60 s |
 | `RATE_LIMIT_LOGIN_ACCOUNT_*` | Login, as a second budget | Account email | 10 / 900 s |
-| `RATE_LIMIT_API_*` | Everything else on `/v1`, and `/mcp` | API key | 600 / 60 s |
+| `RATE_LIMIT_API_*` | Everything else on `/v1`, and `/mcp` | API key or OAuth grant | 600 / 60 s |
+| `RATE_LIMIT_OAUTH_*` | The OAuth endpoints MCP clients sign in through (`/oauth/*`) | Client IP | 60 / 60 s |
 
 The per-account login budget is the one an attacker rotating IP addresses cannot reset. Browser sessions carry no API budget; only bearer-key traffic is metered there.
 

@@ -6,7 +6,7 @@ import { createTestClient, readList, readRecord, readString } from '../../testin
 import type { TestClient, TestOwner } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
-import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
+import { TEST_APP_BASE_URL, TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
 import { LATEST_LEGACY_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION } from './protocol.ts'
@@ -21,6 +21,9 @@ import { LATEST_LEGACY_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION } from './proto
  */
 
 const connectionString = testDatabaseUrl(process.env)
+
+/** What core's `oauth` module puts on every `401`: where to sign in, and what to ask for. */
+const MCP_CHALLENGE = `Bearer resource_metadata="${TEST_APP_BASE_URL}/.well-known/oauth-protected-resource/mcp", scope="read:objects write:objects"`
 
 interface JsonRpcEnvelope {
   readonly jsonrpc?: unknown
@@ -526,7 +529,8 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       const response = await postModern('server/discover', {}, { Authorization: null })
 
       expect(response.status).toBe(401)
-      expect(response.headers.get('WWW-Authenticate')).toBe('Bearer')
+      // With no token presented there is no `error`: only where to sign in.
+      expect(response.headers.get('WWW-Authenticate')).toBe(MCP_CHALLENGE)
     })
   })
 
@@ -535,7 +539,7 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       const response = await post(request(1, 'tools/list'), null)
 
       expect(response.status).toBe(401)
-      expect(response.headers.get('WWW-Authenticate')).toBe('Bearer')
+      expect(response.headers.get('WWW-Authenticate')).toBe(MCP_CHALLENGE)
       expect(readRecord(readRecord(await response.json()).error).code).toBe('unauthorized')
     })
 

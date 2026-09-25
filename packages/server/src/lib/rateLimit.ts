@@ -2,8 +2,8 @@ import { z } from 'zod'
 
 /**
  * Budgets for the rate-limited request classes: public form submissions,
- * unauthenticated auth endpoints by IP, login by account, and everything else
- * under an API key. Self-host packaging calls for this with nothing to
+ * unauthenticated auth endpoints by IP, login by account, everything else
+ * under an API key, and the OAuth protocol endpoints by IP. Self-host packaging calls for this with nothing to
  * configure, so every variable here is optional and defaulted.
  */
 
@@ -22,6 +22,12 @@ export interface RateLimitConfig {
    */
   readonly loginAccount: RateLimitBudget
   readonly api: RateLimitBudget
+  /**
+   * The OAuth protocol endpoints (`/oauth/*`), per IP. Its own budget, not the
+   * `auth` one: a hosted MCP client refreshes every user's token from a few
+   * shared addresses, and ten a minute would turn it away.
+   */
+  readonly oauth: RateLimitBudget
 }
 
 export const rateLimitConfigSchema = z.object({
@@ -33,6 +39,8 @@ export const rateLimitConfigSchema = z.object({
   RATE_LIMIT_LOGIN_ACCOUNT_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
   RATE_LIMIT_API_LIMIT: z.coerce.number().int().positive().default(600),
   RATE_LIMIT_API_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+  RATE_LIMIT_OAUTH_LIMIT: z.coerce.number().int().positive().default(60),
+  RATE_LIMIT_OAUTH_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
 })
 
 export function rateLimitConfigFrom(parsed: z.infer<typeof rateLimitConfigSchema>): RateLimitConfig {
@@ -52,6 +60,10 @@ export function rateLimitConfigFrom(parsed: z.infer<typeof rateLimitConfigSchema
     api: {
       limit: parsed.RATE_LIMIT_API_LIMIT,
       windowMs: parsed.RATE_LIMIT_API_WINDOW_SECONDS * 1000,
+    },
+    oauth: {
+      limit: parsed.RATE_LIMIT_OAUTH_LIMIT,
+      windowMs: parsed.RATE_LIMIT_OAUTH_WINDOW_SECONDS * 1000,
     },
   }
 }

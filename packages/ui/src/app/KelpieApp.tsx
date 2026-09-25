@@ -36,6 +36,7 @@ import { RaiseDetail } from '../pages/RaiseDetail.tsx'
 import { RaiseStageSettingsPage } from '../pages/RaiseStageSettingsPage.tsx'
 import { RoleDetail } from '../pages/RoleDetail.tsx'
 import { AccountLayout } from '../pages/account/AccountLayout.tsx'
+import { ConnectedAppsPage } from '../pages/account/ConnectedAppsPage.tsx'
 import { PersonalApiKeysPage } from '../pages/account/PersonalApiKeysPage.tsx'
 import { PreferencesPage } from '../pages/account/PreferencesPage.tsx'
 import { ProfilePage } from '../pages/account/ProfilePage.tsx'
@@ -51,6 +52,7 @@ import { WebhooksPage } from '../pages/admin/WebhooksPage.tsx'
 import { WorkspaceSettingsPage } from '../pages/admin/WorkspaceSettingsPage.tsx'
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage.tsx'
 import { JoinPage } from '../pages/auth/JoinPage.tsx'
+import { ConsentPage } from '../pages/oauth/ConsentPage.tsx'
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage.tsx'
 import { SignInPage } from '../pages/auth/SignInPage.tsx'
 import { SignUpPage } from '../pages/auth/SignUpPage.tsx'
@@ -137,6 +139,9 @@ function AppRoutes(): React.JSX.Element {
           verification pages, all of which are what the gate sends an account
           with no workspace to. */}
       <Route path="/join" element={<JoinPage />} />
+      {/* An MCP client's OAuth consent. Handles its own sign-in redirect, as
+          /join does, so the request survives it. */}
+      <Route path="/consent/:requestId" element={<ConsentPage />} />
       <Route path="/onboarding/workspace" element={<WorkspaceStepPage />} />
       <Route path="/verify-email" element={<VerifyEmailConfirmPage />} />
       <Route path="/verify-email/pending" element={<VerifyEmailPendingPage />} />
@@ -205,6 +210,7 @@ function AppRoutes(): React.JSX.Element {
             <Route path="security" element={<SecurityPage />} />
             <Route path="preferences" element={<PreferencesPage />} />
             <Route path="api-keys" element={<PersonalApiKeysPage />} />
+            <Route path="connected-apps" element={<ConnectedAppsPage />} />
             {accountRoutes.map((route) => (
               <Route
                 key={route.path}

@@ -112,6 +112,7 @@ export type {
   CompletedSignInAccount,
   ExternalSignInHandler,
   KelpieModule,
+  McpAuthorization,
   McpTool,
   McpToolDefinition,
   McpToolRegistry,
@@ -188,8 +189,14 @@ export type {
 } from './runtime/registry.ts'
 export type { ModuleServices } from './runtime/module.ts'
 
-export type { Actor, ApiKeyActor, SessionActor } from './modules/auth/actor.ts'
-export { actorUserId, actorWorkspaceId, requireSessionActor } from './modules/auth/actor.ts'
+export type { Actor, ApiKeyActor, BearerActor, OAuthActor, SessionActor } from './modules/auth/actor.ts'
+export {
+  actorUserId,
+  actorWorkspaceId,
+  bearerCredentialId,
+  isBearerActor,
+  requireSessionActor,
+} from './modules/auth/actor.ts'
 export { resolveActor, resolveActorFrom } from './modules/auth/credentials.ts'
 export type { CredentialDependencies } from './modules/auth/credentials.ts'
 export { MEMBER_ROLES, INVITABLE_ROLES, parseMemberRole, roleAllows } from './modules/workspace/roles.ts'

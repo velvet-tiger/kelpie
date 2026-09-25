@@ -45,7 +45,52 @@ export interface ApiKeyActor {
   readonly memberId: string | null
 }
 
-export type Actor = SessionActor | ApiKeyActor
+/**
+ * An OAuth grant: an MCP client the user approved for one workspace.
+ *
+ * It acts as its user in that workspace, as a personal key does, and its scopes
+ * narrow what the user's role allows. It is its own kind rather than an
+ * `ApiKeyActor` because a grant is not a key: logs, the audit trail and the
+ * rate limiter must be able to tell them apart.
+ *
+ * Unlike a key, an empty `scopes` never means full access. A grant always
+ * carries at least one scope, and `hasApiKeyScope` refuses an empty list.
+ *
+ * Accepted at `/mcp` only. `/v1` answers `401` to an OAuth token
+ * (`modules/auth/credentials.ts`).
+ */
+export interface OAuthActor {
+  readonly kind: 'oauth'
+  readonly grantId: string
+  readonly clientId: string
+  readonly userId: string
+  readonly workspaceId: string
+  readonly role: MemberRole
+  readonly scopes: readonly ApiKeyScope[]
+  readonly memberId: string
+}
+
+export type Actor = SessionActor | ApiKeyActor | OAuthActor
+
+/** A caller that presented a bearer credential rather than a session cookie. */
+export type BearerActor = ApiKeyActor | OAuthActor
+
+/**
+ * True for an API key or an OAuth grant.
+ *
+ * Use this, not `actor.kind === 'api_key'`, wherever the rule is about bearer
+ * credentials: scope checks, the per-credential rate limit, the workspace a
+ * credential is bound to. A check written against `'api_key'` alone lets an
+ * OAuth grant skip it.
+ */
+export function isBearerActor(actor: Actor): actor is BearerActor {
+  return actor.kind === 'api_key' || actor.kind === 'oauth'
+}
+
+/** The id a bearer credential is counted and logged under: the key, or the grant. */
+export function bearerCredentialId(actor: BearerActor): string {
+  return actor.kind === 'api_key' ? actor.apiKeyId : actor.grantId
+}
 
 /** The workspace an actor is operating in, or null if a fresh account has none yet. */
 export function actorWorkspaceId(actor: Actor): string | null {
@@ -78,7 +123,7 @@ export function requireWorkspaceId(actor: Actor): string {
  */
 export function requireSessionActor(actor: Actor): SessionActor {
   if (actor.kind !== 'session') {
-    throw new AppError('forbidden', 'This endpoint needs a signed-in user, not an API key')
+    throw new AppError('forbidden', 'This endpoint needs a signed-in user, not an API key or OAuth token')
   }
 
   return actor

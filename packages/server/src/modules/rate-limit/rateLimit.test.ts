@@ -24,7 +24,7 @@ const connectionString = testDatabaseUrl(process.env)
 const GENEROUS = { limit: 1000, windowMs: 60_000 }
 
 function rateLimitConfig(overrides: Partial<RateLimitConfig>): RateLimitConfig {
-  return { forms: GENEROUS, auth: GENEROUS, loginAccount: GENEROUS, api: GENEROUS, ...overrides }
+  return { forms: GENEROUS, auth: GENEROUS, loginAccount: GENEROUS, api: GENEROUS, oauth: GENEROUS, ...overrides }
 }
 
 const CONTACT_FIELDS = [
@@ -218,6 +218,27 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       })
 
       expect(signup.status).toBe(429)
+    })
+
+    it('meters the OAuth endpoints per IP, under their own budget', async () => {
+      const harness = await harnessWithBudgets(rateLimitConfig({ oauth: { limit: 2, windowMs: 60_000 } }))
+      const register = (ip: string): Promise<Response> =>
+        sendFrom(harness.app, 'POST', '/oauth/register', ip, {
+          redirect_uris: ['http://127.0.0.1:4000/callback'],
+          token_endpoint_auth_method: 'none',
+        })
+
+      expect((await register('203.0.113.90')).status).toBe(201)
+      expect((await register('203.0.113.90')).status).toBe(201)
+
+      const limited = await register('203.0.113.90')
+
+      expect(limited.status).toBe(429)
+      expect(limited.headers.get('Retry-After')).not.toBeNull()
+      // Another address has its own count.
+      expect((await register('203.0.113.91')).status).toBe(201)
+      // The discovery documents are not metered.
+      expect((await sendFrom(harness.app, 'GET', '/.well-known/oauth-authorization-server', '203.0.113.90')).status).toBe(200)
     })
 
     it('caps login attempts on one account across every IP', async () => {
