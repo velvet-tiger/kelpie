@@ -49,8 +49,14 @@ export class WebBundleError extends Error {
  * `/v1/public` needs no entry of its own: it sits under `/v1`. `MCP_ROUTE_PREFIX`
  * is imported rather than written out, so moving the endpoint moves this with it.
  * An assembly's own API prefixes arrive through `WebBundleOptions.apiPrefixes`.
+ *
+ * `/.well-known` holds machine-read discovery documents, never pages. An MCP
+ * client probes `/.well-known/oauth-protected-resource` to learn how to
+ * authenticate, and the app shell with a 200 reads as a malformed answer
+ * rather than as "not supported". A module that serves one there registers
+ * it through `appRoute`, ahead of this fallback.
  */
-const CORE_API_PREFIXES: readonly string[] = ['/v1', MCP_ROUTE_PREFIX, '/healthz']
+const CORE_API_PREFIXES: readonly string[] = ['/v1', MCP_ROUTE_PREFIX, '/healthz', '/.well-known']
 
 function isApiRequestFor(prefixes: readonly string[]): (path: string) => boolean {
   return (path) => prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))

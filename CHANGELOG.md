@@ -10,6 +10,21 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/ui`** — **MCP config with a new API key.** After you create
+  an API key, the one-time secret box also shows the MCP endpoint and a
+  client config with the new key in the `Authorization` header, ready to
+  paste into Claude, Cursor, or another MCP client.
+
+### Fixed
+
+- **`@kelpie/server`** — **`/.well-known/` is no longer the app shell.**
+  `serveWebBundle` answered `GET /.well-known/oauth-protected-resource`
+  with `index.html` and a 200, so an MCP client that looks for OAuth read
+  a web page as metadata. Paths under `/.well-known` now fall through to
+  the JSON 404 unless a module serves them.
+
 ## [0.15.0] - 2026-09-20
 
 ### Added

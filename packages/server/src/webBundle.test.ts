@@ -159,6 +159,15 @@ describe('serveWebBundle', () => {
     expect(await response.json()).toEqual({ status: 'ok', database: 'up' })
   })
 
+  /** An MCP client reads a 200 here as OAuth metadata and fails to parse the page. */
+  it('answers an unserved discovery document with the JSON 404, not the shell', async () => {
+    const { app } = await appServingBundle()
+    const response = await app.request('/.well-known/oauth-protected-resource')
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get('Content-Type')).toContain('application/json')
+  })
+
   /** A wrong endpoint, not a page request. Answering it with a document hides the mistake. */
   it('does not answer a write to an unknown path with the shell', async () => {
     const { app } = await appServingBundle()
