@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-25
+
 ### Added
 
 - **`@kelpie/ui`** — **MCP config with a new API key.** After you create
