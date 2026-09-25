@@ -164,6 +164,9 @@ describe('ApiKeysPage', () => {
 
     expect(await screen.findByText('kp_live_realsecretvalue')).toBeTruthy()
     expect(screen.getByText(/not shown again/u)).toBeTruthy()
+    expect(
+      screen.getByText(new RegExp(`"url": "${window.location.origin}/mcp"`, 'u')).textContent,
+    ).toContain('"Authorization": "Bearer kp_live_realsecretvalue"')
 
     await act(async () => {
       screen.getByRole('button', { name: 'I have copied it' }).click()

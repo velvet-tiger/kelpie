@@ -13,6 +13,7 @@ import type { FormEvent } from 'react'
 import { useTimezone } from '../api/resources/account.ts'
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '../api/resources/apiKeys.ts'
 import { formatDate } from '../lib/dates.ts'
+import { mcpClientConfig, mcpEndpoint } from '../lib/mcpConfig.ts'
 import { CopyButton } from './CopyButton.tsx'
 import { ErrorPanel, LoadingPanel } from './QueryState.tsx'
 
@@ -346,6 +347,9 @@ function SecretOnce({
   readonly apiKey: CreatedApiKey
   readonly onDismiss: () => void
 }): React.JSX.Element {
+  const endpoint = mcpEndpoint()
+  const config = mcpClientConfig(endpoint, apiKey.secret)
+
   return (
     <div className="rounded-md border border-accent/40 bg-accent-soft px-4 py-3">
       <div className="flex items-start justify-between gap-3">
@@ -356,6 +360,19 @@ function SecretOnce({
           </code>
         </div>
         <CopyButton value={apiKey.secret} label="Copy the API key" />
+      </div>
+      <div className="mt-4 flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium text-ink">MCP client config</p>
+          <p className="mt-0.5 text-[12px] text-ink-muted">
+            Paste into Claude, Cursor, or any MCP client. It connects to{' '}
+            <code className="font-mono text-[12px] break-all">{endpoint}</code> with this key.
+          </p>
+          <pre className="bg-code-bg text-code-fg mt-2 overflow-x-auto rounded border border-border p-3 font-mono text-[12px] leading-relaxed">
+            {config}
+          </pre>
+        </div>
+        <CopyButton value={config} label="Copy the MCP client config" />
       </div>
       <button
         type="button"

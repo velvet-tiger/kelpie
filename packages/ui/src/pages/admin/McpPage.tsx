@@ -16,6 +16,7 @@ import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { CopyButton } from '../../components/CopyButton.tsx'
 import { formatRelativeTime } from '../../lib/dates.ts'
+import { mcpClientConfig, mcpEndpoint } from '../../lib/mcpConfig.ts'
 
 /**
  * How an agent connects to this workspace.
@@ -50,17 +51,8 @@ function matches(tool: McpTool, term: string): boolean {
 }
 
 export function McpPage(): React.JSX.Element {
-  const endpoint = new URL('/mcp', window.location.origin).toString()
-  const config = `{
-  "mcpServers": {
-    "kelpie": {
-      "url": "${endpoint}",
-      "headers": {
-        "Authorization": "Bearer kp_live_…"
-      }
-    }
-  }
-}`
+  const endpoint = mcpEndpoint()
+  const config = mcpClientConfig(endpoint, 'kp_live_…')
 
   return (
     <div className="animate-slide-in mx-auto max-w-4xl space-y-6">
