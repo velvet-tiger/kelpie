@@ -16,6 +16,16 @@ While the major version is `0`, a minor bump may break the API.
   an API key, the one-time secret box also shows the MCP endpoint and a
   client config with the new key in the `Authorization` header, ready to
   paste into Claude, Cursor, or another MCP client.
+- **`@kelpie/server`**, **`@kelpie/schemas`**, **`@kelpie/ui`** —
+  **Module-managed agents.** `agent_registrations` has two new nullable
+  columns: `managed_by` (the id of the module that owns the row) and
+  `settings_path` (the UI route that configures it). A module sets them
+  when it writes its own registration. `PATCH` and `DELETE
+  /v1/agents/:id` answer 409 for a managed row, and the MCP page shows
+  "Manage in settings" (a link to `settings_path`) in place of Remove.
+  The agent response carries `managed_by` and `settings_path`. A module
+  owns at most one row per workspace: a partial unique index on
+  `(workspace_id, managed_by)` lets it upsert. Migration `0047`.
 
 ### Fixed
 

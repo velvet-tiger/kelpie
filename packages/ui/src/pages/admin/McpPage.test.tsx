@@ -41,11 +41,25 @@ const AGENTS = [
     name: 'Local Claude',
     endpoint: 'https://agents.example.com/kelpie/run',
     has_auth_header: true,
+    managed_by: null,
+    settings_path: null,
     last_run_at: '2026-08-07T01:00:00.000Z',
     created_at: '2026-08-01T01:00:00.000Z',
     updated_at: '2026-08-01T01:00:00.000Z',
   },
 ]
+
+const MANAGED_AGENT = {
+  id: 'ag_2',
+  name: 'Hosted agent',
+  endpoint: 'https://kelpie.example.com/v1/public/ai/dispatch',
+  has_auth_header: true,
+  managed_by: 'ai',
+  settings_path: '/admin/ai',
+  last_run_at: null,
+  created_at: '2026-08-01T01:00:00.000Z',
+  updated_at: '2026-08-01T01:00:00.000Z',
+}
 
 const RUNS = [
   {
@@ -165,6 +179,26 @@ describe('McpPage', () => {
     expect(screen.getByText('https://agents.example.com/kelpie/run')).toBeTruthy()
     expect(screen.getByText('Auth header set')).toBeTruthy()
     expect(screen.getByText(/Last run/u)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy()
+  })
+
+  it('links a module-managed agent to its settings instead of offering Remove', async () => {
+    renderPage({ agents: () => ({ items: [MANAGED_AGENT], nextCursor: null }) })
+
+    expect(await screen.findByText('Hosted agent')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Manage in settings' }).getAttribute('href')).toBe(
+      '/admin/ai',
+    )
+  })
+
+  it('says a module manages the agent when the module gave no settings path', async () => {
+    renderPage({
+      agents: () => ({ items: [{ ...MANAGED_AGENT, settings_path: null }], nextCursor: null }),
+    })
+
+    expect(await screen.findByText('Managed by a module')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
   })
 
   it('labels run-log rows from the catalog, with the failure reason', async () => {

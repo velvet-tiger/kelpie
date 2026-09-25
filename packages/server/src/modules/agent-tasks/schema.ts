@@ -1,5 +1,6 @@
 import { AGENT_RUN_STATUSES } from '@kelpie/schemas'
-import { index, pgTable, text } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { check, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
@@ -7,6 +8,12 @@ import { workspaces } from '../workspace/schema.ts'
 /**
  * Agents the workspace has registered to receive task dispatches. Kelpie bundles
  * no AI; these are the customer's own agents.
+ *
+ * A module may own a row instead: it sets `managed_by` to its id and, when it
+ * has one, `settings_path` to the UI route that configures it. The API refuses
+ * to change or remove a managed row, and the UI links to that route in place of
+ * Remove. Nothing on the public API sets either column. A module owns at most
+ * one row per workspace, so it can upsert on `(workspace_id, managed_by)`.
  */
 export const agentRegistrations = pgTable(
   'agent_registrations',
@@ -18,11 +25,22 @@ export const agentRegistrations = pgTable(
     name: text('name').notNull(),
     endpoint: text('endpoint').notNull(),
     authHeaderEncrypted: text('auth_header_encrypted'),
+    managedBy: text('managed_by'),
+    settingsPath: text('settings_path'),
     lastRunAt: moment('last_run_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [index('agent_registrations_workspace_idx').on(table.workspaceId)],
+  (table) => [
+    index('agent_registrations_workspace_idx').on(table.workspaceId),
+    uniqueIndex('agent_registrations_managed_by_idx')
+      .on(table.workspaceId, table.managedBy)
+      .where(sql`${table.managedBy} IS NOT NULL`),
+    check(
+      'agent_registrations_settings_path_managed',
+      sql`${table.settingsPath} IS NULL OR ${table.managedBy} IS NOT NULL`,
+    ),
+  ],
 )
 
 /**

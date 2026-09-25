@@ -49,6 +49,10 @@ export interface AgentView {
   readonly name: string
   readonly endpoint: string
   readonly hasAuthHeader: boolean
+  /** The id of the module that owns this row, or null for one an admin registered. */
+  readonly managedBy: string | null
+  /** The UI route that configures a managed row, when its module has one. */
+  readonly settingsPath: string | null
   readonly lastRunAt: Date | null
   readonly createdAt: Date
   readonly updatedAt: Date
@@ -103,6 +107,8 @@ function toAgentView(record: AgentRecord): AgentView {
     name: record.name,
     endpoint: record.endpoint,
     hasAuthHeader: record.authHeaderEncrypted !== null,
+    managedBy: record.managedBy,
+    settingsPath: record.settingsPath,
     lastRunAt: record.lastRunAt,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -161,6 +167,19 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
     }
 
     return agent
+  }
+
+  /**
+   * @throws AppError 409 for a row a module owns. The module writes it from its
+   *   own settings; an edit here would drift from that module's state, and a
+   *   removal would leave the module believing it is still registered.
+   */
+  function requireUnmanaged(agent: AgentRecord): void {
+    if (agent.managedBy !== null) {
+      throw AppError.conflict(
+        `This agent is managed by the ${agent.managedBy} module; change it from that module's settings`,
+      )
+    }
   }
 
   async function resolveView(
@@ -322,6 +341,7 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
     async updateAgent(actor, id, changes) {
       const workspaceId = requireAdminWorkspace(actor)
       const existing = await requireAgent(workspaceId, id)
+      requireUnmanaged(existing)
 
       const columns: Partial<repository.AgentColumns> = {
         ...(changes.name === undefined ? {} : { name: changes.name }),
@@ -363,7 +383,7 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
       // The run log cascades with the registration, like a webhook's
       // deliveries: a run only means anything against the agent it went to.
       await dependencies.transaction(async ({ tx }) => {
-        await requireAgent(workspaceId, id)
+        requireUnmanaged(await requireAgent(workspaceId, id))
         await repository.deleteAgent(tx, workspaceId, id)
       })
     },

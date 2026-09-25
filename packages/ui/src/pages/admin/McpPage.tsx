@@ -249,15 +249,25 @@ function RegisteredAgents(): React.JSX.Element {
                     ? 'Never run'
                     : `Last run ${formatRelativeTime(agent.lastRunAt, timezone)}`}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    deleteAgent.run(agent.id)
-                  }}
-                  className="font-medium text-danger hover:underline"
-                >
-                  Remove
-                </button>
+                {agent.managedBy === null ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      deleteAgent.run(agent.id)
+                    }}
+                    className="font-medium text-danger hover:underline"
+                  >
+                    Remove
+                  </button>
+                ) : agent.settingsPath === null ? (
+                  // The API refuses to change a row a module owns, so there is
+                  // no Remove to offer; the module's own settings manage it.
+                  <span>Managed by a module</span>
+                ) : (
+                  <Link to={agent.settingsPath} className="font-medium text-accent hover:underline">
+                    Manage in settings
+                  </Link>
+                )}
               </div>
             </li>
           ))}

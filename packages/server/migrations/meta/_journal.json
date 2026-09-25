@@ -330,6 +330,13 @@
       "when": 1789000000000,
       "tag": "0046_drop_company_website",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1789100000000,
+      "tag": "0047_agent_managed_by",
+      "breakpoints": true
     }
   ]
 }

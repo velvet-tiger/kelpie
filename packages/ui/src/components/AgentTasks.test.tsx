@@ -58,6 +58,8 @@ const AGENT = {
   name: 'Local Claude',
   endpoint: 'https://agents.example.com/kelpie/run',
   has_auth_header: false,
+  managed_by: null,
+  settings_path: null,
   last_run_at: null,
   created_at: '2026-08-01T01:00:00.000Z',
   updated_at: '2026-08-01T01:00:00.000Z',

@@ -75,6 +75,8 @@ export function agentResponse(agent: AgentView): Record<string, unknown> {
     name: agent.name,
     endpoint: agent.endpoint,
     has_auth_header: agent.hasAuthHeader,
+    managed_by: agent.managedBy,
+    settings_path: agent.settingsPath,
     last_run_at: agent.lastRunAt === null ? null : agent.lastRunAt.toISOString(),
     created_at: agent.createdAt.toISOString(),
     updated_at: agent.updatedAt.toISOString(),

@@ -169,12 +169,18 @@ export function runAgentTaskBody(input: RunAgentTaskInput): Record<string, unkno
 /**
  * A bring-your-own agent endpoint. The auth header is sealed server-side and
  * never returned; `hasAuthHeader` is all a reader learns about it.
+ *
+ * A module may own the row instead (`managedBy` is its id). The API refuses to
+ * change or remove a managed row; `settingsPath`, when set, is the UI route
+ * where the module configures it.
  */
 export interface RegisteredAgent extends RecordTimestamps {
   readonly id: string
   readonly name: string
   readonly endpoint: string
   readonly hasAuthHeader: boolean
+  readonly managedBy: string | null
+  readonly settingsPath: string | null
   readonly lastRunAt: Date | null
 }
 
@@ -184,6 +190,8 @@ export const registeredAgentSchema: z.ZodType<RegisteredAgent, unknown> = z
     name: z.string(),
     endpoint: z.string(),
     has_auth_header: z.boolean(),
+    managed_by: z.string().nullable(),
+    settings_path: z.string().nullable(),
     last_run_at: nullableTimestampSchema,
     ...recordTimestamps,
   })
@@ -193,6 +201,8 @@ export const registeredAgentSchema: z.ZodType<RegisteredAgent, unknown> = z
       name: wire.name,
       endpoint: wire.endpoint,
       hasAuthHeader: wire.has_auth_header,
+      managedBy: wire.managed_by,
+      settingsPath: wire.settings_path,
       lastRunAt: wire.last_run_at,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,

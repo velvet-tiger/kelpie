@@ -4,6 +4,7 @@ import {
   registeredAgentSchema,
   resolvedAgentTaskSchema,
 } from '@kelpie/schemas'
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -17,6 +18,7 @@ import { createTestServices } from '../../testing/services.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import type { DispatchOutcome, DispatchRequest, SendDispatch } from './dispatch.ts'
 import { createAgentTasksModule } from './index.ts'
+import { agentRegistrations } from './schema.ts'
 
 /**
  * `/v1/agent-tasks`, `/v1/agent-runs` and `/v1/agents`, against real Postgres.
@@ -446,6 +448,52 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       expect((await client.send('GET', `/v1/agents/${id}`, { cookie: acme.cookie })).status).toBe(
         404,
       )
+    })
+
+    it('refuses to change or remove an agent a module manages', async () => {
+      const id = readString(await createAgent(), 'id')
+
+      // No route sets these columns; a module writes them directly.
+      await database.db
+        .update(agentRegistrations)
+        .set({ managedBy: 'ai', settingsPath: '/admin/ai' })
+        .where(eq(agentRegistrations.id, id))
+
+      const read = await client.send('GET', `/v1/agents/${id}`, { cookie: acme.cookie })
+      const agent = registeredAgentSchema.parse(readRecord(await read.json()))
+
+      expect(agent.managedBy).toBe('ai')
+      expect(agent.settingsPath).toBe('/admin/ai')
+
+      const renamed = await client.send('PATCH', `/v1/agents/${id}`, {
+        body: { name: 'Renamed' },
+        cookie: acme.cookie,
+      })
+
+      expect(renamed.status).toBe(409)
+
+      const removed = await client.send('DELETE', `/v1/agents/${id}`, { cookie: acme.cookie })
+
+      expect(removed.status).toBe(409)
+      expect((await client.send('GET', `/v1/agents/${id}`, { cookie: acme.cookie })).status).toBe(
+        200,
+      )
+    })
+
+    it('reports an agent an admin registered as unmanaged', async () => {
+      const agent = registeredAgentSchema.parse(await createAgent())
+
+      expect(agent.managedBy).toBeNull()
+      expect(agent.settingsPath).toBeNull()
+    })
+
+    it('refuses a managed_by field on create', async () => {
+      const response = await client.send('POST', '/v1/agents', {
+        body: { name: 'Sneaky', endpoint: 'https://agents.example.com/run', managed_by: 'ai' },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(422)
     })
 
     it('refuses an endpoint with credentials in the URL', async () => {
