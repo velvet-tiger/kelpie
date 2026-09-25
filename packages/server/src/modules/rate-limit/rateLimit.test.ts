@@ -23,6 +23,18 @@ const connectionString = testDatabaseUrl(process.env)
 
 const GENEROUS = { limit: 1000, windowMs: 60_000 }
 
+/**
+ * A fixed time 30 seconds into a 60-second window. The limiter floors to fixed
+ * windows, so a test that needs two requests counted together cannot use the
+ * real clock: when the requests fall either side of a minute boundary the
+ * second lands in a fresh window and the expected 429 never comes.
+ */
+const MID_WINDOW = new Date('2026-01-01T00:00:30Z')
+
+function midWindowClock(): Date {
+  return MID_WINDOW
+}
+
 function rateLimitConfig(overrides: Partial<RateLimitConfig>): RateLimitConfig {
   return { forms: GENEROUS, auth: GENEROUS, loginAccount: GENEROUS, api: GENEROUS, oauth: GENEROUS, ...overrides }
 }
@@ -132,7 +144,10 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
 
   describe('the forms budget', () => {
     it('answers 429 with Retry-After once one IP exceeds it, and lets another IP through', async () => {
-      const harness = await harnessWithBudgets(rateLimitConfig({ forms: { limit: 2, windowMs: 60_000 } }))
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ forms: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
       const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const form = await createForm(client, owner)
@@ -172,7 +187,10 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
     })
 
     it('limits the embed page as well as the submit route', async () => {
-      const harness = await harnessWithBudgets(rateLimitConfig({ forms: { limit: 1, windowMs: 60_000 } }))
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ forms: { limit: 1, windowMs: 60_000 } }),
+        midWindowClock,
+      )
       const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const form = await createForm(client, owner)
@@ -194,7 +212,10 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
     }
 
     it('answers 429 with Retry-After once one IP exceeds it, and lets another IP through', async () => {
-      const harness = await harnessWithBudgets(rateLimitConfig({ auth: { limit: 2, windowMs: 60_000 } }))
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ auth: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
 
       expect((await login(harness.app, '203.0.113.50')).status).toBe(401)
       expect((await login(harness.app, '203.0.113.50')).status).toBe(401)
@@ -207,7 +228,10 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
     })
 
     it('shares its budget across every unauthenticated auth endpoint', async () => {
-      const harness = await harnessWithBudgets(rateLimitConfig({ auth: { limit: 1, windowMs: 60_000 } }))
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ auth: { limit: 1, windowMs: 60_000 } }),
+        midWindowClock,
+      )
 
       expect((await login(harness.app, '203.0.113.70')).status).toBe(401)
 
@@ -221,7 +245,10 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
     })
 
     it('meters the OAuth endpoints per IP, under their own budget', async () => {
-      const harness = await harnessWithBudgets(rateLimitConfig({ oauth: { limit: 2, windowMs: 60_000 } }))
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ oauth: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
       const register = (ip: string): Promise<Response> =>
         sendFrom(harness.app, 'POST', '/oauth/register', ip, {
           redirect_uris: ['http://127.0.0.1:4000/callback'],
@@ -245,6 +272,7 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       // The per-IP budget stays generous, so only the per-account one can bite.
       const harness = await harnessWithBudgets(
         rateLimitConfig({ loginAccount: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
       )
       const attempt = (ip: string, email: string): Promise<Response> =>
         sendFrom(harness.app, 'POST', '/v1/auth/login', ip, { email, password: 'wrong' })
@@ -260,7 +288,10 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
 
   describe('the api budget', () => {
     it('answers 429 for an API key over budget but never limits a session', async () => {
-      const harness = await harnessWithBudgets(rateLimitConfig({ api: { limit: 2, windowMs: 60_000 } }))
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ api: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
       const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const secret = await mintApiKey(client, owner.cookie)
@@ -285,7 +316,10 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
     })
 
     it('is shared with the MCP transport, since every call there already carries an API key', async () => {
-      const harness = await harnessWithBudgets(rateLimitConfig({ api: { limit: 2, windowMs: 60_000 } }))
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ api: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
       const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const secret = await mintApiKey(client, owner.cookie)
