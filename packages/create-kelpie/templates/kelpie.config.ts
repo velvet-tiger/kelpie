@@ -1,6 +1,7 @@
 import {
   appUrlConfigSchema,
   coreModules,
+  createAiModule,
   defineKelpieConfig,
   fromEnv,
   secretEncryptionConfigSchema,
@@ -124,5 +125,11 @@ export default defineKelpieConfig({
   // registers a `'smtp'` provider. Set `EMAIL_PROVIDER=log` to fall back to
   // the built-in log sender; the `smtp-email` module only reads the SMTP
   // environment when `email.provider` picks its name.
-  modules: [...coreModules],
+  //
+  // `createAiModule()` is the optional Kelpie AI agent. Nothing runs until an
+  // admin opens Admin → AI, picks OpenAI or Anthropic, and enters their own
+  // API key. `AI_PROVIDER` and `AI_API_KEY` set a fallback key for every
+  // workspace. Remove it from this list (and `aiUi` from
+  // `kelpie.ui.config.ts`) to leave AI out of the install.
+  modules: [...coreModules, createAiModule()],
 })

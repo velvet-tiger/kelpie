@@ -457,6 +457,53 @@ describe('module MCP tools', () => {
   })
 })
 
+describe('context.mcp.list', () => {
+  it('returns every module’s tools once registration has finished', async () => {
+    let list: (() => readonly { readonly name: string }[]) | undefined
+
+    const reader: KelpieModule = {
+      id: 'reader',
+      register(context) {
+        context.mcp.tool({
+          name: 'reader.own',
+          description: 'Registered by the reader.',
+          inputSchema: z.object({}),
+          invoke: () => Promise.resolve(null),
+        })
+        // Captured during register, called after boot: the order a module
+        // that acts through other modules' tools uses it in.
+        list = () => context.mcp.list()
+
+        return Promise.resolve()
+      },
+    }
+    const later: KelpieModule = {
+      id: 'later',
+      register(context) {
+        context.mcp.tool({
+          name: 'later.tool',
+          description: 'Registered after the reader.',
+          inputSchema: z.object({}),
+          invoke: () => Promise.resolve(null),
+        })
+
+        return Promise.resolve()
+      },
+    }
+
+    const contributions = await registerModules({
+      modules: [reader, later],
+      environment: {},
+      logger: silentLogger(),
+      services: createTestServices(),
+      email: { provider: 'log', from: TEST_EMAIL_FROM },
+    })
+
+    expect(list?.().map((tool) => tool.name)).toEqual(['reader.own', 'later.tool'])
+    expect(list?.()).toBe(contributions.mcpTools)
+  })
+})
+
 describe('module event subscriptions', () => {
   function envelope(name: string, target: { type: string; id: string }, data: unknown = {}) {
     return {

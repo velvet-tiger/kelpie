@@ -2,6 +2,7 @@ import {
   ConfigurationError,
   createLogger,
   createTransportForDestination,
+  resealAiSecrets,
   resolveKelpieConfig,
   runReseal,
 } from '@kelpie/server'
@@ -27,7 +28,9 @@ try {
     level: config.logging.level,
     transports: config.logging.destinations.map(createTransportForDestination),
   })
-  process.exit(await runReseal({ config, logger }))
+  // The `ai` module is optional, so core's own pass cannot see its table.
+  // Remove this pass with the module.
+  process.exit(await runReseal({ config, logger, extraPasses: [resealAiSecrets] }))
 } catch (error: unknown) {
   if (error instanceof ConfigurationError) {
     reportFatal(error.message)

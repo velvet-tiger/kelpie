@@ -477,6 +477,10 @@ function createModuleContext(
     },
 
     mcp: {
+      // The accumulator's own array: `contributions.mcpTools` is this same
+      // array, so a caller at run time sees every module's tools.
+      list: () => accumulator.mcpTools,
+
       tool(definition) {
         if (accumulator.mcpTools.some((existing) => existing.name === definition.name)) {
           throw new ModuleBootError([`module "${module.id}" declares MCP tool "${definition.name}" twice`])

@@ -76,6 +76,20 @@ The per-account login budget is the one an attacker rotating IP addresses cannot
 | --- | --- | --- |
 | `BLOCK_PRIVATE_EGRESS` | no | `true` refuses webhook deliveries and agent-task dispatches whose URL resolves to a private or reserved address. Default `false`, because a self-hosted install legitimately posts to internal hosts. Turn it on when strangers can register webhooks on your deployment. |
 
+## Kelpie AI
+
+Read by the optional `ai` module, and only when `kelpie.config.ts` lists `createAiModule()`. Every variable is optional: each workspace admin can enter their own key in **Admin → AI**. See [Kelpie AI](../agents/kelpie-ai.md).
+
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `AI_PROVIDER` | no | `openai` or `anthropic`. The provider of the fallback key. |
+| `AI_API_KEY` | no | A fallback key for every workspace that has not entered its own. Ignored without `AI_PROVIDER`, and never lent to the other provider. |
+| `AI_MODEL` | no | The fallback model for `AI_PROVIDER`. Default `gpt-5-mini` (OpenAI) or `claude-opus-5` (Anthropic). |
+| `AI_MAX_TOKENS` | no | The output cap per model call, 1024 to 128000. Default `16000`. |
+| `AI_MAX_CONCURRENT_RUNS` | no | Runs at once per workspace, 1 to 20. Default `2`. More runs queue. |
+| `AI_RUN_TIMEOUT_MINUTES` | no | A run still going after this long is marked failed on the next dispatch. Default `15`. |
+| `AI_DISPATCH_BASE_URL` | no | Where the Run menu reaches the module. Default `APP_BASE_URL`. Set it when the server cannot reach its own public address, for example `http://localhost:3000`. With `BLOCK_PRIVATE_EGRESS=true`, a private address here is refused, so leave it unset there. |
+
 ## Locking modules for the whole deployment
 
 | Variable | Required | Meaning |

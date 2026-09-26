@@ -1,3 +1,4 @@
+import { aiUi } from '@kelpie/ui'
 import type { UiModule } from '@kelpie/ui'
 
 /**
@@ -8,7 +9,9 @@ import type { UiModule } from '@kelpie/ui'
  * anyway: a module can contribute to one surface without the other, and most
  * do.
  *
- * Empty is the supported state. Core pages look finished with every slot
+ * `aiUi` is the admin page for the optional `ai` server module. It pairs with
+ * `createAiModule()` in `kelpie.config.ts`; remove both to leave AI out. An
+ * empty list is supported too: core pages look finished with every slot
  * unfilled.
  */
-export const uiModules: readonly UiModule[] = []
+export const uiModules: readonly UiModule[] = [aiUi]

@@ -485,6 +485,28 @@ export type {
   RunAgentTaskInput,
 } from './agentTask.ts'
 
+export {
+  AI_DEFAULT_MODELS,
+  AI_KEY_MODES,
+  AI_KEY_SOURCES,
+  AI_PROVIDER_LABELS,
+  AI_PROVIDERS,
+  AI_RUN_STATUSES,
+  aiRunSchema,
+  aiSettingsBody,
+  aiSettingsSchema,
+} from './ai.ts'
+export type {
+  AiKeyMode,
+  AiKeySource,
+  AiOperationOutcome,
+  AiProvider,
+  AiRun,
+  AiRunStatus,
+  AiSettings,
+  AiSettingsInput,
+} from './ai.ts'
+
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'
 

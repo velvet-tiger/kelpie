@@ -63,8 +63,8 @@ export function McpPage(): React.JSX.Element {
         <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-muted">
           Kelpie is a CRM and a company brain. Every REST operation is also an MCP tool over
           Streamable HTTP, so an agent reads and writes the same records the app does, through the
-          same API. Point Claude, Cursor, or any MCP client at this workspace. There is no bundled
-          AI: bring your own agent.
+          same API. Point Claude, Cursor, or any MCP client at this workspace: bring your own agent.
+          An install with the AI module can also run tasks on your own OpenAI or Anthropic key.
         </p>
         <ul className="mt-4 space-y-2 text-[13px] text-ink">
           <li className="flex gap-2">

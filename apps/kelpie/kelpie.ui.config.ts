@@ -1,3 +1,4 @@
+import { aiUi } from '@kelpie/ui'
 import type { UiModule } from '@kelpie/ui'
 
 /**
@@ -9,7 +10,9 @@ import type { UiModule } from '@kelpie/ui'
  * different anyway: a module can contribute to one surface without the other,
  * and most of them do.
  *
- * Open source ships no UI modules. Every slot is empty, and core pages must
+ * Open source ships one UI module: `aiUi`, the admin page for the optional
+ * `ai` server module. It pairs with `createAiModule()` in `kelpie.config.ts`;
+ * remove both to leave AI out. Every other slot is empty, and core pages must
  * look finished in that state.
  */
-export const uiModules: readonly UiModule[] = []
+export const uiModules: readonly UiModule[] = [aiUi]

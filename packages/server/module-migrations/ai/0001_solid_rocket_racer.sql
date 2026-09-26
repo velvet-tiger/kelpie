@@ -1,0 +1,1 @@
+ALTER TABLE "ai_settings" DROP COLUMN "api_key_encrypted";

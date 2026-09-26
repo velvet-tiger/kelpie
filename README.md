@@ -2,7 +2,7 @@
 
 Open-source CRM that AI agents can operate. Every record, every pipeline, and every page of your company handbook is available over MCP and a REST API. Your agent reads the same data your team does, and takes action through the same surface.
 
-People, companies, enquiries, deals, hiring, partnerships, fundraising, opportunities, and a markdown handbook. Self-host for free (AGPL-3.0) or use the paid cloud. No bundled AI. You bring the agent.
+People, companies, enquiries, deals, hiring, partnerships, fundraising, opportunities, and a markdown handbook. Self-host for free (AGPL-3.0) or use the paid cloud. Bring your own agent, or bring your own OpenAI or Anthropic key and let [Kelpie AI](docs/agents/kelpie-ai.md) run tasks for you.
 
 ## Get started
 
@@ -102,6 +102,7 @@ Full documentation: [docs/README.md](docs/README.md)
 - [Getting started](docs/guides/getting-started.md) — using Kelpie, for your team
 - [Installation](docs/self-hosting/installation.md) and [production](docs/self-hosting/production.md) — running your own
 - [Connect an agent](docs/agents/connect-an-agent.md) — Claude, Cursor, or any MCP client
+- [Kelpie AI](docs/agents/kelpie-ai.md) — run agent tasks on your own OpenAI or Anthropic key
 - [The Kelpie skill](skills/kelpie/SKILL.md) — teaches a connected agent to use Kelpie well
 - [Writing a module](docs/extending/writing-a-module.md) — extending an install
 - [docs/api-reference.md](docs/api-reference.md) — every endpoint

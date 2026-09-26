@@ -173,6 +173,20 @@ export type { MigrationPlanStep } from './runtime/migrate.ts'
 
 export { coreMigrationsDirectory, coreModules } from './modules/core.ts'
 
+// The optional `ai` module. Not in `coreModules`: an assembly lists it, and
+// passes `resealAiSecrets` to `runReseal`'s `extraPasses`.
+export { aiMigrationsDirectory, createAiModule } from './modules/ai/index.ts'
+export type { AiModuleOptions, AiProviderFactory } from './modules/ai/index.ts'
+export { resealAiSecrets } from './modules/ai/reseal.ts'
+export { AI_RUNS_LIMIT } from './modules/ai/rules.ts'
+export type {
+  AiCompletionRequest,
+  AiCompletionResult,
+  AiMessage,
+  AiProviderPort,
+  AiStopReason,
+} from './modules/ai/provider.ts'
+
 export { resealStoredSecrets, runReseal } from './modules/reseal.ts'
 export type { ResealColumnOutcome, ResealOutcome, ResealPass, RunResealOptions } from './modules/reseal.ts'
 

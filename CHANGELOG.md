@@ -12,6 +12,23 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`, `create-kelpie`** —
+  **Kelpie AI, on your own key.** The optional `ai` module
+  (`createAiModule`) runs agent tasks with OpenAI or Anthropic. An admin
+  picks a provider, pastes an API key, and may name a model on
+  **Admin → AI**; "Kelpie AI" then shows in the Run menu. The key is
+  sealed with `SECRET_ENCRYPTION_KEY`, never returned, and deleted on
+  disable. `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL` give every
+  workspace a fallback key. There is no run limit unless the assembly
+  provides one for `ai.runs.limit`. The module is not in `coreModules`:
+  the open-source assembly and new `npm create kelpie` projects list it,
+  with `aiUi` in `kelpie.ui.config.ts` and `resealAiSecrets` in
+  `src/reseal.ts`. An existing project adds those three lines to get it.
+  Its tables have their own migrations, in `module-migrations/ai`.
+  Endpoints: `/v1/ai/settings`, `/v1/ai/runs`.
+- **`@kelpie/server`** — **`context.mcp.list()`.** A module can read every
+  MCP tool in the assembly at run time, to act through other modules'
+  tools in-process.
 - **`@kelpie/ui`** — **Create another workspace.** The workspace menu in
   the header has a "New workspace" item. It opens the onboarding create
   form (`/onboarding/workspace?new=1`) for an account that already has a

@@ -31,6 +31,7 @@ For people connecting agents or building integrations.
 - [Connect an agent](agents/connect-an-agent.md) — point Claude, Cursor, or any MCP client at a workspace.
 - [The Kelpie skill](../skills/kelpie/SKILL.md) — working rules and recipes that teach a connected agent to use Kelpie well.
 - [Agent tasks](agents/agent-tasks.md) — the built-in prompt recipes, Copy and Run, and the registered-agent dispatch contract.
+- [Kelpie AI](agents/kelpie-ai.md) — run tasks on your own OpenAI or Anthropic key, with no receiver to write.
 - [API and webhooks](agents/api-and-webhooks.md) — calling the REST API and verifying webhook deliveries.
 - [API reference](api-reference.md) — every endpoint, and what is not built yet.
 

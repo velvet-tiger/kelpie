@@ -83,6 +83,8 @@ Tables live in the module that owns them, under `packages/server/src/modules/<id
 
 Core shares one migrations directory, `packages/server/migrations`. A module outside core brings its own, and the runner gives each directory its own migrations table.
 
+The optional `ai` module ships inside `@kelpie/server` but is not in `coreModules`, so its tables cannot join core's pipeline. It has its own directory, `packages/server/module-migrations/ai`, and its own generator: `npm run db:generate:ai --workspace packages/server`. Its first four migrations came from the cloud assembly with their journal timestamps unchanged, so a cloud database that applied them skips them. Do not renumber or regenerate them.
+
 The service applies pending migrations at boot. Pass `--no-migrate` to skip that, for deployments where `npm run db:migrate` migrates once in a release step and many instances then start. That command shares `bootAssembly` with the server entry point, so it registers the same modules and applies the same directories, then exits. It is forward-only and safe to re-run.
 
 After changing a table:
@@ -187,6 +189,7 @@ the database is already running.
 | `npm test` | Vitest unit tests |
 | `npm run db:up` / `npm run db:down` | Local Postgres container. Both call the matching `make` target, so `db:up` also refreshes `.env.local` |
 | `npm run db:generate` | Writes a new migration from the schema barrel. See [Database](#database) |
+| `npm run db:generate:ai --workspace packages/server` | Writes a new migration for the optional `ai` module into `packages/server/module-migrations/ai` |
 | `npm run db:migrate` | Applies pending migrations once, then exits. The release step for multi-instance deploys started with `--no-migrate` |
 | `npm run reseal` | Rewrites every sealed secret under the current `SECRET_ENCRYPTION_KEY`. The step after a key rotation; idempotent, and exits non-zero on a row it cannot open |
 

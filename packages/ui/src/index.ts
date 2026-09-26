@@ -239,3 +239,9 @@ export {
 
 export { UiExtensionProvider } from './registry/UiExtensionProvider.tsx'
 export type { UiExtensionProviderProps } from './registry/UiExtensionProvider.tsx'
+
+// The optional `ai` module's UI. An assembly that lists `createAiModule()` on
+// the server lists `aiUi` in its `uiModules`.
+export { aiUi } from './modules/ai.tsx'
+export { AiPage } from './pages/admin/AiPage.tsx'
+export { useAiRuns, useAiSettings, useDisableAi, useSaveAiSettings } from './api/resources/ai.ts'

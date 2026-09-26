@@ -58,6 +58,16 @@ export interface McpTool {
 
 export interface McpToolRegistry {
   tool<Input>(definition: McpToolDefinition<Input>): void
+  /**
+   * Every tool the assembly registered, from every module.
+   *
+   * The list is complete only after registration has finished, so call this
+   * at run time (in a route, a job, or an event handler), never inside
+   * `register`. A module that acts through other modules' tools in-process,
+   * such as `ai`, reads it here rather than asking its entry point to hand the
+   * list back in after boot.
+   */
+  list(): readonly McpTool[]
 }
 
 /**

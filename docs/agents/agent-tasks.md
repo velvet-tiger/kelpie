@@ -43,14 +43,14 @@ Register agents on **Admin → MCP**: a name, an endpoint URL, and an optional a
 
 ## What works as a registered agent
 
-A registered agent is **not** a product picker. Kelpie does not ship receivers for Claude, OpenAI, or any other model. It POSTs JSON to any HTTP endpoint you register. Your receiver decides what to do with the prompt.
+A registered agent is **not** a product picker. It POSTs JSON to any HTTP endpoint you register, and your receiver decides what to do with the prompt. The one receiver Kelpie ships is [Kelpie AI](kelpie-ai.md), which runs tasks on your own OpenAI or Anthropic key.
 
 **Works:**
 
 - A webhook or small HTTP service you write (Node, Python, Go, …) that receives the task, calls a model, and reads/writes Kelpie over the API or MCP
 - Automation platforms with a webhook trigger (n8n, Make, Zapier) wired to an AI step plus Kelpie API calls
 - An internal service on your network (`http://automation.internal/…` is valid on a self-hosted install)
-- A hosted AI module on Kelpie Cloud (registers itself as a receiver and reads `base_prompt`)
+- [Kelpie AI](kelpie-ai.md), the optional `ai` module: it registers itself as a receiver and reads `base_prompt`. Kelpie Cloud runs the same module on its own key
 
 **Does not work directly:**
 
