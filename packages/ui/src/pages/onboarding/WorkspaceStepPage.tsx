@@ -7,7 +7,7 @@ import { ErrorPanel } from '../../components/QueryState.tsx'
 import { TextField } from '../auth/AuthForm.tsx'
 import { AuthLayout } from '../auth/AuthLayout.tsx'
 import { OnboardingNav } from './OnboardingNav.tsx'
-import { isOnboardingRerun, ONBOARDING_ORG_PARAM, onboardingPath } from './onboardingRerun.ts'
+import { isNewWorkspace, isOnboardingRerun, ONBOARDING_ORG_PARAM, onboardingPath } from './onboardingRerun.ts'
 
 /**
  * Onboarding step 1: the workspace, against `POST /v1/workspaces`.
@@ -50,6 +50,7 @@ export function WorkspaceStepPage(): React.JSX.Element {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const rerun = isOnboardingRerun(searchParams)
+  const adding = isNewWorkspace(searchParams)
   const { isSignedOut, session } = useSession()
   const createWorkspace = useCreateWorkspace()
   const hasWorkspace = session?.workspaceId !== null && session?.workspaceId !== undefined
@@ -88,11 +89,12 @@ export function WorkspaceStepPage(): React.JSX.Element {
 
   /**
    * Previous on a later step lands here after the workspace already exists.
-   * Showing the create form again would offer a second POST that this account
-   * cannot use. Next is the only action that remains. A rerun keeps the flag
-   * so organisation does not seed handbook pages and the review step is skipped.
+   * Showing the create form again would make a second workspace by accident,
+   * so Next is the only action. The workspace menu asks for the form on
+   * purpose with `?new=1`. A rerun keeps its flag so organisation does not
+   * seed handbook pages and the review step is skipped.
    */
-  if (hasWorkspace) {
+  if (hasWorkspace && !adding) {
     return (
       <AuthLayout
         step={1}
@@ -124,12 +126,18 @@ export function WorkspaceStepPage(): React.JSX.Element {
   return (
     <AuthLayout
       step={1}
-      title="Create your workspace"
+      title={adding ? 'Create a new workspace' : 'Create your workspace'}
       description="A workspace is your company brain — CRM records, handbook, and team."
       footer={
-        <Link to="/login" className="font-medium text-accent hover:underline">
-          Sign in as somebody else
-        </Link>
+        adding ? (
+          <Link to="/dashboard" className="font-medium text-accent hover:underline">
+            Cancel
+          </Link>
+        ) : (
+          <Link to="/login" className="font-medium text-accent hover:underline">
+            Sign in as somebody else
+          </Link>
+        )
       }
     >
       <form onSubmit={submit} className="mt-5 space-y-3">

@@ -339,6 +339,44 @@ describe('WorkspaceStepPage', () => {
     expect(await screen.findByText('step 2')).toBeTruthy()
     expect(screen.queryByText('step 3')).toBeNull()
   })
+  /**
+   * The workspace menu opens the form on purpose for an account that already
+   * has a workspace. The new one walks the whole wizard.
+   */
+  it('shows the create form to an existing member who asks for a new workspace', async () => {
+    const calls = noCalls()
+
+    renderStep(<WorkspaceStepPage />, calls, {}, '/step?new=1')
+
+    expect(await screen.findByText('Create a new workspace')).toBeTruthy()
+    expect(screen.queryByText('Your workspace is ready')).toBeNull()
+
+    await act(async () => {
+      setValue(screen.getByLabelText(/^Workspace name/u), 'Globex')
+    })
+
+    await press('Next')
+
+    await waitFor(() => {
+      expect(calls.posted).toHaveLength(1)
+    })
+
+    const body = calls.posted[0]?.body as Record<string, string>
+
+    expect(calls.posted[0]?.path).toBe('/workspaces')
+    expect(body.slug).toBe('globex')
+    expect(await screen.findByText('step 2')).toBeTruthy()
+  })
+
+  it('lets an existing member cancel back to the app', async () => {
+    renderStep(<WorkspaceStepPage />, noCalls(), {}, '/step?new=1')
+
+    await act(async () => {
+      ;(await screen.findByRole('link', { name: 'Cancel' })).click()
+    })
+
+    expect(await screen.findByText('the app')).toBeTruthy()
+  })
 })
 
 describe('OrganisationStepPage', () => {

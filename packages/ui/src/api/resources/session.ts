@@ -249,8 +249,10 @@ export function useCreateWorkspace(): MutationResult<CreateWorkspaceInput, Works
   const mutation = useMutation({
     mutationFn: (input: CreateWorkspaceInput) =>
       client.post('/workspaces', createWorkspaceBody(input), workspaceSchema.parse),
-    // Creating a workspace moves the session into it, so the session is stale.
+    // Creating a workspace moves the session into it. For a second workspace
+    // the cache holds the first one's records, so drop it all, as a switch does.
     onSuccess: async () => {
+      queryClient.clear()
       await queryClient.fetchQuery(sessionQuery(client))
     },
   })

@@ -10,6 +10,20 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/ui`** — **Create another workspace.** The workspace menu in
+  the header has a "New workspace" item. It opens the onboarding create
+  form (`/onboarding/workspace?new=1`) for an account that already has a
+  workspace. The new workspace then goes through all the onboarding steps,
+  including the starter handbook. Cancel returns to the dashboard.
+
+### Fixed
+
+- **`@kelpie/ui`** — Creating a workspace now clears the query cache, as a
+  workspace switch does. Before, records from the previous workspace could
+  stay on screen after the session moved to the new one.
+
 ## [0.16.0] - 2026-09-25
 
 ### Added

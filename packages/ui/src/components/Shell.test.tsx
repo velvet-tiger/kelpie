@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiProvider } from '../api/ApiProvider.tsx'
@@ -116,6 +116,13 @@ function sidebarLinkLabels(): readonly string[] {
   return Array.from(nav.querySelectorAll('a')).map((link) => link.textContent ?? '')
 }
 
+/** Which way into onboarding the shell took: a rerun, or a new workspace. */
+function OnboardingEcho(): React.JSX.Element {
+  const [params] = useSearchParams()
+
+  return <p>{params.get('new') === '1' ? 'new workspace form' : 'onboarding rerun'}</p>
+}
+
 function renderShell(initialPath: string): void {
   render(
     <ApiProvider
@@ -130,7 +137,7 @@ function renderShell(initialPath: string): void {
               <Route path="dashboard" element={<p>Dashboard page</p>} />
               <Route path="admin/team" element={<p>Team page</p>} />
             </Route>
-            <Route path="/onboarding/workspace" element={<p>onboarding rerun</p>} />
+            <Route path="/onboarding/workspace" element={<OnboardingEcho />} />
           </Routes>
         </MemoryRouter>
       </UiExtensionProvider>
@@ -221,5 +228,23 @@ describe('the workspace switcher', () => {
     await waitFor(() => {
       expect(screen.getByText('Dashboard page')).toBeTruthy()
     })
+  })
+
+  it('opens the create form from New workspace', async () => {
+    renderShell('/dashboard')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Switch workspace' })).toBeTruthy()
+    })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Switch workspace' }).click()
+    })
+
+    await act(async () => {
+      screen.getByRole('menuitem', { name: 'New workspace' }).click()
+    })
+
+    expect(await screen.findByText('new workspace form')).toBeTruthy()
   })
 })

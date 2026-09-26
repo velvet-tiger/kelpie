@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import { useAccountWorkspaces, useSession, useSwitchWorkspace } from '../api/resources/session.ts'
+import { ONBOARDING_NEW_WORKSPACE_ENTRY } from '../pages/onboarding/onboardingRerun.ts'
 
 /**
  * Header control: the workspace this session is in, and a menu to move it.
  *
  * The list and the switch both live under `/v1/auth`, so a suspended current
- * workspace still lets the reader see the other memberships and leave.
+ * workspace still lets the reader see the other memberships and leave. The
+ * last item opens the create form for another workspace.
  */
 
 export function WorkspaceSwitcher(): React.JSX.Element | null {
@@ -124,6 +126,18 @@ export function WorkspaceSwitcher(): React.JSX.Element | null {
               </button>
             )
           })}
+          <button
+            type="button"
+            role="menuitem"
+            disabled={switchWorkspace.isPending}
+            onClick={() => {
+              setOpen(false)
+              void navigate(ONBOARDING_NEW_WORKSPACE_ENTRY)
+            }}
+            className="mt-1 block w-full border-t border-border px-3 py-1.5 pt-2 text-left text-[13px] text-ink hover:bg-surface-sunken disabled:opacity-60"
+          >
+            New workspace
+          </button>
           {switchWorkspace.error !== null && (
             <p className="border-t border-border px-3 py-1.5 text-[12px] text-danger">
               {switchWorkspace.error.message}

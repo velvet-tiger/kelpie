@@ -20,6 +20,20 @@ export function isOnboardingRerun(searchParams: URLSearchParams): boolean {
 }
 
 /**
+ * An account that already has a workspace can add another from the workspace
+ * menu. `?new=1` shows the create form on step 1 instead of "ready". The new
+ * workspace then walks the whole wizard, handbook seeding included.
+ */
+export const ONBOARDING_NEW_PARAM = 'new'
+
+/** Entry URL the workspace menu opens to add a workspace. */
+export const ONBOARDING_NEW_WORKSPACE_ENTRY = `/onboarding/workspace?${ONBOARDING_NEW_PARAM}=1`
+
+export function isNewWorkspace(searchParams: URLSearchParams): boolean {
+  return searchParams.get(ONBOARDING_NEW_PARAM) === '1'
+}
+
+/**
  * Keep the rerun flag and the organisation type when moving between onboarding
  * routes. `org` is how the modules step knows which defaults to offer; nothing
  * else is held in the browser.
