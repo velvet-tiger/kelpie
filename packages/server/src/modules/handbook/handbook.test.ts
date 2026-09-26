@@ -294,7 +294,7 @@ describe.skipIf(connectionString === undefined)('handbook', () => {
 
     it('keeps workspaces apart', async () => {
       const id = await createPageId()
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       const get = await client.send('GET', `/v1/handbook_pages/${id}`, { cookie: other.cookie })
       const patch = await patchPage(id, { title: 'Theirs now' }, other.cookie)
@@ -311,7 +311,7 @@ describe.skipIf(connectionString === undefined)('handbook', () => {
 
     it('lets two workspaces hold the same slug', async () => {
       await createPage({ title: 'Case studies' })
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       const response = await client.send('POST', '/v1/handbook_pages', {
         body: { title: 'Case studies' },
@@ -404,7 +404,7 @@ describe.skipIf(connectionString === undefined)('handbook', () => {
 
     it('refuses a parent that is not in this workspace', async () => {
       const id = await createPageId()
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirs = readString(
         await createPage({ title: 'Theirs' }, other.cookie),
         'id',

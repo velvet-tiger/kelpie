@@ -303,7 +303,6 @@ export async function findFirstMembership(
 export interface AccountWorkspaceRecord {
   readonly id: string
   readonly name: string
-  readonly slug: string
   readonly timezone: string
   readonly role: string
 }
@@ -316,7 +315,6 @@ export async function listWorkspacesForUser(
     .select({
       id: workspaces.id,
       name: workspaces.name,
-      slug: workspaces.slug,
       timezone: workspaces.timezone,
       role: workspaceMembers.role,
     })

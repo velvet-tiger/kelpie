@@ -237,7 +237,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
 
     it('hides a form from another workspace behind a 404', async () => {
       const form = await createForm()
-      const other = await client.owner('beth@example.com', 'beta')
+      const other = await client.owner('beth@example.com')
       const response = await client.send('GET', `/v1/forms/${readString(form, 'id')}`, {
         cookie: other.cookie,
       })

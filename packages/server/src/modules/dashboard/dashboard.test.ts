@@ -473,7 +473,7 @@ describe.skipIf(connectionString === undefined)('dashboard', () => {
         title: 'Ours',
       })
 
-      const other = await client.owner('other@example.com', 'other')
+      const other = await client.owner('other@example.com')
       const response = await get('', other.cookie)
       const payload = readRecord(await response.json())
 

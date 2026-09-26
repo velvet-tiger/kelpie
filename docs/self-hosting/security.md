@@ -45,7 +45,7 @@ Webhook deliveries and agent-task dispatches are the two places Kelpie POSTs to 
 
 ## Roles and gates
 
-Three roles: owner, admin, member. Administration, API keys, imports, and the sample-data installer are admin work. Webhooks require admin **for reads too**, because a delivery URL routinely carries a credential in its path. Deleting a workspace is the owner's alone and takes the workspace slug typed as confirmation, checked in the request itself. There is no read-only role today; every CRM record is open to any member.
+Three roles: owner, admin, member. Administration, API keys, imports, and the sample-data installer are admin work. Webhooks require admin **for reads too**, because a delivery URL routinely carries a credential in its path. Deleting a workspace is the owner's alone and takes the workspace name typed as confirmation, checked in the request itself. There is no read-only role today; every CRM record is open to any member.
 
 Every `/v1` and `/mcp` request also passes a `workspace.access` entitlement gate. Self-hosted it is inert — entitlements default to granted — and it exists so a hosting operator can suspend a workspace in one place.
 

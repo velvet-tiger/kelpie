@@ -185,7 +185,7 @@ describe.skipIf(connectionString === undefined)('email-domain auto-link', () => 
     it('does not link across workspace boundaries', async () => {
       await createCompany({ name: 'Analytical Engines', domain: 'analytical.example' })
 
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
       const theirPersonId = await createPerson(
         { name: 'Grace Hopper', email: 'grace@analytical.example' },
         initech.cookie,
@@ -296,7 +296,7 @@ describe.skipIf(connectionString === undefined)('email-domain auto-link', () => 
     })
 
     it('does not sweep across workspace boundaries', async () => {
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
       const theirPersonId = await createPerson(
         { name: 'Grace Hopper', email: 'grace@analytical.example' },
         initech.cookie,

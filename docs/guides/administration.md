@@ -67,6 +67,6 @@ Registering is admin work. Running is open to every member. Copy prompt works wi
 
 ## Deleting a workspace
 
-Owner only. You type the workspace slug as confirmation, and the check happens in the service — an accidental click cannot get through. Deletion removes everything the workspace owns: records, handbook, forms, keys, webhooks, the lot. Accounts are global and survive it.
+Owner only. You type the workspace name as confirmation, and the check happens in the service — an accidental click cannot get through. Deletion removes everything the workspace owns: records, handbook, forms, keys, webhooks, the lot. Accounts are global and survive it.
 
 The owner also cannot *leave* a workspace: hand ownership to someone else first. An owner who is the only member has no exit except deletion.

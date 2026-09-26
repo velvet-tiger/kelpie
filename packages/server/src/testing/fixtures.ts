@@ -19,17 +19,17 @@ export interface WorkspaceFixture {
 
 /**
  * @param db Target database, already migrated.
- * @param slug Workspace slug. Unique per workspace, so tests that create two
- *   workspaces must pass different values.
+ * @param label Prefix of the owner's email. Emails are unique, so tests that
+ *   create two workspaces must pass different values.
  */
-export async function insertWorkspaceFixture(db: Database, slug = 'acme'): Promise<WorkspaceFixture> {
+export async function insertWorkspaceFixture(db: Database, label = 'acme'): Promise<WorkspaceFixture> {
   const userId = createId('user')
   const workspaceId = createId('workspace')
   const memberId = createId('teamMember')
 
   await db.insert(users).values({
     id: userId,
-    email: `${slug}-owner@example.com`,
+    email: `${label}-owner@example.com`,
     name: 'Ada Lovelace',
     passwordHash: 'not-a-real-hash',
   })
@@ -37,7 +37,6 @@ export async function insertWorkspaceFixture(db: Database, slug = 'acme'): Promi
   await db.insert(workspaces).values({
     id: workspaceId,
     name: 'Acme',
-    slug,
     timezone: 'Australia/Melbourne',
   })
 

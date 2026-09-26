@@ -38,7 +38,6 @@ const PREFERENCES = {
 const WORKSPACE = {
   id: 'ws_1',
   name: 'Acme',
-  slug: 'acme',
   timezone: 'UTC',
 }
 

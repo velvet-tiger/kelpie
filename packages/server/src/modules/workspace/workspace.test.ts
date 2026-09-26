@@ -26,7 +26,7 @@ import {
 
 const connectionString = testDatabaseUrl(process.env)
 
-const WORKSPACE = { name: 'Acme', slug: 'acme', timezone: 'Australia/Melbourne' }
+const WORKSPACE = { name: 'Acme', timezone: 'Australia/Melbourne' }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -420,32 +420,13 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     it('emits workspace.workspace.created after the transaction commits', async () => {
       const seen: string[] = []
       harness.services.events.subscribe('workspace.workspace.created', (event) => {
-        seen.push(event.data.slug)
+        seen.push(event.data.name)
       })
 
       await createWorkspace(await signUp('ada@example.com'))
       await harness.services.events.drain()
 
-      expect(seen).toEqual(['acme'])
-    })
-
-    it('rejects a slug that is already taken', async () => {
-      await createWorkspace(await signUp('ada@example.com'))
-
-      const response = await send('POST', '/v1/workspaces', WORKSPACE, await signUp('grace@example.com'))
-
-      expect(response.status).toBe(409)
-    })
-
-    it('rejects a slug that would not survive a URL', async () => {
-      const response = await send(
-        'POST',
-        '/v1/workspaces',
-        { ...WORKSPACE, slug: 'Not A Slug' },
-        await signUp('ada@example.com'),
-      )
-
-      expect(response.status).toBe(422)
+      expect(seen).toEqual(['Acme'])
     })
 
     it('rejects a timezone the platform cannot resolve', async () => {
@@ -497,40 +478,6 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(response.status).toBe(200)
       const body = await response.json()
       expect(readString(body, 'name')).toBe('Acme Corporation')
-      expect(readString(body, 'slug')).toBe('acme')
-    })
-
-    it('changes the slug', async () => {
-      const cookie = await signUp('ada@example.com')
-      const workspaceId = await createWorkspace(cookie)
-
-      const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { slug: 'acme-corp' }, cookie)
-
-      expect(response.status).toBe(200)
-      expect(readString(await response.json(), 'slug')).toBe('acme-corp')
-    })
-
-    it('refuses a slug another workspace already holds', async () => {
-      await createWorkspace(await signUp('ada@example.com'))
-      const other = await signUp('grace@example.com')
-      const otherId = readString(
-        await (await send('POST', '/v1/workspaces', { ...WORKSPACE, slug: 'globex' }, other)).json(),
-        'id',
-      )
-
-      const response = await send('PATCH', `/v1/workspaces/${otherId}`, { slug: 'acme' }, other)
-
-      expect(response.status).toBe(409)
-      expect(readErrorFields(await response.json())).toEqual(['slug'])
-    })
-
-    it('refuses a slug that would not survive a URL', async () => {
-      const cookie = await signUp('ada@example.com')
-      const workspaceId = await createWorkspace(cookie)
-
-      const response = await send('PATCH', `/v1/workspaces/${workspaceId}`, { slug: 'Not A Slug' }, cookie)
-
-      expect(response.status).toBe(422)
     })
 
     it('changes the timezone', async () => {
@@ -569,7 +516,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
 
-      const response = await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme`, undefined, cookie)
+      const response = await send('DELETE', `/v1/workspaces/${workspaceId}?name=Acme`, undefined, cookie)
 
       expect(response.status).toBe(204)
       expect(
@@ -583,18 +530,18 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     it('leaves the signed-in account able to start again', async () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
-      await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme`, undefined, cookie)
+      await send('DELETE', `/v1/workspaces/${workspaceId}?name=Acme`, undefined, cookie)
 
       const me = await (await send('GET', '/v1/auth/me', undefined, cookie)).json()
 
       expect(me).toMatchObject({ workspace_id: null, role: null })
     })
 
-    it('refuses a confirmation that does not match the slug', async () => {
+    it('refuses a confirmation that does not match the name', async () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
 
-      const response = await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme-corp`, undefined, cookie)
+      const response = await send('DELETE', `/v1/workspaces/${workspaceId}?name=Acme%20Corp`, undefined, cookie)
 
       expect(response.status).toBe(422)
       expect((await send('GET', `/v1/workspaces/${workspaceId}`, undefined, cookie)).status).toBe(200)
@@ -605,7 +552,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const workspaceId = await createWorkspace(owner)
       const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
 
-      const response = await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme`, undefined, grace.cookie)
+      const response = await send('DELETE', `/v1/workspaces/${workspaceId}?name=Acme`, undefined, grace.cookie)
 
       expect(response.status).toBe(403)
     })
@@ -613,15 +560,15 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     it('emits workspace.workspace.deleted after the transaction commits', async () => {
       const seen: string[] = []
       harness.services.events.subscribe('workspace.workspace.deleted', (event) => {
-        seen.push(event.data.slug)
+        seen.push(event.data.name)
       })
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
 
-      await send('DELETE', `/v1/workspaces/${workspaceId}?slug=acme`, undefined, cookie)
+      await send('DELETE', `/v1/workspaces/${workspaceId}?name=Acme`, undefined, cookie)
       await harness.services.events.drain()
 
-      expect(seen).toEqual(['acme'])
+      expect(seen).toEqual(['Acme'])
     })
   })
 
@@ -719,7 +666,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const workspaceId = await createWorkspace(owner)
       const outsider = await signUp('mallory@example.com')
       const otherId = readString(
-        await (await send('POST', '/v1/workspaces', { ...WORKSPACE, slug: 'globex' }, outsider)).json(),
+        await (await send('POST', '/v1/workspaces', { ...WORKSPACE }, outsider)).json(),
         'id',
       )
       const strangerId = await ownerMemberId(outsider, otherId)
@@ -967,7 +914,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(await account.json()).toMatchObject({ email_verified: true })
 
       // Verified now means allowed through the same gate `rawSignUp` alone hits.
-      const created = await send('POST', '/v1/workspaces', { ...WORKSPACE, slug: 'other' }, cookie)
+      const created = await send('POST', '/v1/workspaces', { ...WORKSPACE }, cookie)
       expect(created.status).toBe(201)
     })
 
@@ -1001,7 +948,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const workspaceResponse = await overridden.app.request('/v1/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: signupCookie },
-        body: JSON.stringify({ ...WORKSPACE, slug: 'precedence' }),
+        body: JSON.stringify({ ...WORKSPACE }),
       })
       expect(workspaceResponse.status).toBe(201)
       const workspaceId = readString(await workspaceResponse.json(), 'id')
@@ -1110,7 +1057,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const inviteId = await invite(owner, workspaceId)
       const outsider = await signUp('mallory@example.com')
       const otherId = readString(
-        await (await send('POST', '/v1/workspaces', { ...WORKSPACE, slug: 'globex' }, outsider)).json(),
+        await (await send('POST', '/v1/workspaces', { ...WORKSPACE }, outsider)).json(),
         'id',
       )
 

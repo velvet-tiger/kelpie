@@ -175,7 +175,7 @@ describe.skipIf(connectionString === undefined)('deals', () => {
     })
 
     it('reports references outside the workspace as missing', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const foreignCompany = await createCompany('Foreign Co', other.cookie)
       const foreignPerson = await createPerson('Grace Hopper', other.cookie)
 
@@ -262,7 +262,7 @@ describe.skipIf(connectionString === undefined)('deals', () => {
 
     it('keeps workspaces apart', async () => {
       const deal = await createDeal({})
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       const list = await client.send('GET', '/v1/deals', { cookie: other.cookie })
       const get = await client.send('GET', `/v1/deals/${readString(deal, 'id')}`, {

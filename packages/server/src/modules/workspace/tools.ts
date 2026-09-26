@@ -18,7 +18,7 @@ import type { WorkspaceService } from './service.ts'
  * invitation both need a browser session, which this endpoint does not take, and
  * a key issued for one workspace could not act on the new one anyway. Deleting a
  * workspace destroys everything the calling key is scoped to, and asking an agent
- * to confirm a slug is not a safeguard when the agent can read the slug.
+ * to confirm a name is not a safeguard when the agent can read the name.
  */
 
 const noArgs = z.strictObject({})
@@ -27,7 +27,7 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
   mcp.tool({
     name: 'workspace_get',
     description:
-      'This workspace\'s name, slug, and timezone. Mirrors GET /v1/workspaces/{id}.',
+      'This workspace\'s name and timezone. Mirrors GET /v1/workspaces/{id}.',
     inputSchema: noArgs,
     invoke: async (_args, actor) =>
       workspaceResponse(await service.get(actor, requireWorkspaceId(actor))),

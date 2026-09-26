@@ -995,10 +995,10 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       return cookie
     }
 
-    async function createWorkspace(cookie: string, slug: string, name: string): Promise<string> {
+    async function createWorkspace(cookie: string, name: string): Promise<string> {
       const response = await post(
         '/v1/workspaces',
-        { name, slug, timezone: 'UTC' },
+        { name, timezone: 'UTC' },
         cookie,
       )
       expect(response.status).toBe(201)
@@ -1022,8 +1022,8 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
     it('lists every membership and moves the session into another one', async () => {
       const cookie = await verifiedCookie()
-      const acme = await createWorkspace(cookie, 'acme-switch', 'Acme')
-      const globex = await createWorkspace(cookie, 'globex-switch', 'Globex')
+      const acme = await createWorkspace(cookie, 'Acme')
+      const globex = await createWorkspace(cookie, 'Globex')
 
       const listed = await get('/v1/auth/workspaces', cookie)
       expect(listed.status).toBe(200)
@@ -1056,9 +1056,9 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
     it('answers 404 for a workspace the account does not belong to', async () => {
       const cookie = await verifiedCookie('ada-miss@example.com')
-      await createWorkspace(cookie, 'acme-miss', 'Acme')
+      await createWorkspace(cookie, 'Acme')
       const other = await verifiedCookie('grace-miss@example.com')
-      const outsiderWorkspace = await createWorkspace(other, 'globex-miss', 'Globex')
+      const outsiderWorkspace = await createWorkspace(other, 'Globex')
 
       const response = await post('/v1/auth/workspace', { workspace_id: outsiderWorkspace }, cookie)
 
@@ -1067,7 +1067,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
     it('needs a session, not an API key', async () => {
       const cookie = await verifiedCookie()
-      await createWorkspace(cookie, 'acme-key', 'Acme')
+      await createWorkspace(cookie, 'Acme')
       const minted = await post('/v1/api-keys', { name: 'agent', kind: 'workspace' }, cookie)
       expect(minted.status).toBe(201)
       const payload: unknown = await minted.json()

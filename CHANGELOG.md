@@ -18,6 +18,24 @@ While the major version is `0`, a minor bump may break the API.
   workspace. The new workspace then goes through all the onboarding steps,
   including the starter handbook. Cancel returns to the dashboard.
 
+### Changed
+
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Deleting a
+  workspace now takes its name, not its slug.** `DELETE
+  /v1/workspaces/:id` reads `?name=` where it read `?slug=`. The
+  Danger zone asks the owner to type the workspace name. The
+  `workspace.workspace.created` and `workspace.workspace.deleted` events
+  carry `{ name }` where they carried `{ slug }`.
+
+### Removed
+
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **The workspace
+  slug.** Nothing looked a workspace up by it and it appeared in no URL.
+  `slug` is gone from `POST` and `PATCH /v1/workspaces`, from the
+  workspace and account-workspace responses, from the onboarding form,
+  and from Admin → Workspace. Migration `0049_drop_workspace_slug` drops
+  the column, so workspace names need not be unique.
+
 ### Fixed
 
 - **`@kelpie/ui`** — Creating a workspace now clears the query cache, as a

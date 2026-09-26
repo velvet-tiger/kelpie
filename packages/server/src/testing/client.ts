@@ -29,7 +29,7 @@ export interface TestClient {
   send(method: string, path: string, options?: TestRequestOptions): Promise<Response>
   /** @returns The session cookie for the new account. */
   signUp(email: string): Promise<string>
-  owner(email?: string, slug?: string): Promise<TestOwner>
+  owner(email?: string): Promise<TestOwner>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -121,15 +121,15 @@ export function createTestClient(app: Hono<AppBindings>, db: Database): TestClie
     send,
     signUp,
 
-    async owner(email = 'ada@example.com', slug = 'acme') {
+    async owner(email = 'ada@example.com') {
       const cookie = await signUp(email)
       const created = await send('POST', '/v1/workspaces', {
-        body: { name: 'Acme', slug, timezone: 'Australia/Melbourne' },
+        body: { name: 'Acme', timezone: 'Australia/Melbourne' },
         cookie,
       })
 
       if (created.status !== 201) {
-        throw new Error(`Creating workspace ${slug} answered ${String(created.status)}`)
+        throw new Error(`Creating workspace for ${email} answered ${String(created.status)}`)
       }
 
       const workspaceId = readString(await created.json(), 'id')
@@ -139,7 +139,7 @@ export function createTestClient(app: Hono<AppBindings>, db: Database): TestClie
       })
 
       if (seeded.status !== 201) {
-        throw new Error(`Seeding handbook for ${slug} answered ${String(seeded.status)}`)
+        throw new Error(`Seeding handbook for ${email} answered ${String(seeded.status)}`)
       }
 
       return { cookie, workspaceId }

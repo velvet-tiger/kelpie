@@ -13,12 +13,8 @@ import { HANDBOOK_TEMPLATE_IDS } from './starters.ts'
 
 /** Wire shapes for `/v1/workspaces`. */
 
-/** Lowercase letters, digits, and hyphens: it appears in URLs. */
-const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
-
 const createBody = z.object({
   name: z.string().min(1),
-  slug: z.string().min(1).max(63).regex(slugPattern, 'Use lowercase letters, digits, and hyphens'),
   timezone: timezoneSchema,
 })
 
@@ -30,7 +26,6 @@ const seedHandbookBodySchema = z.object({
 export const updateBody = z
   .object({
     name: z.string().min(1),
-    slug: z.string().min(1).max(63).regex(slugPattern, 'Use lowercase letters, digits, and hyphens'),
     timezone: timezoneSchema,
   })
   .partial()
@@ -67,7 +62,6 @@ export function workspaceResponse(workspace: WorkspaceView): Record<string, unkn
   return {
     id: workspace.id,
     name: workspace.name,
-    slug: workspace.slug,
     timezone: workspace.timezone,
   }
 }
@@ -132,7 +126,6 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
     const body = await readBody(context, updateBody)
     const workspace = await dependencies.service.update(await requireActor(context), context.req.param('id'), {
       ...(body.name === undefined ? {} : { name: body.name }),
-      ...(body.slug === undefined ? {} : { slug: body.slug }),
       ...(body.timezone === undefined ? {} : { timezone: body.timezone }),
     })
 
@@ -148,7 +141,7 @@ export function mountWorkspaceRoutes(router: Hono, dependencies: WorkspaceRoutes
     await dependencies.service.remove(
       await requireActor(context),
       context.req.param('id'),
-      context.req.query('slug') ?? '',
+      context.req.query('name') ?? '',
     )
 
     return context.body(null, 204)

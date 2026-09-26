@@ -153,14 +153,12 @@ function sessionMeResponse(session: MeView): Record<string, unknown> {
 function accountWorkspaceResponse(workspace: {
   readonly id: string
   readonly name: string
-  readonly slug: string
   readonly timezone: string
   readonly role: string
 }): Record<string, unknown> {
   return {
     id: workspace.id,
     name: workspace.name,
-    slug: workspace.slug,
     timezone: workspace.timezone,
     role: workspace.role,
   }

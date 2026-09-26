@@ -292,7 +292,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
 
     it('hides another workspace entirely', async () => {
       const id = readString(await createWebhook(), 'id')
-      const other = await client.owner('mallory@example.com', 'other')
+      const other = await client.owner('mallory@example.com')
 
       expect((await client.send('GET', `/v1/webhooks/${id}`, { cookie: other.cookie })).status).toBe(404)
       expect((await client.send('DELETE', `/v1/webhooks/${id}`, { cookie: other.cookie })).status).toBe(404)
@@ -390,7 +390,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
 
     it('does not cross workspaces', async () => {
       await createWebhook({ url: 'https://example.com/acme' })
-      const other = await client.owner('mallory@example.com', 'other')
+      const other = await client.owner('mallory@example.com')
       await createWebhook({ url: 'https://example.com/other' }, other.cookie)
 
       await createPerson('Ada Lovelace', other.cookie)
@@ -647,7 +647,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
         services: createTestServices({ db: database.db }),
       })
       const scopedClient = createTestClient(scoped.app, scoped.services.db)
-      const owner = await scopedClient.owner('narrow@example.com', 'narrow')
+      const owner = await scopedClient.owner('narrow@example.com')
 
       const created = await scopedClient.send('POST', '/v1/webhooks', {
         body: { url: 'https://example.com/hooks/narrow', events: ['record.created'] },

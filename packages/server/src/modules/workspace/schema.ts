@@ -12,7 +12,6 @@ import { users } from '../auth/schema.ts'
 export const workspaces = pgTable('workspaces', {
   id: primaryId(),
   name: text('name').notNull(),
-  slug: text('slug').notNull().unique(),
   timezone: text('timezone').notNull(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

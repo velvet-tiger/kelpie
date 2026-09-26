@@ -164,7 +164,7 @@ describe.skipIf(connectionString === undefined)('pipeline stages', () => {
 
     it('hides another workspace\'s stage as missing', async () => {
       const id = await stageIdBySlug('qualifying')
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const response = await client.send('PATCH', `/v1/pipeline_stages/${id}`, {
         body: { label: 'Taken over' },
         cookie: other.cookie,

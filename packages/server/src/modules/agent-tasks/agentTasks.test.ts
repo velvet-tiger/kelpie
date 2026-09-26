@@ -386,7 +386,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
     it('answers 404 for a target in another workspace', async () => {
       const companyId = await createCompany()
-      const stranger = await client.owner('rival@example.com', 'rival')
+      const stranger = await client.owner('rival@example.com')
       const response = await client.send('POST', '/v1/agent-tasks/company.enrich/resolve', {
         body: { target_type: 'company', target_id: companyId },
         cookie: stranger.cookie,
@@ -513,7 +513,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
     it('hides another workspace entirely', async () => {
       const id = readString(await createAgent(), 'id')
-      const stranger = await client.owner('rival2@example.com', 'rival2')
+      const stranger = await client.owner('rival2@example.com')
 
       expect(
         (await client.send('GET', `/v1/agents/${id}`, { cookie: stranger.cookie })).status,
@@ -686,7 +686,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       const run = agentRunSchema.parse(readRecord(await created.json()))
       await settledRun(run.id)
 
-      const stranger = await client.owner('rival3@example.com', 'rival3')
+      const stranger = await client.owner('rival3@example.com')
 
       expect(
         (await client.send('GET', `/v1/agent-runs/${run.id}`, { cookie: stranger.cookie })).status,

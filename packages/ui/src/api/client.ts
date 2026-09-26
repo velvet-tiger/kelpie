@@ -93,7 +93,7 @@ export interface ApiClient {
   patchEmpty(path: string, body: unknown): Promise<void>
   /**
    * `query` is for a delete that takes a confirmation, which
-   * `DELETE /v1/workspaces/:id?slug=` is. A `DELETE` body would be the other
+   * `DELETE /v1/workspaces/:id?name=` is. A `DELETE` body would be the other
    * option, and HTTP lets a client drop one.
    */
   delete(path: string, query?: QueryParameters): Promise<void>

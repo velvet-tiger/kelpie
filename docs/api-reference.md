@@ -17,7 +17,7 @@ Every endpoint here has integration tests against a real Postgres.
 | Sessions | `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id`. Each row carries `signed_in_via`: the module that signed it in, or `null` for a password sign-in. `GET /v1/auth/workspaces` lists the account's memberships; `POST /v1/auth/workspace` moves the session into one. Session-only; an API key cannot call them |
 | Passwords | `PATCH /v1/auth/password`, `POST /v1/auth/password-reset` and `/confirm` |
 | Email verification | `POST /v1/auth/verify-email` (issues and emails a token) and `/confirm` (spends it). Creating a workspace is `403` until the address is verified; accepting an invite verifies as a side effect |
-| Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `DELETE /v1/workspaces/:id?slug=` |
+| Workspaces | `POST /v1/workspaces` (seeds the starter handbook and pipeline stages), `GET`, `PATCH`, `DELETE /v1/workspaces/:id?name=` |
 | Membership | `GET`, `PATCH` and `DELETE /v1/workspaces/:id/members[/:member_id]` |
 | Invites | `POST` and `GET /v1/workspaces/:id/invites`, `POST .../invites/:invite_id/resend`, `DELETE .../invites/:invite_id`, `POST /v1/invites/accept` |
 | API keys | `POST /v1/api-keys`, `GET /v1/api-keys?kind=`, `DELETE /v1/api-keys/:id`. Create accepts optional `scopes` (preset bundles like `read:objects` or granular `people:read`); empty means full access. List and create responses include `scopes`. |
@@ -127,7 +127,7 @@ In the browser, the port is complete: Dashboard, search (a header box and `/sear
 
 Forms have a list and a four-tab detail page: submissions with links to what each one created, a drag-ordered field builder, settings, and the embed snippets. The builder is the one screen in the app that saves explicitly rather than per keystroke, because a write replaces the whole field list and committing on every character would reissue every field id. It refuses to send a list the API would reject, and shows why beside the field responsible.
 
-Workspace administration is under Admin in the sidebar. **Workspace** carries name, slug, and timezone. The slug is editable and a collision is a `409`.
+Workspace administration is under Admin in the sidebar. **Workspace** carries name and timezone. Deleting it takes the workspace name typed as confirmation.
 
 **Team** invites by email, changes roles, and removes members. Every rule is the API's, not the page's: a member who tries anyway gets `403`. The owner cannot be demoted or removed, and ownership moves only by being given away, which makes the outgoing owner an admin in the same transaction. Removing somebody who still owns Deals, Opportunities, Partnerships, Raises, Events, Plan items, Decisions or Notes answers `409` naming each type and how many, because the delete is restricted; reassign them first. An invitation's status is derived from `expires_at` rather than stored, so a stale one reads as expired with nothing sweeping the table. Resending issues a new token and retires the old link. Revoking deletes the row, which is what actually kills the link already in somebody's inbox.
 

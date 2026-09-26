@@ -139,7 +139,7 @@ describe.skipIf(connectionString === undefined)('companies', () => {
 
     it('allows the same domain in a different workspace', async () => {
       await createCompany({ name: 'Analytical Engines', domain: 'analytical.example' })
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('POST', '/v1/companies', {
         body: { name: 'Analytical Engines', domain: 'analytical.example' },
@@ -163,7 +163,7 @@ describe.skipIf(connectionString === undefined)('companies', () => {
 
     it('answers 404 for a company in another workspace', async () => {
       const company = await createCompany({ name: 'Analytical Engines' })
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('GET', `/v1/companies/${String(company.id)}`, {
         cookie: initech.cookie,
@@ -317,7 +317,7 @@ describe.skipIf(connectionString === undefined)('companies', () => {
 
     it('answers 404 across a workspace boundary', async () => {
       const company = await createCompany({ name: 'Analytical Engines' })
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('PATCH', `/v1/companies/${String(company.id)}`, {
         body: { summary: 'Not yours' },
@@ -391,7 +391,7 @@ describe.skipIf(connectionString === undefined)('companies', () => {
 
     it('answers 404 across a workspace boundary', async () => {
       const company = await createCompany({ name: 'Analytical Engines' })
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('DELETE', `/v1/companies/${String(company.id)}`, {
         cookie: initech.cookie,

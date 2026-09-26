@@ -134,7 +134,7 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
     })
 
     it('answers 404 for a target in another workspace', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirs = await createPerson('Grace Hopper', other.cookie)
 
       expect(
@@ -143,7 +143,7 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
     })
 
     it('answers 404 for an owner that is not on this team', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirPerson = await createPerson('Grace Hopper', other.cookie)
       const theirDecision = readRecord(
         await (
@@ -243,7 +243,7 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
     })
 
     it('does not leak another workspace into the list', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirs = await createPerson('Grace Hopper', other.cookie)
 
       await addDecision({ target_type: 'person', target_id: theirs, body: 'Theirs' }, other.cookie)
@@ -290,7 +290,7 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
     })
 
     it('refuses an owner from outside the team', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirPerson = await createPerson('Grace Hopper', other.cookie)
       const theirDecision = readRecord(
         await (
@@ -332,7 +332,7 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
 
     it('answers 404 across a workspace boundary', async () => {
       const created = await decisionOn(personId, 'Body')
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       expect(
         (await client.send('GET', `/v1/decisions/${String(created.id)}`, { cookie: other.cookie }))
@@ -362,7 +362,7 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
 
     it('answers 404 across a workspace boundary', async () => {
       const created = await decisionOn(personId, 'Body')
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       expect(
         (

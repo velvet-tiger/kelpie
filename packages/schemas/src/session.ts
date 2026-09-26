@@ -66,7 +66,6 @@ export const signedInAccountSchema: z.ZodType<SignedInAccount, unknown> = z
 export interface Workspace {
   readonly id: string
   readonly name: string
-  readonly slug: string
   readonly timezone: string
 }
 
@@ -74,14 +73,12 @@ export const workspaceSchema: z.ZodType<Workspace, unknown> = z
   .object({
     id: idSchema,
     name: z.string(),
-    slug: z.string(),
     timezone: z.string(),
   })
   .transform(
     (wire): Workspace => ({
       id: wire.id,
       name: wire.name,
-      slug: wire.slug,
       timezone: wire.timezone,
     }),
   )
@@ -93,7 +90,6 @@ export const workspaceSchema: z.ZodType<Workspace, unknown> = z
 export interface AccountWorkspace {
   readonly id: string
   readonly name: string
-  readonly slug: string
   readonly timezone: string
   readonly role: MemberRole
 }
@@ -102,7 +98,6 @@ export const accountWorkspaceSchema: z.ZodType<AccountWorkspace, unknown> = z
   .object({
     id: idSchema,
     name: z.string(),
-    slug: z.string(),
     timezone: z.string(),
     role: z.enum(MEMBER_ROLES),
   })
@@ -110,7 +105,6 @@ export const accountWorkspaceSchema: z.ZodType<AccountWorkspace, unknown> = z
     (wire): AccountWorkspace => ({
       id: wire.id,
       name: wire.name,
-      slug: wire.slug,
       timezone: wire.timezone,
       role: wire.role,
     }),
@@ -138,7 +132,6 @@ export type HandbookTemplateId = (typeof HANDBOOK_TEMPLATE_IDS)[number]
 
 export interface CreateWorkspaceInput {
   readonly name: string
-  readonly slug: string
   readonly timezone: string
 }
 
@@ -162,7 +155,7 @@ export const seedHandbookResultSchema: z.ZodType<SeedHandbookResult, unknown> = 
   )
 
 export function createWorkspaceBody(input: CreateWorkspaceInput): Record<string, unknown> {
-  return { name: input.name, slug: input.slug, timezone: input.timezone }
+  return { name: input.name, timezone: input.timezone }
 }
 
 export function seedHandbookBody(input: SeedHandbookInput): Record<string, unknown> {
@@ -175,14 +168,12 @@ export function seedHandbookBody(input: SeedHandbookInput): Record<string, unkno
 /** Settings a workspace admin can change. */
 export interface UpdateWorkspaceInput {
   readonly name?: string
-  readonly slug?: string
   readonly timezone?: string
 }
 
 export function updateWorkspaceBody(input: UpdateWorkspaceInput): Record<string, unknown> {
   return definedFields({
     name: input.name,
-    slug: input.slug,
     timezone: input.timezone,
   })
 }

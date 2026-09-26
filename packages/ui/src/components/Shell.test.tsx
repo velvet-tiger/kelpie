@@ -70,14 +70,12 @@ function shellClient(): ApiClient {
             {
               id: 'ws_1',
               name: 'Acme Labs',
-              slug: 'acme',
               timezone: 'UTC',
               role: 'owner',
             },
             {
               id: 'ws_2',
               name: 'Globex',
-              slug: 'globex',
               timezone: 'UTC',
               role: 'member',
             },

@@ -121,7 +121,7 @@ describe.skipIf(connectionString === undefined)('positions', () => {
     })
 
     it('answers 404 for a person in another workspace', async () => {
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
       const theirPerson = await createPerson('Grace Hopper', initech.cookie)
 
       const response = await link({
@@ -134,7 +134,7 @@ describe.skipIf(connectionString === undefined)('positions', () => {
     })
 
     it('answers 404 for a company in another workspace', async () => {
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
       const theirCompany = await createCompany('Initech', initech.cookie)
 
       const response = await link({
@@ -177,7 +177,7 @@ describe.skipIf(connectionString === undefined)('positions', () => {
     })
 
     it('lists only this workspace', async () => {
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const theirs = await client.send('GET', '/v1/positions', { cookie: initech.cookie })
 
@@ -225,7 +225,7 @@ describe.skipIf(connectionString === undefined)('positions', () => {
     })
 
     it('answers 404 across a workspace boundary', async () => {
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('PATCH', `/v1/positions/${positionId}`, {
         body: { title: 'Not yours' },
@@ -266,7 +266,7 @@ describe.skipIf(connectionString === undefined)('positions', () => {
         title: 'Chief Mathematician',
       })
       const positionId = readString(await created.json(), 'id')
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('DELETE', `/v1/positions/${positionId}`, {
         cookie: initech.cookie,

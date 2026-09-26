@@ -687,7 +687,7 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
 
     it('cannot see another workspace', async () => {
       const created = readRecord(await callTool('people_create', { name: 'Ada Lovelace' }))
-      const other = await client.owner('grace@example.com', 'globex')
+      const other = await client.owner('grace@example.com')
       const otherKey = await mintKey(other.cookie)
 
       const error = await callToolError('people_get', { id: readString(created, 'id') }, otherKey)

@@ -195,7 +195,7 @@ describe.skipIf(connectionString === undefined)('lists', () => {
     })
 
     it('answers 404 when the list is in another workspace', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirsId = readString(
         await (
           await client.send('POST', '/v1/lists', {

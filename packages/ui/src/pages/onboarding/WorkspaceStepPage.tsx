@@ -26,15 +26,6 @@ import { isNewWorkspace, isOnboardingRerun, ONBOARDING_ORG_PARAM, onboardingPath
  * signed out fills in a form whose only possible answer is `401`.
  */
 
-/** The rule the API enforces: lowercase letters, digits, and hyphens. */
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, '-')
-    .replace(/^-+|-+$/gu, '')
-    .slice(0, 63)
-}
-
 /**
  * The zone the browser is in.
  *
@@ -55,28 +46,13 @@ export function WorkspaceStepPage(): React.JSX.Element {
   const createWorkspace = useCreateWorkspace()
   const hasWorkspace = session?.workspaceId !== null && session?.workspaceId !== undefined
   const [name, setName] = useState('')
-  const [slug, setSlug] = useState('')
-  const [slugEdited, setSlugEdited] = useState(false)
   const [timezone] = useState(browserTimezone)
-
-  function changeName(value: string): void {
-    setName(value)
-
-    if (!slugEdited) {
-      setSlug(slugify(value))
-    }
-  }
-
-  function changeSlug(value: string): void {
-    setSlugEdited(true)
-    setSlug(slugify(value))
-  }
 
   function submit(event: FormEvent): void {
     event.preventDefault()
 
     createWorkspace
-      .runAsync({ name: name.trim(), slug: slug.trim(), timezone })
+      .runAsync({ name: name.trim(), timezone })
       .then(() => {
         navigate('/onboarding/organisation', { replace: true })
       })
@@ -144,17 +120,9 @@ export function WorkspaceStepPage(): React.JSX.Element {
         <TextField
           label="Workspace name"
           value={name}
-          onChange={changeName}
+          onChange={setName}
           placeholder="Acme Labs"
           autoComplete="organization"
-          required
-        />
-        <TextField
-          label="Slug"
-          value={slug}
-          onChange={changeSlug}
-          hint="Lowercase letters, digits, and hyphens. It appears in URLs."
-          mono
           required
         />
         <p className="text-[11px] text-ink-faint">

@@ -190,7 +190,7 @@ describe.skipIf(connectionString === undefined)('hiring', () => {
     })
 
     it('keeps workspaces apart', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       const list = await client.send('GET', '/v1/roles', { cookie: other.cookie })
       const get = await client.send('GET', `/v1/roles/${roleId}`, { cookie: other.cookie })
@@ -266,7 +266,7 @@ describe.skipIf(connectionString === undefined)('hiring', () => {
     })
 
     it('reports a role or person outside the workspace as missing', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const foreignRole = readString(
         await createRole({ title: 'Foreign role' }, other.cookie),
         'id',
@@ -359,7 +359,7 @@ describe.skipIf(connectionString === undefined)('hiring', () => {
 
     it('keeps workspaces apart', async () => {
       const candidate = await createCandidate()
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       const list = await client.send('GET', '/v1/candidates', { cookie: other.cookie })
       const get = await client.send('GET', `/v1/candidates/${String(candidate.id)}`, {

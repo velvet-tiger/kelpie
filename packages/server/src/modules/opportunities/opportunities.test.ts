@@ -143,7 +143,7 @@ describe.skipIf(connectionString === undefined)('opportunities', () => {
     })
 
     it('reports references outside the workspace as missing', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const foreignCompany = await createCompany('Foreign Co', other.cookie)
 
       const response = await client.send('POST', '/v1/opportunities', {
@@ -234,7 +234,7 @@ describe.skipIf(connectionString === undefined)('opportunities', () => {
 
     it('keeps workspaces apart', async () => {
       const opportunity = await createOpportunity({})
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       const list = await client.send('GET', '/v1/opportunities', { cookie: other.cookie })
       const get = await client.send('GET', `/v1/opportunities/${readString(opportunity, 'id')}`, {
@@ -274,7 +274,7 @@ describe.skipIf(connectionString === undefined)('opportunities', () => {
     })
 
     it('reports an unknown person as 404', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const foreignPerson = await createPerson('Grace Hopper', other.cookie)
 
       const response = await client.send('POST', '/v1/opportunities', {

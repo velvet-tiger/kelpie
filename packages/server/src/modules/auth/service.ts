@@ -92,7 +92,6 @@ export interface MeView {
 export interface AccountWorkspaceView {
   readonly id: string
   readonly name: string
-  readonly slug: string
   readonly timezone: string
   readonly role: MemberRole
 }
@@ -633,7 +632,6 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         return {
           id: row.id,
           name: row.name,
-          slug: row.slug,
           timezone: row.timezone,
           role,
         }

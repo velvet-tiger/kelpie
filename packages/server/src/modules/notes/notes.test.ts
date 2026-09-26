@@ -121,7 +121,7 @@ describe.skipIf(connectionString === undefined)('notes', () => {
     })
 
     it('answers 404 for a target in another workspace', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirs = await createPerson('Grace Hopper', other.cookie)
 
       expect((await addNote({ target_type: 'person', target_id: theirs, body: 'Peek' })).status).toBe(404)
@@ -227,14 +227,14 @@ describe.skipIf(connectionString === undefined)('notes', () => {
     })
 
     it('answers 404 for a target in another workspace', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirs = await createPerson('Grace Hopper', other.cookie)
 
       expect((await listNotes(`target_type=person&target_id=${theirs}`)).status).toBe(404)
     })
 
     it('answers 404 when any one id in the set is outside the workspace', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirs = await createPerson('Grace Hopper', other.cookie)
 
       await noteOn(personId, 'Hers')
@@ -291,7 +291,7 @@ describe.skipIf(connectionString === undefined)('notes', () => {
 
     it('answers 404 across a workspace boundary', async () => {
       const created = await noteOn(personId, 'Body')
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       expect(
         (await client.send('GET', `/v1/notes/${String(created.id)}`, { cookie: other.cookie })).status,
@@ -325,7 +325,7 @@ describe.skipIf(connectionString === undefined)('notes', () => {
 
     it('answers 404 across a workspace boundary', async () => {
       const created = await noteOn(personId, 'Body')
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       expect(
         (await client.send('DELETE', `/v1/notes/${String(created.id)}`, { cookie: other.cookie })).status,

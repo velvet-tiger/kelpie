@@ -234,7 +234,7 @@ describe.skipIf(connectionString === undefined)('plan items', () => {
 
     it('answers 404 for an item in another workspace', async () => {
       const created = await createPlanItem()
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const response = await client.send('GET', `/v1/plan_items/${String(created.id)}`, {
         cookie: other.cookie,
       })
@@ -309,7 +309,7 @@ describe.skipIf(connectionString === undefined)('plan items', () => {
     })
 
     it('leaves another workspace out of it', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
 
       expect(await titlesFrom(await list('', other.cookie))).toEqual([])
     })
@@ -409,7 +409,7 @@ describe.skipIf(connectionString === undefined)('plan items', () => {
 
     it('answers 404 for an item in another workspace', async () => {
       const created = await createPlanItem()
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const response = await patch(String(created.id), { title: 'Theirs now' }, other.cookie)
 
       expect(response.status).toBe(404)
@@ -433,7 +433,7 @@ describe.skipIf(connectionString === undefined)('plan items', () => {
 
     it('answers 404 for an item in another workspace', async () => {
       const created = await createPlanItem()
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const response = await client.send('DELETE', `/v1/plan_items/${String(created.id)}`, {
         cookie: other.cookie,
       })

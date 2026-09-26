@@ -56,7 +56,6 @@ export interface WorkspaceDependencies {
 export interface WorkspaceView {
   readonly id: string
   readonly name: string
-  readonly slug: string
   readonly timezone: string
 }
 
@@ -87,7 +86,6 @@ export interface ModuleSettingView {
 
 export interface CreateWorkspaceInput {
   readonly name: string
-  readonly slug: string
   readonly timezone: string
 }
 
@@ -112,7 +110,6 @@ export interface SeedHandbookResult {
  */
 export interface UpdateWorkspaceInput {
   readonly name?: string | undefined
-  readonly slug?: string | undefined
   readonly timezone?: string | undefined
 }
 
@@ -126,10 +123,10 @@ export interface WorkspaceService {
   /**
    * Deletes the workspace and everything in it.
    *
-   * @param confirmSlug The workspace's own slug. The caller has to name what it
+   * @param confirmName The workspace's own name. The caller has to name what it
    *   is destroying, so an unintended `DELETE` at the right id does nothing.
    */
-  remove(actor: Actor, workspaceId: string, confirmSlug: string): Promise<void>
+  remove(actor: Actor, workspaceId: string, confirmName: string): Promise<void>
   listMembers(actor: Actor, workspaceId: string): Promise<readonly MemberView[]>
   /** Changes a member's role, or transfers ownership when `role` is `owner`. */
   setMemberRole(actor: Actor, workspaceId: string, memberId: string, role: MemberRole): Promise<MemberView>
@@ -153,7 +150,6 @@ function toWorkspaceView(record: repository.WorkspaceRecord): WorkspaceView {
   return {
     id: record.id,
     name: record.name,
-    slug: record.slug,
     timezone: record.timezone,
   }
 }
@@ -427,24 +423,11 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       const memberId = dependencies.createId('teamMember')
 
       return dependencies.transaction(async ({ tx, events }) => {
-        let workspace: repository.WorkspaceRecord
-
-        try {
-          workspace = await repository.insertWorkspace(tx, {
-            id: workspaceId,
-            name: input.name,
-            slug: input.slug,
-            timezone: input.timezone,
-          })
-        } catch (error: unknown) {
-          if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
-            throw AppError.conflict('That workspace address is taken', [
-              { field: 'slug', message: 'Already in use' },
-            ])
-          }
-
-          throw error
-        }
+        const workspace = await repository.insertWorkspace(tx, {
+          id: workspaceId,
+          name: input.name,
+          timezone: input.timezone,
+        })
 
         await repository.insertMember(tx, {
           id: memberId,
@@ -501,7 +484,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         events.emit(
           'workspace.workspace.created',
           { type: 'workspace', id: workspaceId },
-          { slug: workspace.slug },
+          { name: workspace.name },
         )
         events.emit(
           'workspace.member.joined',
@@ -572,22 +555,10 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
     async update(actor, workspaceId, changes) {
       await requireMembership(actor, workspaceId, 'admin')
 
-      let updated: repository.WorkspaceRecord | undefined
-
-      try {
-        updated = await repository.updateWorkspace(dependencies.db, workspaceId, {
-          ...changes,
-          updatedAt: dependencies.now(),
-        })
-      } catch (error: unknown) {
-        if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
-          throw AppError.conflict('That workspace address is taken', [
-            { field: 'slug', message: 'Already in use' },
-          ])
-        }
-
-        throw error
-      }
+      const updated = await repository.updateWorkspace(dependencies.db, workspaceId, {
+        ...changes,
+        updatedAt: dependencies.now(),
+      })
 
       if (updated === undefined) {
         throw AppError.notFound('Workspace not found')
@@ -596,7 +567,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       return toWorkspaceView(updated)
     },
 
-    async remove(actor, workspaceId, confirmSlug) {
+    async remove(actor, workspaceId, confirmName) {
       // Owner only. A workspace key resolves as an admin and can never reach
       // this, which is deliberate: an agent's credential does not get to end the
       // workspace it lives in.
@@ -608,9 +579,9 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         throw AppError.notFound('Workspace not found')
       }
 
-      if (confirmSlug !== workspace.slug) {
+      if (confirmName !== workspace.name) {
         throw AppError.validationFailed('Confirm the deletion by naming the workspace', [
-          { field: 'slug', message: `Expected "${workspace.slug}"` },
+          { field: 'name', message: `Expected "${workspace.name}"` },
         ])
       }
 
@@ -620,7 +591,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         events.emit(
           'workspace.workspace.deleted',
           { type: 'workspace', id: workspaceId },
-          { slug: workspace.slug },
+          { name: workspace.name },
         )
       }, { workspaceId, actor: toEventActor(actor) })
     },

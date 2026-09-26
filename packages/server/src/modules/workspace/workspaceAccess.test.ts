@@ -72,8 +72,8 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
       })
       client = createTestClient(harness.app, harness.services.db)
 
-      blocked = await client.owner('blocked@example.com', 'blocked')
-      open = await client.owner('open@example.com', 'open')
+      blocked = await client.owner('blocked@example.com')
+      open = await client.owner('open@example.com')
 
       const minted = await client.send('POST', '/v1/api-keys', {
         cookie: blocked.cookie,
@@ -141,7 +141,7 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
     })
 
     it('still allows the blocked workspace owner to delete the workspace', async () => {
-      const response = await client.send('DELETE', `/v1/workspaces/${blocked.workspaceId}?slug=blocked`, {
+      const response = await client.send('DELETE', `/v1/workspaces/${blocked.workspaceId}?name=Acme`, {
         cookie: blocked.cookie,
       })
 
@@ -180,10 +180,10 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
       entitlements,
     })
     const client = createTestClient(harness.app, harness.services.db)
-    const blocked = await client.owner('switch-away@example.com', 'switch-blocked')
+    const blocked = await client.owner('switch-away@example.com')
     const second = await client.send('POST', '/v1/workspaces', {
       cookie: blocked.cookie,
-      body: { name: 'Other', slug: 'switch-other', timezone: 'UTC' },
+      body: { name: 'Other', timezone: 'UTC' },
     })
     expect(second.status).toBe(201)
     const otherId = readString(await second.json(), 'id')

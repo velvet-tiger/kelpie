@@ -397,7 +397,7 @@ describe.skipIf(connectionString === undefined)('activities', () => {
     })
 
     it('answers 404 for a record that does not exist, and for one in another workspace', async () => {
-      const other = await client.owner('grace@example.com', 'other')
+      const other = await client.owner('grace@example.com')
       const theirs = await createPerson('Grace Hopper', other.cookie)
 
       expect(

@@ -165,7 +165,7 @@ describe.skipIf(connectionString === undefined)('email-domain relinker', () => {
   })
 
   it('refuses an owner of a different workspace', async () => {
-    const initech = await client.owner('grace@example.com', 'initech')
+    const initech = await client.owner('grace@example.com')
 
     const response = await relink(acme.workspaceId, initech.cookie)
 
@@ -177,7 +177,7 @@ describe.skipIf(connectionString === undefined)('email-domain relinker', () => {
     // The sweep on acme's workspace must not attach initech's person.
     await createCompany({ name: 'Analytical Engines', domain: 'analytical.example' })
 
-    const initech = await client.owner('grace@example.com', 'initech')
+    const initech = await client.owner('grace@example.com')
     const theirPersonId = await createPerson(
       { name: 'Grace', email: 'grace@analytical.example' },
       initech.cookie,

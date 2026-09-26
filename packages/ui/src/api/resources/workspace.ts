@@ -59,18 +59,18 @@ export function useUpdateWorkspace(): MutationResult<UpdateWorkspaceInput, Works
 /**
  * Deletes the workspace, everything in it, and the caller's way back.
  *
- * The slug goes with the request because the API asks the caller to name what it
+ * The name goes with the request because the API asks the caller to name what it
  * is destroying. Afterwards the whole cache is dropped: every cached list
  * belongs to a workspace that no longer exists.
  */
-export function useDeleteWorkspace(): MutationResult<{ readonly slug: string }, void> {
+export function useDeleteWorkspace(): MutationResult<{ readonly name: string }, void> {
   const client = useApiClient()
   const queryClient = useQueryClient()
   const { session } = useSession()
   const workspaceId = session?.workspaceId ?? ''
   const mutation = useMutation({
-    mutationFn: ({ slug }: { readonly slug: string }) =>
-      client.delete(`/workspaces/${workspaceId}`, { slug }),
+    mutationFn: ({ name }: { readonly name: string }) =>
+      client.delete(`/workspaces/${workspaceId}`, { name }),
     onSuccess: () => {
       queryClient.clear()
     },

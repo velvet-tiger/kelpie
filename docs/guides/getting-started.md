@@ -16,7 +16,7 @@ Joining by invitation skips verification: a valid invite link already proves you
 
 A workspace is your company brain — CRM records, handbook, and team. You choose:
 
-- **Name and slug.** The slug is the workspace's short handle; it must be unique on the install.
+- **Name.** What the workspace is called. It need not be unique.
 - **Timezone.** This decides what "today" means for the whole workspace: overdue plans and stale contacts are judged against your calendar, not the server's.
 - **Organisation type.** Startup, Agency, Nonprofit, Community, Professional services, Creator, or Choose later. This seeds the starter handbook. Choose later uses the standard startup pages.
 - **Modules.** The next step turns Deals, Opportunities, Fundraising, Partnerships, Events, and Forms on or off. Defaults follow the organisation type you just picked — a startup starts with all six on.

@@ -486,7 +486,7 @@ describe.skipIf(connectionString === undefined)('search', () => {
     it('never returns records from another workspace', async () => {
       await createCompany('Acme Corp')
 
-      const other = await client.owner('other@example.test', 'other')
+      const other = await client.owner('other@example.test')
       const response = await get('q=acme', other.cookie)
 
       expect(response.status).toBe(200)

@@ -435,7 +435,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
     it('answers 404 for a job in another workspace', async () => {
       const jobId = readString(await createJob(COMPANIES_CSV), 'id')
-      const other = await client.owner('grace@example.com', 'harbour')
+      const other = await client.owner('grace@example.com')
       const response = await client.send('GET', `/v1/import/jobs/${jobId}`, {
         cookie: other.cookie,
       })
@@ -510,7 +510,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
     it('answers 404 for a job in another workspace, and leaves it alone', async () => {
       const jobId = readString(await createJob(COMPANIES_CSV), 'id')
-      const other = await client.owner('grace@example.com', 'harbour')
+      const other = await client.owner('grace@example.com')
 
       expect((await remove(jobId, other.cookie)).status).toBe(404)
       expect((await client.send('GET', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })).status).toBe(200)
@@ -1129,7 +1129,7 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
 
     it('shows only this workspace’s records', async () => {
       await importCsv(COMPANIES_CSV)
-      const other = await client.owner('grace@example.com', 'harbour')
+      const other = await client.owner('grace@example.com')
 
       expect(await exportCsv('companies', other.cookie)).toBe(
         `${headersFor('companies').join(',')}\n`,

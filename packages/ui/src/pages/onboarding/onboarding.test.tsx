@@ -28,7 +28,6 @@ afterEach(cleanup)
 const WORKSPACE = {
   id: 'wsp_1',
   name: 'Acme Labs',
-  slug: 'acme-labs',
   timezone: 'Australia/Sydney',
 }
 
@@ -228,7 +227,7 @@ function noCalls(): Calls {
 }
 
 describe('WorkspaceStepPage', () => {
-  it('derives the slug from the name and creates the workspace', async () => {
+  it('creates the workspace from the name', async () => {
     const calls = noCalls()
 
     renderStep(<WorkspaceStepPage />, calls, { workspaceId: null })
@@ -236,8 +235,6 @@ describe('WorkspaceStepPage', () => {
     await act(async () => {
       setValue(screen.getByLabelText(/^Workspace name/u), 'Acme Labs')
     })
-
-    expect((screen.getByLabelText(/^Slug/u) as HTMLInputElement).value).toBe('acme-labs')
 
     await press('Next')
 
@@ -249,7 +246,7 @@ describe('WorkspaceStepPage', () => {
 
     expect(calls.posted[0]?.path).toBe('/workspaces')
     expect(body.name).toBe('Acme Labs')
-    expect(body.slug).toBe('acme-labs')
+    expect(body.slug).toBeUndefined()
     expect(body.handbook_template).toBeUndefined()
     // Whatever the platform reports. Asserting a specific zone would assert the
     // machine the test runs on.
@@ -270,18 +267,6 @@ describe('WorkspaceStepPage', () => {
 
     expect(await screen.findByText('sign in')).toBeTruthy()
     expect(screen.queryByText('Create your workspace')).toBeNull()
-  })
-
-  it('keeps an edited slug within what the API accepts', async () => {
-    const calls = noCalls()
-
-    renderStep(<WorkspaceStepPage />, calls, { workspaceId: null })
-
-    await act(async () => {
-      setValue(screen.getByLabelText(/^Slug/u), 'Acme Labs!!')
-    })
-
-    expect((screen.getByLabelText(/^Slug/u) as HTMLInputElement).value).toBe('acme-labs')
   })
 
   it('creates the workspace without seeding', async () => {
@@ -364,7 +349,7 @@ describe('WorkspaceStepPage', () => {
     const body = calls.posted[0]?.body as Record<string, string>
 
     expect(calls.posted[0]?.path).toBe('/workspaces')
-    expect(body.slug).toBe('globex')
+    expect(body.name).toBe('Globex')
     expect(await screen.findByText('step 2')).toBeTruthy()
   })
 

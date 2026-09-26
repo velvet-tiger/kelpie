@@ -209,7 +209,7 @@ describe.skipIf(connectionString === undefined)('people', () => {
 
     it('allows the same email in a different workspace', async () => {
       await createPerson({ name: 'Ada', email: 'ada@example.com' })
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('POST', '/v1/people', {
         body: { name: 'Ada', email: 'ada@example.com' },
@@ -333,7 +333,7 @@ describe.skipIf(connectionString === undefined)('people', () => {
 
     it('answers 404 for a person in another workspace', async () => {
       const person = await createPerson({ name: 'Ada' })
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('GET', `/v1/people/${String(person.id)}`, {
         cookie: initech.cookie,
@@ -364,7 +364,7 @@ describe.skipIf(connectionString === undefined)('people', () => {
 
     it('lists only this workspace', async () => {
       await createPerson({ name: 'Ada' })
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
       await createPerson({ name: 'Grace' }, initech.cookie)
 
       const ours = readList(await (await client.send('GET', '/v1/people', { cookie: acme.cookie })).json())
@@ -712,7 +712,7 @@ describe.skipIf(connectionString === undefined)('people', () => {
 
     it('answers 404 across a workspace boundary', async () => {
       const person = await createPerson({ name: 'Ada' })
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('PATCH', `/v1/people/${String(person.id)}`, {
         body: { summary: 'Not yours' },
@@ -837,7 +837,7 @@ describe.skipIf(connectionString === undefined)('people', () => {
 
     it('answers 404 across a workspace boundary', async () => {
       const person = await createPerson({ name: 'Ada' })
-      const initech = await client.owner('grace@example.com', 'initech')
+      const initech = await client.owner('grace@example.com')
 
       const response = await client.send('DELETE', `/v1/people/${String(person.id)}`, {
         cookie: initech.cookie,

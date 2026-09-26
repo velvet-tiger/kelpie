@@ -102,10 +102,10 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
   }
 
   /** A signed-in owner of a fresh workspace. */
-  async function owner(email = 'ada@example.com', slug = 'acme'): Promise<{ cookie: string; workspaceId: string }> {
+  async function owner(email = 'ada@example.com'): Promise<{ cookie: string; workspaceId: string }> {
     const cookie = await signUp(email)
     const created = await send('POST', '/v1/workspaces', {
-      body: { name: 'Acme', slug, timezone: 'Australia/Melbourne' },
+      body: { name: 'Acme', timezone: 'Australia/Melbourne' },
       cookie,
     })
 
@@ -215,7 +215,7 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
       const response = await send('GET', `/v1/workspaces/${workspaceId}`, { bearer: secret })
 
       expect(response.status).toBe(200)
-      expect(readString(await response.json(), 'slug')).toBe('acme')
+      expect(readString(await response.json(), 'name')).toBe('Acme')
     })
 
     it('answers 401 after the key is revoked', async () => {
@@ -252,8 +252,8 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
     })
 
     it('cannot reach another workspace', async () => {
-      const first = await owner('ada@example.com', 'acme')
-      const second = await owner('grace@example.com', 'initech')
+      const first = await owner('ada@example.com')
+      const second = await owner('grace@example.com')
       const secret = await mint(first.cookie, 'workspace')
 
       const response = await send('GET', `/v1/workspaces/${second.workspaceId}`, { bearer: secret })
@@ -271,8 +271,8 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
     })
 
     it('wins over a cookie when both are sent', async () => {
-      const first = await owner('ada@example.com', 'acme')
-      const second = await owner('grace@example.com', 'initech')
+      const first = await owner('ada@example.com')
+      const second = await owner('grace@example.com')
       const secret = await mint(second.cookie, 'workspace')
 
       // The cookie belongs to Ada's workspace; the key belongs to Grace's.

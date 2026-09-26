@@ -225,11 +225,11 @@ describe.skipIf(connectionString === undefined)('idempotency keys', () => {
     const first = await harness.app.request('/v1/workspaces', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: cookie, 'Idempotency-Key': 'onboarding-key' },
-      body: JSON.stringify({ name: 'New Co', slug: 'new-co', timezone: 'Australia/Melbourne' }),
+      body: JSON.stringify({ name: 'New Co', timezone: 'Australia/Melbourne' }),
     })
 
     expect(first.status).toBe(201)
-    expect(readString(await first.json(), 'slug')).toBe('new-co')
+    expect(readString(await first.json(), 'name')).toBe('New Co')
   })
 
   it('does not require credentials on a public route', async () => {

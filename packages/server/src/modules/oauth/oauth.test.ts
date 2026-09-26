@@ -171,10 +171,10 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
     return cookie
   }
 
-  async function owner(email = 'ada@example.com', slug = 'acme'): Promise<{ cookie: string; workspaceId: string }> {
+  async function owner(email = 'ada@example.com'): Promise<{ cookie: string; workspaceId: string }> {
     const cookie = await signUp(email)
     const created = await send('POST', '/v1/workspaces', {
-      body: { name: 'Acme', slug, timezone: 'Australia/Melbourne' },
+      body: { name: 'Acme', timezone: 'Australia/Melbourne' },
       cookie,
     })
 
@@ -431,7 +431,7 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
     it('refuses a workspace the user does not belong to', async () => {
       const first = await owner()
-      const second = await owner('bea@example.com', 'other')
+      const second = await owner('bea@example.com')
       const clientId = await registerPublicClient()
       const requestId = await startRequest(clientId)
       const response = await send('POST', `/v1/oauth/requests/${requestId}/approve`, {
