@@ -49,9 +49,7 @@ SMTP_PASSWORD=
 # Kelpie AI. Each workspace admin enters their own OpenAI or Anthropic key in
 # Admin -> AI. Set these to give every workspace a fallback key instead. All
 # optional; AI_API_KEY is ignored without AI_PROVIDER (`openai` or
-# `anthropic`). AI_DISPATCH_BASE_URL defaults to APP_BASE_URL; set it when the
-# server cannot reach its own public address.
+# `anthropic`).
 # AI_PROVIDER=
 # AI_API_KEY=
 # AI_MODEL=
-# AI_DISPATCH_BASE_URL=http://localhost:3000

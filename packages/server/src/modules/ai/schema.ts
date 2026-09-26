@@ -6,9 +6,9 @@ import { AI_RUN_STATUSES } from '@kelpie/schemas'
 /**
  * The AI module's own tables.
  *
- * `ai_settings` holds the per-workspace dispatch secret and, when the
- * assembly runs the module in `workspace` key mode, the workspace's own
- * provider, model and sealed API key. The AI never speaks to core's MCP
+ * `ai_settings` marks a workspace as enabled and, when the assembly runs the
+ * module in `workspace` key mode, holds the workspace's own provider, model
+ * and sealed API key. The AI never speaks to core's MCP
  * endpoint; the executor runs the model with zero tools and applies the
  * operations the model returns through the in-process tool registry itself,
  * using a synthetic actor.
@@ -30,12 +30,12 @@ import { AI_RUN_STATUSES } from '@kelpie/schemas'
 export const aiSettings = pgTable('ai_settings', {
   workspaceId: text('workspace_id').primaryKey(),
   /**
-   * The full `Bearer <token>` header value core's dispatch engine sends on
-   * `POST /v1/public/ai/dispatch`, sealed with `SECRET_ENCRYPTION_KEY`. The
-   * AI's reads and writes go through the in-process MCP registry with a
-   * synthetic actor, so no Kelpie API key is stored.
+   * The sealed `Bearer` header core's engine sent when it dispatched to this
+   * module over HTTP. Core now dispatches in-process, so nothing reads it and
+   * every save writes null. Kept, nullable, so older rows need no data
+   * migration; the reseal pass still covers the values that remain.
    */
-  dispatchSecretEncrypted: text('dispatch_secret_encrypted').notNull(),
+  dispatchSecretEncrypted: text('dispatch_secret_encrypted'),
   /**
    * `workspace` key mode only. The provider the admin picked; null falls back
    * to `AI_PROVIDER`. Text rather than an enum, like `status` below, and

@@ -70,6 +70,40 @@ export interface McpToolRegistry {
   list(): readonly McpTool[]
 }
 
+/** How an agent dispatch ended. The same shape whether it went over HTTP or in-process. */
+export interface AgentDispatchOutcome {
+  readonly delivered: boolean
+  /** An HTTP-style status, or null when there was none to report. */
+  readonly status: number | null
+  /** Why it failed, for the run log. Null on success. */
+  readonly reason: string | null
+}
+
+/**
+ * Receives an agent-task dispatch in-process.
+ *
+ * `payload` is the same object core would POST to a registered agent's
+ * endpoint (`run_id`, `workspace_id`, the resolved task). Validate it as you
+ * would a request body. Answer quickly: like an HTTP receiver, queue the work
+ * and return; core records the outcome on the run as soon as this resolves.
+ */
+export type AgentDispatcher = (payload: Readonly<Record<string, unknown>>) => Promise<AgentDispatchOutcome>
+
+/**
+ * In-process dispatch for the agent rows a module manages.
+ *
+ * A module that writes `agent_registrations` rows with `managed_by` set to its
+ * own id provides a dispatcher here, and core's agent-tasks engine calls it
+ * for those rows instead of POSTing to their endpoint. No URL to go stale, no
+ * loopback through a public address, and no secret on the wire.
+ */
+export interface AgentDispatchRegistry {
+  /** Provides the dispatcher for rows whose `managed_by` is this module's id. Once per module. */
+  provide(dispatcher: AgentDispatcher): void
+  /** The dispatcher for a `managed_by` value, if a module in the assembly provides one. Run time only. */
+  find(managedBy: string): AgentDispatcher | undefined
+}
+
 /**
  * An identity a module verified somewhere else, handed back for core to sign in.
  *
@@ -269,6 +303,8 @@ export interface ModuleContext extends ModuleServices {
   appMiddleware(pattern: string, handler: MiddlewareHandler): void
   schema(tables: Readonly<Record<string, unknown>>, migrationsDir: string): void
   readonly mcp: McpToolRegistry
+  /** In-process dispatch for the agent rows this module manages. */
+  readonly agentDispatch: AgentDispatchRegistry
   /**
    * Subscribe to domain events. Handlers run after the emitting transaction
    * commits, and must be idempotent.

@@ -1,13 +1,9 @@
-import { timingSafeEqual } from 'node:crypto'
-
 import type { AiKeyMode, AiKeySource, AiProvider } from '@kelpie/schemas'
 
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
-import { SecretDecryptionError } from '../../lib/secrets.ts'
 import type { SecretCipher } from '../../lib/secrets.ts'
-import { generateToken } from '../../lib/tokens.ts'
 import type { Database } from '../../lib/database.ts'
 import { limitFor } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
@@ -32,7 +28,6 @@ import {
 import type { AiRunRecord, AiSettingsRow } from './repository.ts'
 import {
   AI_RUNS_LIMIT,
-  dispatchEndpointFor,
   keyHint,
   monthWindowStart,
   staleBefore,
@@ -55,7 +50,6 @@ import {
  * unlimited unless something in the assembly provides a number.
  */
 
-const DISPATCH_SECRET_PREFIX = 'aidsp_'
 const RUN_LIST_LIMIT = 50
 
 const STALE_RUN_REASON = 'The run exceeded AI_RUN_TIMEOUT_MINUTES and was abandoned'
@@ -81,7 +75,6 @@ export interface AiServiceDependencies {
   readonly entitlements: EntitlementRegistry
   readonly executor: AiExecutor
   readonly now: () => Date
-  readonly appBaseUrl: string
   readonly runTimeoutMinutes: number
   readonly log: Logger
 }
@@ -97,7 +90,6 @@ export interface AiSettingsView {
   readonly keyHint: string | null
   readonly monthlyLimit: number | null
   readonly runsThisMonth: number
-  readonly endpoint: string
 }
 
 /**
@@ -115,7 +107,7 @@ export interface AiRunView extends AiRunRecord {}
 /**
  * The `context` bag core sends on dispatch. Loose on purpose — new keys pass
  * through — but the fields the context-pack builder reads are named so
- * `publicRoutes.ts` and this file agree on the wire shape.
+ * `dispatch.ts` and this file agree on the shape.
  */
 export interface DispatchContext {
   readonly target_label?: string
@@ -141,8 +133,8 @@ export interface DispatchPayload {
 export interface AiService {
   /**
    * Enables the module for the actor's workspace, or saves new settings when
-   * it is on already, and upserts the registration. Re-posting rotates the
-   * dispatch secret, which doubles as the repair verb.
+   * it is on already, and upserts the registration. Re-posting repairs the
+   * registration row.
    */
   enable(actor: Actor, changes: AiSettingsChanges): Promise<AiSettingsView>
   /** Disables the module and forgets any stored key; run history is kept. */
@@ -151,8 +143,12 @@ export interface AiService {
   view(actor: Actor): Promise<AiSettingsView>
   listRuns(actor: Actor): Promise<readonly AiRunView[]>
   getRun(actor: Actor, id: string): Promise<AiRunView>
-  /** The dispatch intake path. Answers void on success; throws AppError otherwise. */
-  intake(payload: DispatchPayload, authorizationHeader: string | undefined): Promise<void>
+  /**
+   * Queues a dispatched run. Called only by the in-process dispatcher, so
+   * there is no credential to check. Answers void on success; throws
+   * AppError otherwise.
+   */
+  accept(payload: DispatchPayload): Promise<void>
   /** Removes every row this module holds for the workspace. Idempotent. */
   forget(workspaceId: string): Promise<void>
 }
@@ -171,17 +167,6 @@ function requireAdmin(actor: Actor): void {
   if (actor.role === null || !roleAllows(actor.role, 'admin')) {
     throw new AppError('forbidden', 'This action needs the admin role')
   }
-}
-
-function constantTimeStringEqual(left: string, right: string): boolean {
-  const leftBytes = Buffer.from(left, 'utf8')
-  const rightBytes = Buffer.from(right, 'utf8')
-
-  if (leftBytes.length !== rightBytes.length) {
-    return false
-  }
-
-  return timingSafeEqual(leftBytes, rightBytes)
 }
 
 function isUsable(credentials: AiCredentials): boolean {
@@ -207,7 +192,7 @@ function prospectiveRow(
 
   return {
     workspaceId,
-    dispatchSecretEncrypted: stored?.dispatchSecretEncrypted ?? '',
+    dispatchSecretEncrypted: null,
     provider: changes.provider ?? stored?.provider ?? null,
     model: changes.model === undefined ? keptModel : changes.model,
     apiKeyEncrypted:
@@ -218,8 +203,6 @@ function prospectiveRow(
 }
 
 export function createAiService(dependencies: AiServiceDependencies): AiService {
-  const endpoint = dispatchEndpointFor(dependencies.appBaseUrl)
-
   async function viewFor(workspaceId: string): Promise<AiSettingsView> {
     const settings = await findSettings(dependencies.db, workspaceId)
     const credentials = dependencies.credentials.forRow(settings)
@@ -240,7 +223,6 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       keyHint: credentials.keySource === 'workspace' ? keyHint(credentials.apiKey) : null,
       monthlyLimit,
       runsThisMonth,
-      endpoint,
     }
   }
 
@@ -270,8 +252,6 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
         throw AppError.conflict(NOT_CONFIGURED_MESSAGE[dependencies.keyMode])
       }
 
-      const dispatchSecret = `${DISPATCH_SECRET_PREFIX}${generateToken()}`
-      const bearerHeader = `Bearer ${dispatchSecret}`
       const now = dependencies.now()
 
       await dependencies.transaction(async ({ tx }) => {
@@ -279,23 +259,13 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
           tx,
           {
             workspaceId,
-            dispatchSecretEncrypted: dependencies.cipher.seal(bearerHeader),
             ...(dependencies.keyMode === 'workspace'
               ? { provider: next.provider, model: next.model, apiKeyEncrypted: next.apiKeyEncrypted }
               : {}),
           },
           now,
         )
-        await ensureKelpieRegistration(
-          tx,
-          dependencies.coreCreateId,
-          {
-            workspaceId,
-            endpoint,
-            authHeaderEncrypted: dependencies.cipher.seal(bearerHeader),
-          },
-          now,
-        )
+        await ensureKelpieRegistration(tx, dependencies.coreCreateId, workspaceId, now)
       })
 
       // Never the key, and never its hint: the provider and where the key
@@ -344,30 +314,13 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       return run
     },
 
-    async intake(payload, authorizationHeader) {
-      // Auth first. Every failure answers 401 without saying why: it must not
-      // be possible to tell "no such workspace" from "wrong secret".
+    async accept(payload) {
+      // A row left behind by a disable that did not reach the registration,
+      // or a dispatch that raced a disable. Say so on the run.
       const settings = await findSettings(dependencies.db, payload.workspaceId)
 
-      if (settings === undefined || authorizationHeader === undefined) {
-        throw AppError.unauthorized()
-      }
-
-      let expected: string
-      try {
-        expected = dependencies.cipher.open(settings.dispatchSecretEncrypted)
-      } catch (thrown: unknown) {
-        if (thrown instanceof SecretDecryptionError) {
-          dependencies.log.error('ai dispatch secret could not be decrypted', {
-            workspaceId: payload.workspaceId,
-          })
-          throw AppError.unauthorized()
-        }
-        throw thrown
-      }
-
-      if (!constantTimeStringEqual(authorizationHeader, expected)) {
-        throw AppError.unauthorized()
+      if (settings === undefined) {
+        throw AppError.conflict('AI is not enabled for this workspace; an admin can enable it in AI settings')
       }
 
       // Refuse rather than queue a run that cannot start: the key was

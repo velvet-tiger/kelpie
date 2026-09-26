@@ -251,9 +251,15 @@ function RegisteredAgents(): React.JSX.Element {
             <li key={agent.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
               <div className="min-w-0">
                 <div className="text-[13px] font-medium text-ink">{agent.name}</div>
-                <code className="font-mono text-[11px] break-all text-ink-muted">
-                  {agent.endpoint}
-                </code>
+                {agent.managedBy === null ? (
+                  <code className="font-mono text-[11px] break-all text-ink-muted">
+                    {agent.endpoint}
+                  </code>
+                ) : (
+                  // A module-managed agent is dispatched in-process; its stored
+                  // endpoint is not an address anything calls.
+                  <span className="text-[11px] text-ink-muted">Runs inside Kelpie ({agent.managedBy} module)</span>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-3 text-[11px] text-ink-faint">
                 {agent.hasAuthHeader && <span>Auth header set</span>}

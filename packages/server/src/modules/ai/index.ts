@@ -4,18 +4,17 @@ import { AI_PROVIDERS } from '@kelpie/schemas'
 import type { AiKeyMode, AiProvider } from '@kelpie/schemas'
 import { z } from 'zod'
 
-import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secrets.ts'
 import type { KelpieModule, McpTool } from '../../runtime/module.ts'
 import { createAnthropicPort } from './anthropic.ts'
 import { createAiCredentialResolver } from './credentials.ts'
+import { createAiDispatcher } from './dispatch.ts'
 import { createAiExecutor } from './executor.ts'
 import type { AiPortResolution } from './executor.ts'
 import { createAiRunIdFactory } from './ids.ts'
 import type { IdFactory } from './ids.ts'
 import { createOpenAiPort } from './openai.ts'
 import type { AiProviderPort } from './provider.ts'
-import { mountAiPublicRoutes } from './publicRoutes.ts'
 import { findSettings } from './repository.ts'
 import { mountAiRoutes } from './routes.ts'
 import {
@@ -36,8 +35,9 @@ import { createAiService } from './service.ts'
  *
  * Registers a "Kelpie AI" agent in the workspace's `agent_registrations` when
  * an admin enables it, so the agent shows up in the Run dialog on every
- * record page. Core dispatches the resolved task to `/v1/public/ai/dispatch`
- * on this same service; that intake queues the run and detaches the executor,
+ * record page. Core's agent-tasks engine hands the resolved task to the
+ * dispatcher this module provides (`context.agentDispatch`), in-process: no
+ * URL and no secret. The dispatcher queues the run and detaches the executor,
  * which builds a context pack by reading the relevant records itself, calls
  * the provider with **no tools** and a JSON reply shape, then validates the
  * reply and applies the operations it contains through the in-process MCP
@@ -54,12 +54,11 @@ import { createAiService } from './service.ts'
  * plan catalog and names that module in `requires`.
  *
  * **Toggleable, not structural.** The runtime gates `/v1/ai/*` behind
- * `module.ai`. The dispatch intake is a public route guarded by the
- * per-workspace secret rather than the module toggle, so in-flight
- * dispatches from before a switch-off do not fail on the toggle.
+ * `module.ai`. The dispatcher is not gated, so in-flight dispatches from
+ * before a switch-off do not fail on the toggle.
  *
  * **No durable queue.** A crash mid-turn leaves a row `running`; the next
- * intake's stale sweep marks it failed and the user re-runs. Consistent with
+ * dispatch's stale sweep marks it failed and the user re-runs. Consistent with
  * `import-export` and `webhooks`.
  */
 
@@ -77,10 +76,6 @@ const optionalText = z.string().trim().min(1).optional()
  * still boots. In `workspace` mode they are a fallback, and in `deployment`
  * mode their absence means settings cannot be enabled and dispatch refuses,
  * both with a message the operator can act on.
- *
- * `AI_DISPATCH_BASE_URL` is where core's dispatch engine reaches this module.
- * It defaults to `APP_BASE_URL`. Set it when the server cannot reach its own
- * public address, for example `http://localhost:3000` behind a proxy.
  */
 const configSchema = z.object({
   AI_PROVIDER: z.enum(AI_PROVIDERS).optional(),
@@ -89,11 +84,6 @@ const configSchema = z.object({
   AI_MAX_TOKENS: z.coerce.number().int().min(1024).max(128_000).default(DEFAULT_MAX_OUTPUT_TOKENS),
   AI_MAX_CONCURRENT_RUNS: z.coerce.number().int().min(1).max(20).default(DEFAULT_MAX_CONCURRENT_RUNS),
   AI_RUN_TIMEOUT_MINUTES: z.coerce.number().int().positive().max(240).default(DEFAULT_RUN_TIMEOUT_MINUTES),
-  AI_DISPATCH_BASE_URL: z
-    .string()
-    .url()
-    .refine((url) => !url.endsWith('/'), 'must not end with a slash')
-    .optional(),
 })
 
 export type AiProviderFactory = (options: { readonly apiKey: string }) => AiProviderPort
@@ -144,7 +134,6 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
     register(context) {
       const config = context.config(configSchema)
       const cipher = createSecretCipher(context.secretEncryption ?? context.config(secretEncryptionConfigSchema))
-      const appBaseUrl = context.appBaseUrl ?? context.config(appUrlConfigSchema).APP_BASE_URL
       const environment = {
         provider: config.AI_PROVIDER,
         apiKey: config.AI_API_KEY,
@@ -212,7 +201,6 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         entitlements: context.entitlements,
         executor,
         now: context.now,
-        appBaseUrl: config.AI_DISPATCH_BASE_URL ?? appBaseUrl,
         runTimeoutMinutes: config.AI_RUN_TIMEOUT_MINUTES,
         log: context.log,
       })
@@ -224,9 +212,7 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         mountAiRoutes(router, { db: context.db, now: context.now, service })
       })
 
-      context.publicRoutes((router) => {
-        mountAiPublicRoutes(router, service)
-      })
+      context.agentDispatch.provide(createAiDispatcher(service))
 
       // Handler runs after the emitting transaction commits and must be
       // idempotent: at-least-once delivery, and `deleteRuns`/`deleteSettings`

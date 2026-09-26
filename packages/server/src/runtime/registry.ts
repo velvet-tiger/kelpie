@@ -14,6 +14,7 @@ import type { EntitlementRegistry } from './entitlements.ts'
 import { createEventBus } from './events.ts'
 import type { EventBus } from './events.ts'
 import type {
+  AgentDispatcher,
   CompletedSignIn,
   ExternalSignInHandler,
   KelpieModule,
@@ -43,6 +44,8 @@ export interface ModuleContributions {
   readonly appRoutes: readonly AppRouteContribution[]
   readonly schemas: readonly SchemaContribution[]
   readonly mcpTools: readonly McpTool[]
+  /** In-process agent dispatchers, keyed by the `managed_by` value (the providing module's id). */
+  readonly agentDispatchers: ReadonlyMap<string, AgentDispatcher>
   /** What the MCP endpoint's `401` advertises. Undefined when no module installed it. */
   readonly mcpAuthorization?: McpAuthorization | undefined
   /** The bus every module subscribed to. Services publish through it after commit. */
@@ -279,6 +282,7 @@ interface Accumulator {
   readonly appRoutes: AppRouteContribution[]
   readonly schemas: SchemaContribution[]
   readonly mcpTools: McpTool[]
+  readonly agentDispatchers: Map<string, AgentDispatcher>
   mcpAuthorization?: { readonly value: McpAuthorization; readonly installedBy: string }
 }
 
@@ -476,6 +480,18 @@ function createModuleContext(
       accumulator.schemas.push({ moduleId: module.id, tables, migrationsDir })
     },
 
+    agentDispatch: {
+      provide(dispatcher) {
+        if (accumulator.agentDispatchers.has(module.id)) {
+          throw new ModuleBootError([`module "${module.id}" provides an agent dispatcher twice`])
+        }
+
+        accumulator.agentDispatchers.set(module.id, dispatcher)
+      },
+      // Read at run time, so a module registered later than the caller is found.
+      find: (managedBy) => accumulator.agentDispatchers.get(managedBy),
+    },
+
     mcp: {
       // The accumulator's own array: `contributions.mcpTools` is this same
       // array, so a caller at run time sees every module's tools.
@@ -589,6 +605,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     appRoutes: [],
     schemas: [],
     mcpTools: [],
+    agentDispatchers: new Map(),
   }
   const moduleCatalog: readonly ModuleCatalogEntry[] = ordered.map((module) => ({
     id: module.id,
@@ -703,6 +720,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     appRoutes: accumulator.appRoutes,
     schemas: accumulator.schemas,
     mcpTools: accumulator.mcpTools,
+    agentDispatchers: accumulator.agentDispatchers,
     mcpAuthorization: accumulator.mcpAuthorization?.value,
     events,
     entitlements,

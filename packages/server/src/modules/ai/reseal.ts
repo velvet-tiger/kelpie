@@ -11,11 +11,11 @@ import { listSettingsRows, updateSealedSettings } from './repository.ts'
  * Core's `resealStoredSecrets` walks core's always-present tables. This
  * module is optional, so its table exists only in an assembly that lists it,
  * and the assembly passes this function to `runReseal` as an `extraPasses`
- * entry. Two sealed columns per row: the dispatch secret, and the workspace's
- * provider key when it has one. `unreadable` names the workspace id. Each row
- * is independent, so a run that dies halfway leaves the rows it finished
- * current and the rest still openable with the previous key. Re-running
- * finishes the job.
+ * entry. Two sealed columns per row: the workspace's provider key when it has
+ * one, and a dispatch secret left from before dispatch went in-process.
+ * `unreadable` names the workspace id. Each row is independent, so a run
+ * that dies halfway leaves the rows it finished current and the rest still
+ * openable with the previous key. Re-running finishes the job.
  */
 
 const DISPATCH_LABEL = 'ai_settings.dispatch_secret_encrypted'
@@ -29,10 +29,14 @@ export async function resealAiSecrets(db: Database, cipher: SecretCipher): Promi
   for (const row of rows) {
     const changes: { dispatchSecretEncrypted?: string; apiKeyEncrypted?: string } = {}
 
-    dispatch.examined += 1
-    const dispatchReplacement = resealOne(cipher, row.dispatchSecretEncrypted, row.workspaceId, dispatch)
-    if (dispatchReplacement !== undefined) {
-      changes.dispatchSecretEncrypted = dispatchReplacement
+    // Unread since dispatch went in-process, and cleared on the next save,
+    // but a value that remains still has to open under the new key.
+    if (row.dispatchSecretEncrypted !== null) {
+      dispatch.examined += 1
+      const dispatchReplacement = resealOne(cipher, row.dispatchSecretEncrypted, row.workspaceId, dispatch)
+      if (dispatchReplacement !== undefined) {
+        changes.dispatchSecretEncrypted = dispatchReplacement
+      }
     }
 
     if (row.apiKeyEncrypted !== null) {

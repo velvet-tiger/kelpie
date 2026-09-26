@@ -52,7 +52,7 @@ const AGENTS = [
 const MANAGED_AGENT = {
   id: 'ag_2',
   name: 'Hosted agent',
-  endpoint: 'https://kelpie.example.com/v1/public/ai/dispatch',
+  endpoint: 'module:ai',
   has_auth_header: true,
   managed_by: 'ai',
   settings_path: '/admin/ai',
@@ -186,6 +186,9 @@ describe('McpPage', () => {
     renderPage({ agents: () => ({ items: [MANAGED_AGENT], nextCursor: null }) })
 
     expect(await screen.findByText('Hosted agent')).toBeTruthy()
+    // Dispatched in-process: the stored endpoint is not shown as an address.
+    expect(screen.getByText('Runs inside Kelpie (ai module)')).toBeTruthy()
+    expect(screen.queryByText('module:ai')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
     expect(screen.getByRole('link', { name: 'Manage in settings' }).getAttribute('href')).toBe(
       '/admin/ai',

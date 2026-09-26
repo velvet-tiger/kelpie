@@ -9,14 +9,14 @@ import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
 import { createSecretCipher } from '../../lib/secrets.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { runMigrations } from '../../runtime/migrate.ts'
-import type { McpTool } from '../../runtime/module.ts'
+import type { AgentDispatchOutcome, McpTool } from '../../runtime/module.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestClient, readList, readRecord, readString } from '../../testing/client.ts'
 import type { TestClient } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
-import { TEST_APP_BASE_URL, TEST_ENVIRONMENT, TEST_SECRET_ENCRYPTION_KEY } from '../../testing/environment.ts'
+import { TEST_ENVIRONMENT, TEST_SECRET_ENCRYPTION_KEY } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { createAgentTasksModule } from '../agent-tasks/index.ts'
 import { agentRegistrations } from '../agent-tasks/schema.ts'
@@ -32,7 +32,7 @@ import { aiRuns, aiSettings } from './schema.ts'
 
 /**
  * The `ai` module against the real test database: setup in both key modes,
- * dispatch intake with the per-workspace secret, metering, concurrency, the
+ * in-process dispatch through the dispatcher the module provides, metering, concurrency, the
  * `workspace.deleted` handler, and Kelpie reading records itself, calling the
  * model with no tools, validating the JSON proposal, and applying every
  * operation through MCP tools with the synthetic AI actor.
@@ -317,23 +317,11 @@ const DEPLOYMENT_ENVIRONMENT: Environment = {
   AI_API_KEY: 'sk-deployment-key-0001',
 }
 
-async function readDispatchAuth(h: Harness, workspaceId: string): Promise<string> {
-  const rows = await h.app.services.db
-    .select({ sealed: aiSettings.dispatchSecretEncrypted })
-    .from(aiSettings)
-    .where(eq(aiSettings.workspaceId, workspaceId))
-    .limit(1)
-  const sealed = rows[0]?.sealed
-  if (sealed === undefined) throw new Error('ai_settings row was not created by enable()')
-
-  return cipher.open(sealed)
-}
-
 async function enabledWorkspace(
   h: Harness,
   email = 'ai-admin@example.com',
   body?: Record<string, unknown>,
-): Promise<{ readonly cookie: string; readonly workspaceId: string; readonly dispatchAuth: string }> {
+): Promise<{ readonly cookie: string; readonly workspaceId: string }> {
   const owner = await h.client.owner(email)
   await h.app.services.events.drain()
 
@@ -345,21 +333,18 @@ async function enabledWorkspace(
     throw new Error(`Enabling ai answered ${String(response.status)}: ${await response.text()}`)
   }
 
-  return {
-    cookie: owner.cookie,
-    workspaceId: owner.workspaceId,
-    dispatchAuth: await readDispatchAuth(h, owner.workspaceId),
-  }
+  return { cookie: owner.cookie, workspaceId: owner.workspaceId }
 }
 
-function deliver(h: Harness, payload: Record<string, unknown>, auth: string): Promise<Response> {
-  return Promise.resolve(
-    h.app.app.request('/v1/public/ai/dispatch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', authorization: auth },
-      body: JSON.stringify(payload),
-    }),
-  )
+/**
+ * Hands a payload to the dispatcher the module provided, the way core's
+ * agent-tasks engine does for the "Kelpie AI" row.
+ */
+function deliver(h: Harness, payload: Record<string, unknown>): Promise<AgentDispatchOutcome> {
+  const dispatcher = h.app.contributions.agentDispatchers.get('ai')
+  if (dispatcher === undefined) throw new Error('the ai module provided no dispatcher')
+
+  return dispatcher(payload)
 }
 
 interface RunRow {
@@ -427,40 +412,42 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       h.limit = undefined
     })
 
-    it('creates a Kelpie AI registration on enable and rotates it on re-enable', async () => {
+    it('creates one Kelpie AI registration that core dispatches in-process', async () => {
       const owner = await h.client.owner('rotator@example.com')
       await h.app.services.events.drain()
 
-      async function enable(): Promise<string> {
-        const response = await h.client.send('POST', '/v1/ai/settings', { cookie: owner.cookie })
-        expect(response.status).toBe(200)
-        return readDispatchAuth(h, owner.workspaceId)
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        expect((await h.client.send('POST', '/v1/ai/settings', { cookie: owner.cookie })).status).toBe(200)
       }
-
-      const firstAuth = await enable()
 
       const registrations = await h.app.services.db
         .select()
         .from(agentRegistrations)
         .where(and(eq(agentRegistrations.workspaceId, owner.workspaceId), eq(agentRegistrations.name, 'Kelpie AI')))
       expect(registrations).toHaveLength(1)
-      const [row] = registrations
-      expect(row?.endpoint).toBe(`${TEST_APP_BASE_URL}/v1/public/ai/dispatch`)
-      expect(row?.managedBy).toBe('ai')
-      expect(row?.settingsPath).toBe('/admin/ai')
-      const opened = cipher.open(row!.authHeaderEncrypted!)
-      expect(opened).toMatch(/^Bearer aidsp_/)
-      expect(opened).toBe(firstAuth)
+      expect(registrations[0]).toMatchObject({
+        endpoint: 'module:ai',
+        authHeaderEncrypted: null,
+        managedBy: 'ai',
+        settingsPath: '/admin/ai',
+      })
 
-      const secondAuth = await enable()
-      expect(secondAuth).not.toBe(firstAuth)
+      // Nothing sealed for dispatch any more.
+      const [settings] = await h.app.services.db.select().from(aiSettings).where(eq(aiSettings.workspaceId, owner.workspaceId))
+      expect(settings?.dispatchSecretEncrypted).toBeNull()
+    })
 
-      const rotated = await h.app.services.db
-        .select({ auth: agentRegistrations.authHeaderEncrypted })
-        .from(agentRegistrations)
-        .where(eq(agentRegistrations.workspaceId, owner.workspaceId))
-      expect(rotated).toHaveLength(1)
-      expect(cipher.open(rotated[0]!.auth!)).toBe(secondAuth)
+    it('rewrites a row stored by the HTTP version on the next save', async () => {
+      const { cookie, workspaceId } = await enabledWorkspace(h)
+      await h.app.services.db
+        .update(agentRegistrations)
+        .set({ endpoint: 'http://localhost:5173/v1/public/ai/dispatch', authHeaderEncrypted: cipher.seal('Bearer aidsp_old') })
+        .where(eq(agentRegistrations.workspaceId, workspaceId))
+
+      expect((await h.client.send('POST', '/v1/ai/settings', { cookie })).status).toBe(200)
+
+      const [row] = await h.app.services.db.select().from(agentRegistrations).where(eq(agentRegistrations.workspaceId, workspaceId))
+      expect(row).toMatchObject({ endpoint: 'module:ai', authHeaderEncrypted: null })
     })
 
     it('refuses a settings body: the deployment manages provider, key and model', async () => {
@@ -564,7 +551,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('reads the context pack and applies the proposal in one call', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
 
       h.provider.queue(
         endTurn(
@@ -592,7 +579,6 @@ describe.skipIf(connectionString === undefined)('ai', () => {
             handbook_slugs: ['agent-faq'],
           },
         }),
-        dispatchAuth,
       )
       expect(response.status).toBe(202)
 
@@ -634,7 +620,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('runs on an Enquiry target, which the cloud copy refused as unknown', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
 
       h.provider.queue(
         endTurn(proposal({ summary: 'Noted the enquiry.', operations: [{ kind: 'append_note', body: 'Asked for a pilot.', pinned: false }] })),
@@ -650,7 +636,6 @@ describe.skipIf(connectionString === undefined)('ai', () => {
           targetId: 'enq_test_1',
           context: { target_label: 'Pilot request' },
         }),
-        dispatchAuth,
       )
 
       const row = await settled(h, 'run_enquiry')
@@ -660,17 +645,17 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('falls back to `prompt` when core did not send `base_prompt`', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
       h.provider.queue(endTurn(proposal({ summary: 'fallback' })))
 
-      await deliver(h, dispatchBody({ runId: 'run_fallback', workspaceId, basePrompt: null }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_fallback', workspaceId, basePrompt: null }))
       await settled(h, 'run_fallback')
 
       expect(h.provider.requests[0]?.messages[0]?.text ?? '').toContain('via MCP / the public API')
     })
 
     it('strips off-limits fields from an update_target and records the drop', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
 
       h.provider.queue(
         endTurn(
@@ -681,7 +666,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
         ),
       )
 
-      await deliver(h, dispatchBody({ runId: 'run_drop_fields', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_drop_fields', workspaceId }))
       const row = await settled(h, 'run_drop_fields')
 
       const operations = row.operations as readonly { kind: string; status: string; detail: string }[]
@@ -696,11 +681,11 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('issues one repair turn on invalid JSON and fails after a second bad reply', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
       h.provider.queue(endTurn('this is not JSON', { inputTokens: 10, outputTokens: 5 }))
       h.provider.queue(endTurn('still not JSON', { inputTokens: 10, outputTokens: 5 }))
 
-      await deliver(h, dispatchBody({ runId: 'run_bad_json', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_bad_json', workspaceId }))
       const row = await settled(h, 'run_bad_json')
 
       expect(row.status).toBe('failed')
@@ -710,7 +695,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('records a per-operation failure without aborting the rest', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
       h.behaviors.set('notes_create', { throwsOnce: 'notes_create failed for test' })
 
       h.provider.queue(
@@ -725,7 +710,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
         ),
       )
 
-      await deliver(h, dispatchBody({ runId: 'run_partial', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_partial', workspaceId }))
       const row = await settled(h, 'run_partial')
 
       const operations = row.operations as readonly { kind: string; status: string; detail: string }[]
@@ -735,7 +720,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('records a refusal as failed with the provider reason', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
       h.provider.queue({
         stopReason: 'refusal',
         text: '',
@@ -743,7 +728,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
         failure: { code: 'content_filter', message: 'The provider declined this task' },
       })
 
-      await deliver(h, dispatchBody({ runId: 'run_refused', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_refused', workspaceId }))
       const row = await settled(h, 'run_refused')
 
       expect(row.status).toBe('failed')
@@ -751,7 +736,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('hides a provider error behind the generic message: the key is the operator’s', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
       h.provider.queue({
         stopReason: 'failed',
         text: '',
@@ -759,7 +744,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
         failure: { code: 'invalid_api_key', message: 'The OpenAI API key was rejected.' },
       })
 
-      await deliver(h, dispatchBody({ runId: 'run_provider_down', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_provider_down', workspaceId }))
       const row = await settled(h, 'run_provider_down')
 
       expect(row.status).toBe('failed')
@@ -768,75 +753,72 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('records a max_tokens truncation as failed', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
       h.provider.queue({ stopReason: 'max_tokens', text: '{"summary":"Partial…', usage: { inputTokens: 200, outputTokens: 4096 } })
 
-      await deliver(h, dispatchBody({ runId: 'run_trunc', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_trunc', workspaceId }))
       const row = await settled(h, 'run_trunc')
 
       expect(row.status).toBe('failed')
       expect(row.failureReason).toContain('AI_MAX_TOKENS')
     })
 
-    it('rejects a dispatch with a wrong or missing authorization', async () => {
-      const { workspaceId } = await enabledWorkspace(h)
+    it('refuses a dispatch for a workspace that has not enabled AI, with a reason for the run log', async () => {
+      const owner = await h.client.owner('not-enabled@example.com')
 
-      expect((await deliver(h, dispatchBody({ runId: 'run_badauth', workspaceId }), 'Bearer wrong')).status).toBe(401)
+      const outcome = await deliver(h, dispatchBody({ runId: 'run_not_enabled', workspaceId: owner.workspaceId }))
 
-      const missing = await h.app.app.request('/v1/public/ai/dispatch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dispatchBody({ runId: 'run_noauth', workspaceId })),
+      expect(outcome).toEqual({
+        delivered: false,
+        status: 409,
+        reason: 'AI is not enabled for this workspace; an admin can enable it in AI settings',
       })
-      expect(missing.status).toBe(401)
-
-      expect(await fetchRun(h, 'run_badauth')).toBeUndefined()
-      expect(await fetchRun(h, 'run_noauth')).toBeUndefined()
+      expect(await fetchRun(h, 'run_not_enabled')).toBeUndefined()
     })
 
-    it('rejects a dispatch for an unknown workspace with 401 (no information leak)', async () => {
-      const { dispatchAuth } = await enabledWorkspace(h)
+    it('refuses a payload that is not a dispatch', async () => {
+      const outcome = await deliver(h, { run_id: 'run_bad' })
 
-      const other = await deliver(h, dispatchBody({ runId: 'run_ghost', workspaceId: 'wrk_does_not_exist' }), dispatchAuth)
-      expect(other.status).toBe(401)
+      expect(outcome.delivered).toBe(false)
+      expect(outcome.status).toBe(422)
+      expect(outcome.reason).toContain('workspace_id')
     })
 
     it('answers 403 entitlement_required past the monthly limit', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
       h.limit = 3
 
       for (let n = 1; n <= 3; n += 1) {
         h.provider.queue(endTurn(proposal({ summary: `run ${String(n)}` }), { inputTokens: 1, outputTokens: 1 }))
-        expect((await deliver(h, dispatchBody({ runId: `run_cap_${String(n)}`, workspaceId }), dispatchAuth)).status).toBe(202)
+        expect((await deliver(h, dispatchBody({ runId: `run_cap_${String(n)}`, workspaceId }))).status).toBe(202)
         await settled(h, `run_cap_${String(n)}`)
       }
 
-      const blocked = await deliver(h, dispatchBody({ runId: 'run_cap_4', workspaceId }), dispatchAuth)
-      expect(blocked.status).toBe(403)
-      expect(readString(readRecord(await blocked.json()).error, 'code')).toBe('entitlement_required')
+      const blocked = await deliver(h, dispatchBody({ runId: 'run_cap_4', workspaceId }))
+      expect(blocked).toEqual({ delivered: false, status: 403, reason: 'This workspace has used its monthly AI runs' })
       expect(await fetchRun(h, 'run_cap_4')).toBeUndefined()
     })
 
     it('refuses every run when the limit is 0', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
       h.limit = 0
 
-      expect((await deliver(h, dispatchBody({ runId: 'run_zero', workspaceId }), dispatchAuth)).status).toBe(403)
+      expect((await deliver(h, dispatchBody({ runId: 'run_zero', workspaceId }))).status).toBe(403)
     })
 
     it('queues beyond the concurrency cap and chains completions', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
 
       // The default cap is 2. Hold two runs, then a third waits.
       const resolveFirst = h.provider.queueDeferred()
       const resolveSecond = h.provider.queueDeferred()
       h.provider.queue(endTurn(proposal({ summary: 'third' }), { inputTokens: 10, outputTokens: 10 }))
 
-      await deliver(h, dispatchBody({ runId: 'run_hold_1', workspaceId }), dispatchAuth)
-      await deliver(h, dispatchBody({ runId: 'run_hold_2', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_hold_1', workspaceId }))
+      await deliver(h, dispatchBody({ runId: 'run_hold_2', workspaceId }))
       await until(async () => ((await fetchRun(h, 'run_hold_2'))?.status === 'running' ? true : undefined))
 
-      expect((await deliver(h, dispatchBody({ runId: 'run_third', workspaceId }), dispatchAuth)).status).toBe(202)
+      expect((await deliver(h, dispatchBody({ runId: 'run_third', workspaceId }))).status).toBe(202)
       expect((await fetchRun(h, 'run_third'))?.status).toBe('queued')
 
       resolveFirst(endTurn(proposal({ summary: 'first' }), { inputTokens: 5, outputTokens: 5 }))
@@ -846,13 +828,13 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('is idempotent when the same run_id is dispatched twice', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
       h.provider.queue(endTurn(proposal({ summary: 'once' }), { inputTokens: 1, outputTokens: 1 }))
 
-      await deliver(h, dispatchBody({ runId: 'run_dupe', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_dupe', workspaceId }))
       await settled(h, 'run_dupe')
 
-      expect((await deliver(h, dispatchBody({ runId: 'run_dupe', workspaceId }), dispatchAuth)).status).toBe(202)
+      expect((await deliver(h, dispatchBody({ runId: 'run_dupe', workspaceId }))).status).toBe(202)
 
       const rows = await h.app.services.db.select({ id: aiRuns.id }).from(aiRuns).where(eq(aiRuns.agentRunId, 'run_dupe'))
       expect(rows).toHaveLength(1)
@@ -860,7 +842,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('sweeps a stale running row to failed on the next dispatch', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { workspaceId } = await enabledWorkspace(h)
 
       await h.app.services.db.insert(aiRuns).values({
         id: 'ai_test_stale',
@@ -878,7 +860,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       })
 
       h.provider.queue(endTurn(proposal({ summary: 'ok' }), { inputTokens: 1, outputTokens: 1 }))
-      await deliver(h, dispatchBody({ runId: 'run_after_stale', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_after_stale', workspaceId }))
 
       const stale = await until(async () => {
         const found = await fetchRun(h, 'run_stale')
@@ -905,10 +887,10 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('exposes settings and the run log through /v1/ai/*', async () => {
-      const { cookie, workspaceId, dispatchAuth } = await enabledWorkspace(h)
+      const { cookie, workspaceId } = await enabledWorkspace(h)
 
       h.provider.queue(endTurn(proposal({ summary: 'listed' }), { inputTokens: 2, outputTokens: 3 }))
-      await deliver(h, dispatchBody({ runId: 'run_listing', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_listing', workspaceId }))
       await settled(h, 'run_listing')
 
       const settingsResponse = await h.client.send('GET', '/v1/ai/settings', { cookie })
@@ -933,8 +915,12 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(runs[0]?.operations).toEqual([])
     })
 
-    it('reseal pass rewrites the dispatch secret and is idempotent', async () => {
-      await enabledWorkspace(h)
+    it('reseals a dispatch secret left by the HTTP version, and is idempotent', async () => {
+      const { workspaceId } = await enabledWorkspace(h)
+      await h.app.services.db
+        .update(aiSettings)
+        .set({ dispatchSecretEncrypted: cipher.seal('Bearer aidsp_old') })
+        .where(eq(aiSettings.workspaceId, workspaceId))
 
       const NEXT_KEY = 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI='
       const rotating = createSecretCipher({
@@ -949,10 +935,8 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       const second = await resealAiSecrets(h.app.services.db, rotating)
       expect(second).toMatchObject({ examined: 1, resealed: 0, unreadable: 0 })
 
-      const newKeyOnly = createSecretCipher({ SECRET_ENCRYPTION_KEY: NEXT_KEY })
-      for (const row of await h.app.services.db.select().from(aiSettings)) {
-        expect(newKeyOnly.open(row.dispatchSecretEncrypted)).toMatch(/^Bearer aidsp_/)
-      }
+      const [row] = await h.app.services.db.select().from(aiSettings)
+      expect(createSecretCipher({ SECRET_ENCRYPTION_KEY: NEXT_KEY }).open(row!.dispatchSecretEncrypted!)).toBe('Bearer aidsp_old')
     })
   })
 
@@ -1014,7 +998,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('seals the key, shows only its last four characters, and runs with it', async () => {
-      const { cookie, workspaceId, dispatchAuth } = await enabledWorkspace(h, 'byo@example.com', {
+      const { cookie, workspaceId } = await enabledWorkspace(h, 'byo@example.com', {
         provider: 'anthropic',
         api_key: 'sk-ant-workspace-key-WXYZ',
       })
@@ -1039,7 +1023,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       })
 
       h.provider.queue(endTurn(proposal({ summary: 'byo run' })))
-      await deliver(h, dispatchBody({ runId: 'run_byo', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_byo', workspaceId }))
       const row = await settled(h, 'run_byo')
 
       expect(row.status).toBe('succeeded')
@@ -1077,7 +1061,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('shows the provider error to the workspace: the key is theirs to fix', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h, 'badkey@example.com', {
+      const { workspaceId } = await enabledWorkspace(h, 'badkey@example.com', {
         provider: 'openai',
         api_key: 'sk-openai-wrong-0000',
       })
@@ -1088,7 +1072,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
         failure: { code: 'invalid_api_key', message: 'The OpenAI API key was rejected. Check the key in AI settings.' },
       })
 
-      await deliver(h, dispatchBody({ runId: 'run_badkey', workspaceId }), dispatchAuth)
+      await deliver(h, dispatchBody({ runId: 'run_badkey', workspaceId }))
       const row = await settled(h, 'run_badkey')
 
       expect(row.status).toBe('failed')
@@ -1096,13 +1080,13 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     it('refuses a dispatch once the key is gone, with a reason the run log can show', async () => {
-      const { workspaceId, dispatchAuth } = await enabledWorkspace(h, 'gone@example.com', {
+      const { workspaceId } = await enabledWorkspace(h, 'gone@example.com', {
         provider: 'openai',
         api_key: 'sk-openai-workspace-0003',
       })
       await h.app.services.db.update(aiSettings).set({ apiKeyEncrypted: null }).where(eq(aiSettings.workspaceId, workspaceId))
 
-      const response = await deliver(h, dispatchBody({ runId: 'run_nokey', workspaceId }), dispatchAuth)
+      const response = await deliver(h, dispatchBody({ runId: 'run_nokey', workspaceId }))
       expect(response.status).toBe(409)
       expect(await fetchRun(h, 'run_nokey')).toBeUndefined()
     })
@@ -1149,7 +1133,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(rows).toHaveLength(0)
     })
 
-    it('reseals the workspace key alongside the dispatch secret', async () => {
+    it('reseals the workspace key', async () => {
       await enabledWorkspace(h, 'reseal@example.com', { provider: 'openai', api_key: 'sk-openai-workspace-0005' })
 
       const NEXT_KEY = 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI='
@@ -1159,7 +1143,8 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       })
 
       const outcome = await resealAiSecrets(h.app.services.db, rotating)
-      expect(outcome).toMatchObject({ examined: 2, resealed: 2, unreadable: 0 })
+      // One sealed value: the key. There is no dispatch secret any more.
+      expect(outcome).toMatchObject({ examined: 1, resealed: 1, unreadable: 0 })
       expect(outcome.columns.map((column) => column.label)).toEqual([
         'ai_settings.dispatch_secret_encrypted',
         'ai_settings.api_key_encrypted',
@@ -1221,26 +1206,22 @@ describe.skipIf(connectionString === undefined)('ai', () => {
   describe('end to end through core dispatch and the real tools', () => {
     let h: Harness
 
+    /** Every HTTP dispatch core attempted. The Kelpie AI row must never be one. */
+    const httpDispatches: string[] = []
+
     beforeAll(async () => {
-      // Core's dispatch engine posts to the registered endpoint. The sender
-      // loops that request back into the same app, which is what an
-      // assembly that can reach its own APP_BASE_URL does over the network.
-      const loopback: SendDispatch = async (request) => {
-        const path = request.url.replace(TEST_APP_BASE_URL, '')
-        const response = await h.app.app.request(path, { method: 'POST', headers: request.headers, body: request.body })
-        return {
-          delivered: response.status >= 200 && response.status < 300,
-          status: response.status,
-          reason: response.status >= 200 && response.status < 300 ? null : `HTTP ${String(response.status)}`,
-        }
+      const send: SendDispatch = (request) => {
+        httpDispatches.push(request.url)
+        return Promise.resolve({ delivered: false, status: 404, reason: 'agent endpoint answered 404' })
       }
 
-      h = await buildHarness(database, { keyMode: 'workspace', realTools: true, send: loopback })
+      h = await buildHarness(database, { keyMode: 'workspace', realTools: true, send })
     })
 
     beforeEach(async () => {
       await database.truncateAll()
       h.provider.reset()
+      httpDispatches.length = 0
     })
 
     it('runs a task from the Run dialog and writes a real note on a real person', async () => {
@@ -1282,6 +1263,36 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(notes[0]).toMatchObject({ body: 'Invented the first compiler.', pinned: true })
       // The context pack was read with the real people tool.
       expect(h.provider.requests[0]?.messages[0]?.text ?? '').toContain('Grace Hopper')
+      // Core handed the run to the module directly.
+      expect(httpDispatches).toEqual([])
+    })
+
+    it('dispatches in-process even when the row still stores an old loopback URL', async () => {
+      const { cookie, workspaceId } = await enabledWorkspace(h, 'legacy-row@example.com', {
+        provider: 'openai',
+        api_key: 'sk-openai-e2e-key-0012',
+      })
+      // What the HTTP version wrote, pointing at a port another app holds.
+      await h.app.services.db
+        .update(agentRegistrations)
+        .set({ endpoint: 'http://localhost:5173/v1/public/ai/dispatch' })
+        .where(eq(agentRegistrations.workspaceId, workspaceId))
+
+      const person = await h.client.send('POST', '/v1/people', { cookie, body: { name: 'Ada Lovelace' } })
+      const personId = readString(await person.json(), 'id')
+      const agents = readList(await (await h.client.send('GET', '/v1/agents', { cookie })).json())
+      const agentId = agents.find((agent) => agent.name === 'Kelpie AI')?.id
+
+      h.provider.queue(endTurn(proposal({ summary: 'Nothing to change.' })))
+      const run = await h.client.send('POST', '/v1/agent-tasks/person.enrich/run', {
+        cookie,
+        body: { target_type: 'person', target_id: personId, agent_id: agentId },
+      })
+      const agentRunId = readString(await run.json(), 'id')
+
+      const aiRun = await settled(h, agentRunId)
+      expect(aiRun.status).toBe('succeeded')
+      expect(httpDispatches).toEqual([])
     })
   })
 })

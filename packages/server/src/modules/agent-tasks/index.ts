@@ -60,6 +60,7 @@ export function createAgentTasksModule(
         now: context.now,
         cipher,
         send: options.send ?? createHttpSender(egress),
+        findManagedDispatcher: (managedBy) => context.agentDispatch.find(managedBy),
         log: context.log,
       })
 

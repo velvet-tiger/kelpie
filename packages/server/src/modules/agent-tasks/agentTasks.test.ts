@@ -16,6 +16,7 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
+import type { KelpieModule } from '../../runtime/module.ts'
 import type { DispatchOutcome, DispatchRequest, SendDispatch } from './dispatch.ts'
 import { createAgentTasksModule } from './index.ts'
 import { agentRegistrations } from './schema.ts'
@@ -50,6 +51,22 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
     return Promise.resolve(outcome)
   }
 
+  /**
+   * A module that manages agent rows and receives their dispatches
+   * in-process, the way the optional `ai` module does.
+   */
+  let received: Readonly<Record<string, unknown>>[]
+  const probeModule: KelpieModule = {
+    id: 'probe',
+    register(context) {
+      context.agentDispatch.provide((payload) => {
+        received.push(payload)
+        return Promise.resolve({ delivered: true, status: 202, reason: null })
+      })
+      return Promise.resolve()
+    },
+  }
+
   beforeAll(async () => {
     if (connectionString === undefined) {
       throw new Error('unreachable: the suite is skipped without a connection string')
@@ -65,6 +82,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
   beforeEach(async () => {
     await database.truncateAll()
     sent = []
+    received = []
     outcome = DELIVERED
 
     harness = await createTestApp({
@@ -73,6 +91,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       modules: [
         ...coreModules.filter((module) => module.id !== 'agent-tasks'),
         createAgentTasksModule(coreMigrationsDirectory, { send }),
+        probeModule,
       ],
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
@@ -608,6 +627,52 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
       expect(settled.status).toBe('failed')
       expect(settled.failureReason).toBe('agent endpoint answered 500')
+    })
+
+    it('hands a managed agent’s run to its module in-process, never over HTTP', async () => {
+      const companyId = await createCompany()
+      const agentId = readString(await createAgent({ auth_header: 'Bearer unused' }), 'id')
+      await database.db
+        .update(agentRegistrations)
+        .set({ managedBy: 'probe' })
+        .where(eq(agentRegistrations.id, agentId))
+
+      const response = await client.send('POST', '/v1/agent-tasks/company.enrich/run', {
+        body: { target_type: 'company', target_id: companyId, agent_id: agentId },
+        cookie: acme.cookie,
+      })
+      const queued = agentRunSchema.parse(readRecord(await response.json()))
+      const settled = agentRunSchema.parse(await settledRun(queued.id))
+
+      expect(settled.status).toBe('succeeded')
+      expect(sent).toHaveLength(0)
+      expect(received).toHaveLength(1)
+      expect(received[0]).toMatchObject({
+        run_id: queued.id,
+        workspace_id: acme.workspaceId,
+        task_id: 'company.enrich',
+        target_id: companyId,
+      })
+    })
+
+    it('fails a managed agent’s run, naming the module, when the deployment lacks it', async () => {
+      const companyId = await createCompany()
+      const agentId = readString(await createAgent(), 'id')
+      await database.db
+        .update(agentRegistrations)
+        .set({ managedBy: 'ai' })
+        .where(eq(agentRegistrations.id, agentId))
+
+      const response = await client.send('POST', '/v1/agent-tasks/company.enrich/run', {
+        body: { target_type: 'company', target_id: companyId, agent_id: agentId },
+        cookie: acme.cookie,
+      })
+      const queued = agentRunSchema.parse(readRecord(await response.json()))
+      const settled = agentRunSchema.parse(await settledRun(queued.id))
+
+      expect(settled.status).toBe('failed')
+      expect(settled.failureReason).toBe('This agent is run by the "ai" module, which this deployment does not include')
+      expect(sent).toHaveLength(0)
     })
 
     it('answers 404 for an agent that does not exist', async () => {

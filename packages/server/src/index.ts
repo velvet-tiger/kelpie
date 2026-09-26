@@ -108,6 +108,9 @@ export {
 export type { CreateLoggerOptions, LogFields, Logger, LoggingDestination } from './lib/logger.ts'
 
 export type {
+  AgentDispatchOutcome,
+  AgentDispatchRegistry,
+  AgentDispatcher,
   CompletedSignIn,
   CompletedSignInAccount,
   ExternalSignInHandler,

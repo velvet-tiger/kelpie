@@ -26,9 +26,23 @@ While the major version is `0`, a minor bump may break the API.
   `src/reseal.ts`. An existing project adds those three lines to get it.
   Its tables have their own migrations, in `module-migrations/ai`.
   Endpoints: `/v1/ai/settings`, `/v1/ai/runs`.
+- **`@kelpie/ui`** — **Run runs.** The Agent menu's **Run** button now
+  dispatches the task to Kelpie AI at once, with no dialog, and shows
+  *Running…*, *Done.* or the failure reason on the task's row. The page
+  refetches when the run is done. **Run** is disabled, with the reason as
+  its tooltip, until AI is enabled and has a provider key. **Preview** →
+  **Run…** still dispatches to any registered agent. A UI module provides
+  the runner with the new `context.agentRunner()` registry slot (one per
+  assembly); `aiUi` registers it.
 - **`@kelpie/server`** — **`context.mcp.list()`.** A module can read every
   MCP tool in the assembly at run time, to act through other modules'
   tools in-process.
+- **`@kelpie/server`** — **In-process dispatch for module-managed agents.**
+  A module calls `context.agentDispatch.provide(dispatcher)`, and the Run
+  dispatch for its agent rows (`managed_by` = its id) calls that dispatcher
+  in the same process, with the payload it would have POSTed. Other agents
+  still get an HTTP POST. A managed row whose module is not in the
+  assembly now fails its run with a reason that names the module.
 - **`@kelpie/ui`** — **Create another workspace.** The workspace menu in
   the header has a "New workspace" item. It opens the onboarding create
   form (`/onboarding/workspace?new=1`) for an account that already has a

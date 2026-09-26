@@ -2,6 +2,7 @@ import type { Database } from '../../lib/database.ts'
 import type { EgressGuard } from '../../lib/egress.ts'
 import { describeThrown } from '../../lib/errors.ts'
 import type { Logger } from '../../lib/logger.ts'
+import type { AgentDispatchOutcome, AgentDispatcher } from '../../runtime/module.ts'
 import { SecretDecryptionError } from '../../lib/secrets.ts'
 import type { SecretCipher } from '../../lib/secrets.ts'
 import * as repository from './repository.ts'
@@ -31,13 +32,8 @@ export interface DispatchRequest {
   readonly headers: Readonly<Record<string, string>>
 }
 
-export interface DispatchOutcome {
-  readonly delivered: boolean
-  /** The response status, or null when no response arrived at all. */
-  readonly status: number | null
-  /** Why it failed, for the run log. Null on success. */
-  readonly reason: string | null
-}
+/** The same shape as the runtime's, so an in-process dispatcher's answer lands on the run unchanged. */
+export type DispatchOutcome = AgentDispatchOutcome
 
 /** The outbound port. Injected so no test makes a network call. */
 export type SendDispatch = (request: DispatchRequest) => Promise<DispatchOutcome>
@@ -87,6 +83,11 @@ export interface DispatchDependencies {
   readonly now: () => Date
   readonly cipher: SecretCipher
   readonly send: SendDispatch
+  /**
+   * The in-process dispatcher for a `managed_by` value. A row a module manages
+   * never goes over HTTP: its module receives the payload directly.
+   */
+  readonly findManagedDispatcher: (managedBy: string) => AgentDispatcher | undefined
   readonly log: Logger
 }
 
@@ -108,6 +109,43 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
     })
   }
 
+  /**
+   * A module-managed row: hand the payload to the module that manages it. The
+   * row's endpoint and auth header are not read. When no module in this
+   * assembly provides the dispatcher (the module was removed from the list),
+   * the run fails and says which module is missing.
+   */
+  async function dispatchInProcess(
+    run: RunRecord,
+    agent: AgentRecord,
+    managedBy: string,
+    resolved: ResolvedTaskView,
+  ): Promise<void> {
+    const dispatcher = dependencies.findManagedDispatcher(managedBy)
+
+    const outcome: DispatchOutcome =
+      dispatcher === undefined
+        ? {
+            delivered: false,
+            status: null,
+            reason: `This agent is run by the "${managedBy}" module, which this deployment does not include`,
+          }
+        : await dispatcher(dispatchPayload(run, resolved))
+
+    if (!outcome.delivered) {
+      dependencies.log.warn('agent dispatch failed', {
+        agentId: agent.id,
+        runId: run.id,
+        taskId: run.taskId,
+        managedBy,
+        status: outcome.status,
+        reason: outcome.reason,
+      })
+    }
+
+    await settle(run.id, outcome)
+  }
+
   return {
     async dispatch(run, agent, resolved) {
       try {
@@ -115,6 +153,11 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
           status: 'running',
           updatedAt: dependencies.now(),
         })
+
+        if (agent.managedBy !== null) {
+          await dispatchInProcess(run, agent, agent.managedBy, resolved)
+          return
+        }
 
         let authHeader: string | undefined
 

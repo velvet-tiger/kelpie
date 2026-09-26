@@ -1,0 +1,1 @@
+ALTER TABLE "ai_settings" ALTER COLUMN "dispatch_secret_encrypted" DROP NOT NULL;

@@ -42,6 +42,12 @@ export const flags: KelpieModule = {
 
 `context.mcp.tool({ name, description, inputSchema, invoke })` registers a tool. Share the Zod schema between the tool and its REST route so the two cannot drift; `invoke` receives the parsed arguments and the authorized caller, and a validation failure answers exactly like the REST surface. A resource with the standard list/get/create/update/delete shape can register all five verbs at once with `registerCrudTools` from `@kelpie/server`.
 
+`context.mcp.list()` returns every tool in the assembly, from every module. Call it at run time, not inside `register`: the list is complete only after boot. A module that acts through other modules' tools in-process, as the `ai` module does, reads it there.
+
+## Agents a module runs
+
+A module can register its own agent for the Run menu. Write a row to `agent_registrations` with `managed_by` set to the module's id, and call `context.agentDispatch.provide(dispatcher)` in `register`. Core then hands each run for that row to your dispatcher in-process, with the same payload it would POST to an HTTP agent, and records the outcome you return (`{ delivered, status, reason }`) on the run. Queue the work and return quickly, as an HTTP receiver would. Core refuses `PATCH` and `DELETE` on a managed row, and the MCP page links to its `settings_path`. The `ai` module is the example.
+
 ## Events
 
 Modules publish and subscribe on a typed, in-process event bus. Your module declares its own event catalog (a Zod schema per event name, names shaped `<module>.<object>.<verb>`), and emits happen after the transaction commits. Handlers run async and must be idempotent — delivery is at-least-once with no durable queue.

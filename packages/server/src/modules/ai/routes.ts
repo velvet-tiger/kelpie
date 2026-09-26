@@ -68,7 +68,6 @@ function settingsBody(view: AiSettingsView): Record<string, unknown> {
     key_hint: view.keyHint,
     monthly_limit: view.monthlyLimit,
     runs_this_month: view.runsThisMonth,
-    endpoint: view.endpoint,
   }
 }
 
@@ -100,8 +99,8 @@ export function mountAiRoutes(router: Hono, dependencies: AiRoutesDependencies):
   })
 
   // POST rather than PUT for the enable/save/repair verb: the UI's ApiClient
-  // exposes `post`/`delete`/`get` and not `put`, and re-posting rotates the
-  // dispatch secret idempotently. The body carries the workspace's provider,
+  // exposes `post`/`delete`/`get` and not `put`, and re-posting rewrites the
+  // registration row idempotently. The body carries the workspace's provider,
   // key and model in `workspace` key mode, and is empty otherwise.
   router.post('/ai/settings', async (context) => {
     const actor = await resolveActorFrom(dependencies, context)

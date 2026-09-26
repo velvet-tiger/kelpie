@@ -47,6 +47,6 @@ The full list of variables, with the run limits and timeouts, is in [Configurati
 
 Remove `createAiModule()` from `kelpie.config.ts`, `aiUi` from `kelpie.ui.config.ts`, and `resealAiSecrets` from `src/reseal.ts`. An install without the module has no AI tables and no AI page. An admin can also turn the module off for one workspace on **Admin → Modules**.
 
-## When the server cannot reach itself
+## How a run reaches Kelpie AI
 
-The Run menu sends each task to the module over HTTP at `APP_BASE_URL`, on the same server. If the server cannot reach its own public address, for example behind some proxies or in a container, set `AI_DISPATCH_BASE_URL` to an address it can reach, such as `http://localhost:3000`.
+Kelpie hands the task to the module inside the same server process. It does not send it over the network, so there is no URL to configure and nothing to change behind a proxy or in a container. On **Admin → MCP**, Kelpie AI shows as "Runs inside Kelpie".

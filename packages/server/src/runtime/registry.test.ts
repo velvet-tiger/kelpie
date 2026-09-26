@@ -504,6 +504,57 @@ describe('context.mcp.list', () => {
   })
 })
 
+describe('context.agentDispatch', () => {
+  it('finds a dispatcher by the providing module’s id, whichever module asks', async () => {
+    let find: ((managedBy: string) => unknown) | undefined
+    const asker: KelpieModule = {
+      id: 'asker',
+      register(context) {
+        find = (managedBy) => context.agentDispatch.find(managedBy)
+        return Promise.resolve()
+      },
+    }
+    const dispatcher = (): Promise<{ delivered: boolean; status: number | null; reason: string | null }> =>
+      Promise.resolve({ delivered: true, status: 202, reason: null })
+    const provider: KelpieModule = {
+      id: 'provider',
+      register(context) {
+        context.agentDispatch.provide(dispatcher)
+        return Promise.resolve()
+      },
+    }
+
+    const contributions = await registerModules({
+      modules: [asker, provider],
+      environment: {},
+      logger: silentLogger(),
+      services: createTestServices(),
+      email: { provider: 'log', from: TEST_EMAIL_FROM },
+    })
+
+    expect(find?.('provider')).toBe(dispatcher)
+    expect(find?.('nobody')).toBeUndefined()
+    expect(contributions.agentDispatchers.get('provider')).toBe(dispatcher)
+  })
+
+  it('refuses a second dispatcher from one module', async () => {
+    const twice: KelpieModule = {
+      id: 'twice',
+      register(context) {
+        const dispatcher = (): Promise<{ delivered: boolean; status: number | null; reason: string | null }> =>
+          Promise.resolve({ delivered: true, status: 202, reason: null })
+        context.agentDispatch.provide(dispatcher)
+        context.agentDispatch.provide(dispatcher)
+        return Promise.resolve()
+      },
+    }
+
+    await expect(
+      registerModules({ modules: [twice], environment: {}, logger: silentLogger(), services: createTestServices(), email: { provider: 'log', from: TEST_EMAIL_FROM } }),
+    ).rejects.toThrow(ModuleBootError)
+  })
+})
+
 describe('module event subscriptions', () => {
   function envelope(name: string, target: { type: string; id: string }, data: unknown = {}) {
     return {

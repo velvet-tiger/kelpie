@@ -60,7 +60,6 @@ export interface AiSettings {
   /** `null` means no limit. */
   readonly monthlyLimit: number | null
   readonly runsThisMonth: number
-  readonly endpoint: string
 }
 
 export const aiSettingsSchema: z.ZodType<AiSettings, unknown> = z
@@ -74,7 +73,6 @@ export const aiSettingsSchema: z.ZodType<AiSettings, unknown> = z
     key_hint: z.string().nullable(),
     monthly_limit: z.number().int().nullable(),
     runs_this_month: z.number().int(),
-    endpoint: z.string(),
   })
   .transform(
     (wire): AiSettings => ({
@@ -87,7 +85,6 @@ export const aiSettingsSchema: z.ZodType<AiSettings, unknown> = z
       keyHint: wire.key_hint,
       monthlyLimit: wire.monthly_limit,
       runsThisMonth: wire.runs_this_month,
-      endpoint: wire.endpoint,
     }),
   )
 

@@ -50,7 +50,7 @@ A registered agent is **not** a product picker. It POSTs JSON to any HTTP endpoi
 - A webhook or small HTTP service you write (Node, Python, Go, …) that receives the task, calls a model, and reads/writes Kelpie over the API or MCP
 - Automation platforms with a webhook trigger (n8n, Make, Zapier) wired to an AI step plus Kelpie API calls
 - An internal service on your network (`http://automation.internal/…` is valid on a self-hosted install)
-- [Kelpie AI](kelpie-ai.md), the optional `ai` module: it registers itself as a receiver and reads `base_prompt`. Kelpie Cloud runs the same module on its own key
+- [Kelpie AI](kelpie-ai.md), the optional `ai` module: it registers itself as an agent and reads `base_prompt`. Kelpie hands it the task in-process, not over HTTP. Kelpie Cloud runs the same module on its own key
 
 **Does not work directly:**
 

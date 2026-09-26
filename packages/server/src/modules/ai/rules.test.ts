@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  dispatchEndpointFor,
   keyHint,
   monthWindowStart,
   resolveAiCredentials,
@@ -35,17 +34,6 @@ describe('staleBefore', () => {
     const now = new Date('2026-08-15T12:00:00Z')
 
     expect(staleBefore(now, 15)).toEqual(new Date('2026-08-15T11:45:00Z'))
-  })
-})
-
-describe('URL builders', () => {
-  it('composes the dispatch endpoint regardless of trailing slash', () => {
-    expect(dispatchEndpointFor('https://kelpie.example.com')).toBe(
-      'https://kelpie.example.com/v1/public/ai/dispatch',
-    )
-    expect(dispatchEndpointFor('https://kelpie.example.com/')).toBe(
-      'https://kelpie.example.com/v1/public/ai/dispatch',
-    )
   })
 })
 

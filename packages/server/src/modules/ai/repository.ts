@@ -29,7 +29,11 @@ export interface AiRunContext {
 
 export interface AiSettingsRow {
   readonly workspaceId: string
-  readonly dispatchSecretEncrypted: string
+  /**
+   * Left from the HTTP dispatch this module used before core dispatched
+   * in-process. No longer read; cleared on the next save.
+   */
+  readonly dispatchSecretEncrypted: string | null
   readonly provider: string | null
   readonly model: string | null
   readonly apiKeyEncrypted: string | null
@@ -121,7 +125,6 @@ export async function upsertSettings(
   db: Queryable,
   input: {
     readonly workspaceId: string
-    readonly dispatchSecretEncrypted: string
     readonly provider?: string | null
     readonly model?: string | null
     readonly apiKeyEncrypted?: string | null
@@ -137,7 +140,7 @@ export async function upsertSettings(
     .insert(aiSettings)
     .values({
       workspaceId: input.workspaceId,
-      dispatchSecretEncrypted: input.dispatchSecretEncrypted,
+      dispatchSecretEncrypted: null,
       ...keyFields,
       createdAt: now,
       updatedAt: now,
@@ -145,7 +148,7 @@ export async function upsertSettings(
     .onConflictDoUpdate({
       target: aiSettings.workspaceId,
       set: {
-        dispatchSecretEncrypted: input.dispatchSecretEncrypted,
+        dispatchSecretEncrypted: null,
         ...keyFields,
         updatedAt: now,
       },

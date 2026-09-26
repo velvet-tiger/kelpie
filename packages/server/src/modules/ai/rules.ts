@@ -75,14 +75,6 @@ export function staleBefore(now: Date, timeoutMinutes: number): Date {
   return new Date(now.getTime() - timeoutMinutes * MILLISECONDS_PER_MINUTE)
 }
 
-/**
- * The dispatch URL core POSTs to, tolerating a base with or without a trailing
- * slash. `new URL` resolves both cases the same way.
- */
-export function dispatchEndpointFor(baseUrl: string): string {
-  return new URL('/v1/public/ai/dispatch', baseUrl).toString()
-}
-
 export function isAiProvider(value: string): value is AiProvider {
   return (AI_PROVIDERS as readonly string[]).includes(value)
 }
