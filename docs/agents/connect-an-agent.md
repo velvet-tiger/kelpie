@@ -79,6 +79,18 @@ The client machine must reach the deployment — an agent on your laptop cannot 
 
 Ask the client to list tools; the same catalog is on Admin → MCP, and `GET /v1/mcp/tools` returns it over ordinary credentials. Then ask the agent something real: "list the people in my CRM".
 
+## Give the agent the Kelpie skill
+
+The MCP connection gives an agent the tools. The **Kelpie skill** tells it how to use them well: read decisions before it writes, put job titles on positions, record next steps as plan items, and follow recipes for common requests such as logging a meeting or converting an enquiry. It lives in this repository at [`skills/kelpie/`](../../skills/kelpie/SKILL.md).
+
+Install it with the `skills` CLI:
+
+```bash
+npx skills add velvet-tiger/kelpie --skill kelpie
+```
+
+Or copy the `skills/kelpie/` directory into your agent's skills directory — for Claude Code, `~/.claude/skills/kelpie/` for every project or `.claude/skills/kelpie/` in one project.
+
 ## Agent tasks and Run
 
 MCP connection and **Run** are different paths:

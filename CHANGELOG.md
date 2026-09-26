@@ -17,6 +17,12 @@ While the major version is `0`, a minor bump may break the API.
   form (`/onboarding/workspace?new=1`) for an account that already has a
   workspace. The new workspace then goes through all the onboarding steps,
   including the starter handbook. Cancel returns to the dashboard.
+- **Kelpie skill.** A new agent skill at `skills/kelpie/` teaches an
+  agent that is connected over MCP how to use Kelpie: the checks to do
+  before it writes, the domain-model rules, the tool conventions, and
+  recipes for common requests. Install it with
+  `npx skills add velvet-tiger/kelpie --skill kelpie`, or copy the
+  directory. It is not part of any npm package.
 
 ### Changed
 

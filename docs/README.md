@@ -29,6 +29,7 @@ For self-host operators. (On the hosted cloud, none of this applies.)
 For people connecting agents or building integrations.
 
 - [Connect an agent](agents/connect-an-agent.md) — point Claude, Cursor, or any MCP client at a workspace.
+- [The Kelpie skill](../skills/kelpie/SKILL.md) — working rules and recipes that teach a connected agent to use Kelpie well.
 - [Agent tasks](agents/agent-tasks.md) — the built-in prompt recipes, Copy and Run, and the registered-agent dispatch contract.
 - [API and webhooks](agents/api-and-webhooks.md) — calling the REST API and verifying webhook deliveries.
 - [API reference](api-reference.md) — every endpoint, and what is not built yet.

@@ -28,7 +28,9 @@ Stage slugs matter for imports: a CSV import resolves stage names against your o
 
 ## What the dashboard watches
 
-Open counts per pipeline, partnership touchpoints coming due, and pipeline records that have no open plan item are all dashboard signals. The habit they encourage: every open record carries a dated plan item, because "next step" text fields do not exist in Kelpie — dated, owned plan items replace them ([Planning and decisions](planning-and-decisions.md)).
+The dashboard shows the open count per pipeline, partnership touchpoints coming due, and plan items that are overdue or due soon. The habit it encourages: every open record carries a dated plan item, because "next step" text fields do not exist in Kelpie — dated, owned plan items replace them ([Planning and decisions](planning-and-decisions.md)).
+
+The dashboard does not list the records that break that habit. To find them, use the **Pipeline review** agent task on the dashboard: it counts the open deals, opportunities, and raises that have no open plan item, and hands the list to your agent ([Agent tasks](../agents/agent-tasks.md)).
 
 ## Hiring: roles and candidates
 
