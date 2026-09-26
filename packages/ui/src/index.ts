@@ -208,6 +208,9 @@ export type { ThemePreference } from './lib/theme.ts'
 
 export { EXTENSIBLE_RECORD_TYPES, NAV_SLOTS } from './registry/contributions.ts'
 export type {
+  AgentRunner,
+  AgentRunnerAvailability,
+  AgentRunnerProgress,
   AuthMethod,
   AuthMethodContext,
   DashboardCard,
@@ -227,6 +230,7 @@ export { NO_UI_MODULES, UiModuleError, inSlotOrder, registerUiModules } from './
 export type { UiExtensions, UiModule, UiModuleContext } from './registry/registry.ts'
 
 export {
+  useAgentRunner,
   useAuthMethods,
   useDashboardCards,
   useModuleRoutes,

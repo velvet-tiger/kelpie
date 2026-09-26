@@ -21,16 +21,19 @@ import { asMutationResult } from './mutation.ts'
 
 const SETTINGS_KEY = ['ai_settings'] as const
 
-export function useAiSettings(): RecordResult<AiSettings> {
+export function useAiSettings(options: ListOptions = {}): RecordResult<AiSettings> {
   const client = useApiClient()
+  const enabled = options.enabled ?? true
   const result = useQuery({
     queryKey: SETTINGS_KEY,
     queryFn: () => client.get('/ai/settings', aiSettingsSchema.parse),
+    enabled,
   })
 
   return {
     record: result.data,
-    isLoading: result.isPending,
+    // A disabled query stays pending forever, which is not the same as loading.
+    isLoading: result.isPending && enabled,
     error: toError(result.error),
     isNotFound: result.error instanceof ApiError && result.error.status === 404,
   }
@@ -75,4 +78,33 @@ const runs = createReadOnlyResourceHooks<AiRun>({
 
 export function useAiRuns(options: ListOptions = {}): RecordListResult<AiRun> {
   return runs.useList({}, options)
+}
+
+const RUN_POLL_INTERVAL_MS = 1500
+
+/**
+ * The AI run that core's agent run `agentRunId` started, polled until it
+ * settles. `undefined` until the dispatch intake has written it.
+ *
+ * There is no filter by agent run on `/v1/ai/runs`, so this reads the newest
+ * page and picks the row out. A run the menu just dispatched is at the top.
+ */
+export function useAiRunForAgentRun(agentRunId: string | undefined): AiRun | undefined {
+  const client = useApiClient()
+  const result = useQuery({
+    queryKey: ['ai_runs', 'by_agent_run', agentRunId ?? ''],
+    queryFn: async () => {
+      const page = await client.list('/ai/runs', aiRunSchema.parse, {})
+
+      return page.items.find((run) => run.agentRunId === agentRunId) ?? null
+    },
+    enabled: agentRunId !== undefined,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+
+      return status === 'succeeded' || status === 'failed' ? false : RUN_POLL_INTERVAL_MS
+    },
+  })
+
+  return result.data ?? undefined
 }

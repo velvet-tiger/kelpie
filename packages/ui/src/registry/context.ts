@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react'
 import type { ComponentType } from 'react'
 
 import type {
+  AgentRunner,
   AuthMethod,
   DashboardCard,
   ExtensibleRecordType,
@@ -57,6 +58,11 @@ export function useDashboardCards(): readonly DashboardCard[] {
 /** Extra ways to sign in, for the signed-out pages to render beside their form. */
 export function useAuthMethods(): readonly AuthMethod[] {
   return useUiExtensions().authMethods()
+}
+
+/** The agent the Agent menu's Run button dispatches to, when a module provides one. */
+export function useAgentRunner(): AgentRunner | undefined {
+  return useUiExtensions().agentRunner()
 }
 
 /**

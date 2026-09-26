@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 
 import type {
+  AgentRunner,
   AuthMethod,
   DashboardCard,
   ExtensibleRecordType,
@@ -34,6 +35,8 @@ export interface UiModuleContext {
   dashboardCard(card: DashboardCard): void
   /** Another way to sign in, rendered beside the password form on `/login` and `/signup`. */
   authMethod(method: AuthMethod): void
+  /** The agent the Agent menu's Run button dispatches to. One per assembly. */
+  agentRunner(runner: AgentRunner): void
   /** Replaces a core component. Prefer a slot. */
   override<Props>(token: Overridable<Props>, component: ComponentType<Props>): void
 }
@@ -51,6 +54,8 @@ export interface UiExtensions {
   recordSidebarCards(objectType: ExtensibleRecordType): readonly RecordSidebarCard[]
   dashboardCards(): readonly DashboardCard[]
   authMethods(): readonly AuthMethod[]
+  /** The registered runner, or `undefined` when no module provides one. */
+  agentRunner(): AgentRunner | undefined
   componentFor<Props>(token: Overridable<Props>): ComponentType<Props>
 }
 
@@ -69,6 +74,7 @@ export function inSlotOrder<T extends { readonly order?: number }>(items: readon
 }
 
 interface Accumulator {
+  agentRunner?: AgentRunner
   readonly nav: Map<NavSlot, NavItem[]>
   readonly routes: RouteContribution[]
   readonly recordTabs: Map<ExtensibleRecordType, RecordTab[]>
@@ -144,6 +150,17 @@ function createModuleContext(
       accumulator.authMethods.push(method)
     },
 
+    agentRunner(runner) {
+      // One button, one agent: a second runner would silently win or lose.
+      if (accumulator.agentRunner !== undefined) {
+        throw new UiModuleError(
+          `module "${module.id}" contributes agent runner "${runner.id}", but "${accumulator.agentRunner.id}" is already registered`,
+        )
+      }
+
+      accumulator.agentRunner = runner
+    },
+
     override(token, component) {
       if (accumulator.overrides.has(token.key)) {
         throw new UiModuleError(
@@ -191,6 +208,7 @@ export function registerUiModules(modules: readonly UiModule[]): UiExtensions {
       inSlotOrder(accumulator.recordSidebarCards.get(objectType) ?? []),
     dashboardCards: () => inSlotOrder(accumulator.dashboardCards),
     authMethods: () => inSlotOrder(accumulator.authMethods),
+    agentRunner: () => accumulator.agentRunner,
     componentFor: (token) => accumulator.overrides.get(token),
   }
 }

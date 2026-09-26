@@ -113,6 +113,7 @@ describe('an assembly with no UI modules', () => {
     expect(NO_UI_MODULES.dashboardCards()).toEqual([])
     expect(NO_UI_MODULES.authMethods()).toEqual([])
     expect(NO_UI_MODULES.navItems('account')).toEqual([])
+    expect(NO_UI_MODULES.agentRunner()).toBeUndefined()
   })
 
   it('renders core components, and nothing where the slots are', () => {
@@ -253,5 +254,23 @@ describe('a build that would break at runtime', () => {
     }
 
     expect(() => registerUiModules([gmailModule, alsoOverriding])).toThrow(/already replaced/u)
+  })
+
+  it('keeps the one agent runner, and refuses a second', () => {
+    const runnerModule = (id: string): UiModule => ({
+      id,
+      register: (context) => {
+        context.agentRunner({
+          id,
+          useAvailability: () => ({ status: 'loading' }),
+          useProgress: () => undefined,
+        })
+      },
+    })
+
+    expect(registerUiModules([runnerModule('first')]).agentRunner()?.id).toBe('first')
+    expect(() => registerUiModules([runnerModule('first'), runnerModule('second')])).toThrow(
+      /agent runner "second", but "first" is already registered/u,
+    )
   })
 })

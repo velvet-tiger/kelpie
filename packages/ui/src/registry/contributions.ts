@@ -94,3 +94,33 @@ export interface DashboardCard {
   readonly render: () => ReactNode
 }
 
+
+/**
+ * Whether the runner can take a task now, for the workspace the viewer is in.
+ * `reason` is a sentence the Agent menu shows on its disabled Run button.
+ */
+export type AgentRunnerAvailability =
+  | { readonly status: 'loading' }
+  | { readonly status: 'unavailable'; readonly reason: string }
+  | { readonly status: 'ready'; readonly agentId: string }
+
+/** Where a dispatched run got to, once core has handed it to the runner's agent. */
+export type AgentRunnerProgress =
+  | { readonly status: 'running' }
+  | { readonly status: 'succeeded' }
+  | { readonly status: 'failed'; readonly reason: string }
+
+/**
+ * The agent the Agent menu's Run button dispatches to, with no dialog.
+ *
+ * Core has no model of its own, so with no runner registered Run stays
+ * disabled and Preview is the way to reach a registered agent. Both members are
+ * React hooks: the menu calls them on every render, so they follow the Rules of
+ * Hooks, and `enabled` lets the menu defer the fetch until it opens.
+ */
+export interface AgentRunner {
+  readonly id: string
+  readonly useAvailability: (options: { readonly enabled: boolean }) => AgentRunnerAvailability
+  /** Progress for the core agent run `agentRunId`. `undefined` polls nothing. */
+  readonly useProgress: (agentRunId: string | undefined) => AgentRunnerProgress | undefined
+}

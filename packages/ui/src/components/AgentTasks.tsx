@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { AgentRun, AgentTaskDefinition, AgentTaskTargetType, ResolvedAgentTask } from '@kelpie/schemas'
 
@@ -8,6 +9,8 @@ import {
   useResolveAgentTask,
   useRunAgentTask,
 } from '../api/resources/agentTasks.ts'
+import { useAgentRunner } from '../registry/context.ts'
+import type { AgentRunner, AgentRunnerProgress } from '../registry/contributions.ts'
 import { ErrorPanel, LoadingPanel } from './QueryState.tsx'
 
 /**
@@ -15,6 +18,11 @@ import { ErrorPanel, LoadingPanel } from './QueryState.tsx'
  * prompt, Preview, and Run. Ported from the mockup with the in-memory resolve
  * swapped for `POST …/resolve` and the pretend status ladder swapped for the
  * run record the server settles, polled until it does.
+ *
+ * Run dispatches straight to the assembly's agent runner (Kelpie AI, from the
+ * optional `ai` module) with no dialog, and reports progress on the task's
+ * row. With no runner, or one that cannot run now, Run is disabled and says
+ * why. Preview's Run… still dispatches to any registered agent.
  */
 export interface AgentTasksProps {
   readonly targetType: AgentTaskTargetType
@@ -27,6 +35,55 @@ export interface AgentTasksProps {
 type PanelMode = 'preview' | 'run' | null
 
 const COPIED_MS = 1800
+
+/** What the menu uses when no module registered a runner: Run stays disabled. */
+const NO_RUNNER: AgentRunner = {
+  id: 'none',
+  useAvailability: () => ({
+    status: 'unavailable',
+    reason: 'Running needs Kelpie AI, which this deployment does not include. Use Preview to dispatch to a registered agent.',
+  }),
+  useProgress: () => undefined,
+}
+
+/** The one Run the menu started, and the core agent run it created once the POST returns. */
+interface DirectRun {
+  readonly taskId: string
+  readonly runId: string | null
+}
+
+type DirectRunStatus =
+  | { readonly tone: 'busy'; readonly text: string }
+  | { readonly tone: 'done'; readonly text: string }
+  | { readonly tone: 'failed'; readonly text: string }
+
+function directRunStatus(
+  dispatchError: Error | null,
+  run: AgentRun | undefined,
+  progress: AgentRunnerProgress | undefined,
+): DirectRunStatus {
+  if (dispatchError !== null) {
+    return { tone: 'failed', text: `Failed: ${dispatchError.message}` }
+  }
+
+  if (run === undefined || run.status === 'queued' || run.status === 'running') {
+    return { tone: 'busy', text: 'Running…' }
+  }
+
+  if (run.status === 'failed') {
+    return { tone: 'failed', text: `Failed: ${run.failureReason ?? 'no reason recorded'}` }
+  }
+
+  switch (progress?.status) {
+    case 'succeeded':
+      return { tone: 'done', text: 'Done.' }
+    case 'failed':
+      return { tone: 'failed', text: `Failed: ${progress.reason}` }
+    case 'running':
+    case undefined:
+      return { tone: 'busy', text: 'Running…' }
+  }
+}
 
 export function AgentTasks({
   targetType,
@@ -44,13 +101,26 @@ export function AgentTasks({
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [agentId, setAgentId] = useState('')
   const [runId, setRunId] = useState<string | null>(null)
+  const [directRun, setDirectRun] = useState<DirectRun | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const refreshedRunId = useRef<string | null>(null)
   const menuId = useId()
+  const queryClient = useQueryClient()
+  const runner = useAgentRunner() ?? NO_RUNNER
+  const directDispatch = useRunAgentTask()
 
   // Fetched only once the run pane opens: the trigger sits on every detail
   // page, and most visits never dispatch anything.
   const agents = useAgents({ enabled: panel === 'run' })
   const { record: run } = useAgentRun(runId ?? undefined)
+  // Checked only once the menu has opened, for the same reason as `agents`.
+  const availability = runner.useAvailability({ enabled: menuOpen || directRun !== null })
+  const { record: directAgentRun } = useAgentRun(directRun?.runId ?? undefined)
+  const progress = runner.useProgress(
+    directAgentRun?.status === 'succeeded' ? directAgentRun.id : undefined,
+  )
+  const directStatus =
+    directRun === null ? null : directRunStatus(directDispatch.error, directAgentRun, progress)
 
   useEffect(() => {
     if (!menuOpen) {
@@ -83,8 +153,20 @@ export function AgentTasks({
     setActiveTaskId(null)
     setResolved(null)
     setRunId(null)
+    setDirectRun(null)
     setMenuOpen(false)
   }, [targetType, targetId])
+
+  // The agent wrote to this record, or to records around it. Refetch what is on
+  // screen, once per run.
+  useEffect(() => {
+    const id = directAgentRun?.id
+
+    if (progress?.status === 'succeeded' && id !== undefined && refreshedRunId.current !== id) {
+      refreshedRunId.current = id
+      void queryClient.invalidateQueries()
+    }
+  }, [progress?.status, directAgentRun?.id, queryClient])
 
   useEffect(() => {
     if (agentId === '' && agents.records.length > 0) {
@@ -131,6 +213,22 @@ export function AgentTasks({
     }
   }
 
+  function runDirectly(taskId: string): void {
+    if (availability.status !== 'ready') {
+      return
+    }
+
+    setDirectRun({ taskId, runId: null })
+    directDispatch
+      .runAsync({ taskId, targetType, targetId, agentId: availability.agentId })
+      .then((created) => {
+        setDirectRun({ taskId, runId: created.id })
+      })
+      .catch(() => {
+        // The task's row renders `directDispatch.error`.
+      })
+  }
+
   function startRun(): void {
     if (activeTaskId === null || agentId === '') {
       return
@@ -149,6 +247,19 @@ export function AgentTasks({
   const activeTask = catalog.records.find((task) => task.id === activeTaskId)
   const settled = run?.status === 'succeeded' || run?.status === 'failed'
   const dispatching = dispatch.isPending || (run !== undefined && !settled)
+  const runControl: RunControl = {
+    disabledReason:
+      availability.status === 'ready'
+        ? directStatus?.tone === 'busy'
+          ? 'A task is running.'
+          : null
+        : availability.status === 'loading'
+          ? 'Checking Kelpie AI…'
+          : availability.reason,
+    activeTaskId: directRun?.taskId ?? null,
+    status: directStatus,
+    onRun: runDirectly,
+  }
 
   return (
     <div className="relative shrink-0" ref={rootRef}>
@@ -189,9 +300,7 @@ export function AgentTasks({
               onPreview={(id) => {
                 openResolved(id, 'preview')
               }}
-              onRun={(id) => {
-                openResolved(id, 'run')
-              }}
+              run={runControl}
             />
           )}
           {overflow.length > 0 && (
@@ -204,9 +313,7 @@ export function AgentTasks({
               onPreview={(id) => {
                 openResolved(id, 'preview')
               }}
-              onRun={(id) => {
-                openResolved(id, 'run')
-              }}
+              run={runControl}
             />
           )}
         </div>
@@ -388,6 +495,20 @@ function RunControls({
   )
 }
 
+interface RunControl {
+  /** Why Run is disabled, shown as its tooltip. Null when it is enabled. */
+  readonly disabledReason: string | null
+  readonly activeTaskId: string | null
+  readonly status: DirectRunStatus | null
+  readonly onRun: (id: string) => void
+}
+
+const STATUS_TONE_CLASS: Readonly<Record<DirectRunStatus['tone'], string>> = {
+  busy: 'text-ink-muted',
+  done: 'text-ink-muted',
+  failed: 'text-danger',
+}
+
 function TaskGroup({
   label,
   tasks,
@@ -395,7 +516,7 @@ function TaskGroup({
   bordered = false,
   onCopy,
   onPreview,
-  onRun,
+  run,
 }: {
   readonly label: string
   readonly tasks: readonly AgentTaskDefinition[]
@@ -403,7 +524,7 @@ function TaskGroup({
   readonly bordered?: boolean
   readonly onCopy: (id: string) => void
   readonly onPreview: (id: string) => void
-  readonly onRun: (id: string) => void
+  readonly run: RunControl
 }): React.JSX.Element {
   return (
     <div className={bordered ? 'border-t border-border pt-1' : undefined}>
@@ -436,14 +557,21 @@ function TaskGroup({
               </button>
               <button
                 type="button"
-                className="rounded border border-border px-1.5 py-0.5 text-[11px] font-medium text-ink-muted transition hover:border-accent hover:text-accent"
+                className="rounded border border-border px-1.5 py-0.5 text-[11px] font-medium text-ink-muted transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:text-ink-muted"
+                disabled={run.disabledReason !== null}
+                title={run.disabledReason ?? undefined}
                 onClick={() => {
-                  onRun(task.id)
+                  run.onRun(task.id)
                 }}
               >
                 Run
               </button>
             </div>
+            {run.activeTaskId === task.id && run.status !== null && (
+              <p role="status" className={`mt-1.5 text-[11px] leading-snug ${STATUS_TONE_CLASS[run.status.tone]}`}>
+                {run.status.text}
+              </p>
+            )}
           </li>
         ))}
       </ul>
