@@ -1,0 +1,23 @@
+{
+  "$schema": "https://tryautomatic.app/schemas/automatic.json",
+  "name": "kelpie",
+  "version": "1.0.0",
+  "description": "Agent skill for working in a Kelpie CRM workspace over its MCP tools or REST API",
+  "author": { "name": "Christopher Skene" },
+  "license": "AGPL-3.0-only",
+  "repository": { "type": "git", "url": "https://github.com/velvet-tiger/kelpie" },
+  "keywords": ["kelpie", "crm", "mcp", "handbook"],
+  "pinning": { "strategy": "branch", "ref": "main" },
+  "skills": {
+    "entries": [
+      {
+        "name": "kelpie",
+        "path": "./skills/kelpie",
+        "description": "Work in a Kelpie CRM workspace over its MCP tools or REST API: records, plan items, decisions, notes, and handbook pages.",
+        "entrypoint": "SKILL.md",
+        "tags": ["crm", "mcp"],
+        "category": "crm"
+      }
+    ]
+  }
+}

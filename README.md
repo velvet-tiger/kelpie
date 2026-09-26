@@ -39,6 +39,24 @@ Copy this prompt into Claude Code, Cursor, or Codex:
 
 > Set up a new Kelpie CRM project. Run `npm create kelpie@latest -- my-crm --yes` in an empty directory, then `cd my-crm && npm install`. If there is a `docker-compose.yml`, run `docker compose up --detach --wait`. Run `npm run dev` and confirm it is healthy by hitting `http://localhost:5173/healthz`. Create an account by POSTing to `http://localhost:5173/v1/auth/signup` with a JSON body containing `email`, `name`, and `password` (12-character minimum). Report the result.
 
+### Give your agent the Kelpie skill
+
+The MCP connection gives an agent the tools. The [Kelpie skill](skills/kelpie/SKILL.md) tells it how to use them well: find a record before it creates one, read decisions before it writes, put job titles on positions, and record next steps as plan items. It also has recipes for common requests, such as logging a meeting or converting an enquiry.
+
+Install it with [Automatic](https://tryautomatic.app):
+
+<a href="https://tryautomatic.app/install?repo=velvet-tiger/kelpie">
+  <img src="https://tryautomatic.app/badges/install.svg" alt="Install in Automatic">
+</a>
+
+Or with the `skills` CLI:
+
+```bash
+npx skills add velvet-tiger/kelpie --skill kelpie
+```
+
+Or copy `skills/kelpie/` into your agent's skills directory. [Connect an agent](docs/agents/connect-an-agent.md#give-the-agent-the-kelpie-skill) has the details.
+
 ### Upgrade
 
 ```bash

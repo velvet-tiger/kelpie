@@ -83,7 +83,9 @@ Ask the client to list tools; the same catalog is on Admin → MCP, and `GET /v1
 
 The MCP connection gives an agent the tools. The **Kelpie skill** tells it how to use them well: read decisions before it writes, put job titles on positions, record next steps as plan items, and follow recipes for common requests such as logging a meeting or converting an enquiry. It lives in this repository at [`skills/kelpie/`](../../skills/kelpie/SKILL.md).
 
-Install it with the `skills` CLI:
+Install it with [Automatic](https://tryautomatic.app). The repository root has an `automatic.json` manifest, so Automatic finds the skill from the repository name. Open <https://tryautomatic.app/install?repo=velvet-tiger/kelpie>, or add `velvet-tiger/kelpie` as a source in the app.
+
+Or install it with the `skills` CLI:
 
 ```bash
 npx skills add velvet-tiger/kelpie --skill kelpie
