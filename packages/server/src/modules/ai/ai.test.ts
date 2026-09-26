@@ -46,7 +46,9 @@ import { aiRuns, aiSettings } from './schema.ts'
  * and moved here with the module.
  */
 
-const connectionString = testDatabaseUrl(process.env)
+// Its own database: the module's migrations add `ai_runs` and `ai_settings`,
+// which must not leak into the core database other files on this worker use.
+const connectionString = testDatabaseUrl(process.env, 'ai')
 
 const cipher = createSecretCipher({ SECRET_ENCRYPTION_KEY: TEST_SECRET_ENCRYPTION_KEY })
 
@@ -294,7 +296,8 @@ async function buildHarness(database: TestDatabase, options: HarnessOptions): Pr
   })
 
   // Core's tables are migrated by `connectTestDatabase`; this adds the
-  // module's own directory. A no-op after the first suite in this worker.
+  // module's own directory, on the `ai` database `connectionString` names.
+  // A no-op after the first suite in this worker.
   await runMigrations(database.db, app.contributions.schemas, createLogger({ level: 'error', transports: [createCaptureTransport(() => undefined)] }))
 
   return {

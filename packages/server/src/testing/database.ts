@@ -47,17 +47,33 @@ export interface TestDatabase extends DatabaseConnection {
  * Inside a Vitest worker the configured name gains the worker's pool id, so
  * every worker owns its own database and test files can run in parallel.
  * `connectTestDatabase` creates and migrates a missing database on first use.
+ *
+ * @param scope Names a separate database for a suite that migrates more than
+ *   core, such as an optional module's own tables. Those tables outlive the
+ *   suite, and every later file on the same worker would see them, so a suite
+ *   that adds tables must not share the core database. Omit it for core-only
+ *   suites.
  */
-export function testDatabaseUrl(environment: Environment): string | undefined {
+export function testDatabaseUrl(environment: Environment, scope?: string): string | undefined {
   const configured = environment.TEST_DATABASE_URL
   const poolId = environment.VITEST_POOL_ID
 
-  if (configured === undefined || poolId === undefined) {
+  if (configured === undefined) {
+    return undefined
+  }
+
+  if (scope !== undefined && !/^[a-z0-9_]+$/u.test(scope)) {
+    throw new Error(`A test database scope must be lowercase letters, digits and underscores: ${scope}`)
+  }
+
+  const suffixes = [scope, poolId].filter((suffix): suffix is string => suffix !== undefined)
+
+  if (suffixes.length === 0) {
     return configured
   }
 
   const url = new URL(configured)
-  url.pathname = `${url.pathname}_${poolId}`
+  url.pathname = [url.pathname, ...suffixes].join('_')
   return url.toString()
 }
 
