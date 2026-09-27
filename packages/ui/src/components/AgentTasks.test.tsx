@@ -120,7 +120,6 @@ function runWire(status: string, agentId = 'ag_1'): Record<string, unknown> {
     target_type: 'company',
     target_id: 'com_1',
     status,
-    prompt: RESOLVED.prompt,
     failure_reason: status === 'failed' ? 'agent endpoint answered 500' : null,
     created_at: '2026-08-07T01:00:00.000Z',
     updated_at: '2026-08-07T01:00:00.000Z',

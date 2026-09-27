@@ -52,6 +52,13 @@ While the major version is `0`, a minor bump may break the API.
   person intake. They are cleared when the run succeeds, fails or times out.
   Migration `0008_clear_settled_run_text` makes `ai_runs.prompt` nullable
   and clears both on runs that already finished.
+- **`@kelpie/server`, `@kelpie/schemas`** — An agent-task run no longer
+  stores its prompt. The prompt holds personal data from the target record.
+  The dispatch POST still carries `prompt` and `base_prompt`, but
+  `GET /v1/agent-runs[/:id]` no longer returns `prompt`, and `AgentRun` has
+  no `prompt` field. A receiver that read the prompt back from the run must
+  keep the one from the dispatch. Migration `0052_drop_agent_run_prompt`
+  drops `agent_runs.prompt` and the stored prompts with it.
 
 ## [0.17.0] - 2026-09-27
 

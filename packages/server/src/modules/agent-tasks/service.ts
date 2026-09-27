@@ -260,7 +260,6 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
           targetType: input.targetType,
           targetId: input.targetId,
           status: 'queued',
-          prompt: resolved.prompt,
         })
 
         // `last_run_at` moves; `updated_at` does not. The latter answers "when

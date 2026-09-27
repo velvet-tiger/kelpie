@@ -91,7 +91,6 @@ export function runResponse(run: RunView): Record<string, unknown> {
     target_type: run.targetType,
     target_id: run.targetId,
     status: run.status,
-    prompt: run.prompt,
     failure_reason: run.failureReason,
     created_at: run.createdAt.toISOString(),
     updated_at: run.updatedAt.toISOString(),

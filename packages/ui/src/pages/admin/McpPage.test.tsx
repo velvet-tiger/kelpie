@@ -69,7 +69,6 @@ const RUNS = [
     target_type: 'company',
     target_id: 'com_1',
     status: 'failed',
-    prompt: '# Agent task: Enrich company',
     failure_reason: 'agent endpoint answered 500',
     created_at: '2026-08-07T01:00:00.000Z',
     updated_at: '2026-08-07T01:00:05.000Z',

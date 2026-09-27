@@ -556,12 +556,13 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
       expect(response.status).toBe(201)
 
-      const queued = agentRunSchema.parse(readRecord(await response.json()))
+      const queuedWire = readRecord(await response.json())
+      const queued = agentRunSchema.parse(queuedWire)
 
       expect(queued.status).toBe('queued')
       expect(queued.agentId).toBe(agentId)
-      // Copy and Run must not drift: the dispatched prompt is the resolve prompt.
-      expect(queued.prompt).toBe(resolved.prompt)
+      // The prompt holds personal data from the record: a run keeps metadata only.
+      expect(queuedWire).not.toHaveProperty('prompt')
 
       const settled = agentRunSchema.parse(await settledRun(queued.id))
 
@@ -586,6 +587,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       expect(payload.workspace_id).toBe(acme.workspaceId)
       expect(payload.task_id).toBe('company.enrich')
       expect(payload.target_id).toBe(companyId)
+      // Copy and Run must not drift: the dispatched prompt is the resolve prompt.
       expect(payload.prompt).toBe(resolved.prompt)
       expect(readRecord(payload.context).target_label).toBe('Brightline Health')
 

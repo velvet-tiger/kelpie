@@ -244,7 +244,8 @@ export function registeredAgentBody(input: RegisteredAgentInput): Record<string,
 /**
  * One dispatch of a ResolvedTask to a registered agent. `failureReason` is set
  * only on `failed`, and says what the dispatch hit — a status, a timeout, a
- * refused connection.
+ * refused connection. A run carries no prompt: it holds personal data from the
+ * target record, so only the dispatch POST sends it.
  */
 export interface AgentRun extends RecordTimestamps {
   readonly id: string
@@ -253,7 +254,6 @@ export interface AgentRun extends RecordTimestamps {
   readonly targetType: AgentTaskTargetType
   readonly targetId: string
   readonly status: AgentRunStatus
-  readonly prompt: string
   readonly failureReason: string | null
 }
 
@@ -265,7 +265,6 @@ export const agentRunSchema: z.ZodType<AgentRun, unknown> = z
     target_type: z.enum(AGENT_TASK_TARGET_TYPES),
     target_id: idSchema,
     status: z.enum(AGENT_RUN_STATUSES),
-    prompt: z.string(),
     failure_reason: z.string().nullable(),
     ...recordTimestamps,
   })
@@ -277,7 +276,6 @@ export const agentRunSchema: z.ZodType<AgentRun, unknown> = z
       targetType: wire.target_type,
       targetId: wire.target_id,
       status: wire.status,
-      prompt: wire.prompt,
       failureReason: wire.failure_reason,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,

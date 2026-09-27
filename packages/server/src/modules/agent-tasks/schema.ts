@@ -46,6 +46,10 @@ export const agentRegistrations = pgTable(
 /**
  * `task_id` is a catalog string, not a foreign key: the task catalog ships in
  * code, so a run outlives any catalog edit.
+ *
+ * A run keeps metadata only. The rendered prompt holds personal data from the
+ * target record, and the dispatch engine sends it from memory, so no row
+ * stores it. The receiver gets it in the dispatch POST.
  */
 export const agentRuns = pgTable(
   'agent_runs',
@@ -61,7 +65,6 @@ export const agentRuns = pgTable(
     targetType: text('target_type').notNull(),
     targetId: text('target_id').notNull(),
     status: text('status').notNull().default('queued'),
-    prompt: text('prompt').notNull(),
     /** Set only on `failed`: what the dispatch hit, for the run log. */
     failureReason: text('failure_reason'),
     createdAt: createdAt(),
