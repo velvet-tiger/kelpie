@@ -9,7 +9,7 @@ It comes from the optional `ai` module. A project made with `npm create kelpie` 
 1. Go to **Admin → AI**.
 2. Pick a provider: OpenAI or Anthropic.
 3. Paste an API key from that provider.
-4. Optional: name a model. Leave it empty to use the default (`gpt-5-mini` for OpenAI, `claude-opus-5` for Anthropic).
+4. Optional: name a model. Leave it empty to use the default (`gpt-5.6-luna` for OpenAI, `claude-opus-5` for Anthropic).
 5. Select **Enable AI**.
 
 Kelpie AI then shows in the **Run** menu on every record page, next to any agent you registered yourself.

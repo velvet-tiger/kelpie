@@ -587,7 +587,8 @@ describe.skipIf(connectionString === undefined)('ai', () => {
 
       const row = await settled(h, 'run_test_1')
       expect(row.status).toBe('succeeded')
-      expect(row.model).toBe('gpt-5-mini')
+      // No AI_MODEL in the environment: the provider's default.
+      expect(row.model).toBe('gpt-5.6-luna')
       expect(row.output).toBe('Enriched Ada Lovelace and added a note.')
       expect(row.inputTokens).toBe(100)
       expect(row.outputTokens).toBe(20)
@@ -904,7 +905,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
         configured: true,
         enabled: true,
         provider: 'openai',
-        model: 'gpt-5-mini',
+        model: 'gpt-5.6-luna',
         key_source: 'environment',
         // The deployment's key is never hinted at.
         key_hint: null,

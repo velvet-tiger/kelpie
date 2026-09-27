@@ -27,6 +27,12 @@ While the major version is `0`, a minor bump may break the API.
 - **`@kelpie/ui`** — `personIntake` UI registry slot and
   `usePersonIntakeProvider`.
 
+### Changed
+
+- **`@kelpie/schemas`** — The OpenAI default model is now `gpt-5.6-luna`.
+  OpenAI shuts `gpt-5-mini` down on 2026-12-11. A deployment that set
+  `AI_MODEL`, or a workspace that chose a model, is not affected.
+
 ## [0.17.0] - 2026-09-27
 
 ### Added

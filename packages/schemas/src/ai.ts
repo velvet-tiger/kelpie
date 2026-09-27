@@ -28,9 +28,12 @@ export const AI_PROVIDER_LABELS: Readonly<Record<AiProvider, string>> = {
   anthropic: 'Anthropic',
 }
 
-/** The model a provider runs when neither the workspace nor the deployment names one. */
+/**
+ * The model a provider runs when neither the workspace nor the deployment names one.
+ * OpenAI's was `gpt-5-mini` until OpenAI deprecated it (shutdown 2026-12-11).
+ */
 export const AI_DEFAULT_MODELS: Readonly<Record<AiProvider, string>> = {
-  openai: 'gpt-5-mini',
+  openai: 'gpt-5.6-luna',
   anthropic: 'claude-opus-5',
 }
 

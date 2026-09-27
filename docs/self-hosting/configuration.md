@@ -84,7 +84,7 @@ Read by the optional `ai` module, and only when `kelpie.config.ts` lists `create
 | --- | --- | --- |
 | `AI_PROVIDER` | no | `openai` or `anthropic`. The provider of the fallback key. |
 | `AI_API_KEY` | no | A fallback key for every workspace that has not entered its own. Ignored without `AI_PROVIDER`, and never lent to the other provider. |
-| `AI_MODEL` | no | The fallback model for `AI_PROVIDER`. Default `gpt-5-mini` (OpenAI) or `claude-opus-5` (Anthropic). |
+| `AI_MODEL` | no | The fallback model for `AI_PROVIDER`. Default `gpt-5.6-luna` (OpenAI) or `claude-opus-5` (Anthropic). |
 | `AI_MAX_TOKENS` | no | The output cap per model call, 1024 to 128000. Default `16000`. |
 | `AI_MAX_CONCURRENT_RUNS` | no | Runs at once per workspace, 1 to 20. Default `2`. More runs queue. |
 | `AI_RUN_TIMEOUT_MINUTES` | no | A run still going after this long is marked failed on the next dispatch. Default `15`. |
