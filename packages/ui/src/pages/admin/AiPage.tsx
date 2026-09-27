@@ -10,12 +10,13 @@ import type { ChipTone } from '../../components/Chip.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { Paginator } from '../../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
+import { RecordTabs } from '../../components/RecordTabs.tsx'
 import { formatRelativeTime } from '../../lib/dates.ts'
 
 /**
  * The AI admin page at `/admin/ai`, from the optional `ai` module.
  *
- * Two parts: the settings for Kelpie AI in this workspace, and its run log.
+ * Two tabs: the settings for Kelpie AI in this workspace, and its run log.
  * Both read the same `/v1/ai/*` endpoints an agent would use.
  *
  * What the settings part shows depends on the module's key mode. In
@@ -370,16 +371,33 @@ function RunLog(): React.JSX.Element {
   )
 }
 
+type AiTab = 'settings' | 'runs'
+
 export function AiPage(): React.JSX.Element {
   const { record: settings, isLoading, error } = useAiSettings()
+  const [tab, setTab] = useState<AiTab>('settings')
 
   return (
     <div className="animate-slide-in mx-auto max-w-4xl space-y-6">
       <PageHeader title="AI" description="Run agent tasks with your own model provider." />
-      {isLoading && <LoadingPanel label="Loading AI settings…" />}
-      {error !== null && <ErrorPanel error={error} />}
-      {settings !== undefined && <SettingsPanel settings={settings} />}
-      <RunLog />
+      <RecordTabs
+        tabs={[
+          { id: 'settings', label: 'Settings' },
+          { id: 'runs', label: 'Run log' },
+        ]}
+        active={tab}
+        onChange={setTab}
+        ariaLabel="AI sections"
+      >
+        {tab === 'settings' && (
+          <>
+            {isLoading && <LoadingPanel label="Loading AI settings…" />}
+            {error !== null && <ErrorPanel error={error} />}
+            {settings !== undefined && <SettingsPanel settings={settings} />}
+          </>
+        )}
+        {tab === 'runs' && <RunLog />}
+      </RecordTabs>
     </div>
   )
 }

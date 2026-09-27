@@ -171,6 +171,9 @@ describe('AiPage', () => {
 
   it('shows why a run failed', async () => {
     renderPage({ runs: [FAILED_RUN] })
+    act(() => {
+      screen.getByRole('tab', { name: 'Run log' }).click()
+    })
 
     expect(await screen.findByText('The Anthropic API key was rejected. Check the key in AI settings.')).toBeTruthy()
     expect(screen.getByText('person.enrich')).toBeTruthy()
