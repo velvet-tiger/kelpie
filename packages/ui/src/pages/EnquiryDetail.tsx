@@ -46,6 +46,7 @@ import { SidebarField } from '../components/SidebarField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { useRecordTabs } from '../registry/context.ts'
 import { inSlotOrder } from '../registry/registry.ts'
+import { useRecordTab } from '../lib/fragmentTarget.ts'
 import { toTags } from './fields.ts'
 
 /**
@@ -71,7 +72,7 @@ export function EnquiryDetail(): React.JSX.Element {
   const moduleTabs = inSlotOrder(useRecordTabs('enquiry'))
   const hasCustomFields = useHasCustomFields('enquiry')
   const eventsEnabled = useModuleEnabled('events')
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useRecordTab()
   const [showConvert, setShowConvert] = useState(false)
   const formSubmissions = useFormSubmissionsForRecord('enquiry', id)
 

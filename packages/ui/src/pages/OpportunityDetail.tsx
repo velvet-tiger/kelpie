@@ -45,6 +45,7 @@ import { SectionHeader } from '../components/SectionHeader.tsx'
 import { SidebarField } from '../components/SidebarField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { formatDay } from '../lib/dates.ts'
+import { useRecordTab } from '../lib/fragmentTarget.ts'
 import { useRecordTabs } from '../registry/context.ts'
 import { inSlotOrder } from '../registry/registry.ts'
 import { toTags } from './fields.ts'
@@ -73,7 +74,7 @@ export function OpportunityDetail(): React.JSX.Element {
   const moduleTabs = inSlotOrder(useRecordTabs('opportunity'))
   const hasCustomFields = useHasCustomFields('opportunity')
   const eventsEnabled = useModuleEnabled('events')
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useRecordTab()
   const [showConvert, setShowConvert] = useState(false)
   const formSubmissions = useFormSubmissionsForRecord('opportunity', id)
 

@@ -64,6 +64,7 @@ import { SidebarField } from '../components/SidebarField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { TimezoneSearch } from '../components/TimezoneSearch.tsx'
 import { formatDateTime } from '../lib/dates.ts'
+import { useRecordTab } from '../lib/fragmentTarget.ts'
 import { useRecordTabs } from '../registry/context.ts'
 import { inSlotOrder } from '../registry/registry.ts'
 import { toTags } from './fields.ts'
@@ -106,7 +107,7 @@ export function EventDetail(): React.JSX.Element {
   const deleteEvent = useDeleteEvent()
   const moduleTabs = inSlotOrder(useRecordTabs('event'))
   const hasCustomFields = useHasCustomFields('event')
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useRecordTab()
 
   if (isNotFound) {
     return <NotFoundPanel label="Event" backTo="/events" />

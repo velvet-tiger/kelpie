@@ -55,6 +55,7 @@ import { PhonesField } from '../components/PhonesField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { useRecordTabs } from '../registry/context.ts'
 import { inSlotOrder } from '../registry/registry.ts'
+import { useRecordTab } from '../lib/fragmentTarget.ts'
 import {
   CandidateReferrerField,
   CandidateStageField,
@@ -91,7 +92,7 @@ export function PersonDetail(): React.JSX.Element {
   const moduleTabs = inSlotOrder(useRecordTabs('person'))
   const hasCustomFields = useHasCustomFields('person')
   const eventsEnabled = useModuleEnabled('events')
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useRecordTab()
   const candidacies = useCandidates({ personIds: id === undefined ? [] : [id] }, {
     enabled: id !== undefined,
   })

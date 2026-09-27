@@ -56,6 +56,7 @@ import { SidebarField } from '../components/SidebarField.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { useRecordTabs } from '../registry/context.ts'
 import { inSlotOrder } from '../registry/registry.ts'
+import { useRecordTab } from '../lib/fragmentTarget.ts'
 import { toOptions, toTags } from './fields.ts'
 
 /**
@@ -87,7 +88,7 @@ export function CompanyDetail(): React.JSX.Element {
   const moduleTabs = inSlotOrder(useRecordTabs('company'))
   const hasCustomFields = useHasCustomFields('company')
   const eventsEnabled = useModuleEnabled('events')
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useRecordTab()
   const formSubmissions = useFormSubmissionsForRecord('company', id)
 
   if (isNotFound) {

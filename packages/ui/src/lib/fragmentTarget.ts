@@ -53,5 +53,44 @@ export function useFragmentTarget<T extends HTMLElement>(id: string): FragmentTa
   return { ref, highlighted }
 }
 
+/**
+ * The detail-page tab that holds a row with this id prefix. Every record page
+ * names these three tabs the same.
+ */
+const TAB_BY_PREFIX: readonly (readonly [string, string])[] = [
+  ['note_', 'notes'],
+  ['dec_', 'decisions'],
+  ['plan_', 'plan'],
+]
+
+function tabForHash(hash: string): string | undefined {
+  const id = hash.startsWith('#') ? hash.slice(1) : hash
+
+  return TAB_BY_PREFIX.find(([prefix]) => id.startsWith(prefix))?.[1]
+}
+
+/**
+ * A detail page's active tab, opened on the tab a fragment points into.
+ *
+ * `/companies/com_1#note_1` must land on Notes, or the row it names is not on
+ * screen to scroll to. The fragment picks the tab on the first render and again
+ * whenever it changes, so a link to another note on the same page switches too.
+ * Anything else starts on Overview, and a click on a tab still wins.
+ */
+export function useRecordTab(): readonly [string, (tab: string) => void] {
+  const { hash } = useLocation()
+  const [tab, setTab] = useState(() => tabForHash(hash) ?? 'overview')
+
+  useEffect(() => {
+    const fromHash = tabForHash(hash)
+
+    if (fromHash !== undefined) {
+      setTab(fromHash)
+    }
+  }, [hash])
+
+  return [tab, setTab]
+}
+
 /** The classes a highlighted row adds. */
 export const FRAGMENT_HIGHLIGHT = 'bg-accent-soft/40 ring-2 ring-accent/40'
