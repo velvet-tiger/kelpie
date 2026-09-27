@@ -21,11 +21,13 @@ import {
   findRun,
   findSettings,
   insertRunIfNew,
+  insertRunningRun,
   listRuns,
+  settleRun,
   sweepStaleRuns,
   upsertSettings,
 } from './repository.ts'
-import type { AiRunRecord, AiSettingsRow } from './repository.ts'
+import type { AiRunRecord, AiSettingsRow, SettleRunInput } from './repository.ts'
 import {
   AI_RUNS_LIMIT,
   keyHint,
@@ -62,7 +64,7 @@ const NOT_CONFIGURED_MESSAGE: Readonly<Record<AiKeyMode, string>> = {
 }
 
 const DEPLOYMENT_MANAGED_MESSAGE =
-  'This deployment manages the AI provider, key and model; the settings body must be empty'
+  'This deployment manages the AI provider, key and model; the settings body may carry only web_search'
 
 export interface AiServiceDependencies {
   readonly db: Database
@@ -90,6 +92,7 @@ export interface AiSettingsView {
   readonly keyHint: string | null
   readonly monthlyLimit: number | null
   readonly runsThisMonth: number
+  readonly webSearch: boolean
 }
 
 /**
@@ -100,6 +103,15 @@ export interface AiSettingsChanges {
   readonly provider?: AiProvider
   readonly apiKey?: string | null
   readonly model?: string | null
+  /** Either key mode. */
+  readonly webSearch?: boolean
+}
+
+/** A synchronous run the caller drives itself: the row, and what to run it with. */
+export interface AiSyncRun {
+  readonly run: AiRunRecord
+  readonly model: string
+  readonly webSearch: boolean
 }
 
 export interface AiRunView extends AiRunRecord {}
@@ -149,6 +161,13 @@ export interface AiService {
    * AppError otherwise.
    */
   accept(payload: DispatchPayload): Promise<void>
+  /**
+   * Admits and records a run the caller makes itself, such as a person-intake
+   * call. The same checks as `accept`: enabled, configured, under the monthly
+   * limit. The row starts `running`; the caller must settle it.
+   */
+  startSyncRun(workspaceId: string, taskId: string, prompt: string): Promise<AiSyncRun>
+  settleSyncRun(runId: string, changes: SettleRunInput): Promise<void>
   /** Removes every row this module holds for the workspace. Idempotent. */
   forget(workspaceId: string): Promise<void>
 }
@@ -197,6 +216,7 @@ function prospectiveRow(
     model: changes.model === undefined ? keptModel : changes.model,
     apiKeyEncrypted:
       changes.apiKey === undefined ? keptKey : changes.apiKey === null ? null : (sealedNewKey ?? null),
+    webSearch: changes.webSearch ?? stored?.webSearch ?? true,
     createdAt: stored?.createdAt ?? now,
     updatedAt: stored?.updatedAt ?? now,
   }
@@ -223,17 +243,70 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       keyHint: credentials.keySource === 'workspace' ? keyHint(credentials.apiKey) : null,
       monthlyLimit,
       runsThisMonth,
+      webSearch: settings?.webSearch ?? true,
     }
+  }
+
+  /**
+   * The checks every run passes before it is recorded, queued or synchronous.
+   * Answers the credentials the run will use; throws `AppError` otherwise.
+   */
+  async function admit(workspaceId: string, now: Date): Promise<{ credentials: AiCredentials; settings: AiSettingsRow }> {
+    // A row left behind by a disable that did not reach the registration,
+    // or a dispatch that raced a disable. Say so on the run.
+    const settings = await findSettings(dependencies.db, workspaceId)
+
+    if (settings === undefined) {
+      throw AppError.conflict('AI is not enabled for this workspace; an admin can enable it in AI settings')
+    }
+
+    // Refuse rather than queue a run that cannot start: the key was
+    // cleared from the environment, or the stored key will not open. The
+    // message lands on the visible agent run as its failure reason.
+    const credentials = dependencies.credentials.forRow(settings)
+    if (credentials.problem !== null) {
+      throw AppError.conflict(credentials.problem)
+    }
+    if (!isUsable(credentials)) {
+      throw AppError.conflict(NOT_CONFIGURED_MESSAGE[dependencies.keyMode])
+    }
+
+    // Stale sweep before the capacity decision, so a crashed executor can
+    // never wedge a workspace's queue forever. Inline, per the "no
+    // scheduler" doctrine.
+    const swept = await sweepStaleRuns(
+      dependencies.db,
+      workspaceId,
+      staleBefore(now, dependencies.runTimeoutMinutes),
+      now,
+      STALE_RUN_REASON,
+    )
+    if (swept > 0) {
+      dependencies.log.warn('ai stale runs swept', { workspaceId, count: swept })
+    }
+
+    // Metering: monthly run cap. Over the cap answers 403, which core's
+    // dispatch engine records on the visible agent_run as the failure
+    // reason the user sees. Unlimited unless the assembly provides a limit.
+    const monthlyLimit = await limitFor(dependencies.entitlements, workspaceId, AI_RUNS_LIMIT.name)
+    if (monthlyLimit !== null) {
+      const runsThisMonth = await countRunsSince(dependencies.db, workspaceId, monthWindowStart(now))
+      if (runsThisMonth >= monthlyLimit) {
+        throw new AppError('entitlement_required', OVER_LIMIT_MESSAGE)
+      }
+    }
+
+    return { credentials, settings }
   }
 
   return {
     async enable(actor, changes) {
       requireAdmin(actor)
       const workspaceId = requireWorkspace(actor)
-      const hasChanges =
+      const hasKeyChanges =
         changes.provider !== undefined || changes.apiKey !== undefined || changes.model !== undefined
 
-      if (dependencies.keyMode === 'deployment' && hasChanges) {
+      if (dependencies.keyMode === 'deployment' && hasKeyChanges) {
         throw new AppError('bad_request', DEPLOYMENT_MANAGED_MESSAGE)
       }
 
@@ -262,6 +335,7 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
             ...(dependencies.keyMode === 'workspace'
               ? { provider: next.provider, model: next.model, apiKeyEncrypted: next.apiKeyEncrypted }
               : {}),
+            ...(changes.webSearch === undefined ? {} : { webSearch: changes.webSearch }),
           },
           now,
         )
@@ -315,62 +389,8 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
     },
 
     async accept(payload) {
-      // A row left behind by a disable that did not reach the registration,
-      // or a dispatch that raced a disable. Say so on the run.
-      const settings = await findSettings(dependencies.db, payload.workspaceId)
-
-      if (settings === undefined) {
-        throw AppError.conflict('AI is not enabled for this workspace; an admin can enable it in AI settings')
-      }
-
-      // Refuse rather than queue a run that cannot start: the key was
-      // cleared from the environment, or the stored key will not open. The
-      // message lands on the visible agent run as its failure reason.
-      const credentials = dependencies.credentials.forRow(settings)
-      if (credentials.problem !== null) {
-        throw AppError.conflict(credentials.problem)
-      }
-      if (!isUsable(credentials)) {
-        throw AppError.conflict(NOT_CONFIGURED_MESSAGE[dependencies.keyMode])
-      }
-
       const now = dependencies.now()
-
-      // Stale sweep before the capacity decision, so a crashed executor can
-      // never wedge a workspace's queue forever. Inline, per the "no
-      // scheduler" doctrine.
-      const swept = await sweepStaleRuns(
-        dependencies.db,
-        payload.workspaceId,
-        staleBefore(now, dependencies.runTimeoutMinutes),
-        now,
-        STALE_RUN_REASON,
-      )
-      if (swept > 0) {
-        dependencies.log.warn('ai stale runs swept', {
-          workspaceId: payload.workspaceId,
-          count: swept,
-        })
-      }
-
-      // Metering: monthly run cap. Over the cap answers 403, which core's
-      // dispatch engine records on the visible agent_run as the failure
-      // reason the user sees. Unlimited unless the assembly provides a limit.
-      const monthlyLimit = await limitFor(
-        dependencies.entitlements,
-        payload.workspaceId,
-        AI_RUNS_LIMIT.name,
-      )
-      if (monthlyLimit !== null) {
-        const runsThisMonth = await countRunsSince(
-          dependencies.db,
-          payload.workspaceId,
-          monthWindowStart(now),
-        )
-        if (runsThisMonth >= monthlyLimit) {
-          throw new AppError('entitlement_required', OVER_LIMIT_MESSAGE)
-        }
-      }
+      const { credentials } = await admit(payload.workspaceId, now)
 
       // Idempotent upsert: the same run_id delivered twice records once.
       const inserted = await insertRunIfNew(
@@ -399,6 +419,30 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       // Detached — the route answers 202 whether the run started or stayed
       // queued behind the concurrency cap. The pump loop chains completions.
       dependencies.executor.pump(payload.workspaceId)
+    },
+
+    async startSyncRun(workspaceId, taskId, prompt) {
+      const now = dependencies.now()
+      const { credentials, settings } = await admit(workspaceId, now)
+      const run = await insertRunningRun(
+        dependencies.db,
+        {
+          id: dependencies.createRunId(),
+          workspaceId,
+          taskId,
+          targetType: 'workspace',
+          targetId: workspaceId,
+          model: credentials.model,
+          prompt,
+        },
+        now,
+      )
+
+      return { run, model: credentials.model, webSearch: settings.webSearch }
+    },
+
+    async settleSyncRun(runId, changes) {
+      await settleRun(dependencies.db, runId, changes, dependencies.now())
     },
 
     async forget(workspaceId) {

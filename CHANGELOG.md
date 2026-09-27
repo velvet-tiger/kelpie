@@ -10,6 +10,23 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **Add a person
+  from notes.** People has an **Add from notes** button next to **+**. With
+  Kelpie AI ready, a wizard identifies the person from pasted notes,
+  researches them, and creates the ticked Person, Company, Position, pinned
+  research note and, when the notes suggest one, Partnership, Deal or Enquiry.
+  New endpoints: `POST /v1/ai/person-intake/identify`, `/research`, `/apply`.
+  Without Kelpie AI the button copies a prompt (the new
+  `workspace.add_person` agent task) for your own agent.
+- **`@kelpie/server`, `@kelpie/schemas`** — `web_search` on
+  `/v1/ai/settings` (default on). Person intake may use the provider's web
+  search; agent-task runs never do. The `ai` module adds migration
+  `0006_intake_web_search`.
+- **`@kelpie/ui`** — `personIntake` UI registry slot and
+  `usePersonIntakeProvider`.
+
 ## [0.17.0] - 2026-09-27
 
 ### Added

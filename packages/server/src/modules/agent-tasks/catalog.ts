@@ -795,6 +795,21 @@ Use GET /v1/dashboard upcoming_events. Suggest follow-up or brief tasks where us
     instructions: `Find records missing summary, company icpFit, or raise thesisFit.
 Prioritise open pipeline. Suggest Enrich / Score / Refresh tasks per record.`,
   }),
+  task({
+    id: 'workspace.add_person',
+    label: 'Add a person from notes',
+    description: 'Research someone from pasted notes and create the Person, Company and Position.',
+    targetTypes: ['workspace'],
+    placement: 'overflow',
+    handbookSlugs: ['ideal-customer-profile', 'agent-faq'],
+    instructions: `The human will paste notes about one person after this prompt: names, emails, profile URLs, a signature block, meeting notes.
+Work out who they are. If the notes fit more than one person, ask the human which one before you write anything.
+Search People first (by email, then by name) and Companies (by name and email domain), and add to what exists rather than creating a duplicate.
+Research them using public sources. Then create or update the Person (summary, socials, tags), the Company they work at, and a Position with their title.
+Append a pinned Note on the Person with what you found and the URLs you used.
+Create a Partnership, Deal or Enquiry only when the notes suggest one, and say why in its summary.
+Report what you created, with links.`,
+  }),
 ]
 
 export function findTask(id: string): AgentTaskDefinition | undefined {

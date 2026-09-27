@@ -7,9 +7,14 @@
  * one-line change in `index.ts`.
  *
  * One request, one reply. The model is asked to return JSON that matches
- * {@link AiCompletionRequest.responseFormat}, and the executor validates
- * the reply against its own Zod schema before applying anything. No tools
- * are passed to the model — this port has no notion of a tool.
+ * {@link AiCompletionRequest.responseFormat}, and the caller validates the
+ * reply against its own Zod schema before applying anything. No Kelpie tool
+ * is ever passed to the model — this port has no notion of one.
+ *
+ * The one exception to "no tools" is the provider's own web search, which
+ * person intake asks for through {@link AiCompletionRequest.webSearch}. It
+ * runs on the provider's side and reads the public web; it cannot touch the
+ * workspace. Agent-task runs never set it.
  */
 
 export interface AiResponseFormat {
@@ -43,6 +48,21 @@ export interface AiCompletionRequest {
   readonly instructions: string
   readonly messages: readonly AiMessage[]
   readonly responseFormat: AiResponseFormat
+  /**
+   * Hands the model the provider's web search tool, capped at `maxUses`
+   * searches. Absent means no search, which is every agent-task run.
+   */
+  readonly webSearch?: AiWebSearchOptions | undefined
+}
+
+export interface AiWebSearchOptions {
+  readonly maxUses: number
+}
+
+/** A page the provider's web search returned. */
+export interface AiWebSource {
+  readonly url: string
+  readonly title: string
 }
 
 export type AiStopReason =
@@ -72,6 +92,12 @@ export interface AiCompletionResult {
   readonly usage: AiTokenUsage
   /** Populated when `stopReason` is `refusal` or `failed`. */
   readonly failure?: AiFailure
+  /**
+   * Every page the provider's web search returned during the call, so the
+   * caller can drop a cited URL the search never saw. Empty, or absent, when
+   * the request asked for no search.
+   */
+  readonly webSources?: readonly AiWebSource[]
 }
 
 export interface AiProviderPort {

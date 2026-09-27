@@ -1,0 +1,1 @@
+ALTER TABLE "ai_settings" ADD COLUMN "web_search" boolean DEFAULT true NOT NULL;

@@ -508,6 +508,44 @@ export type {
 } from './ai.ts'
 
 export {
+  PERSON_INTAKE_CONFIDENCES,
+  PERSON_INTAKE_KIND_LABELS,
+  PERSON_INTAKE_KINDS,
+  PERSON_INTAKE_MAX_TEXT,
+  PERSON_INTAKE_PERSON_KEY,
+  PERSON_INTAKE_RESULT_STATUSES,
+  personIntakeApplyResultSchema,
+  personIntakeApplyResponseWireSchema,
+  personIntakeCandidateBody,
+  personIntakeCandidateWireSchema,
+  personIntakeDependencies,
+  personIntakeIdentifyResponseWireSchema,
+  personIntakeIdentifyResultSchema,
+  personIntakeItemBody,
+  personIntakeItemWireSchema,
+  personIntakeResearchResponseWireSchema,
+  personIntakeResearchResultSchema,
+  personIntakeSourceWireSchema,
+} from './personIntake.ts'
+export type {
+  PersonIntakeApplyResult,
+  PersonIntakeCandidate,
+  PersonIntakeCandidateWire,
+  PersonIntakeCompanyFields,
+  PersonIntakeConfidence,
+  PersonIntakeExistingPerson,
+  PersonIntakeIdentifyResult,
+  PersonIntakeItem,
+  PersonIntakeItemWire,
+  PersonIntakeKind,
+  PersonIntakePersonFields,
+  PersonIntakeResearchResult,
+  PersonIntakeResult,
+  PersonIntakeResultStatus,
+  PersonIntakeSource,
+} from './personIntake.ts'
+
+export {
   RECORD_REFERENCE_TYPES,
   formatRecordLinkToken,
   isRecordReferenceType,

@@ -27,6 +27,7 @@ function settings(overrides: Record<string, unknown> = {}): Record<string, unkno
     key_hint: null,
     monthly_limit: null,
     runs_this_month: 0,
+    web_search: true,
     ...overrides,
   }
 }

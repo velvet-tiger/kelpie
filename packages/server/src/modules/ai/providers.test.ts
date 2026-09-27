@@ -198,3 +198,131 @@ describe('createOpenAiPort', () => {
     expect(result.failure?.message).toContain('You exceeded your current quota')
   })
 })
+
+describe('web search', () => {
+  const searchRequest: AiCompletionRequest = { ...request, webSearch: { maxUses: 4 } }
+
+  it('hands Anthropic the web search tool, resumes a paused turn, and reads the answer after the last search', async () => {
+    const sent: Record<string, unknown>[] = []
+    const replies = [
+      anthropicMessage({
+        stop_reason: 'pause_turn',
+        content: [
+          { type: 'text', text: 'Let me look {that} up.' },
+          { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: { query: 'Dana Reyes' } },
+        ],
+      }),
+      anthropicMessage({
+        content: [
+          {
+            type: 'web_search_tool_result',
+            tool_use_id: 'srv_1',
+            content: [{ type: 'web_search_result', url: 'https://brightline.health/team', title: 'Team', encrypted_content: 'x' }],
+          },
+          { type: 'text', text: '{"candidates":[]}' },
+        ],
+      }),
+    ]
+    const port = createAnthropicPort({
+      apiKey: 'unused',
+      client: anthropicClient((params) => {
+        // Copy the messages: the adapter appends to the same array between calls.
+        const copy = params as Record<string, unknown>
+        sent.push({ ...copy, messages: [...(copy.messages as unknown[])] })
+        return Promise.resolve(replies.shift())
+      }),
+    })
+
+    const result = await port.complete(searchRequest)
+
+    expect(result).toEqual({
+      stopReason: 'end_turn',
+      text: '{"candidates":[]}',
+      usage: { inputTokens: 60, outputTokens: 20 },
+      webSources: [{ url: 'https://brightline.health/team', title: 'Team' }],
+    })
+    expect(sent[0]?.tools).toEqual([{ type: 'web_search_20260209', name: 'web_search', max_uses: 4 }])
+    // The paused turn goes back as it came, with no "continue" message.
+    expect(sent[1]?.messages).toMatchObject([{ role: 'user' }, { role: 'assistant' }])
+  })
+
+  it('uses the basic web search tool on a model without dynamic filtering', async () => {
+    const sent: Record<string, unknown>[] = []
+    const port = createAnthropicPort({
+      apiKey: 'unused',
+      client: anthropicClient((params) => {
+        sent.push(params as Record<string, unknown>)
+        return Promise.resolve(anthropicMessage({}))
+      }),
+    })
+
+    await port.complete({ ...searchRequest, model: 'claude-haiku-4-5' })
+
+    expect(sent[0]?.tools).toEqual([{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }])
+  })
+
+  it('fails a search that is still paused after the last continuation', async () => {
+    const port = createAnthropicPort({
+      apiKey: 'unused',
+      client: anthropicClient(() =>
+        Promise.resolve(
+          anthropicMessage({
+            stop_reason: 'pause_turn',
+            content: [{ type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: { query: 'x' } }],
+          }),
+        ),
+      ),
+    })
+
+    const result = await port.complete(searchRequest)
+
+    expect(result.stopReason).toBe('failed')
+    expect(result.failure?.code).toBe('pause_turn')
+  })
+
+  it('hands OpenAI the web search tool and reads its sources and citations', async () => {
+    const sent: Record<string, unknown>[] = []
+    const port = createOpenAiPort({
+      apiKey: 'unused',
+      client: openAiClient((params) => {
+        sent.push(params as Record<string, unknown>)
+        return Promise.resolve({
+          status: 'completed',
+          output: [
+            {
+              type: 'web_search_call',
+              id: 'ws_1',
+              status: 'completed',
+              action: { type: 'search', sources: [{ type: 'url', url: 'https://brightline.health/team' }] },
+            },
+            {
+              type: 'message',
+              content: [
+                {
+                  type: 'output_text',
+                  text: '{"candidates":[]}',
+                  annotations: [
+                    { type: 'url_citation', url: 'https://example.com/a', title: 'A', start_index: 0, end_index: 1 },
+                  ],
+                },
+              ],
+            },
+          ],
+          usage: { input_tokens: 5, output_tokens: 6 },
+        })
+      }),
+    })
+
+    const result = await port.complete({ ...searchRequest, model: 'gpt-5-mini' })
+
+    expect(sent[0]).toMatchObject({
+      tools: [{ type: 'web_search' }],
+      max_tool_calls: 4,
+      include: ['web_search_call.action.sources'],
+    })
+    expect(result.webSources).toEqual([
+      { url: 'https://brightline.health/team', title: 'https://brightline.health/team' },
+      { url: 'https://example.com/a', title: 'A' },
+    ])
+  })
+})

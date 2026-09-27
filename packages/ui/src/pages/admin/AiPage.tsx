@@ -218,6 +218,38 @@ function DeploymentKeyControls({ settings }: { readonly settings: AiSettings }):
   )
 }
 
+/**
+ * Whether Add from notes may search the web. Saves on change: it is one
+ * switch, and the provider and key are untouched, so either key mode sends it.
+ */
+function WebSearchToggle({ settings }: { readonly settings: AiSettings }): React.JSX.Element {
+  const save = useSaveAiSettings()
+
+  return (
+    <div className="mt-4 space-y-2 border-t border-border pt-4">
+      <label className="flex items-start gap-2 text-[13px] text-ink">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={settings.webSearch}
+          disabled={save.isPending}
+          onChange={(event) => {
+            save.run({ webSearch: event.target.checked })
+          }}
+        />
+        <span>
+          <span className="font-medium">Web search</span>
+          <span className="block text-[12px] text-ink-muted">
+            Add from notes on People may use the provider's web search to research a person. Agent-task runs never
+            search. Turn this off to work from pasted notes and the CRM only.
+          </span>
+        </span>
+      </label>
+      {save.error !== null && <ErrorPanel error={save.error} />}
+    </div>
+  )
+}
+
 function SettingsPanel({ settings }: { readonly settings: AiSettings }): React.JSX.Element {
   const disable = useDisableAi()
 
@@ -257,6 +289,8 @@ function SettingsPanel({ settings }: { readonly settings: AiSettings }): React.J
       ) : (
         <DeploymentKeyControls settings={settings} />
       )}
+
+      {settings.enabled && settings.configured && <WebSearchToggle settings={settings} />}
 
       {settings.enabled && (
         <div className="mt-4 space-y-2 border-t border-border pt-4">

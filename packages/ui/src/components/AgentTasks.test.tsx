@@ -88,6 +88,7 @@ function aiSettings(overrides: Record<string, unknown> = {}): Record<string, unk
     key_hint: 'abcd',
     monthly_limit: null,
     runs_this_month: 0,
+    web_search: true,
     ...overrides,
   }
 }

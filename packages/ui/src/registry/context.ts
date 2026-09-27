@@ -8,6 +8,7 @@ import type {
   ExtensibleRecordType,
   NavItem,
   NavSlot,
+  PersonIntakeProvider,
   RecordSidebarCard,
   RecordTab,
   RouteContribution,
@@ -63,6 +64,11 @@ export function useAuthMethods(): readonly AuthMethod[] {
 /** The agent the Agent menu's Run button dispatches to, when a module provides one. */
 export function useAgentRunner(): AgentRunner | undefined {
   return useUiExtensions().agentRunner()
+}
+
+/** The wizard behind People's Add from notes, when a module provides one. */
+export function usePersonIntakeProvider(): PersonIntakeProvider | undefined {
+  return useUiExtensions().personIntake()
 }
 
 /**

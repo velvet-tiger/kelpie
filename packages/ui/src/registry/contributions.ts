@@ -1,5 +1,5 @@
 import type { ExtensibleRecordType } from '@kelpie/schemas'
-import type { ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
 /**
  * What a UI module may add to the shell.
@@ -123,4 +123,23 @@ export interface AgentRunner {
   readonly useAvailability: (options: { readonly enabled: boolean }) => AgentRunnerAvailability
   /** Progress for the core agent run `agentRunId`. `undefined` polls nothing. */
   readonly useProgress: (agentRunId: string | undefined) => AgentRunnerProgress | undefined
+}
+
+export interface PersonIntakeWizardProps {
+  /** Closes the dialog the wizard sits in. */
+  readonly onClose: () => void
+}
+
+/**
+ * The model-driven wizard behind People's **Add from notes**.
+ *
+ * Core owns the button and the dialog, and with no provider (or one that is
+ * not ready) the dialog offers a copy-prompt for the user's own agent. A
+ * provider replaces that with a wizard that identifies, researches and
+ * creates. `useAvailability` is a hook, with the runner's shape and rules.
+ */
+export interface PersonIntakeProvider {
+  readonly id: string
+  readonly useAvailability: (options: { readonly enabled: boolean }) => AgentRunnerAvailability
+  readonly Wizard: ComponentType<PersonIntakeWizardProps>
 }

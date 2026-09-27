@@ -7,6 +7,7 @@ import type {
   AiMessage,
   AiProviderPort,
   AiStopReason,
+  AiWebSource,
 } from './provider.ts'
 
 /**
@@ -26,6 +27,11 @@ import type {
  *     `z.toJSONSchema` output does not meet OpenAI's strict subset.
  *   - The reply's `output_text` blocks are joined and returned as `text`.
  *     Stop reason comes from `status` / `incomplete_details`.
+ *
+ * **Web search.** When the request asks for it, the model gets OpenAI's
+ * built-in `web_search` tool, with `max_tool_calls` as the search cap, and
+ * the response includes each search's sources. Those, and every
+ * `url_citation` on the reply, come back as `webSources`.
  *
  * API errors (a wrong key, no quota, a rate limit) come back as a `failed`
  * result carrying the provider's message, the same as `anthropic.ts`. The
@@ -50,6 +56,13 @@ export function createOpenAiPort(options: OpenAiPortOptions): AiProviderPort {
           max_output_tokens: request.maxTokens,
           instructions: request.instructions,
           input: request.messages.map(toInputItem),
+          ...(request.webSearch === undefined
+            ? {}
+            : {
+                tools: [{ type: 'web_search' as const }],
+                max_tool_calls: request.webSearch.maxUses,
+                include: ['web_search_call.action.sources' as const],
+              }),
           text: {
             format: {
               type: 'json_schema',
@@ -68,25 +81,43 @@ export function createOpenAiPort(options: OpenAiPortOptions): AiProviderPort {
         outputTokens: response.usage?.output_tokens ?? 0,
       }
       let text = ''
+      const searching = request.webSearch !== undefined
+      const webSources: AiWebSource[] = []
 
       for (const item of response.output) {
         if (item.type === 'message') {
           for (const block of item.content) {
             if (block.type === 'output_text') {
               text += block.text
+              if (searching) {
+                for (const annotation of block.annotations) {
+                  if (annotation.type === 'url_citation') {
+                    webSources.push({ url: annotation.url, title: annotation.title })
+                  }
+                }
+              }
             }
+          }
+        }
+        if (searching && item.type === 'web_search_call' && item.action.type === 'search') {
+          for (const source of item.action.sources ?? []) {
+            // A search source carries no title; the URL stands in for one.
+            webSources.push({ url: source.url, title: source.url })
           }
         }
       }
 
+      // Only a search call reports sources, so an agent-task result is unchanged.
+      const sources = searching ? { webSources } : {}
+
       if (response.status === 'completed') {
-        return { stopReason: 'end_turn', text, usage }
+        return { stopReason: 'end_turn', text, usage, ...sources }
       }
 
       if (response.status === 'incomplete') {
         const reason = response.incomplete_details?.reason
         if (reason === 'max_output_tokens') {
-          return { stopReason: 'max_tokens', text, usage }
+          return { stopReason: 'max_tokens', text, usage, ...sources }
         }
         if (reason === 'content_filter') {
           return {

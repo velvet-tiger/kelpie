@@ -26,6 +26,7 @@ const settingsInput = z.strictObject({
   provider: z.enum(AI_PROVIDERS).optional(),
   api_key: z.string().trim().min(1).max(500).nullable().optional(),
   model: z.string().trim().min(1).max(200).nullable().optional(),
+  web_search: z.boolean().optional(),
 })
 
 async function readSettingsChanges(context: Context): Promise<AiSettingsChanges> {
@@ -50,6 +51,7 @@ async function readSettingsChanges(context: Context): Promise<AiSettingsChanges>
     ...(parsed.data.provider === undefined ? {} : { provider: parsed.data.provider }),
     ...(parsed.data.api_key === undefined ? {} : { apiKey: parsed.data.api_key }),
     ...(parsed.data.model === undefined ? {} : { model: parsed.data.model }),
+    ...(parsed.data.web_search === undefined ? {} : { webSearch: parsed.data.web_search }),
   }
 }
 
@@ -68,6 +70,7 @@ function settingsBody(view: AiSettingsView): Record<string, unknown> {
     key_hint: view.keyHint,
     monthly_limit: view.monthlyLimit,
     runs_this_month: view.runsThisMonth,
+    web_search: view.webSearch,
   }
 }
 

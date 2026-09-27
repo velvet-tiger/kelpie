@@ -12,6 +12,8 @@ import { createAiDispatcher } from './dispatch.ts'
 import { createAiExecutor } from './executor.ts'
 import type { AiPortResolution } from './executor.ts'
 import { createAiRunIdFactory } from './ids.ts'
+import { createPersonIntake } from './intake.ts'
+import { mountPersonIntakeRoutes } from './intakeRoutes.ts'
 import type { IdFactory } from './ids.ts'
 import { createOpenAiPort } from './openai.ts'
 import type { AiProviderPort } from './provider.ts'
@@ -48,6 +50,12 @@ import { createAiService } from './service.ts'
  * `AI_API_KEY` and `AI_MODEL` are the deployment's fallback. `deployment`:
  * the environment is the only source and the workspace cannot change it,
  * which is what a hosted deployment that pays for the model runs.
+ *
+ * **Person intake.** `/v1/ai/person-intake/*` identifies a person from
+ * pasted notes, researches them, and writes the records the user ticks. The
+ * two model calls are synchronous runs, metered like queued ones, and are
+ * the only place the model gets a tool: the provider's own web search, when
+ * the workspace's `web_search` setting allows it (`intake.ts`).
  *
  * **Limits.** The module declares `ai.runs.limit`. With no provider for it in
  * the assembly it answers unlimited. A hosted assembly answers it from its
@@ -205,11 +213,21 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         log: context.log,
       })
 
+      const intake = createPersonIntake({
+        service,
+        resolvePort,
+        listTools: options.tools ?? (() => context.mcp.list()),
+        maxTokens: config.AI_MAX_TOKENS,
+        exposeProviderErrors: keyMode === 'workspace',
+        log: context.log,
+      })
+
       context.schema(schema, aiMigrationsDirectory)
       context.entitlements.declare(AI_RUNS_LIMIT)
 
       context.routes((router) => {
         mountAiRoutes(router, { db: context.db, now: context.now, service })
+        mountPersonIntakeRoutes(router, { db: context.db, now: context.now, intake })
       })
 
       context.agentDispatch.provide(createAiDispatcher(service))

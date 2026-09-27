@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
+import { boolean, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
 
 import { AI_RUN_STATUSES } from '@kelpie/schemas'
 
@@ -50,6 +50,12 @@ export const aiSettings = pgTable('ai_settings', {
    * on the wire; the settings view shows its last four characters.
    */
   apiKeyEncrypted: text('api_key_encrypted'),
+  /**
+   * Whether person intake may hand the model the provider's web search tool.
+   * Either key mode: it is a workspace choice about research, not about the
+   * provider. Agent-task runs never search, whatever this says.
+   */
+  webSearch: boolean('web_search').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 })

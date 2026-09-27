@@ -37,6 +37,7 @@ export interface AiSettingsRow {
   readonly provider: string | null
   readonly model: string | null
   readonly apiKeyEncrypted: string | null
+  readonly webSearch: boolean
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -128,13 +129,21 @@ export async function upsertSettings(
     readonly provider?: string | null
     readonly model?: string | null
     readonly apiKeyEncrypted?: string | null
+    readonly webSearch?: boolean
   },
   now: Date,
 ): Promise<AiSettingsRow> {
-  const keyFields: { provider?: string | null; model?: string | null; apiKeyEncrypted?: string | null } = {}
+  const keyFields: {
+    provider?: string | null
+    model?: string | null
+    apiKeyEncrypted?: string | null
+    webSearch?: boolean
+  } = {}
   if (input.provider !== undefined) keyFields.provider = input.provider
   if (input.model !== undefined) keyFields.model = input.model
   if (input.apiKeyEncrypted !== undefined) keyFields.apiKeyEncrypted = input.apiKeyEncrypted
+  // Absent on an insert means the column default: on.
+  if (input.webSearch !== undefined) keyFields.webSearch = input.webSearch
 
   const [row] = await db
     .insert(aiSettings)
@@ -214,6 +223,53 @@ export async function insertRunIfNew(
   const row = rows[0]
 
   return row === undefined ? undefined : toRun(row)
+}
+
+/**
+ * Records a synchronous run, such as a person-intake call, already `running`.
+ *
+ * Not queued, so the executor's pump never claims it: the caller makes the
+ * model call itself and settles the row. It still counts against the monthly
+ * limit and shows in the run log. The row's own id doubles as its
+ * `agent_run_id`, because no core agent run stands behind it and the column is
+ * a unique, non-null dedupe key.
+ */
+export async function insertRunningRun(
+  db: Queryable,
+  values: {
+    readonly id: string
+    readonly workspaceId: string
+    readonly taskId: string
+    readonly targetType: string
+    readonly targetId: string
+    readonly model: string
+    readonly prompt: string
+  },
+  now: Date,
+): Promise<AiRunRecord> {
+  const [row] = await db
+    .insert(aiRuns)
+    .values({
+      id: values.id,
+      workspaceId: values.workspaceId,
+      agentRunId: values.id,
+      taskId: values.taskId,
+      targetType: values.targetType,
+      targetId: values.targetId,
+      model: values.model,
+      prompt: values.prompt,
+      context: null,
+      status: 'running',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+
+  if (row === undefined) {
+    throw new Error('ai_runs insert returned no row')
+  }
+
+  return toRun(row)
 }
 
 export async function countRunsSince(

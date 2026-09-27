@@ -9,6 +9,7 @@ import { Chip } from '../components/Chip.tsx'
 import { SocialNetworkIcon } from '../components/SocialNetworkIcon.tsx'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
+import { AddFromNotesButton, PersonIntakeDialog } from '../components/PersonIntakeDialog.tsx'
 import type { Column } from '../components/DataTable.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
 import { Paginator } from '../components/Paginator.tsx'
@@ -59,6 +60,7 @@ export function PeoplePage(): React.JSX.Element {
   })
   const directory = usePeopleDirectory(people.records.map((person) => person.id))
   const createPerson = useCreatePerson()
+  const [intakeOpen, setIntakeOpen] = useState(false)
 
   async function addPerson(): Promise<void> {
     // The same defaults the API applies, so a person created here and one
@@ -242,13 +244,27 @@ export function PeoplePage(): React.JSX.Element {
         }}
         addLabel="Add person"
         actions={
-          <ColumnPicker
-            options={pickerOptions}
-            visibleKeys={listView.visibleKeys}
-            onChange={listView.setVisibleKeys}
-          />
+          <>
+            <ColumnPicker
+              options={pickerOptions}
+              visibleKeys={listView.visibleKeys}
+              onChange={listView.setVisibleKeys}
+            />
+            <AddFromNotesButton
+              onClick={() => {
+                setIntakeOpen(true)
+              }}
+            />
+          </>
         }
       />
+      {intakeOpen && (
+        <PersonIntakeDialog
+          onClose={() => {
+            setIntakeOpen(false)
+          }}
+        />
+      )}
       <FilterBar
         value={term}
         onChange={setTerm}

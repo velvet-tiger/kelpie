@@ -192,7 +192,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       const payload = (await response.json()) as Record<string, unknown>
       const tasks = readList(payload).map((task) => agentTaskDefinitionSchema.parse(task))
 
-      expect(tasks).toHaveLength(78)
+      expect(tasks).toHaveLength(79)
       expect(payload.next_cursor).toBeNull()
     })
 

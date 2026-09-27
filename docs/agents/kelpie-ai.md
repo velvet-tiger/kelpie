@@ -29,6 +29,23 @@ The **Admin → AI** run log shows each run: its status, the model, the token co
 
 If the provider refuses the key, or the account has no quota, the run fails with the provider's message. Fix the key in **Admin → AI** and run the task again.
 
+## Add a person from notes
+
+On **People**, **Add from notes** (beside **Add person**) builds a full record from what you already know.
+
+1. Paste anything about the person: a name, an email, a LinkedIn URL, a signature block, meeting notes.
+2. Kelpie AI looks the person up and shows up to three matches. Pick the right one. If the person is already in Kelpie, choose **Update** that record or **Create new**.
+3. Kelpie AI researches the person and lists what it will create: the Person, their Company (or a link to one you already have), a Position with their title, and a pinned research note with its sources. It can also suggest a Partnership, Deal or Enquiry when your notes point to one; those start unticked, with the reason shown. Untick anything you do not want.
+4. Kelpie creates the ticked items and links to each one.
+
+Updating an existing Person only adds: it fills empty fields and adds new tags, phones and profiles. It does not replace the name, the summary, or anything else that already has a value.
+
+The two AI steps each count as one run in the run log and against any monthly limit. With web search on, each step can take a minute or more.
+
+**Web search.** Kelpie AI uses your provider's own web search for this, and only for this. Agent-task runs never search. It keeps a source link only when the search really returned that page. To work from your notes and the CRM only, switch **Web search** off on **Admin → AI**.
+
+**Without Kelpie AI**, **Add from notes** still opens. It gives you a prompt, with your notes in it, to paste into your own agent. That agent then creates the records through MCP.
+
 ## A key for the whole install
 
 An operator can set a fallback key for every workspace in the environment:

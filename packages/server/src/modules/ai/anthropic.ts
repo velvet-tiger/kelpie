@@ -4,6 +4,7 @@ import type {
   AiCompletionRequest,
   AiCompletionResult,
   AiProviderPort,
+  AiWebSource,
 } from './provider.ts'
 
 /**
@@ -32,6 +33,14 @@ import type {
  * retried on a fallback model inside the same call. A reply that still ends
  * in `refusal` is reported as one.
  *
+ * **Web search.** When the request asks for it, the model gets Anthropic's
+ * server-side `web_search` tool and nothing else. A long search can end a
+ * response in `pause_turn`; the adapter sends the paused turn straight back,
+ * as the API expects, up to {@link MAX_PAUSE_CONTINUATIONS} times. The answer
+ * is the text after the last search result, so the model's "let me look
+ * that up" narration never reaches the JSON parse. Every URL the search
+ * returned comes back as `webSources`.
+ *
  * **Errors are returned, not thrown.** A wrong key, an empty balance, or a
  * rate limit is the key owner's problem when the key is theirs, so the
  * adapter hands back a `failed` result with the provider's message and the
@@ -42,6 +51,25 @@ import type {
 const FALLBACK_MODELS: ReadonlySet<string> = new Set(['claude-opus-5', 'claude-fable-5-1'])
 
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
+
+/**
+ * Models that take `web_search_20260209`, the variant with dynamic filtering.
+ * Every other model gets the basic `web_search_20250305`, which all current
+ * models accept.
+ */
+const DYNAMIC_WEB_SEARCH_MODEL = /^claude-(opus-(5|4-8|4-7|4-6)|sonnet-(5|4-6))(\b|-)/u
+
+/** How many times a paused search turn is resumed before the adapter gives up. */
+const MAX_PAUSE_CONTINUATIONS = 3
+
+export function webSearchToolFor(
+  model: string,
+  maxUses: number,
+): Anthropic.Beta.BetaWebSearchTool20250305 | Anthropic.Beta.BetaWebSearchTool20260209 {
+  return DYNAMIC_WEB_SEARCH_MODEL.test(model)
+    ? { type: 'web_search_20260209', name: 'web_search', max_uses: maxUses }
+    : { type: 'web_search_20250305', name: 'web_search', max_uses: maxUses }
+}
 
 export interface AnthropicPortOptions {
   readonly apiKey: string
@@ -55,41 +83,67 @@ export function createAnthropicPort(options: AnthropicPortOptions): AiProviderPo
   return {
     async complete(request: AiCompletionRequest): Promise<AiCompletionResult> {
       const useFallbacks = FALLBACK_MODELS.has(request.model)
-      let response: Anthropic.Beta.BetaMessage
+      const tools =
+        request.webSearch === undefined ? undefined : [webSearchToolFor(request.model, request.webSearch.maxUses)]
+      const messages: Anthropic.Beta.BetaMessageParam[] = request.messages.map((message) => ({
+        role: message.role,
+        content: message.text,
+      }))
+      const webSources: AiWebSource[] = []
+      const usage = { inputTokens: 0, outputTokens: 0 }
+      let response: Anthropic.Beta.BetaMessage | undefined
 
-      try {
-        response = await client.beta.messages.create({
-          model: request.model,
-          max_tokens: request.maxTokens,
-          system: renderSystem(request),
-          messages: request.messages.map((message) => ({
-            role: message.role,
-            content: message.text,
-          })),
-          ...(useFallbacks ? { betas: [FALLBACK_BETA], fallbacks: 'default' as const } : {}),
-        })
-      } catch (thrown: unknown) {
-        return failureFromThrown(thrown)
+      for (let attempt = 0; attempt <= MAX_PAUSE_CONTINUATIONS; attempt += 1) {
+        try {
+          response = await client.beta.messages.create({
+            model: request.model,
+            max_tokens: request.maxTokens,
+            system: renderSystem(request),
+            messages,
+            ...(tools === undefined ? {} : { tools }),
+            ...(useFallbacks ? { betas: [FALLBACK_BETA], fallbacks: 'default' as const } : {}),
+          })
+        } catch (thrown: unknown) {
+          return failureFromThrown(thrown)
+        }
+
+        usage.inputTokens += response.usage.input_tokens
+        usage.outputTokens += response.usage.output_tokens
+        webSources.push(...webSourcesIn(response.content))
+
+        if (response.stop_reason !== 'pause_turn') {
+          break
+        }
+
+        // The API resumes from a trailing server_tool_use block on its own.
+        // No "continue" message: that would read as a new user turn.
+        messages.push({ role: 'assistant', content: response.content })
       }
 
-      const usage = {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
+      if (response === undefined) {
+        return failed('no_response', 'Anthropic returned no response')
       }
-      let text = ''
 
-      for (const block of response.content) {
-        if (block.type === 'text') {
-          text += block.text
+      const text = answerText(response.content)
+      // Only a search call reports sources, so an agent-task result is unchanged.
+      const sources = tools === undefined ? {} : { webSources }
+
+      if (response.stop_reason === 'pause_turn') {
+        return {
+          stopReason: 'failed',
+          text,
+          usage,
+          ...sources,
+          failure: { code: 'pause_turn', message: 'The web search did not finish. Try again with more specific notes.' },
         }
       }
 
       switch (response.stop_reason) {
         case 'end_turn':
         case 'stop_sequence':
-          return { stopReason: 'end_turn', text: extractJsonObject(text), usage }
+          return { stopReason: 'end_turn', text: extractJsonObject(text), usage, ...sources }
         case 'max_tokens':
-          return { stopReason: 'max_tokens', text, usage }
+          return { stopReason: 'max_tokens', text, usage, ...sources }
         case 'refusal': {
           const explanation = response.stop_details?.explanation
           return {
@@ -117,6 +171,52 @@ export function createAnthropicPort(options: AnthropicPortOptions): AiProviderPo
       }
     },
   }
+}
+
+/**
+ * The reply text after the last server-tool block. With no search this is
+ * every text block, as before; with search it skips the narration between
+ * searches, which can carry braces of its own.
+ */
+function answerText(content: readonly Anthropic.Beta.BetaContentBlock[]): string {
+  let lastToolIndex = -1
+
+  content.forEach((block, index) => {
+    if (block.type === 'server_tool_use' || block.type === 'web_search_tool_result') {
+      lastToolIndex = index
+    }
+  })
+
+  let text = ''
+
+  for (const block of content.slice(lastToolIndex + 1)) {
+    if (block.type === 'text') {
+      text += block.text
+    }
+  }
+
+  return text
+}
+
+/**
+ * The pages a response's searches returned. A search that failed carries an
+ * error object instead of a list, and contributes nothing.
+ */
+function webSourcesIn(content: readonly Anthropic.Beta.BetaContentBlock[]): readonly AiWebSource[] {
+  const sources: AiWebSource[] = []
+
+  for (const block of content) {
+    if (block.type !== 'web_search_tool_result' || !Array.isArray(block.content)) {
+      continue
+    }
+    for (const result of block.content) {
+      if (result.type === 'web_search_result') {
+        sources.push({ url: result.url, title: result.title })
+      }
+    }
+  }
+
+  return sources
 }
 
 function renderSystem(request: AiCompletionRequest): string {

@@ -60,6 +60,11 @@ export interface AiSettings {
   /** `null` means no limit. */
   readonly monthlyLimit: number | null
   readonly runsThisMonth: number
+  /**
+   * Whether person intake may use the provider's web search tool. Agent-task
+   * runs never search, whatever this says.
+   */
+  readonly webSearch: boolean
 }
 
 export const aiSettingsSchema: z.ZodType<AiSettings, unknown> = z
@@ -73,6 +78,7 @@ export const aiSettingsSchema: z.ZodType<AiSettings, unknown> = z
     key_hint: z.string().nullable(),
     monthly_limit: z.number().int().nullable(),
     runs_this_month: z.number().int(),
+    web_search: z.boolean(),
   })
   .transform(
     (wire): AiSettings => ({
@@ -85,6 +91,7 @@ export const aiSettingsSchema: z.ZodType<AiSettings, unknown> = z
       keyHint: wire.key_hint,
       monthlyLimit: wire.monthly_limit,
       runsThisMonth: wire.runs_this_month,
+      webSearch: wire.web_search,
     }),
   )
 
@@ -95,11 +102,15 @@ export const aiSettingsSchema: z.ZodType<AiSettings, unknown> = z
  * Omitting a field keeps the stored value. `apiKey: null` and `model: null`
  * clear the stored value, so the run falls back to the deployment's
  * environment and the provider's default model.
+ *
+ * `webSearch` is the one field a `deployment`-mode workspace may send: it
+ * switches person intake's web search, not the provider or the key.
  */
 export interface AiSettingsInput {
   readonly provider?: AiProvider
   readonly apiKey?: string | null
   readonly model?: string | null
+  readonly webSearch?: boolean
 }
 
 export function aiSettingsBody(input: AiSettingsInput): Record<string, unknown> {
@@ -107,6 +118,7 @@ export function aiSettingsBody(input: AiSettingsInput): Record<string, unknown> 
     provider: input.provider,
     api_key: input.apiKey,
     model: input.model,
+    web_search: input.webSearch,
   })
 }
 
