@@ -92,7 +92,7 @@ function render(
   return renderEmbedPage({
     form: form(overrides),
     fields,
-    consentPurposeLabels: new Map(),
+    consentPurposes: new Map(),
     submitUrl,
     nonce: 'n0nce',
     workspaceName: 'Acme Ventures',
@@ -255,7 +255,7 @@ describe('renderEmbedPage', () => {
     const page = renderEmbedPage({
       form: form({ title: '<img src=x onerror=alert(1)>' }),
       fields: [field()],
-      consentPurposeLabels: new Map(),
+      consentPurposes: new Map(),
       submitUrl,
       nonce: 'n0nce',
       workspaceName: '<b>Acme</b>',
@@ -340,5 +340,77 @@ describe('embedSnippets', () => {
     )
 
     expect(snippets.script).toContain("if (event.origin !== 'https://kelpie.test:8443') return;")
+  })
+})
+
+describe('consent checkbox text', () => {
+  const contactPurpose = {
+    label: 'Contact',
+    statement: 'I consent to {{workspace}} contacting me about my enquiry.',
+  }
+
+  function consentField(labels: Readonly<Record<string, string>> = {}): FormFieldRecord {
+    return {
+      ...field({ id: 'ff_consent', label: 'Consent', type: 'consent', required: false }),
+      mapTo: 'person.consent',
+      consentPurposeIds: ['cp_contact'],
+      consentPurposeLabels: labels,
+    }
+  }
+
+  function renderConsent(
+    purposes: ReadonlyMap<string, { label: string; statement: string }>,
+    labels: Readonly<Record<string, string>> = {},
+    workspaceName = 'Acme Ventures',
+  ): string {
+    return renderEmbedPage({
+      form: form(),
+      fields: [consentField(labels)],
+      consentPurposes: purposes,
+      submitUrl,
+      nonce: 'n0nce',
+      workspaceName,
+      layout: 'embed',
+    })
+  }
+
+  it('shows the purpose statement with the workspace name, not the label', () => {
+    const html = renderConsent(new Map([['cp_contact', contactPurpose]]))
+
+    expect(html).toContain(
+      '<label for="ff_consent__0">I consent to Acme Ventures contacting me about my enquiry.</label>',
+    )
+    expect(html).not.toContain('{{workspace}}')
+  })
+
+  it('falls back to the label when the purpose has no statement', () => {
+    const html = renderConsent(new Map([['cp_contact', { label: 'Contact', statement: '' }]]))
+
+    expect(html).toContain('<label for="ff_consent__0">Contact</label>')
+  })
+
+  it("prefers the field's own override, and expands the token in it too", () => {
+    const html = renderConsent(new Map([['cp_contact', contactPurpose]]), {
+      cp_contact: 'Yes, {{workspace}} may call me.',
+    })
+
+    expect(html).toContain('<label for="ff_consent__0">Yes, Acme Ventures may call me.</label>')
+  })
+
+  it('escapes the workspace name after putting it in the statement', () => {
+    const html = renderConsent(
+      new Map([['cp_contact', contactPurpose]]),
+      {},
+      '<b>O\'Brien & Co</b>',
+    )
+
+    expect(html).toContain('I consent to &lt;b&gt;O&#39;Brien &amp; Co&lt;/b&gt; contacting me')
+    expect(html).not.toContain('<b>O')
+  })
+
+  it('shows the purpose id when the purpose is gone and there is no override', () => {
+    const html = renderConsent(new Map())
+
+    expect(html).toContain('<label for="ff_consent__0">cp_contact</label>')
   })
 })

@@ -10,6 +10,7 @@ import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import { findWorkspace } from '../workspace/repository.ts'
 import { embedContentSecurityPolicy, renderEmbedPage } from './embed.ts'
+import type { EmbedConsentPurpose } from './embed.ts'
 import type { FormFieldRecord } from './repository.ts'
 import * as repository from './repository.ts'
 import { submitUrlFor } from './routes.ts'
@@ -45,23 +46,23 @@ export interface PublicFormRoutesDependencies {
 }
 
 /**
- * The purpose labels every consent field on this form points at, keyed by id.
- * Renders the embed with the display label beside each checkbox rather than
- * an opaque id. A purpose that has since been removed drops out of the map;
- * `renderField` falls back to the id when it does, so a stale field stays
- * visible but obviously off.
+ * The purposes every consent field on this form points at, keyed by id.
+ * Renders the embed with each purpose's statement (or label) beside its
+ * checkbox rather than an opaque id. A purpose that has since been removed
+ * drops out of the map; `renderField` falls back to the id when it does, so a
+ * stale field stays visible but obviously off.
  */
-async function loadConsentPurposeLabels(
+async function loadConsentPurposes(
   db: Database,
   workspaceId: string,
   fields: readonly FormFieldRecord[],
-): Promise<ReadonlyMap<string, string>> {
+): Promise<ReadonlyMap<string, EmbedConsentPurpose>> {
   const ids = Array.from(
     new Set(fields.flatMap((field) => (field.type === 'consent' ? field.consentPurposeIds : []))),
   )
   if (ids.length === 0) return new Map()
   const rows = await consentPurposesRepository.listPurposesByIds(db, workspaceId, ids)
-  return new Map(rows.map((row) => [row.id, row.label]))
+  return new Map(rows.map((row) => [row.id, { label: row.label, statement: row.statement }]))
 }
 
 function submitResponse(outcome: SubmitOutcome): Record<string, unknown> {
@@ -131,7 +132,7 @@ export function mountPublicFormRoutes(
 
     const nonce = generateNonce()
     const fields = await repository.listFields(dependencies.db, form.id)
-    const consentPurposeLabels = await loadConsentPurposeLabels(
+    const consentPurposes = await loadConsentPurposes(
       dependencies.db,
       form.workspaceId,
       fields,
@@ -139,7 +140,7 @@ export function mountPublicFormRoutes(
     const page = renderEmbedPage({
       form,
       fields,
-      consentPurposeLabels,
+      consentPurposes,
       submitUrl: submitUrlFor(context, form.workspaceId, form.slug),
       nonce,
       workspaceName: workspace.name,

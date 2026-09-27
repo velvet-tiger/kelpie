@@ -50,6 +50,7 @@ const MAX_SLUG_LENGTH = 64
 const MAX_LABEL_LENGTH = 120
 const MIN_LABEL_LENGTH = 1
 const MAX_DESCRIPTION_LENGTH = 2000
+const MAX_STATEMENT_LENGTH = 1000
 
 export interface ConsentPurposesDependencies {
   readonly db: Database
@@ -66,6 +67,7 @@ export interface CreateConsentPurposeInput {
   readonly slug: string
   readonly label: string
   readonly description: string
+  readonly statement: string
   readonly defaultStatus: ConsentPurposeStatus
 }
 
@@ -73,6 +75,7 @@ export interface CreateConsentPurposeInput {
 export interface UpdateConsentPurposeInput {
   readonly label?: string | undefined
   readonly description?: string | undefined
+  readonly statement?: string | undefined
   readonly defaultStatus?: ConsentPurposeStatus | undefined
   readonly sortOrder?: number | undefined
 }
@@ -132,6 +135,12 @@ function validateLabel(label: string): void {
 function validateDescription(description: string): void {
   if (description.length > MAX_DESCRIPTION_LENGTH) {
     throw fieldError('description', `At most ${String(MAX_DESCRIPTION_LENGTH)} characters`)
+  }
+}
+
+function validateStatement(statement: string): void {
+  if (statement.length > MAX_STATEMENT_LENGTH) {
+    throw fieldError('statement', `At most ${String(MAX_STATEMENT_LENGTH)} characters`)
   }
 }
 
@@ -245,6 +254,7 @@ export function createConsentPurposesService(
       validateSlug(input.slug)
       validateLabel(input.label)
       validateDescription(input.description)
+      validateStatement(input.statement)
       validateDefaultStatus(input.defaultStatus)
 
       const limit = await limitFor(
@@ -282,6 +292,7 @@ export function createConsentPurposesService(
               slug: input.slug,
               label: input.label,
               description: input.description,
+              statement: input.statement,
               defaultStatus: input.defaultStatus,
               sortOrder: (existing.at(-1)?.sortOrder ?? -1) + 1,
             })
@@ -314,6 +325,9 @@ export function createConsentPurposesService(
       if (changes.description !== undefined) {
         validateDescription(changes.description)
       }
+      if (changes.statement !== undefined) {
+        validateStatement(changes.statement)
+      }
       if (changes.defaultStatus !== undefined) {
         validateDefaultStatus(changes.defaultStatus)
       }
@@ -321,6 +335,7 @@ export function createConsentPurposesService(
       const columns: Partial<repository.ConsentPurposeColumns> = {
         ...(changes.label === undefined ? {} : { label: changes.label }),
         ...(changes.description === undefined ? {} : { description: changes.description }),
+        ...(changes.statement === undefined ? {} : { statement: changes.statement }),
         ...(changes.defaultStatus === undefined
           ? {}
           : { defaultStatus: changes.defaultStatus }),

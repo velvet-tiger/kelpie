@@ -9,7 +9,7 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { FORM_OPTION_VALUE_TYPES } from '@kelpie/schemas'
+import { FORM_OPTION_VALUE_TYPES, consentCheckboxText } from '@kelpie/schemas'
 import type {
   Form,
   FormFieldInput,
@@ -22,6 +22,7 @@ import { useConsentPurposes } from '../../api/resources/consentPurposes.ts'
 import { useCustomFields } from '../../api/resources/customFields.ts'
 import type { ConsentPurpose } from '@kelpie/schemas'
 import { useUpdateFormFields } from '../../api/resources/forms.ts'
+import { useWorkspace } from '../../api/resources/workspace.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { AddFieldMenu } from './AddFieldMenu.tsx'
 import { MapTargetSearch } from './MapTargetSearch.tsx'
@@ -405,10 +406,15 @@ function NoticePreview({ field }: { readonly field: EditableField }): React.JSX.
   )
 }
 
+/** Until the workspace loads, the preview shows the token rather than a guess. */
+const WORKSPACE_TOKEN = '{{workspace}}'
+
 function ConsentPreview({ field }: { readonly field: EditableField }): React.JSX.Element {
   const purposes = useConsentPurposes({ sort: 'sort_order', limit: 200 })
-  const labelById = new Map<string, string>(
-    purposes.records.map((purpose: ConsentPurpose) => [purpose.id, purpose.label]),
+  const { workspace } = useWorkspace()
+  const workspaceName = workspace?.name ?? WORKSPACE_TOKEN
+  const purposeById = new Map<string, ConsentPurpose>(
+    purposes.records.map((purpose: ConsentPurpose) => [purpose.id, purpose]),
   )
   const statement = field.statement ?? field.label
   const ids = field.consentPurposeIds ?? []
@@ -426,7 +432,11 @@ function ConsentPreview({ field }: { readonly field: EditableField }): React.JSX
           <div key={id} className="flex items-start gap-2">
             <input readOnly tabIndex={-1} type="checkbox" className="mt-0.5" />
             <span className="text-[13px] text-ink">
-              {overrides[id] ?? labelById.get(id) ?? id}
+              {consentCheckboxText(
+                overrides[id],
+                purposeById.get(id) ?? { label: id, statement: '' },
+                workspaceName,
+              )}
             </span>
           </div>
         ))
@@ -701,7 +711,7 @@ function OptionsEditor({
  * beside each selected purpose so the admin can override the checkbox text.
  * The override is bound to the same purpose the checkbox grants — the wording
  * changes, the mapping never does. An empty override falls back to the
- * workspace purpose's own label at render time.
+ * workspace purpose's consent statement, then its label, at render time.
  */
 function ConsentPurposePicker({
   mode,
@@ -790,7 +800,7 @@ function ConsentPurposePicker({
               {isChosen && mode === 'checkbox' && (
                 <label className="mt-1.5 block">
                   <span className="mb-1 block text-[11px] font-medium text-ink-faint">
-                    Checkbox text (defaults to the purpose label)
+                    Checkbox text (defaults to the purpose's consent statement)
                   </span>
                   <input
                     className={inputClass}
@@ -798,7 +808,9 @@ function ConsentPurposePicker({
                     onChange={(event) => {
                       setLabel(purpose.id, event.target.value)
                     }}
-                    placeholder={purpose.label}
+                    placeholder={
+                      purpose.statement.trim().length > 0 ? purpose.statement : purpose.label
+                    }
                   />
                 </label>
               )}

@@ -465,6 +465,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
               slug: purpose.slug,
               label: purpose.label,
               description: purpose.description,
+              statement: purpose.statement,
               defaultStatus: purpose.defaultStatus,
               sortOrder: index,
             }

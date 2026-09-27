@@ -58,12 +58,15 @@ function PurposesAdmin(): React.JSX.Element {
         slug: 'contact',
         label: 'Contact',
         description: 'Being contacted by the workspace about our work together.',
+        statement:
+          'I consent to {{workspace}} contacting me and retaining my information for the purpose of handling my enquiry.',
         defaultStatus: 'unknown',
       })
       await create.runAsync({
         slug: 'marketing',
         label: 'Marketing',
         description: 'Marketing communications — newsletters, product updates, and campaigns.',
+        statement: 'I consent to {{workspace}} retaining my information for marketing purposes.',
         defaultStatus: 'unknown',
       })
     } catch {
@@ -165,6 +168,7 @@ function AddPurposeForm({ onDone }: AddPurposeFormProps): React.JSX.Element {
   const [slug, setSlug] = useState('')
   const [slugEdited, setSlugEdited] = useState(false)
   const [description, setDescription] = useState('')
+  const [statement, setStatement] = useState('')
   const [defaultStatus, setDefaultStatus] = useState<ConsentPurposeStatus>('unknown')
 
   const derivedSlug = useMemo(
@@ -183,6 +187,7 @@ function AddPurposeForm({ onDone }: AddPurposeFormProps): React.JSX.Element {
         slug: derivedSlug,
         label: trimmedLabel,
         description: description.trim(),
+        statement: statement.trim(),
         defaultStatus,
       })
       .then(() => {
@@ -190,6 +195,7 @@ function AddPurposeForm({ onDone }: AddPurposeFormProps): React.JSX.Element {
         setSlug('')
         setSlugEdited(false)
         setDescription('')
+        setStatement('')
         setDefaultStatus('unknown')
         onDone()
       })
@@ -252,6 +258,7 @@ function AddPurposeForm({ onDone }: AddPurposeFormProps): React.JSX.Element {
           }}
         />
       </Field>
+      <StatementField value={statement} onChange={setStatement} />
 
       {create.error !== null && <ErrorPanel error={create.error} />}
 
@@ -277,6 +284,32 @@ function AddPurposeForm({ onDone }: AddPurposeFormProps): React.JSX.Element {
   )
 }
 
+/**
+ * The consent statement a form shows beside this purpose's checkbox. The
+ * Person record keeps showing the label.
+ */
+function StatementField({
+  value,
+  onChange,
+}: {
+  readonly value: string
+  readonly onChange: (value: string) => void
+}): React.JSX.Element {
+  return (
+    <Field label="Consent statement (shown on forms instead of the label; {{workspace}} becomes the workspace name)">
+      <textarea
+        className="min-h-[60px] w-full rounded-md border border-border bg-transparent px-2 py-1 text-[13px] outline-none focus:border-accent"
+        value={value}
+        maxLength={1000}
+        placeholder="I consent to {{workspace}} …"
+        onChange={(event) => {
+          onChange(event.target.value)
+        }}
+      />
+    </Field>
+  )
+}
+
 interface PurposeRowProps {
   readonly purpose: ConsentPurpose
 }
@@ -287,6 +320,7 @@ function PurposeRow({ purpose }: PurposeRowProps): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [label, setLabel] = useState(purpose.label)
   const [description, setDescription] = useState(purpose.description)
+  const [statement, setStatement] = useState(purpose.statement)
   const [defaultStatus, setDefaultStatus] = useState<ConsentPurposeStatus>(purpose.defaultStatus)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
@@ -298,6 +332,7 @@ function PurposeRow({ purpose }: PurposeRowProps): React.JSX.Element {
         changes: {
           label: label.trim(),
           description: description.trim(),
+          statement: statement.trim(),
           defaultStatus,
         },
       })
@@ -324,6 +359,12 @@ function PurposeRow({ purpose }: PurposeRowProps): React.JSX.Element {
           </div>
           {purpose.description.length > 0 && (
             <p className="mt-1 text-[12px] text-ink-muted">{purpose.description}</p>
+          )}
+          {purpose.statement.length > 0 && (
+            <p className="mt-1 text-[12px] text-ink">
+              <span className="text-ink-faint">On forms: </span>
+              {purpose.statement}
+            </p>
           )}
         </div>
         <div className="flex shrink-0 gap-2">
@@ -384,6 +425,7 @@ function PurposeRow({ purpose }: PurposeRowProps): React.JSX.Element {
               }}
             />
           </Field>
+          <StatementField value={statement} onChange={setStatement} />
           {update.error !== null && <ErrorPanel error={update.error} />}
           <div className="flex justify-end">
             <button

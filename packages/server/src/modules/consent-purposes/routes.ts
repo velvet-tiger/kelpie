@@ -17,14 +17,15 @@ import type {
  * Wire shapes for `/v1/consent_purposes`.
  *
  * `slug` is only on the create body: the update body omits it and the strict
- * PATCH answers `422` if it is sent. The description defaults to empty so a
- * write that only sets label + slug is accepted.
+ * PATCH answers `422` if it is sent. The description and statement default to
+ * empty so a write that only sets label + slug is accepted.
  */
 
 export const createBody = z.strictObject({
   slug: z.string().min(1).max(64),
   label: z.string().min(1).max(120),
   description: z.string().max(2000).default(''),
+  statement: z.string().max(1000).default(''),
   default_status: z.enum(CONSENT_PURPOSE_STATUSES).default('unknown'),
 })
 
@@ -32,6 +33,7 @@ export const updateBody = z
   .strictObject({
     label: z.string().min(1).max(120),
     description: z.string().max(2000),
+    statement: z.string().max(1000),
     default_status: z.enum(CONSENT_PURPOSE_STATUSES),
     sort_order: z.number().int().min(0),
   })
@@ -46,6 +48,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateConsentPu
     slug: body.slug,
     label: body.label,
     description: body.description,
+    statement: body.statement,
     defaultStatus: body.default_status,
   }
 }
@@ -54,6 +57,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateConsentPu
   return {
     ...(body.label === undefined ? {} : { label: body.label }),
     ...(body.description === undefined ? {} : { description: body.description }),
+    ...(body.statement === undefined ? {} : { statement: body.statement }),
     ...(body.default_status === undefined ? {} : { defaultStatus: body.default_status }),
     ...(body.sort_order === undefined ? {} : { sortOrder: body.sort_order }),
   }
@@ -65,6 +69,7 @@ export function consentPurposeResponse(purpose: ConsentPurposeView): Record<stri
     slug: purpose.slug,
     label: purpose.label,
     description: purpose.description,
+    statement: purpose.statement,
     default_status: purpose.defaultStatus,
     sort_order: purpose.sortOrder,
     created_at: purpose.createdAt.toISOString(),

@@ -12,6 +12,17 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **Consent
+  statements.** A consent purpose has a new optional `statement`: the
+  sentence a form shows beside its checkbox, in place of the label.
+  `{{workspace}}` in it becomes the workspace name. The Person record still
+  shows the label. The checkbox text is the field's own override, then the
+  statement, then the label. New workspaces seed statements for Contact and
+  Marketing, and migration `0054` gives existing `contact` and `marketing`
+  purposes the same statements where theirs is empty. Admin → Privacy edits
+  it. `/v1/consent_purposes` and the `consent_purposes_*` MCP tools read and
+  write `statement`. New `expandConsentStatement` and `consentCheckboxText`
+  in `@kelpie/schemas`.
 - **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **AI service
   names.** `createAiModule({ service })` says which AI service an install
   offers: `custom` (the default) or `kelpie_ai`. An open source install

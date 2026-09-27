@@ -144,9 +144,11 @@ export { definedFields, idSchema, nullableTimestampSchema, timestampSchema } fro
 export type { RecordTimestamps } from './wire.ts'
 
 export {
+  consentCheckboxText,
   consentPurposeBody,
   consentPurposeSchema,
   createConsentPurposeBody,
+  expandConsentStatement,
 } from './consentPurpose.ts'
 export type {
   ConsentPurpose,

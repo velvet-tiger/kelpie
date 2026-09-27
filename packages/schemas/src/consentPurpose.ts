@@ -23,6 +23,12 @@ export interface ConsentPurpose extends RecordTimestamps {
   readonly slug: string
   readonly label: string
   readonly description: string
+  /**
+   * What a form shows beside this purpose's checkbox, in place of the label.
+   * Empty means the form shows the label. `{{workspace}}` is expanded to the
+   * workspace name when the form renders.
+   */
+  readonly statement: string
   /** The workspace default a person without an explicit row inherits. */
   readonly defaultStatus: ConsentPurposeStatus
   readonly sortOrder: number
@@ -34,6 +40,7 @@ export const consentPurposeSchema: z.ZodType<ConsentPurpose, unknown> = z
     slug: z.string(),
     label: z.string(),
     description: z.string(),
+    statement: z.string(),
     default_status: z.enum(CONSENT_PURPOSE_STATUSES),
     sort_order: z.number().int(),
     ...recordTimestamps,
@@ -44,6 +51,7 @@ export const consentPurposeSchema: z.ZodType<ConsentPurpose, unknown> = z
       slug: wire.slug,
       label: wire.label,
       description: wire.description,
+      statement: wire.statement,
       defaultStatus: wire.default_status,
       sortOrder: wire.sort_order,
       createdAt: wire.created_at,
@@ -60,6 +68,7 @@ export interface CreateConsentPurposeInput {
   readonly slug: string
   readonly label: string
   readonly description?: string
+  readonly statement?: string
   readonly defaultStatus?: ConsentPurposeStatus
 }
 
@@ -70,6 +79,7 @@ export function createConsentPurposeBody(
     slug: input.slug,
     label: input.label,
     description: input.description,
+    statement: input.statement,
     default_status: input.defaultStatus,
   })
 }
@@ -81,6 +91,7 @@ export function createConsentPurposeBody(
 export interface ConsentPurposeInput {
   readonly label?: string
   readonly description?: string
+  readonly statement?: string
   readonly defaultStatus?: ConsentPurposeStatus
   readonly sortOrder?: number
 }
@@ -89,7 +100,31 @@ export function consentPurposeBody(input: ConsentPurposeInput): Record<string, u
   return definedFields({
     label: input.label,
     description: input.description,
+    statement: input.statement,
     default_status: input.defaultStatus,
     sort_order: input.sortOrder,
   })
+}
+
+/** The token a consent statement uses for the workspace's name. */
+const WORKSPACE_TOKEN = '{{workspace}}'
+
+/** A consent statement with every `{{workspace}}` replaced by the workspace name. */
+export function expandConsentStatement(statement: string, workspaceName: string): string {
+  return statement.replaceAll(WORKSPACE_TOKEN, workspaceName)
+}
+
+/**
+ * The text a form shows beside one purpose's checkbox. A form field's own
+ * override wins, then the purpose's statement, then its label. The embed and
+ * the form editor's preview both use this, so they cannot disagree.
+ */
+export function consentCheckboxText(
+  override: string | undefined,
+  purpose: Pick<ConsentPurpose, 'label' | 'statement'>,
+  workspaceName: string,
+): string {
+  const text =
+    override ?? (purpose.statement.trim().length > 0 ? purpose.statement : purpose.label)
+  return expandConsentStatement(text, workspaceName)
 }

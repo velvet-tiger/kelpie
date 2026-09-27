@@ -15,6 +15,7 @@ import { coreModules } from '../core.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { invites, workspaceMembers } from './schema.ts'
+import { STARTER_CONSENT_PURPOSES } from '../consent-purposes/starters.ts'
 import { STARTER_FORMS } from '../forms/starters.ts'
 import { STARTER_LISTS } from '../lists/starters.ts'
 import {
@@ -415,6 +416,80 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(lists.map((list) => readString(list, 'name'))).toEqual(
         STARTER_LISTS.map((list) => list.name),
       )
+    })
+
+    it('seeds the starter consent purposes with their consent statements', async () => {
+      const cookie = await signUp('ada@example.com')
+      await createWorkspace(cookie)
+
+      const response = await send('GET', '/v1/consent_purposes', undefined, cookie)
+      const purposes = readList(await response.json())
+
+      expect(
+        purposes.map((purpose) => [readString(purpose, 'slug'), readString(purpose, 'statement')]),
+      ).toEqual(STARTER_CONSENT_PURPOSES.map((purpose) => [purpose.slug, purpose.statement]))
+      expect(STARTER_CONSENT_PURPOSES.every((purpose) => purpose.statement.includes('{{workspace}}'))).toBe(
+        true,
+      )
+    })
+
+    it('lets an admin set and change a consent statement', async () => {
+      const cookie = await signUp('ada@example.com')
+      await createWorkspace(cookie)
+
+      const created = await send(
+        'POST',
+        '/v1/consent_purposes',
+        { slug: 'events', label: 'Events' },
+        cookie,
+      )
+      expect(created.status).toBe(201)
+      const purpose: unknown = await created.json()
+      expect(readString(purpose, 'statement')).toBe('')
+
+      const updated = await send(
+        'PATCH',
+        `/v1/consent_purposes/${readString(purpose, 'id')}`,
+        { statement: 'I consent to {{workspace}} inviting me to events.' },
+        cookie,
+      )
+      expect(updated.status).toBe(200)
+      const after: unknown = await updated.json()
+      expect(readString(after, 'statement')).toBe('I consent to {{workspace}} inviting me to events.')
+      expect(readString(after, 'label')).toBe('Events')
+
+      const tooLong = await send(
+        'PATCH',
+        `/v1/consent_purposes/${readString(purpose, 'id')}`,
+        { statement: 'x'.repeat(1001) },
+        cookie,
+      )
+      expect(tooLong.status).toBe(422)
+    })
+
+    it('shows the consent statement, with the workspace name, on the starter Contact form', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const formsResponse = await send('GET', '/v1/forms', undefined, cookie)
+      const contact = readList(await formsResponse.json()).find(
+        (form) => readString(form, 'name') === 'Contact',
+      )
+      if (contact === undefined) {
+        throw new Error('Expected the Contact starter form')
+      }
+
+      const embed = await send(
+        'GET',
+        `/v1/public/workspaces/${workspaceId}/forms/${readString(contact, 'id')}/embed`,
+      )
+      expect(embed.status).toBe(200)
+      const html = await embed.text()
+
+      expect(html).toContain(
+        'I consent to Acme contacting me and retaining my information for the purpose of handling my enquiry.',
+      )
+      expect(html).not.toContain('{{workspace}}')
     })
 
     it('emits workspace.workspace.created after the transaction commits', async () => {

@@ -1,3 +1,5 @@
+import { consentCheckboxText } from '@kelpie/schemas'
+
 import type { FormFieldRecord, FormRecord } from './repository.ts'
 
 /**
@@ -79,9 +81,16 @@ function renderControl(field: FormFieldRecord): string {
   return `<input ${shared} type="${field.type === 'email' ? 'email' : 'text'}">`
 }
 
+/** What the embed needs to know about a consent purpose to draw its checkbox. */
+export interface EmbedConsentPurpose {
+  readonly label: string
+  readonly statement: string
+}
+
 function renderField(
   field: FormFieldRecord,
-  consentPurposeLabels: ReadonlyMap<string, string>,
+  consentPurposes: ReadonlyMap<string, EmbedConsentPurpose>,
+  workspaceName: string,
 ): string {
   const required = field.required ? '<span class="req" aria-hidden="true">*</span>' : ''
 
@@ -107,11 +116,12 @@ function renderField(
     const rows = field.consentPurposeIds
       .map((purposeId, index) => {
         const boxId = `${field.id}__${String(index)}`
-        // Field-level override wins over the workspace's default label. Falls
-        // back to the workspace label, then the raw id — the id only shows up
-        // when a purpose has been deleted and its label was never overridden.
+        // Field-level override wins, then the purpose's statement, then its
+        // label. The raw id only shows up when a purpose has been deleted and
+        // the field never overrode its text.
         const override = field.consentPurposeLabels[purposeId]
-        const label = override ?? consentPurposeLabels.get(purposeId) ?? purposeId
+        const purpose = consentPurposes.get(purposeId) ?? { label: purposeId, statement: '' }
+        const label = consentCheckboxText(override, purpose, workspaceName)
         return [
           '<div class="consent-row">',
           `<input type="checkbox" id="${escapeHtml(boxId)}" data-consent-field="${escapeHtml(field.id)}" value="${escapeHtml(purposeId)}">`,
@@ -464,13 +474,16 @@ export type EmbedLayout = 'page' | 'embed'
 export interface EmbedPageOptions {
   readonly form: FormRecord
   readonly fields: readonly FormFieldRecord[]
-  /** Labels for the consent purposes the fields refer to, keyed by purpose id. */
-  readonly consentPurposeLabels: ReadonlyMap<string, string>
+  /** The consent purposes the fields refer to, keyed by purpose id. */
+  readonly consentPurposes: ReadonlyMap<string, EmbedConsentPurpose>
   /** Absolute URL of the public submit endpoint this page posts to. */
   readonly submitUrl: string
   /** Per-response value tying the inline style and script to the CSP header. */
   readonly nonce: string
-  /** Workspace name shown above the form title on the hosted page layout. */
+  /**
+   * Workspace name shown above the form title on the hosted page layout, and
+   * put in place of `{{workspace}}` in consent statements.
+   */
   readonly workspaceName: string
   /**
    * `page` is the standalone hosted URL (brand chrome). `embed` is the iframe
@@ -492,7 +505,8 @@ function displayTitle(form: FormRecord): string {
 function renderFormBody(
   form: FormRecord,
   fields: readonly FormFieldRecord[],
-  consentPurposeLabels: ReadonlyMap<string, string>,
+  consentPurposes: ReadonlyMap<string, EmbedConsentPurpose>,
+  workspaceName: string,
   config: string,
   nonce: string,
 ): string {
@@ -502,7 +516,7 @@ function renderFormBody(
 
   return [
     '<form id="kelpie-form" novalidate>',
-    fields.map((field) => renderField(field, consentPurposeLabels)).join(''),
+    fields.map((field) => renderField(field, consentPurposes, workspaceName)).join(''),
     '<div><button id="kelpie-submit" type="submit">Submit</button></div>',
     '<p id="kelpie-status" class="note" role="status" aria-live="polite"></p>',
     '</form>',
@@ -519,7 +533,7 @@ function renderFormBody(
  * form whose submit answers 409.
  */
 export function renderEmbedPage(options: EmbedPageOptions): string {
-  const { form, fields, consentPurposeLabels, submitUrl, nonce, workspaceName, layout } = options
+  const { form, fields, consentPurposes, submitUrl, nonce, workspaceName, layout } = options
   const heading = displayTitle(form)
   const config = escapeScriptJson({
     formId: form.id,
@@ -527,7 +541,7 @@ export function renderEmbedPage(options: EmbedPageOptions): string {
     thankYou: form.thankYouMessage,
     fieldIds: fields.map((field) => field.id),
   })
-  const formBody = renderFormBody(form, fields, consentPurposeLabels, config, nonce)
+  const formBody = renderFormBody(form, fields, consentPurposes, workspaceName, config, nonce)
 
   const styles = layout === 'page' ? HOSTED_STYLES : IFRAME_STYLES
   const shell =
