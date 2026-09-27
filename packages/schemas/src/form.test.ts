@@ -51,7 +51,7 @@ function wireForm(overrides: Record<string, unknown> = {}): Record<string, unkno
     company_tags: [],
     list_ids: [],
     attach_targets: [],
-    public_key: 'pub_01hx',
+    slug: 'contact',
     created_at: '2026-07-01T00:00:00.000Z',
     updated_at: '2026-08-01T00:00:00.000Z',
     ...overrides,
@@ -106,7 +106,7 @@ describe('formSchema', () => {
       companyTags: [],
       listIds: [],
       attachTargets: [],
-      publicKey: 'pub_01hx',
+      slug: 'contact',
       createdAt: new Date('2026-07-01T00:00:00.000Z'),
       updatedAt: new Date('2026-08-01T00:00:00.000Z'),
     })

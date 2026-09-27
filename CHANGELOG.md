@@ -59,6 +59,27 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **Breaking, `@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **A
+  form's public key is now its slug.** The public URLs name the workspace:
+  `POST /v1/public/workspaces/:workspace_id/forms/:slug/submit` and
+  `GET /v1/public/workspaces/:workspace_id/forms/:form_id/embed`. The embed
+  and hosted page use the form id, so they never change. The embed page
+  contains the current submit URL, so a slug change reaches every embed in
+  less than a minute (the page cache is 60 seconds) and nobody pastes new
+  code. The old `/v1/public/forms/:public_key/…` routes are gone, so **every
+  embed made before this release stops working** until its site gets the new
+  snippet from the form's **Embed** tab, once. The wire field `public_key` is now `slug` (`Form.slug` in
+  `@kelpie/schemas`). A slug is unique in its workspace, not across all of
+  them. It uses 3 to 64 letters, digits, `-` and `_` (`FORM_SLUG_PATTERN`).
+  `POST` and `PATCH /v1/forms` take `slug`, and a slug another form in the
+  workspace uses answers `409`. A form created without one gets a random
+  12-character slug. New: `POST /v1/forms/:id/regenerate-slug` and the MCP
+  tool `forms_regenerate_slug`. Settings shows the slug with an edit and a
+  **Regenerate** button, and both ask before they save. Regenerate stops a
+  bot that saved the old submit URL; it does not stop a bot that reads the
+  embed page each time. New workspaces seed
+  their starter forms with the slugs `contact` and `newsletter`. Migration
+  `0053_form_slug` renames the column and keeps every existing value.
 - **`@kelpie/server`, `@kelpie/ui`** — `GET /v1/ai/runs` pages with
   `limit` and `cursor`, and the **Admin → AI** run log has page controls.
 - **`@kelpie/server`** — Each workspace keeps its newest 100 AI runs.

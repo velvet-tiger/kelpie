@@ -124,6 +124,62 @@ export function useUpdateFormFields(): MutationResult<UpdateFieldsArguments, For
   }
 }
 
+export interface UpdateSlugArguments {
+  readonly id: string
+  readonly slug: string
+}
+
+/**
+ * The shared write behind both slug hooks.
+ *
+ * Not optimistic: a slug can be refused (`409` when another form in the
+ * workspace has it), and the Embed tab must not show a URL that never existed.
+ * On success the embed snippets are refetched, because the slug is in every URL
+ * they hold.
+ */
+function useSlugMutation<Input>(
+  write: (input: Input) => Promise<Form>,
+): MutationResult<Input, Form> {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: write,
+    onSuccess: (form) => {
+      queryClient.setQueryData(['forms', 'detail', form.id], form)
+      void queryClient.invalidateQueries({ queryKey: ['forms', 'embed', form.id] })
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['forms', 'list'] })
+    },
+  })
+
+  return {
+    run: (input) => {
+      mutation.mutate(input)
+    },
+    runAsync: (input) => mutation.mutateAsync(input),
+    isPending: mutation.isPending,
+    error: toError(mutation.error),
+  }
+}
+
+/** Sets a slug the user chose. Every existing embed of the form stops working. */
+export function useUpdateFormSlug(): MutationResult<UpdateSlugArguments, Form> {
+  const client = useApiClient()
+
+  return useSlugMutation(({ id, slug }: UpdateSlugArguments) =>
+    client.patch(`/forms/${id}`, formBody({ slug }), formSchema.parse),
+  )
+}
+
+/** Replaces the slug with a random one the server makes. Every existing embed stops working. */
+export function useRegenerateFormSlug(): MutationResult<string, Form> {
+  const client = useApiClient()
+
+  return useSlugMutation((id: string) =>
+    client.post(`/forms/${id}/regenerate-slug`, {}, formSchema.parse),
+  )
+}
+
 /** Deletes the form, and by cascade its fields and its submissions. */
 export function useDeleteForm(): MutationResult<string, void> {
   return forms.useRemove()

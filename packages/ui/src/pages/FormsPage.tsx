@@ -136,11 +136,11 @@ export function FormsPage(): React.JSX.Element {
         ),
     },
     {
-      key: 'publicKey',
-      header: 'Public key',
-      getSortValue: (form) => form.publicKey,
+      key: 'slug',
+      header: 'Slug',
+      getSortValue: (form) => form.slug,
       render: (form) => (
-        <span className="font-mono text-[12px] text-ink-muted">{form.publicKey}</span>
+        <span className="font-mono text-[12px] text-ink-muted">{form.slug}</span>
       ),
     },
     {

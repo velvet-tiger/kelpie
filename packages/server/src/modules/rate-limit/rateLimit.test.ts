@@ -122,11 +122,11 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
 
   function submit(
     app: TestApp['app'],
-    publicKey: string,
+    formPath: string,
     ids: Record<string, string>,
     ip: string,
   ): Promise<Response> {
-    return sendFrom(app, 'POST', `/v1/public/forms/${publicKey}/submit`, ip, {
+    return sendFrom(app, 'POST', `/v1/public/workspaces/${formPath}/submit`, ip, {
       answers: { [ids.Name ?? '']: 'Alex Rivera', [ids.Email ?? '']: 'alex@example.com' },
     })
   }
@@ -152,17 +152,17 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       const owner = await client.owner()
       const form = await createForm(client, owner)
       const ids = fieldIds(form)
-      const publicKey = readString(form, 'public_key')
+      const formPath = `${owner.workspaceId}/forms/${readString(form, 'slug')}`
 
-      expect((await submit(harness.app, publicKey, ids, '203.0.113.10')).status).toBe(201)
-      expect((await submit(harness.app, publicKey, ids, '203.0.113.10')).status).toBe(201)
+      expect((await submit(harness.app, formPath, ids, '203.0.113.10')).status).toBe(201)
+      expect((await submit(harness.app, formPath, ids, '203.0.113.10')).status).toBe(201)
 
-      const blocked = await submit(harness.app, publicKey, ids, '203.0.113.10')
+      const blocked = await submit(harness.app, formPath, ids, '203.0.113.10')
       expect(blocked.status).toBe(429)
       expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
       expect(readRecord(await blocked.json()).error).toMatchObject({ code: 'rate_limited' })
 
-      const otherCaller = await submit(harness.app, publicKey, ids, '203.0.113.20')
+      const otherCaller = await submit(harness.app, formPath, ids, '203.0.113.20')
       expect(otherCaller.status).toBe(201)
     })
 
@@ -176,14 +176,14 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       const owner = await client.owner()
       const form = await createForm(client, owner)
       const ids = fieldIds(form)
-      const publicKey = readString(form, 'public_key')
+      const formPath = `${owner.workspaceId}/forms/${readString(form, 'slug')}`
 
-      expect((await submit(harness.app, publicKey, ids, '203.0.113.30')).status).toBe(201)
-      expect((await submit(harness.app, publicKey, ids, '203.0.113.30')).status).toBe(429)
+      expect((await submit(harness.app, formPath, ids, '203.0.113.30')).status).toBe(201)
+      expect((await submit(harness.app, formPath, ids, '203.0.113.30')).status).toBe(429)
 
       now = new Date(now.getTime() + 1001)
 
-      expect((await submit(harness.app, publicKey, ids, '203.0.113.30')).status).toBe(201)
+      expect((await submit(harness.app, formPath, ids, '203.0.113.30')).status).toBe(201)
     })
 
     it('limits the embed page as well as the submit route', async () => {
@@ -194,9 +194,9 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const form = await createForm(client, owner)
-      const publicKey = readString(form, 'public_key')
+      const embedPath = `/v1/public/workspaces/${owner.workspaceId}/forms/${readString(form, 'id')}/embed`
       const embed = (): Promise<Response> =>
-        sendFrom(harness.app, 'GET', `/v1/public/forms/${publicKey}/embed`, '203.0.113.40')
+        sendFrom(harness.app, 'GET', embedPath, '203.0.113.40')
 
       expect((await embed()).status).toBe(200)
       expect((await embed()).status).toBe(429)
@@ -367,9 +367,9 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
       const form = await createForm(client, owner)
-      const publicKey = readString(form, 'public_key')
+      const embedPath = `/v1/public/workspaces/${owner.workspaceId}/forms/${readString(form, 'id')}/embed`
 
-      const response = await harness.app.request(`/v1/public/forms/${publicKey}/embed`)
+      const response = await harness.app.request(embedPath)
 
       expect(response.headers.get('X-Frame-Options')).toBeNull()
       expect(response.headers.get('Content-Security-Policy')).toContain('frame-ancestors *')

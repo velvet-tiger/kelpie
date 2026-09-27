@@ -77,8 +77,8 @@ import {
  * rolled back.
  *
  * Nothing in this file takes an `Actor`. A submit arrives with no credentials,
- * and the only thing naming a workspace is the form's `publicKey`. Every query
- * below is scoped to the workspace read off that form.
+ * and the workspace id and form slug in the URL are all it names. Every query
+ * below is scoped to the workspace of the form those two resolve to.
  */
 
 /** What the timeline calls a row a form wrote. */
@@ -154,8 +154,8 @@ export interface SubmitOutcome {
 }
 
 export interface FormSubmitService {
-  /** @throws AppError 404 unknown key, 409 paused, 422 unusable answers. */
-  submit(publicKey: string, answers: Answers): Promise<SubmitOutcome>
+  /** @throws AppError 404 unknown form, 409 paused, 422 unusable answers. */
+  submit(workspaceId: string, slug: string, answers: Answers): Promise<SubmitOutcome>
 }
 
 /**
@@ -757,15 +757,15 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
   }
 
   /**
-   * The form behind a public key, ready to accept answers.
+   * The form a public URL names, ready to accept answers.
    *
-   * @throws AppError 404 for an unknown key, 409 for a paused form.
+   * @throws AppError 404 for an unknown workspace or slug, 409 for a paused form.
    */
-  async function requireOpenForm(publicKey: string): Promise<FormRecord> {
-    const form = await repository.findFormByPublicKey(dependencies.db, publicKey)
+  async function requireOpenForm(workspaceId: string, slug: string): Promise<FormRecord> {
+    const form = await repository.findFormBySlug(dependencies.db, workspaceId, slug)
 
-    // An unknown key is indistinguishable from one whose form was deleted, and
-    // the caller is a website with no credentials: it learns nothing either way.
+    // An unknown workspace, an unknown slug and a deleted form all answer the
+    // same 404, so a caller with no credentials cannot tell them apart.
     if (form === undefined) {
       throw AppError.notFound('Form not found')
     }
@@ -866,8 +866,8 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
   }
 
   return {
-    async submit(publicKey, answers) {
-      const form = await requireOpenForm(publicKey)
+    async submit(urlWorkspaceId, slug, answers) {
+      const form = await requireOpenForm(urlWorkspaceId, slug)
       const { workspaceId } = form
       const fields = await repository.listFields(dependencies.db, form.id)
       const intent = readAnswers(fields, answers)

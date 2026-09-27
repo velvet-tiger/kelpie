@@ -95,7 +95,7 @@ function form(fields: readonly EditableField[]): Form {
     companyTags: [],
     listIds: [],
     attachTargets: [],
-    publicKey: 'pk_test',
+    slug: 'contact',
     createdAt: stamp,
     updatedAt: stamp,
   }

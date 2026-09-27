@@ -1,6 +1,10 @@
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
-import { FORM_ATTACH_TARGET_TYPES, FORM_SUBMISSION_LINK_TARGETS } from '@kelpie/schemas'
+import {
+  FORM_ATTACH_TARGET_TYPES,
+  FORM_SLUG_PATTERN,
+  FORM_SUBMISSION_LINK_TARGETS,
+} from '@kelpie/schemas'
 import type { FormAttachTarget, FormSubmissionLinkTarget } from '@kelpie/schemas'
 
 import { AppError } from '../../lib/errors.ts'
@@ -12,6 +16,7 @@ import {
   requestOrigin,
 } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
+import { requireWorkspaceId } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { embedSnippets } from './embed.ts'
@@ -65,6 +70,9 @@ const attachTargetBody = z.strictObject({
 const formShape = {
   name: z.string().min(1),
   title: z.string().min(1),
+  slug: z
+    .string()
+    .regex(FORM_SLUG_PATTERN, 'Use 3 to 64 letters, digits, hyphens or underscores'),
   description: z.string().nullable(),
   status: z.enum(FORM_STATUSES),
   fields: z.array(fieldBody),
@@ -107,6 +115,8 @@ export const createBody = z.strictObject({
   // Absent → copy of `name` in `toCreateInput`, so a create that only names the
   // form still gets a public heading without a second field on every caller.
   title: formShape.title.optional(),
+  // Absent → a random slug in the service. A caller that wants a readable URL names one.
+  slug: formShape.slug.optional(),
   description: formShape.description.default(null),
   status: formShape.status.default('active'),
   thank_you_message: formShape.thank_you_message.default('Thanks. We will be in touch.'),
@@ -187,6 +197,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput
   return {
     name: body.name,
     title: body.title ?? body.name,
+    slug: body.slug ?? null,
     description: body.description,
     status: body.status,
     fields: body.fields.map(toFieldDraft),
@@ -220,6 +231,7 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateFormInput
   return {
     ...(body.name === undefined ? {} : { name: body.name }),
     ...(body.title === undefined ? {} : { title: body.title }),
+    ...(body.slug === undefined ? {} : { slug: body.slug }),
     ...(body.description === undefined ? {} : { description: body.description }),
     ...(body.status === undefined ? {} : { status: body.status }),
     ...(body.fields === undefined ? {} : { fields: body.fields.map(toFieldDraft) }),
@@ -321,7 +333,7 @@ export function formResponse(form: FormView): Record<string, unknown> {
       target_type: target.targetType,
       target_id: target.targetId,
     })),
-    public_key: form.publicKey,
+    slug: form.slug,
     created_at: form.createdAt.toISOString(),
     updated_at: form.updatedAt.toISOString(),
   }
@@ -349,14 +361,36 @@ export function formSubmissionResponse(submission: FormSubmissionView): Record<s
   }
 }
 
-/** The absolute URL of a form's bare iframe document (fields only). */
-export function embedUrlFor(context: Context, publicKey: string): string {
-  return `${requestOrigin(context)}${PUBLIC_ROUTE_PREFIX}/forms/${publicKey}/embed`
+function publicFormsBase(context: Context, workspaceId: string): string {
+  return `${requestOrigin(context)}${PUBLIC_ROUTE_PREFIX}/workspaces/${workspaceId}/forms`
 }
 
-/** The absolute URL of a form's standalone hosted page (brand chrome). */
-export function hostedUrlFor(context: Context, publicKey: string): string {
-  return `${embedUrlFor(context, publicKey)}?view=page`
+/**
+ * The absolute URL a form submits to, `…/forms/:slug/submit`.
+ *
+ * The one public URL built from the slug, so regenerating the slug moves only
+ * this. The embed page is rendered per request and carries the current value,
+ * so every embed follows within its cache window, and a caller that saved the
+ * old URL gets a 404. The slug is URL-safe (`FORM_SLUG_PATTERN`) and needs no
+ * escaping.
+ */
+export function submitUrlFor(context: Context, workspaceId: string, slug: string): string {
+  return `${publicFormsBase(context, workspaceId)}/${slug}/submit`
+}
+
+/**
+ * The absolute URL of a form's bare iframe document (fields only).
+ *
+ * Built from the form id, not the slug. This is the URL a customer pastes into
+ * their site, and Kelpie cannot edit that site, so it must never change.
+ */
+export function embedUrlFor(context: Context, workspaceId: string, formId: string): string {
+  return `${publicFormsBase(context, workspaceId)}/${formId}/embed`
+}
+
+/** The absolute URL of a form's standalone hosted page (brand chrome). Stable, like the embed. */
+export function hostedUrlFor(context: Context, workspaceId: string, formId: string): string {
+  return `${embedUrlFor(context, workspaceId, formId)}?view=page`
 }
 
 export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependencies): void {
@@ -391,6 +425,19 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
       await requireActor(context),
       context.req.param('id'),
       toUpdateInput(body),
+    )
+
+    return context.json(formResponse(form))
+  })
+
+  /**
+   * Replaces the slug with a new random one, which moves the form's public URLs.
+   * An action rather than a PATCH, so the server makes the random value.
+   */
+  router.post('/forms/:id/regenerate-slug', async (context) => {
+    const form = await dependencies.service.regenerateSlug(
+      await requireActor(context),
+      context.req.param('id'),
     )
 
     return context.json(formResponse(form))
@@ -464,13 +511,16 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
    *
    * Its own endpoint rather than a field on the form, so the form's shape is the
    * same on a list and on a read. The snippets are derived from the request's
-   * origin and the form's `public_key`, neither of which is stored.
+   * origin, the workspace id and the form id; the origin is not stored. None of
+   * them change when the slug does, so a pasted snippet keeps working.
    */
   router.get('/forms/:id/embed', async (context) => {
-    const form = await dependencies.service.get(await requireActor(context), context.req.param('id'))
+    const actor = await requireActor(context)
+    const form = await dependencies.service.get(actor, context.req.param('id'))
+    const workspaceId = requireWorkspaceId(actor)
     const snippets = embedSnippets(
-      hostedUrlFor(context, form.publicKey),
-      embedUrlFor(context, form.publicKey),
+      hostedUrlFor(context, workspaceId, form.id),
+      embedUrlFor(context, workspaceId, form.id),
       form.id,
     )
 

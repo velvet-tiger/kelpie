@@ -273,7 +273,7 @@ export interface ModuleContext extends ModuleServices {
    * can see which of its endpoints anyone on the internet may call.
    *
    * A handler here has no `Actor` and therefore no workspace. It must resolve one
-   * from something in the request that identifies it — a form's `publicKey` — and
+   * from something in the request that identifies it — the workspace id in a form URL — and
    * scope every query to that. There is no other way in.
    */
   publicRoutes(mount: (router: Hono) => void): void

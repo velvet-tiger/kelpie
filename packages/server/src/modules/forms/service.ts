@@ -12,7 +12,7 @@ import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
-import { generateToken } from '../../lib/tokens.ts'
+import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import type { Transaction, TransactionScope } from '../../runtime/transaction.ts'
 import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
@@ -55,8 +55,8 @@ export interface FormsDependencies {
   readonly transaction: TransactionScope
   readonly createId: IdFactory
   readonly now: () => Date
-  /** Injected so a test can pin the generated `public_key`. */
-  readonly generatePublicKey?: () => string
+  /** Injected so a test can pin a generated `slug`. */
+  readonly generateSlug?: () => string
 }
 
 /**
@@ -79,6 +79,8 @@ export type FormSubmissionView = Omit<FormSubmissionRecord, 'workspaceId'>
 export interface CreateFormInput {
   readonly name: string
   readonly title: string
+  /** Null generates a random slug. */
+  readonly slug: string | null
   readonly description: string | null
   readonly status: FormStatus
   readonly fields: readonly FieldDraft[]
@@ -111,6 +113,7 @@ export interface CreateFormInput {
 export interface UpdateFormInput {
   readonly name?: string | undefined
   readonly title?: string | undefined
+  readonly slug?: string | undefined
   readonly description?: string | null | undefined
   readonly status?: FormStatus | undefined
   /** Absent leaves the field list alone. Present replaces all of it. */
@@ -147,6 +150,8 @@ export interface FormsService {
   get(actor: Actor, id: string): Promise<FormView>
   create(actor: Actor, input: CreateFormInput): Promise<FormView>
   update(actor: Actor, id: string, changes: UpdateFormInput): Promise<FormView>
+  /** Replaces the slug with a new random one. Every existing embed stops working. */
+  regenerateSlug(actor: Actor, id: string): Promise<FormView>
   remove(actor: Actor, id: string): Promise<void>
   listSubmissions(
     actor: Actor,
@@ -189,6 +194,7 @@ function toStoredColumns(input: UpdateFormInput): Partial<repository.FormColumns
   return {
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.title === undefined ? {} : { title: input.title }),
+    ...(input.slug === undefined ? {} : { slug: input.slug }),
     ...(input.description === undefined ? {} : { description: input.description }),
     ...(input.status === undefined ? {} : { status: input.status }),
     ...(input.thankYouMessage === undefined ? {} : { thankYouMessage: input.thankYouMessage }),
@@ -282,8 +288,40 @@ function sameAttachTargets(
   return next.every((target) => currentSet.has(key(target)))
 }
 
+/**
+ * A slug nobody chose: 12 characters, 60 bits. The slug is not a secret, so it
+ * only has to be hard to guess. The alphabet has 32 letters, which divides 256,
+ * so `byte % 32` has no bias. It leaves out `l`, `o`, `0` and `1`, which look
+ * alike when a person reads a URL aloud.
+ */
+export function generateFormSlug(): string {
+  const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789'
+  const bytes = crypto.getRandomValues(new Uint8Array(12))
+
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')
+}
+
+function duplicateSlug(): AppError {
+  return AppError.conflict('Another form in this workspace already uses that slug', [
+    { field: 'slug', message: 'Already in use' },
+  ])
+}
+
+/** Answers a unique-slug violation with a 409 the UI can show on the field. */
+async function refusingDuplicateSlug<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write()
+  } catch (error) {
+    if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+      throw duplicateSlug()
+    }
+
+    throw error
+  }
+}
+
 export function createFormsService(dependencies: FormsDependencies): FormsService {
-  const generatePublicKey = dependencies.generatePublicKey ?? generateToken
+  const generateSlug = dependencies.generateSlug ?? generateFormSlug
 
   async function require(workspaceId: string, id: string): Promise<FormRecord> {
     const form = await repository.findForm(dependencies.db, workspaceId, id)
@@ -653,7 +691,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       const id = dependencies.createId('form')
       const sortedAttachTargets = sortAttachTargets(input.attachTargets)
 
-      return dependencies.transaction(async ({ tx, events }) => {
+      return refusingDuplicateSlug(() => dependencies.transaction(async ({ tx, events }) => {
         const created = await repository.insertForm(tx, {
           id,
           workspaceId,
@@ -682,7 +720,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           enquiryOwnerId: input.enquiryOwnerId,
           personTags: [...input.personTags],
           companyTags: [...input.companyTags],
-          publicKey: generatePublicKey(),
+          slug: input.slug ?? generateSlug(),
         })
         const fields = await writeFields(tx, workspaceId, id, input.fields)
         await repository.replaceFormLists(tx, workspaceId, id, input.listIds)
@@ -691,7 +729,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         events.emit('forms.form.created', { type: 'form', id }, {})
 
         return toView(created, fields, [...input.listIds], sortedAttachTargets)
-      }, { workspaceId, actor: toEventActor(actor) })
+      }, { workspaceId, actor: toEventActor(actor) }))
     },
 
     async update(actor, id, changes) {
@@ -784,7 +822,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         return toView(existing, stored, storedListIds, storedAttachTargets)
       }
 
-      return dependencies.transaction(async ({ tx, events }) => {
+      return refusingDuplicateSlug(() => dependencies.transaction(async ({ tx, events }) => {
         // A changed field list, list set, or attach-target set is a change to
         // the form, so it stamps `updated_at` even when no column of the form
         // itself moved.
@@ -829,7 +867,36 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         events.emit('forms.form.updated', { type: 'form', id }, { changed: changedFields })
 
         return toView(updated, fields, nextListIds, nextAttachTargets)
-      }, { workspaceId, actor: toEventActor(actor) })
+      }, { workspaceId, actor: toEventActor(actor) }))
+    },
+
+    async regenerateSlug(actor, id) {
+      const workspaceId = requireWorkspaceId(actor)
+      await require(workspaceId, id)
+
+      return refusingDuplicateSlug(() => dependencies.transaction(async ({ tx, events }) => {
+        const updated = await repository.updateForm(tx, workspaceId, id, {
+          slug: generateSlug(),
+          updatedAt: dependencies.now(),
+        })
+
+        if (updated === undefined) {
+          throw AppError.notFound('Form not found')
+        }
+
+        const fields = await repository.listFields(tx, id)
+        const listRows = await repository.listFormLists(tx, id)
+        const attachTargets = await repository.listAttachTargets(tx, id)
+
+        events.emit('forms.form.updated', { type: 'form', id }, { changed: ['slug'] })
+
+        return toView(
+          updated,
+          fields,
+          listRows.map((row) => row.listId),
+          attachTargets,
+        )
+      }, { workspaceId, actor: toEventActor(actor) }))
     },
 
     /**

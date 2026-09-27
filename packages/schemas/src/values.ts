@@ -437,6 +437,12 @@ export type ThemePreference = (typeof THEME_PREFERENCES)[number]
 /** A paused form still exists and still renders; its submit answers 409. */
 export const FORM_STATUSES = ['active', 'paused'] as const
 
+/**
+ * What a form slug may contain: letters, digits, `-` and `_`, 3 to 64 characters.
+ * The slug sits in a URL path, so nothing here needs escaping.
+ */
+export const FORM_SLUG_PATTERN = /^[A-Za-z0-9_-]{3,64}$/
+
 export type FormStatus = (typeof FORM_STATUSES)[number]
 
 /**

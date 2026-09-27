@@ -55,7 +55,7 @@ export type ActivityAuthor = Actor | SystemActor
 /**
  * @param workspaceId Passed rather than read off the author. Every caller has
  *   already resolved it — through `requireWorkspaceId`, or from a form's
- *   `publicKey` — and reaching for a nullable field here would need a default
+ *   public URL — and reaching for a nullable field here would need a default
  *   that silently mis-files a row.
  */
 export type ActivityRecorder = (

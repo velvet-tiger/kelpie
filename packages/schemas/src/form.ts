@@ -129,10 +129,10 @@ export interface Form extends RecordTimestamps {
   /** Pre-existing pipeline records the submitter is linked to via `person_links`. */
   readonly attachTargets: readonly FormAttachTarget[]
   /**
-   * The handle the public submit and embed endpoints resolve a workspace from.
-   * Globally unique, and the only credential those endpoints take.
+   * The form's name in its public URLs, `/v1/public/workspaces/:workspace_id/forms/:slug/…`.
+   * Unique in its workspace. Not a secret: every page that embeds the form shows it.
    */
-  readonly publicKey: string
+  readonly slug: string
 }
 
 const formFieldOptionSchema = z
@@ -222,7 +222,7 @@ export const formSchema: z.ZodType<Form, unknown> = z
     company_tags: z.array(z.string()),
     list_ids: z.array(idSchema),
     attach_targets: z.array(attachTargetSchema),
-    public_key: z.string(),
+    slug: z.string(),
     ...recordTimestamps,
   })
   .transform(
@@ -256,7 +256,7 @@ export const formSchema: z.ZodType<Form, unknown> = z
       companyTags: wire.company_tags,
       listIds: wire.list_ids,
       attachTargets: wire.attach_targets,
-      publicKey: wire.public_key,
+      slug: wire.slug,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),
@@ -294,6 +294,8 @@ export interface CreateFormInput {
   readonly name: string
   /** Defaults to `name` when omitted. */
   readonly title?: string
+  /** A random slug is generated when omitted. Must match `FORM_SLUG_PATTERN`. */
+  readonly slug?: string
   readonly description?: string | null
   readonly status?: FormStatus
   readonly fields: readonly FormFieldInput[]
@@ -329,6 +331,8 @@ export interface CreateFormInput {
 export interface FormInput {
   readonly name?: string
   readonly title?: string
+  /** Changing it changes the form's public URLs, so every existing embed stops working. */
+  readonly slug?: string
   readonly description?: string | null
   readonly status?: FormStatus
   readonly fields?: readonly FormFieldInput[]
@@ -381,6 +385,7 @@ export function createFormBody(input: CreateFormInput): Record<string, unknown> 
   return definedFields({
     name: input.name,
     title: input.title,
+    slug: input.slug,
     description: input.description,
     status: input.status,
     fields: input.fields.map(fieldBody),
@@ -414,6 +419,7 @@ export function formBody(input: FormInput): Record<string, unknown> {
   return definedFields({
     name: input.name,
     title: input.title,
+    slug: input.slug,
     description: input.description,
     status: input.status,
     fields: input.fields?.map(fieldBody),

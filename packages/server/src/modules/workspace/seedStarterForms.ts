@@ -9,7 +9,6 @@ import * as listsRepository from '../lists/repository.ts'
 export interface SeedStarterFormsInput {
   readonly workspaceId: string
   readonly createId: IdFactory
-  readonly generatePublicKey: () => string
   readonly consentPurposeIdsBySlug: Readonly<Partial<Record<StarterConsentPurposeSlug, string>>>
 }
 
@@ -47,7 +46,9 @@ export async function seedStarterForms(
       description: form.description,
       status: 'active',
       thankYouMessage: form.thankYouMessage,
-      publicKey: input.generatePublicKey(),
+      // The starter slug reads well in a URL, and a new workspace has no
+      // other form to collide with.
+      slug: form.slug,
     })
 
     await formsRepository.insertFields(

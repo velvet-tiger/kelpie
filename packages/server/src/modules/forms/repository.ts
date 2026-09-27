@@ -89,18 +89,22 @@ export async function findForm(
 }
 
 /**
- * The one lookup in this service that is not workspace-scoped, because it is
- * what resolves the workspace.
+ * The lookup the public routes resolve a form with.
  *
- * `public_key` is unique across every workspace (`schema.ts`), so this answers
- * with at most one row and the caller reads `workspaceId` off it. Nothing else
- * on a public request may name a workspace.
+ * The workspace id comes from the URL, not from an actor: a public request has
+ * none. `slug` is unique per workspace (`schema.ts`), so this answers with at
+ * most one row.
  */
-export async function findFormByPublicKey(
+export async function findFormBySlug(
   db: Queryable,
-  publicKey: string,
+  workspaceId: string,
+  slug: string,
 ): Promise<FormRecord | undefined> {
-  const [found] = await db.select().from(forms).where(eq(forms.publicKey, publicKey)).limit(1)
+  const [found] = await db
+    .select()
+    .from(forms)
+    .where(and(eq(forms.workspaceId, workspaceId), eq(forms.slug, slug)))
+    .limit(1)
 
   return found
 }

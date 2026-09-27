@@ -18,10 +18,10 @@ import { people } from '../people/schema.ts'
 import { positions } from '../positions/schema.ts'
 
 /**
- * `/v1/forms` and `/v1/public/forms/…` against real Postgres.
+ * `/v1/forms` and `/v1/public/workspaces/…/forms/…` against real Postgres.
  *
  * Two surfaces on one module: managing a form needs credentials, submitting one
- * needs nothing but the `public_key`. The auth boundary between them is asserted
+ * needs nothing but the workspace id and the form's `slug`. The auth boundary between them is asserted
  * here rather than assumed, because it is the only place in core where an
  * unauthenticated request reaches a workspace-scoped write.
  */
@@ -93,9 +93,28 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     return typeof value === 'object' && value !== null
   }
 
-  /** A public submit: no cookie, no bearer, nothing but the key in the path. */
-  function submit(publicKey: string, answers: Record<string, string>): Promise<Response> {
-    return client.send('POST', `/v1/public/forms/${publicKey}/submit`, { body: { answers } })
+  /** `:workspace_id/forms/:slug`, the part of a public URL that names an acme form. */
+  function formPath(form: Record<string, unknown>): string {
+    return `${acme.workspaceId}/forms/${readString(form, 'slug')}`
+  }
+
+  /** `:workspace_id/forms/:form_id`, the stable part of an acme form's embed URL. */
+  function embedPath(form: Record<string, unknown>): string {
+    return `${acme.workspaceId}/forms/${readString(form, 'id')}`
+  }
+
+  /** The embed page for a form, as a site that framed it would load it. */
+  async function loadEmbed(form: Record<string, unknown>): Promise<string> {
+    const response = await client.send('GET', `/v1/public/workspaces/${embedPath(form)}/embed`)
+
+    expect(response.status).toBe(200)
+
+    return response.text()
+  }
+
+  /** A public submit: no cookie, no bearer, nothing but the workspace and slug in the path. */
+  function submit(path: string, answers: Record<string, string>): Promise<Response> {
+    return client.send('POST', `/v1/public/workspaces/${path}/submit`, { body: { answers } })
   }
 
   /**
@@ -121,7 +140,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     formBody: Record<string, unknown> = {},
   ): Promise<Record<string, unknown>> {
     const form = await createForm(formBody)
-    const response = await submit(readString(form, 'public_key'), answers(fieldIds(form)))
+    const response = await submit(formPath(form), answers(fieldIds(form)))
 
     expect(response.status).toBe(201)
 
@@ -129,14 +148,14 @@ describe.skipIf(connectionString === undefined)('forms', () => {
   }
 
   describe('creating a form', () => {
-    it('answers with the form, its fields in order, and a public key', async () => {
+    it('answers with the form, its fields in order, and a random slug', async () => {
       const form = await createForm()
       const parsed = formSchema.parse(form)
 
       expect(parsed.name).toBe('Website contact')
       expect(parsed.title).toBe('Website contact')
       expect(parsed.status).toBe('active')
-      expect(parsed.publicKey.length).toBeGreaterThan(20)
+      expect(parsed.slug).toMatch(/^[a-z2-9]{12}$/)
       expect(parsed.fields.map((field) => field.label)).toEqual([
         'Name',
         'Email',
@@ -147,11 +166,59 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(parsed.fields.map((field) => field.sortOrder)).toEqual([0, 1, 2, 3, 4])
     })
 
-    it('gives every form its own public key', async () => {
+    it('gives every form its own slug', async () => {
       const first = await createForm()
       const second = await createForm({ name: 'Newsletter' })
 
-      expect(readString(first, 'public_key')).not.toBe(readString(second, 'public_key'))
+      expect(readString(first, 'slug')).not.toBe(readString(second, 'slug'))
+    })
+
+    it('takes a slug the caller chose', async () => {
+      const form = await createForm({ slug: 'website-contact' })
+
+      expect(readString(form, 'slug')).toBe('website-contact')
+      expect((await submit(formPath(form), filledIn(fieldIds(form)))).status).toBe(201)
+    })
+
+    it('refuses a slug with characters a URL would need to escape', async () => {
+      for (const slug of ['has space', 'a/b', 'ab', 'x'.repeat(65), 'café']) {
+        const response = await client.send('POST', '/v1/forms', {
+          body: { name: 'Bad slug', fields: CONTACT_FIELDS, slug },
+          cookie: acme.cookie,
+        })
+
+        expect(response.status, slug).toBe(422)
+      }
+    })
+
+    it('refuses a slug another form in the workspace uses, with a 409 on the field', async () => {
+      await createForm({ slug: 'contact-us' })
+      const response = await client.send('POST', '/v1/forms', {
+        body: { name: 'Second', fields: CONTACT_FIELDS, slug: 'contact-us' },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(409)
+      expect(JSON.stringify(await response.json())).toContain('"field":"slug"')
+    })
+
+    it('lets two workspaces use the same slug, each for its own form', async () => {
+      const mine = await createForm({ slug: 'contact-us' })
+      const other = await client.owner('beth@example.com')
+      const theirs = await createForm({ slug: 'contact-us', name: 'Theirs' }, other.cookie)
+
+      expect(readString(theirs, 'slug')).toBe('contact-us')
+
+      const response = await submit(
+        `${other.workspaceId}/forms/contact-us`,
+        filledIn(fieldIds(theirs)),
+      )
+
+      expect(response.status).toBe(201)
+      expect(readString(readRecord(await response.json()), 'form_id')).toBe(
+        readString(theirs, 'id'),
+      )
+      expect((await submit(formPath(mine), filledIn(fieldIds(mine)))).status).toBe(201)
     })
 
     it('refuses a field list with no person.email mapping', async () => {
@@ -305,7 +372,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(fieldIds(readRecord(await response.json()))).toEqual(before)
     })
 
-    it('never reissues the public key, so an embedded form keeps working', async () => {
+    it('keeps the slug through other edits, so an embedded form keeps working', async () => {
       const form = await createForm()
       const response = await client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {
         body: { name: 'Renamed' },
@@ -313,7 +380,82 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       })
       const parsed = formSchema.parse(readRecord(await response.json()))
 
-      expect(parsed.publicKey).toBe(readString(form, 'public_key'))
+      expect(parsed.slug).toBe(readString(form, 'slug'))
+    })
+
+    it('moves the submit URL when the slug changes, and the embed follows it', async () => {
+      const form = await createForm()
+      const oldPath = formPath(form)
+      const response = await client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {
+        body: { slug: 'renamed' },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(200)
+      expect(readString(readRecord(await response.json()), 'slug')).toBe('renamed')
+      expect((await submit(oldPath, filledIn(fieldIds(form)))).status).toBe(404)
+      expect(
+        (await submit(`${acme.workspaceId}/forms/renamed`, filledIn(fieldIds(form)))).status,
+      ).toBe(201)
+
+      // The pasted embed URL did not move, and the page it serves posts to the new slug.
+      const page = await loadEmbed(form)
+
+      expect(page).toContain(`/v1/public/workspaces/${acme.workspaceId}/forms/renamed/submit`)
+      expect(page).not.toContain(`/v1/public/workspaces/${oldPath}/submit`)
+    })
+
+    it('refuses a PATCH to a slug another form uses', async () => {
+      await createForm({ slug: 'taken' })
+      const form = await createForm({ name: 'Second' })
+      const response = await client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {
+        body: { slug: 'taken' },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(409)
+    })
+
+    it('regenerates the slug on request, and the old URL stops answering', async () => {
+      const form = await createForm({ slug: 'before' })
+      const response = await client.send(
+        'POST',
+        `/v1/forms/${readString(form, 'id')}/regenerate-slug`,
+        { cookie: acme.cookie },
+      )
+
+      expect(response.status).toBe(200)
+
+      const regenerated = readRecord(await response.json())
+
+      expect(readString(regenerated, 'slug')).toMatch(/^[a-z2-9]{12}$/)
+      expect((await submit(formPath(form), filledIn(fieldIds(form)))).status).toBe(404)
+      expect((await submit(formPath(regenerated), filledIn(fieldIds(form)))).status).toBe(201)
+      expect(await loadEmbed(form)).toContain(
+        `/v1/public/workspaces/${formPath(regenerated)}/submit`,
+      )
+    })
+
+    it('keeps the embed snippets the same through a slug change', async () => {
+      const form = await createForm()
+      const id = readString(form, 'id')
+      const snippets = async (): Promise<unknown> =>
+        (await client.send('GET', `/v1/forms/${id}/embed`, { cookie: acme.cookie })).json()
+      const before = await snippets()
+
+      await client.send('POST', `/v1/forms/${id}/regenerate-slug`, { cookie: acme.cookie })
+
+      expect(await snippets()).toEqual(before)
+    })
+
+    it('does not regenerate a slug without credentials', async () => {
+      const form = await createForm()
+      const response = await client.send(
+        'POST',
+        `/v1/forms/${readString(form, 'id')}/regenerate-slug`,
+      )
+
+      expect(response.status).toBe(401)
     })
   })
 
@@ -321,7 +463,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     it('takes its fields and submissions with it and leaves the CRM records', async () => {
       const form = await createForm()
 
-      await submit(readString(form, 'public_key'), filledIn(fieldIds(form)))
+      await submit(formPath(form), filledIn(fieldIds(form)))
 
       const response = await client.send('DELETE', `/v1/forms/${readString(form, 'id')}`, {
         cookie: acme.cookie,
@@ -348,10 +490,10 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(response.status).toBe(200)
 
       const body = readRecord(await response.json())
-      const publicKey = readString(form, 'public_key')
+      const path = embedPath(form)
 
-      expect(readString(body, 'url')).toContain(`/v1/public/forms/${publicKey}/embed?view=page`)
-      expect(readString(body, 'embed_url')).toMatch(new RegExp(`/v1/public/forms/${publicKey}/embed$`))
+      expect(readString(body, 'url')).toContain(`/v1/public/workspaces/${path}/embed?view=page`)
+      expect(readString(body, 'embed_url')).toMatch(new RegExp(`/v1/public/workspaces/${path}/embed$`))
       expect(readString(body, 'iframe_snippet')).toContain('<iframe')
       expect(readString(body, 'iframe_snippet')).toContain(readString(body, 'embed_url'))
       expect(readString(body, 'iframe_snippet')).not.toContain('view=page')
@@ -384,7 +526,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
      */
     it('refuses submit and embed when the workspace has the forms module off', async () => {
       const form = await createForm()
-      const publicKey = readString(form, 'public_key')
+      const path = formPath(form)
       const ids = fieldIds(form)
 
       const off = await client.send('PATCH', `/v1/workspaces/${acme.workspaceId}/modules/forms`, {
@@ -393,8 +535,10 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       })
       expect(off.status).toBe(200)
 
-      expect((await submit(publicKey, filledIn(ids))).status).toBe(403)
-      expect((await client.send('GET', `/v1/public/forms/${publicKey}/embed`)).status).toBe(403)
+      expect((await submit(path, filledIn(ids))).status).toBe(403)
+      expect(
+        (await client.send('GET', `/v1/public/workspaces/${embedPath(form)}/embed`)).status,
+      ).toBe(403)
     })
 
     it('creates the Person with the defaults', async () => {
@@ -425,7 +569,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       ]
       const form = await createForm({ fields })
       const ids = fieldIds(form)
-      const response = await submit(readString(form, 'public_key'), {
+      const response = await submit(formPath(form), {
         [ids['First name'] ?? '']: 'Alex',
         [ids['Last name'] ?? '']: 'Rivera',
         [ids.Email ?? '']: 'alex@example.com',
@@ -457,10 +601,10 @@ describe.skipIf(connectionString === undefined)('forms', () => {
         [ids.Email ?? '']: 'alex@example.com',
       })
 
-      expect((await submit(readString(form, 'public_key'), answers('Alex', 'Rivera'))).status).toBe(201)
+      expect((await submit(formPath(form), answers('Alex', 'Rivera'))).status).toBe(201)
       // The same visitor returns and types a different surname. The stored one
       // wins, the same rule the whole-name merge has always followed.
-      expect((await submit(readString(form, 'public_key'), answers('Alex', 'Nakamura'))).status).toBe(201)
+      expect((await submit(formPath(form), answers('Alex', 'Nakamura'))).status).toBe(201)
 
       const [person] = await database.db
         .select()
@@ -479,7 +623,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm({ fields })
       const ids = fieldIds(form)
 
-      await submit(readString(form, 'public_key'), {
+      await submit(formPath(form), {
         [ids.Name ?? '']: 'Alex Rivera',
         [ids.Email ?? '']: 'alex@example.com',
         [ids.Phone ?? '']: '+61 400 000 000',
@@ -503,7 +647,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       ]
       const form = await createForm({ fields })
       const ids = fieldIds(form)
-      const key = readString(form, 'public_key')
+      const key = formPath(form)
 
       await submit(key, {
         [ids.Name ?? '']: 'Alex Rivera',
@@ -590,7 +734,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     it('keeps two people on unrelated companies apart, whatever they send from', async () => {
       const form = await createForm()
       const ids = fieldIds(form)
-      const key = readString(form, 'public_key')
+      const key = formPath(form)
 
       await submit(key, {
         [ids.Name ?? '']: 'Alex Rivera',
@@ -620,7 +764,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       })
       const ids = fieldIds(form)
 
-      await submit(readString(form, 'public_key'), {
+      await submit(formPath(form), {
         ...filledIn(ids),
         [ids.Company ?? '']: 'Example Co',
         [ids.Website ?? '']: 'https://www.example.com/pricing',
@@ -637,7 +781,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     it('matches the same person again rather than creating a second one', async () => {
       const form = await createForm()
       const ids = fieldIds(form)
-      const key = readString(form, 'public_key')
+      const key = formPath(form)
 
       await submit(key, filledIn(ids))
       await submit(key, { [ids.Email ?? '']: 'ALEX@example.com', [ids.Name ?? '']: 'Alex' })
@@ -668,7 +812,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       })
       const ids = fieldIds(form)
 
-      await submit(readString(form, 'public_key'), {
+      await submit(formPath(form), {
         ...filledIn(ids),
         [ids.Company ?? '']: 'Example Co',
         [ids.Website ?? '']: 'example.com',
@@ -687,7 +831,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     it('reuses the position a person already holds at a company', async () => {
       const form = await createForm()
       const ids = fieldIds(form)
-      const key = readString(form, 'public_key')
+      const key = formPath(form)
 
       await submit(
         key,
@@ -711,7 +855,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm()
       const ids = fieldIds(form)
       const response = await submit(
-        readString(form, 'public_key'),
+        formPath(form),
         filledIn(ids, { [ids.Message ?? '']: 'Interested in a demo' }),
       )
       const parsed = formSubmitResultSchema.parse(readRecord(await response.json()))
@@ -814,7 +958,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
 
     it('refuses a paused form with a 409', async () => {
       const form = await createForm({ status: 'paused' })
-      const response = await submit(readString(form, 'public_key'), filledIn(fieldIds(form)))
+      const response = await submit(formPath(form), filledIn(fieldIds(form)))
 
       expect(response.status).toBe(409)
     })
@@ -822,7 +966,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     it('refuses a blank answer to a required field', async () => {
       const form = await createForm()
       const ids = fieldIds(form)
-      const response = await submit(readString(form, 'public_key'), {
+      const response = await submit(formPath(form), {
         [ids.Email ?? '']: 'alex@example.com',
       })
 
@@ -833,7 +977,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     it('refuses answers with no email with a 422', async () => {
       const form = await createForm()
       const ids = fieldIds(form)
-      const response = await submit(readString(form, 'public_key'), {
+      const response = await submit(formPath(form), {
         [ids.Name ?? '']: 'Alex Rivera',
         [ids.Email ?? '']: '  ',
       })
@@ -845,7 +989,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm()
       const ids = fieldIds(form)
       const response = await submit(
-        readString(form, 'public_key'),
+        formPath(form),
         filledIn(ids, { ff_ghost: 'x' }),
       )
 
@@ -862,7 +1006,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm()
       const ids = fieldIds(form)
 
-      await submit(readString(form, 'public_key'), { [ids.Name ?? '']: 'Alex' })
+      await submit(formPath(form), { [ids.Name ?? '']: 'Alex' })
 
       const rows = await database.db
         .select()
@@ -1003,11 +1147,11 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(response.status).toBe(401)
     })
 
-    /** The public key names the workspace; it grants nothing else. */
-    it('does not let a public key reach the management surface', async () => {
+    /** The slug names a form; it grants nothing else. */
+    it('does not let a slug reach the management surface', async () => {
       const form = await createForm()
       const response = await client.send('GET', '/v1/forms', {
-        bearer: readString(form, 'public_key'),
+        bearer: readString(form, 'slug'),
       })
 
       expect(response.status).toBe(401)
@@ -1016,7 +1160,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     it('answers a CORS preflight on the submit endpoint', async () => {
       const form = await createForm()
       const response = await harness.app.request(
-        `/v1/public/forms/${readString(form, 'public_key')}/submit`,
+        `/v1/public/workspaces/${formPath(form)}/submit`,
         {
           method: 'OPTIONS',
           headers: {
@@ -1036,7 +1180,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm()
       const ids = fieldIds(form)
       const response = await harness.app.request(
-        `/v1/public/forms/${readString(form, 'public_key')}/submit`,
+        `/v1/public/workspaces/${formPath(form)}/submit`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Origin: 'https://example.com' },
@@ -1063,7 +1207,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm({ title: 'Talk to Acme' })
       const response = await client.send(
         'GET',
-        `/v1/public/forms/${readString(form, 'public_key')}/embed`,
+        `/v1/public/workspaces/${embedPath(form)}/embed`,
       )
 
       expect(response.status).toBe(200)
@@ -1076,14 +1220,14 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(page).toContain('Job title')
       expect(page).not.toContain('class="eyebrow"')
       expect(page).not.toContain('<h1>Talk to Acme</h1>')
-      expect(page).toContain(`/v1/public/forms/${readString(form, 'public_key')}/submit`)
+      expect(page).toContain(`/v1/public/workspaces/${formPath(form)}/submit`)
     })
 
     it('serves the hosted page layout with workspace chrome when view=page', async () => {
       const form = await createForm({ title: 'Talk to Acme' })
       const response = await client.send(
         'GET',
-        `/v1/public/forms/${readString(form, 'public_key')}/embed?view=page`,
+        `/v1/public/workspaces/${embedPath(form)}/embed?view=page`,
       )
 
       const page = await response.text()
@@ -1097,7 +1241,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm()
       const response = await client.send(
         'GET',
-        `/v1/public/forms/${readString(form, 'public_key')}/embed?view=page`,
+        `/v1/public/workspaces/${embedPath(form)}/embed?view=page`,
       )
 
       expect(await response.text()).toContain('<h1>Website contact</h1>')
@@ -1107,7 +1251,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm()
       const response = await client.send(
         'GET',
-        `/v1/public/forms/${readString(form, 'public_key')}/embed`,
+        `/v1/public/workspaces/${embedPath(form)}/embed`,
       )
       const policy = response.headers.get('Content-Security-Policy') ?? ''
 
@@ -1120,14 +1264,45 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm({ status: 'paused' })
       const response = await client.send(
         'GET',
-        `/v1/public/forms/${readString(form, 'public_key')}/embed`,
+        `/v1/public/workspaces/${embedPath(form)}/embed`,
       )
 
       expect(await response.text()).toContain('not accepting submissions')
     })
 
-    it('answers 404 for a key no form carries', async () => {
-      const response = await client.send('GET', '/v1/public/forms/not-a-real-key/embed')
+    it('answers 404 for a form id the workspace does not have', async () => {
+      const response = await client.send(
+        'GET',
+        `/v1/public/workspaces/${acme.workspaceId}/forms/form_not_real/embed`,
+      )
+
+      expect(response.status).toBe(404)
+    })
+
+    /** The embed is addressed by id, so a slug in its place finds nothing. */
+    it('answers 404 for an embed addressed by slug', async () => {
+      const form = await createForm({ slug: 'by-slug' })
+
+      expect(
+        (await client.send('GET', `/v1/public/workspaces/${formPath(form)}/embed`)).status,
+      ).toBe(404)
+    })
+
+    /** The workspace in the URL scopes the lookup: neither id nor slug leaks across tenants. */
+    it('answers 404 for a real form under another workspace id', async () => {
+      const form = await createForm({ slug: 'only-acme' })
+      const other = await client.owner('beth@example.com')
+      const embed = `${other.workspaceId}/forms/${readString(form, 'id')}`
+
+      expect((await client.send('GET', `/v1/public/workspaces/${embed}/embed`)).status).toBe(404)
+      expect(
+        (await submit(`${other.workspaceId}/forms/only-acme`, filledIn(fieldIds(form)))).status,
+      ).toBe(404)
+    })
+
+    it('no longer answers the old unscoped URL', async () => {
+      const form = await createForm({ slug: 'old-style' })
+      const response = await client.send('GET', `/v1/public/forms/${readString(form, 'slug')}/embed`)
 
       expect(response.status).toBe(404)
     })
@@ -1158,7 +1333,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm({ create_deal: true })
       const ids = fieldIds(form)
       const response = await submit(
-        readString(form, 'public_key'),
+        formPath(form),
         filledIn(ids, { [ids.Company ?? '']: 'Analytical Engines' }),
       )
 
@@ -1178,7 +1353,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
         opportunity_kind: 'Grant',
       })
       const ids = fieldIds(form)
-      const response = await submit(readString(form, 'public_key'), filledIn(ids))
+      const response = await submit(formPath(form), filledIn(ids))
 
       expect(response.status).toBe(201)
 
@@ -1196,7 +1371,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
         partnership_kind: 'Reseller',
       })
       const ids = fieldIds(form)
-      const response = await submit(readString(form, 'public_key'), filledIn(ids))
+      const response = await submit(formPath(form), filledIn(ids))
 
       expect(response.status).toBe(201)
 
@@ -1212,7 +1387,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm({ person_tags: ['inbound', 'website'] })
       const ids = fieldIds(form)
 
-      await submit(readString(form, 'public_key'), filledIn(ids))
+      await submit(formPath(form), filledIn(ids))
 
       const submission = await submissionFor(readString(form, 'id'))
       const personId = String(submission.person_id)
@@ -1237,7 +1412,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm({ list_ids: [listId] })
       const ids = fieldIds(form)
 
-      await submit(readString(form, 'public_key'), filledIn(ids))
+      await submit(formPath(form), filledIn(ids))
 
       const submission = await submissionFor(readString(form, 'id'))
       const membershipResponse = await client.send('GET', `/v1/lists/${listId}/members`, {
@@ -1266,7 +1441,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       })
       const ids = fieldIds(form)
 
-      await submit(readString(form, 'public_key'), filledIn(ids))
+      await submit(formPath(form), filledIn(ids))
 
       const submission = await submissionFor(readString(form, 'id'))
       const opportunityResponse = await client.send('GET', `/v1/opportunities/${opportunityId}`, {
@@ -1304,7 +1479,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       await client.send('DELETE', `/v1/opportunities/${opportunityId}`, { cookie: acme.cookie })
 
       const ids = fieldIds(form)
-      const response = await submit(readString(form, 'public_key'), filledIn(ids))
+      const response = await submit(formPath(form), filledIn(ids))
 
       expect(response.status).toBe(201)
 
@@ -1402,8 +1577,8 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       const form = await createForm({ person_tags: ['inbound'] })
       const ids = fieldIds(form)
 
-      await submit(readString(form, 'public_key'), filledIn(ids))
-      await submit(readString(form, 'public_key'), filledIn(ids))
+      await submit(formPath(form), filledIn(ids))
+      await submit(formPath(form), filledIn(ids))
 
       const submissions = readList(
         await (

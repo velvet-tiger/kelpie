@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
-import { PUBLIC_ROUTE_PREFIX, readJsonBody, requestOrigin } from '../../lib/http.ts'
+import { readJsonBody } from '../../lib/http.ts'
 import { requireCapability } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
@@ -12,15 +12,21 @@ import { findWorkspace } from '../workspace/repository.ts'
 import { embedContentSecurityPolicy, renderEmbedPage } from './embed.ts'
 import type { FormFieldRecord } from './repository.ts'
 import * as repository from './repository.ts'
+import { submitUrlFor } from './routes.ts'
 import type { FormSubmitService, SubmitOutcome } from './submission.ts'
 
 /**
- * `/v1/public/forms/:publicKey/…`: the two endpoints anybody on the internet may
- * call, with no credentials and from any origin.
+ * `/v1/public/workspaces/:workspaceId/forms/…`: the two endpoints anybody on the
+ * internet may call, with no credentials and from any origin.
+ *
+ * The embed page is addressed by form id, because it is what customers paste
+ * into their sites and it must never move. The submit is addressed by slug, and
+ * the embed page carries the current submit URL, so regenerating the slug moves
+ * the submit for every embed at once.
  *
  * No handler here resolves an `Actor`, and none can: there is nothing to resolve
- * one from. The workspace comes from the form the `publicKey` names, and every
- * query underneath is scoped to it. That is the whole auth story, and it is why
+ * one from. The URL names the workspace, and every query underneath is scoped
+ * to it. That is the whole auth story, and it is why
  * these routes are registered through `context.publicRoutes` rather than
  * `context.routes` — the mount says which they are.
  */
@@ -80,9 +86,13 @@ export function mountPublicFormRoutes(
 ): void {
   const generateNonce = dependencies.generateNonce ?? (() => crypto.randomUUID())
 
-  router.post('/forms/:publicKey/submit', async (context) => {
+  router.post('/workspaces/:workspaceId/forms/:slug/submit', async (context) => {
     const body = await readJsonBody(context, submitBody)
-    const outcome = await dependencies.submissions.submit(context.req.param('publicKey'), body.answers)
+    const outcome = await dependencies.submissions.submit(
+      context.req.param('workspaceId'),
+      context.req.param('slug'),
+      body.answers,
+    )
 
     return context.json(submitResponse(outcome), 201)
   })
@@ -94,9 +104,12 @@ export function mountPublicFormRoutes(
    * else's marketing site, and it has no business bringing the CRM bundle with
    * it. A paused form still renders, and says so; only its submit is closed.
    */
-  router.get('/forms/:publicKey/embed', async (context) => {
-    const publicKey = context.req.param('publicKey')
-    const form = await repository.findFormByPublicKey(dependencies.db, publicKey)
+  router.get('/workspaces/:workspaceId/forms/:formId/embed', async (context) => {
+    const form = await repository.findForm(
+      dependencies.db,
+      context.req.param('workspaceId'),
+      context.req.param('formId'),
+    )
 
     if (form === undefined) {
       throw AppError.notFound('Form not found')
@@ -127,7 +140,7 @@ export function mountPublicFormRoutes(
       form,
       fields,
       consentPurposeLabels,
-      submitUrl: `${requestOrigin(context)}${PUBLIC_ROUTE_PREFIX}/forms/${publicKey}/submit`,
+      submitUrl: submitUrlFor(context, form.workspaceId, form.slug),
       nonce,
       workspaceName: workspace.name,
       layout,
@@ -136,7 +149,9 @@ export function mountPublicFormRoutes(
     context.header('Content-Security-Policy', embedContentSecurityPolicy(nonce))
     // The page is per-form and changes whenever the form is edited. A short
     // shared cache keeps a popular landing page off the database on every view
-    // without leaving an edited form stale for long.
+    // without leaving an edited form stale for long. That includes the submit
+    // URL: for up to this long after a slug change, a cached page still posts
+    // to the old slug and gets a 404.
     context.header('Cache-Control', 'public, max-age=60')
 
     return context.html(page)

@@ -233,14 +233,19 @@ describe.skipIf(connectionString === undefined)('idempotency keys', () => {
   })
 
   it('does not require credentials on a public route', async () => {
-    const response = await harness.app.request('/v1/public/forms/not-a-real-key/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'public-key' },
-      body: JSON.stringify({ answers: {} }),
-    })
+    const response = await harness.app.request(
+      '/v1/public/workspaces/workspace_unknown/forms/not-a-real-slug/submit',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'public-key' },
+        body: JSON.stringify({ answers: {} }),
+      },
+    )
 
     // Not found, from the form lookup — not 401, which is what an actor
-    // resolution attempt on a public route would have answered instead.
+    // resolution attempt on a public route would have answered instead. The
+    // message proves the handler ran: an unmatched path is a 404 too.
     expect(response.status).toBe(404)
+    expect(JSON.stringify(await response.json())).toContain('Form not found')
   })
 })

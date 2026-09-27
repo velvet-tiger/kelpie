@@ -232,10 +232,10 @@ describe.skipIf(connectionString === undefined)('events', () => {
         .filter((field): field is Record<string, unknown> => typeof field === 'object' && field !== null)
         .map((field) => [String(field.label), String(field.id)]),
     )
-    const publicKey = readString(form, 'public_key')
+    const formPath = `${acme.workspaceId}/forms/${readString(form, 'slug')}`
     const answers = { [ids.Name ?? '']: 'Alex Rivera', [ids.Email ?? '']: 'alex@example.com' }
 
-    const first = await client.send('POST', `/v1/public/forms/${publicKey}/submit`, {
+    const first = await client.send('POST', `/v1/public/workspaces/${formPath}/submit`, {
       body: { answers },
     })
 
@@ -259,7 +259,7 @@ describe.skipIf(connectionString === undefined)('events', () => {
       ]),
     )
 
-    const second = await client.send('POST', `/v1/public/forms/${publicKey}/submit`, {
+    const second = await client.send('POST', `/v1/public/workspaces/${formPath}/submit`, {
       body: { answers },
     })
 

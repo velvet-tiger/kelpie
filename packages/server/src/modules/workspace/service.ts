@@ -474,7 +474,6 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         await seedStarterForms(tx, {
           workspaceId,
           createId: dependencies.createId,
-          generatePublicKey: generateToken,
           consentPurposeIdsBySlug,
         })
 

@@ -74,7 +74,7 @@ function form(overrides: Partial<FormRecord> = {}): FormRecord {
     enquiryOwnerId: null,
     personTags: [],
     companyTags: [],
-    publicKey: 'pk_test',
+    slug: 'contact',
     createdAt: stamp,
     updatedAt: stamp,
     searchVector: null,
@@ -82,7 +82,7 @@ function form(overrides: Partial<FormRecord> = {}): FormRecord {
   }
 }
 
-const submitUrl = 'https://kelpie.test/v1/public/forms/pk_test/submit'
+const submitUrl = 'https://kelpie.test/v1/public/workspaces/ws_1/forms/contact/submit'
 
 function render(
   overrides: Partial<FormRecord> = {},
@@ -308,27 +308,27 @@ describe('embedContentSecurityPolicy', () => {
 describe('embedSnippets', () => {
   it('offers an iframe that needs no JavaScript, pointed at the bare embed URL', () => {
     const snippets = embedSnippets(
-      'https://kelpie.test/v1/public/forms/pk_test/embed?view=page',
-      'https://kelpie.test/v1/public/forms/pk_test/embed',
+      'https://kelpie.test/v1/public/workspaces/ws_1/forms/form_1/embed?view=page',
+      'https://kelpie.test/v1/public/workspaces/ws_1/forms/form_1/embed',
       'form_1',
     )
 
     expect(snippets.url).toContain('view=page')
-    expect(snippets.embedUrl).toBe('https://kelpie.test/v1/public/forms/pk_test/embed')
-    expect(snippets.iframe).toContain('<iframe src="https://kelpie.test/v1/public/forms/pk_test/embed"')
+    expect(snippets.embedUrl).toBe('https://kelpie.test/v1/public/workspaces/ws_1/forms/form_1/embed')
+    expect(snippets.iframe).toContain('<iframe src="https://kelpie.test/v1/public/workspaces/ws_1/forms/form_1/embed"')
     expect(snippets.iframe).not.toContain('view=page')
     expect(snippets.iframe).not.toContain('<script')
   })
 
   it('offers a script that resizes the frame as the page grows', () => {
     const snippets = embedSnippets(
-      'https://kelpie.test/v1/public/forms/pk_test/embed?view=page',
-      'https://kelpie.test/v1/public/forms/pk_test/embed',
+      'https://kelpie.test/v1/public/workspaces/ws_1/forms/form_1/embed?view=page',
+      'https://kelpie.test/v1/public/workspaces/ws_1/forms/form_1/embed',
       'form_1',
     )
 
     expect(snippets.script).toContain("event.data.kelpie === 'height'")
     expect(snippets.script).toContain("event.data.formId === 'form_1'")
-    expect(snippets.script).toContain('src="https://kelpie.test/v1/public/forms/pk_test/embed"')
+    expect(snippets.script).toContain('src="https://kelpie.test/v1/public/workspaces/ws_1/forms/form_1/embed"')
   })
 })

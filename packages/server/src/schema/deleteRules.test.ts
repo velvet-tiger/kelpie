@@ -181,7 +181,7 @@ describe.skipIf(connectionString === undefined)('delete rules', () => {
       workspaceId: fixture.workspaceId,
       name: 'Contact us',
       title: 'Contact us',
-      publicKey: `pk_${formId}`,
+      slug: 'contact',
     })
     await database.db.insert(formFields).values({
       id: createId('formField'),
@@ -213,7 +213,7 @@ describe.skipIf(connectionString === undefined)('delete rules', () => {
       workspaceId: fixture.workspaceId,
       name: 'Contact us',
       title: 'Contact us',
-      publicKey: `pk_${formId}`,
+      slug: 'contact',
     })
     const submissionId = createId('formSubmission')
     await database.db.insert(formSubmissions).values({

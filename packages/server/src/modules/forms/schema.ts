@@ -4,7 +4,7 @@ import {
   FORM_STATUSES,
 } from '@kelpie/schemas'
 import type { FormOptionValueType, FormSubmissionActionEntry } from '@kelpie/schemas'
-import { boolean, index, integer, jsonb, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
+import { boolean, index, integer, jsonb, pgTable, primaryKey, text, uniqueIndex } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, createdAt, moment, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
 import type { SearchVectorPart } from '../../lib/columns.ts'
@@ -59,8 +59,8 @@ export interface StoredFormFieldOption {
 }
 
 /**
- * Embeddable inbound forms. `public_key` is globally unique because the public
- * submit endpoint resolves the workspace from it, with no credentials.
+ * Embeddable inbound forms. The public submit and embed URLs name the workspace
+ * by id and the form by `slug`, so `slug` is unique per workspace only.
  *
  * The opportunity/partnership trigger columns mirror the deal trigger: a
  * toggle, an optional stage (null → first open at submit), a required kind
@@ -123,7 +123,7 @@ export const forms = pgTable(
     }),
     personTags: text('person_tags').array().notNull().default([]),
     companyTags: text('company_tags').array().notNull().default([]),
-    publicKey: text('public_key').notNull().unique(),
+    slug: text('slug').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     searchVector: searchVector((): readonly SearchVectorPart[] => [
@@ -134,6 +134,7 @@ export const forms = pgTable(
   },
   (table) => [
     index('forms_workspace_idx').on(table.workspaceId),
+    uniqueIndex('forms_workspace_slug_idx').on(table.workspaceId, table.slug),
     index('forms_search_idx').using('gin', table.searchVector),
     checkOneOf('forms_status_check', table.status, FORM_STATUSES),
   ],

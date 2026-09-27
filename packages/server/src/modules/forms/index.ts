@@ -12,7 +12,7 @@ import { registerFormsTools } from './tools.ts'
  * Forms: embeddable inbound capture.
  *
  * The only core module with a public surface. Managing forms needs credentials
- * like everything else; submitting one needs nothing but the form's `publicKey`,
+ * like everything else; submitting one needs nothing but its workspace id and `slug`,
  * because the caller is a stranger's browser on a stranger's website.
  *
  * It requires everything a submit writes. `people`, `companies` and `positions`
