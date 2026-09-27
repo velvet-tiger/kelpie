@@ -292,6 +292,9 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
         status: 'succeeded',
         inputTokens: 100,
         outputTokens: 50,
+        // The pasted notes are personal data; a settled run keeps none of them.
+        prompt: null,
+        context: null,
       })
     })
 

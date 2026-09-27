@@ -1,5 +1,8 @@
 import type { Queryable } from '../../runtime/transaction.ts'
-import { and, asc, count, desc, eq, gte, lt, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gte, inArray, lt, notInArray, sql } from 'drizzle-orm'
+
+import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
+import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 
 import type { OperationOutcome } from './proposal.ts'
 import type { AiRunStatus } from '@kelpie/schemas'
@@ -38,6 +41,7 @@ export interface AiSettingsRow {
   readonly model: string | null
   readonly apiKeyEncrypted: string | null
   readonly webSearch: boolean
+  readonly runLogLimit: number | null
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -51,9 +55,8 @@ export interface AiRunRecord {
   readonly targetId: string
   readonly status: AiRunStatus
   readonly model: string
-  readonly prompt: string
+  readonly prompt: string | null
   readonly context: AiRunContext | null
-  readonly output: string | null
   readonly operations: readonly OperationOutcome[] | null
   readonly failureReason: string | null
   readonly inputTokens: number | null
@@ -71,9 +74,8 @@ function toRun(row: {
   targetId: string
   status: string
   model: string
-  prompt: string
+  prompt: string | null
   context: unknown
-  output: string | null
   operations: unknown
   failureReason: string | null
   inputTokens: number | null
@@ -94,7 +96,6 @@ function toRun(row: {
     model: row.model,
     prompt: row.prompt,
     context: row.context === null ? null : (row.context as AiRunContext),
-    output: row.output,
     operations:
       row.operations === null ? null : (row.operations as readonly OperationOutcome[]),
     failureReason: row.failureReason,
@@ -310,7 +311,7 @@ export async function sweepStaleRuns(
 ): Promise<number> {
   const rows = await db
     .update(aiRuns)
-    .set({ status: 'failed', failureReason: reason, updatedAt: now })
+    .set({ status: 'failed', failureReason: reason, prompt: null, context: null, updatedAt: now })
     .where(
       and(
         eq(aiRuns.workspaceId, workspaceId),
@@ -358,7 +359,6 @@ export async function claimOldestQueuedRun(
 
 export interface SettleRunInput {
   readonly status: AiRunStatus
-  readonly output?: string | null
   readonly operations?: readonly OperationOutcome[] | null
   readonly failureReason?: string | null
   readonly inputTokens?: number | null
@@ -371,9 +371,10 @@ export async function settleRun(
   changes: SettleRunInput,
   now: Date,
 ): Promise<void> {
-  const update: Record<string, unknown> = { status: changes.status, updatedAt: now }
+  // A settled run keeps metadata only. The prompt and the context bag hold
+  // personal data and nothing reads them after the run, so they go now.
+  const update: Record<string, unknown> = { status: changes.status, prompt: null, context: null, updatedAt: now }
 
-  if (changes.output !== undefined) update.output = changes.output
   if (changes.operations !== undefined) update.operations = changes.operations
   if (changes.failureReason !== undefined) update.failureReason = changes.failureReason
   if (changes.inputTokens !== undefined) update.inputTokens = changes.inputTokens
@@ -391,19 +392,61 @@ export async function touchRun(db: Queryable, id: string, now: Date): Promise<vo
   await db.update(aiRuns).set({ updatedAt: now }).where(eq(aiRuns.id, id))
 }
 
+export const RUN_SORTS: SortableFields<AiRunRecord> = {
+  created_at: timestampSort(aiRuns.createdAt, (run) => run.createdAt),
+}
+
+/** Newest first: a run log is read to find out what just happened. */
+export const DEFAULT_RUN_SORT = '-created_at'
+
 export async function listRuns(
   db: Queryable,
   workspaceId: string,
-  limit: number,
-): Promise<readonly AiRunRecord[]> {
+  window: ListWindow<AiRunRecord>,
+): Promise<AiRunRecord[]> {
   const rows = await db
     .select()
     .from(aiRuns)
-    .where(eq(aiRuns.workspaceId, workspaceId))
-    .orderBy(desc(aiRuns.createdAt), asc(aiRuns.id))
-    .limit(limit)
+    .where(and(eq(aiRuns.workspaceId, workspaceId), keysetCondition(window, aiRuns.id)))
+    .orderBy(...orderByWindow(window, aiRuns.id))
+    .limit(window.fetchLimit)
 
   return rows.map(toRun)
+}
+
+/**
+ * Deletes the workspace's settled runs that fall outside its newest `keep`
+ * runs. Runs created on or after `keepSince` stay whatever `keep` says,
+ * because the monthly run limit counts this table: deleting a run from the
+ * current month would hand its run back. Queued and running rows stay too.
+ * Answers how many rows went.
+ */
+export async function trimRuns(
+  db: Queryable,
+  workspaceId: string,
+  keep: number,
+  keepSince: Date,
+): Promise<number> {
+  const newest = db
+    .select({ id: aiRuns.id })
+    .from(aiRuns)
+    .where(eq(aiRuns.workspaceId, workspaceId))
+    .orderBy(desc(aiRuns.createdAt), desc(aiRuns.id))
+    .limit(keep)
+
+  const deleted = await db
+    .delete(aiRuns)
+    .where(
+      and(
+        eq(aiRuns.workspaceId, workspaceId),
+        inArray(aiRuns.status, ['succeeded', 'failed']),
+        lt(aiRuns.createdAt, keepSince),
+        notInArray(aiRuns.id, newest),
+      ),
+    )
+    .returning({ id: aiRuns.id })
+
+  return deleted.length
 }
 
 export async function findRun(

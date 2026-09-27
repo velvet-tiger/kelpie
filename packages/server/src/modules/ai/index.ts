@@ -23,6 +23,7 @@ import {
   AI_RUNS_LIMIT,
   DEFAULT_MAX_CONCURRENT_RUNS,
   DEFAULT_MAX_OUTPUT_TOKENS,
+  DEFAULT_RUN_LOG_LIMIT,
   DEFAULT_RUN_TIMEOUT_MINUTES,
 } from './rules.ts'
 import * as schema from './schema.ts'
@@ -92,6 +93,7 @@ const configSchema = z.object({
   AI_MAX_TOKENS: z.coerce.number().int().min(1024).max(128_000).default(DEFAULT_MAX_OUTPUT_TOKENS),
   AI_MAX_CONCURRENT_RUNS: z.coerce.number().int().min(1).max(20).default(DEFAULT_MAX_CONCURRENT_RUNS),
   AI_RUN_TIMEOUT_MINUTES: z.coerce.number().int().positive().max(240).default(DEFAULT_RUN_TIMEOUT_MINUTES),
+  AI_RUN_LOG_LIMIT: z.coerce.number().int().min(1).default(DEFAULT_RUN_LOG_LIMIT),
 })
 
 export type AiProviderFactory = (options: { readonly apiKey: string }) => AiProviderPort
@@ -210,6 +212,7 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         executor,
         now: context.now,
         runTimeoutMinutes: config.AI_RUN_TIMEOUT_MINUTES,
+        runLogLimit: config.AI_RUN_LOG_LIMIT,
         log: context.log,
       })
 

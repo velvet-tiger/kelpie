@@ -28,6 +28,12 @@ export const DEFAULT_MAX_CONCURRENT_RUNS = 2
 
 export const DEFAULT_RUN_TIMEOUT_MINUTES = 15
 
+/**
+ * How many runs a workspace keeps in its run log when neither
+ * `AI_RUN_LOG_LIMIT` nor the workspace's own `run_log_limit` says otherwise.
+ */
+export const DEFAULT_RUN_LOG_LIMIT = 100
+
 export const DEFAULT_MAX_OUTPUT_TOKENS = 16000
 
 /**

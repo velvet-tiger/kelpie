@@ -324,7 +324,6 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
     prompt: string,
     body: (sync: { readonly runId: string; readonly model: string; readonly webSearch: boolean }) => Promise<{
       readonly result: Result
-      readonly output: string
       readonly inputTokens: number
       readonly outputTokens: number
     }>,
@@ -338,7 +337,6 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
       settled = true
       await dependencies.service.settleSyncRun(runId, {
         status: 'succeeded',
-        output: outcome.output,
         inputTokens: outcome.inputTokens,
         outputTokens: outcome.outputTokens,
       })
@@ -438,7 +436,6 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
 
         return {
           result: response,
-          output: candidates.length === 0 ? 'No candidate; asked for more detail' : `${String(candidates.length)} candidate(s)`,
           inputTokens: call.inputTokens,
           outputTokens: call.outputTokens,
         }
@@ -523,7 +520,6 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
 
         return {
           result: response,
-          output: call.value.summary === '' ? `Proposed ${String(items.length)} item(s)` : call.value.summary,
           inputTokens: call.inputTokens,
           outputTokens: call.outputTokens,
         }

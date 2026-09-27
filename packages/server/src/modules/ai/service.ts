@@ -3,6 +3,8 @@ import type { AiKeyMode, AiKeySource, AiProvider } from '@kelpie/schemas'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
+import { readListWindow, toPage } from '../../lib/pagination.ts'
+import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { SecretCipher } from '../../lib/secrets.ts'
 import type { Database } from '../../lib/database.ts'
 import { limitFor } from '../../runtime/entitlements.ts'
@@ -23,8 +25,11 @@ import {
   insertRunIfNew,
   insertRunningRun,
   listRuns,
+  DEFAULT_RUN_SORT,
+  RUN_SORTS,
   settleRun,
   sweepStaleRuns,
+  trimRuns,
   upsertSettings,
 } from './repository.ts'
 import type { AiRunRecord, AiSettingsRow, SettleRunInput } from './repository.ts'
@@ -52,8 +57,6 @@ import {
  * unlimited unless something in the assembly provides a number.
  */
 
-const RUN_LIST_LIMIT = 50
-
 const STALE_RUN_REASON = 'The run exceeded AI_RUN_TIMEOUT_MINUTES and was abandoned'
 const OVER_LIMIT_MESSAGE = 'This workspace has used its monthly AI runs'
 
@@ -78,6 +81,8 @@ export interface AiServiceDependencies {
   readonly executor: AiExecutor
   readonly now: () => Date
   readonly runTimeoutMinutes: number
+  /** `AI_RUN_LOG_LIMIT`. A workspace's own `run_log_limit` overrides it. */
+  readonly runLogLimit: number
   readonly log: Logger
 }
 
@@ -153,7 +158,7 @@ export interface AiService {
   disable(actor: Actor): Promise<void>
   /** What the admin AI page reads. */
   view(actor: Actor): Promise<AiSettingsView>
-  listRuns(actor: Actor): Promise<readonly AiRunView[]>
+  listRuns(actor: Actor, query: ListQueryParameters): Promise<Page<AiRunView>>
   getRun(actor: Actor, id: string): Promise<AiRunView>
   /**
    * Queues a dispatched run. Called only by the in-process dispatcher, so
@@ -217,6 +222,7 @@ function prospectiveRow(
     apiKeyEncrypted:
       changes.apiKey === undefined ? keptKey : changes.apiKey === null ? null : (sealedNewKey ?? null),
     webSearch: changes.webSearch ?? stored?.webSearch ?? true,
+    runLogLimit: stored?.runLogLimit ?? null,
     createdAt: stored?.createdAt ?? now,
     updatedAt: stored?.updatedAt ?? now,
   }
@@ -283,6 +289,18 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
     )
     if (swept > 0) {
       dependencies.log.warn('ai stale runs swept', { workspaceId, count: swept })
+    }
+
+    // Retention, inline for the same reason as the sweep. The month window
+    // is spared so the cap check below still counts every run this month.
+    const trimmed = await trimRuns(
+      dependencies.db,
+      workspaceId,
+      settings.runLogLimit ?? dependencies.runLogLimit,
+      monthWindowStart(now),
+    )
+    if (trimmed > 0) {
+      dependencies.log.info('ai run log trimmed', { workspaceId, count: trimmed })
     }
 
     // Metering: monthly run cap. Over the cap answers 403, which core's
@@ -371,10 +389,12 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       return viewFor(workspaceId)
     },
 
-    async listRuns(actor) {
+    async listRuns(actor, query) {
       const workspaceId = requireWorkspace(actor)
+      const window = readListWindow(query, RUN_SORTS, DEFAULT_RUN_SORT)
+      const rows = await listRuns(dependencies.db, workspaceId, window)
 
-      return listRuns(dependencies.db, workspaceId, RUN_LIST_LIMIT)
+      return toPage(rows, window, (run) => run.id)
     },
 
     async getRun(actor, id) {

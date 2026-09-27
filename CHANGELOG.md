@@ -29,9 +29,29 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/server`, `@kelpie/ui`** — `GET /v1/ai/runs` pages with
+  `limit` and `cursor`, and the **Admin → AI** run log has page controls.
+- **`@kelpie/server`** — Each workspace keeps its newest 100 AI runs.
+  `AI_RUN_LOG_LIMIT` changes the default, and the new
+  `ai_settings.run_log_limit` column overrides it per workspace (no UI yet).
+  Runs from the current month are never deleted, so the monthly run limit
+  still counts them.
 - **`@kelpie/schemas`** — The OpenAI default model is now `gpt-5.6-luna`.
   OpenAI shuts `gpt-5-mini` down on 2026-12-11. A deployment that set
   `AI_MODEL`, or a workspace that chose a model, is not affected.
+
+### Removed
+
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — The AI run log
+  no longer stores the model's reply. `ai_runs.output` and the `output`
+  field on `AiRun` are gone. The `ai` module adds migration
+  `0007_run_log_metadata_only`, which drops the column and deletes the
+  stored text.
+- **`@kelpie/server`** — A finished AI run no longer keeps its prompt or
+  its context. Both hold personal data, for example the notes pasted into
+  person intake. They are cleared when the run succeeds, fails or times out.
+  Migration `0008_clear_settled_run_text` makes `ai_runs.prompt` nullable
+  and clears both on runs that already finished.
 
 ## [0.17.0] - 2026-09-27
 

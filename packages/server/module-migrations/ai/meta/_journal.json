@@ -50,6 +50,20 @@
       "when": 1790503106176,
       "tag": "0006_intake_web_search",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790511045193,
+      "tag": "0007_run_log_metadata_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790511372412,
+      "tag": "0008_clear_settled_run_text",
+      "breakpoints": true
     }
   ]
 }

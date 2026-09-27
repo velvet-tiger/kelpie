@@ -88,6 +88,7 @@ Read by the optional `ai` module, and only when `kelpie.config.ts` lists `create
 | `AI_MAX_TOKENS` | no | The output cap per model call, 1024 to 128000. Default `16000`. |
 | `AI_MAX_CONCURRENT_RUNS` | no | Runs at once per workspace, 1 to 20. Default `2`. More runs queue. |
 | `AI_RUN_TIMEOUT_MINUTES` | no | A run still going after this long is marked failed on the next dispatch. Default `15`. |
+| `AI_RUN_LOG_LIMIT` | no | How many runs each workspace keeps in its run log. Default `100`. A workspace's `ai_settings.run_log_limit` overrides it. Runs from the current month are always kept, because the monthly run limit counts them. |
 
 ## Locking modules for the whole deployment
 

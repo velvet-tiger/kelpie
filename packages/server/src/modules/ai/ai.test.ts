@@ -27,7 +27,7 @@ import { createAiModule } from './index.ts'
 import type { AiModuleOptions } from './index.ts'
 import type { AiCompletionRequest, AiCompletionResult, AiProviderPort } from './provider.ts'
 import { resealAiSecrets } from './reseal.ts'
-import { AI_RUNS_LIMIT } from './rules.ts'
+import { AI_RUNS_LIMIT, monthWindowStart } from './rules.ts'
 import { aiRuns, aiSettings } from './schema.ts'
 
 /**
@@ -353,7 +353,8 @@ function deliver(h: Harness, payload: Record<string, unknown>): Promise<AgentDis
 interface RunRow {
   readonly status: string
   readonly model: string
-  readonly output: string | null
+  readonly prompt: string | null
+  readonly context: unknown
   readonly operations: unknown
   readonly failureReason: string | null
   readonly inputTokens: number | null
@@ -365,7 +366,8 @@ async function fetchRun(h: Harness, agentRunId: string): Promise<RunRow | undefi
     .select({
       status: aiRuns.status,
       model: aiRuns.model,
-      output: aiRuns.output,
+      prompt: aiRuns.prompt,
+      context: aiRuns.context,
       operations: aiRuns.operations,
       failureReason: aiRuns.failureReason,
       inputTokens: aiRuns.inputTokens,
@@ -376,6 +378,40 @@ async function fetchRun(h: Harness, agentRunId: string): Promise<RunRow | undefi
     .limit(1)
 
   return rows[0]
+}
+
+function daysAgo(days: number): Date {
+  return new Date(Date.now() - days * 86_400_000)
+}
+
+/** A settled run row with id `ai_<suffix>`, for tests that seed the log directly. */
+function settledRow(workspaceId: string, suffix: string, createdAt: Date): typeof aiRuns.$inferInsert {
+  return {
+    id: `ai_${suffix}`,
+    workspaceId,
+    agentRunId: `run_${suffix}`,
+    taskId: 'person.enrich',
+    targetType: 'person',
+    targetId: 'per_x',
+    status: 'succeeded',
+    model: 'gpt-5-mini',
+    prompt: 'noop',
+    context: {},
+    createdAt,
+    updatedAt: createdAt,
+  }
+}
+
+/** The workspace's run ids, seeded ones sorted, with any run the module minted shown as `new`. */
+async function runIds(h: Harness, workspaceId: string): Promise<readonly string[]> {
+  const rows = await h.app.services.db
+    .select({ id: aiRuns.id, agentRunId: aiRuns.agentRunId })
+    .from(aiRuns)
+    .where(eq(aiRuns.workspaceId, workspaceId))
+
+  return rows
+    .map((row) => (row.agentRunId === 'run_after_trim' ? 'new' : row.id))
+    .sort()
 }
 
 function settled(h: Harness, agentRunId: string): Promise<RunRow> {
@@ -589,7 +625,9 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(row.status).toBe('succeeded')
       // No AI_MODEL in the environment: the provider's default.
       expect(row.model).toBe('gpt-5.6-luna')
-      expect(row.output).toBe('Enriched Ada Lovelace and added a note.')
+      // Metadata only once settled: the prompt and the context bag hold personal data.
+      expect(row.prompt).toBeNull()
+      expect(row.context).toBeNull()
       expect(row.inputTokens).toBe(100)
       expect(row.outputTokens).toBe(20)
 
@@ -871,6 +909,8 @@ describe.skipIf(connectionString === undefined)('ai', () => {
         return found?.status === 'failed' ? found : undefined
       })
       expect(stale.failureReason).toContain('AI_RUN_TIMEOUT_MINUTES')
+      expect(stale.prompt).toBeNull()
+      expect(stale.context).toBeNull()
     })
 
     it('forgets a workspace when the workspace is deleted', async () => {
@@ -915,8 +955,71 @@ describe.skipIf(connectionString === undefined)('ai', () => {
 
       const runs = readList(await (await h.client.send('GET', '/v1/ai/runs', { cookie })).json())
       expect(runs).toHaveLength(1)
-      expect(runs[0]?.output).toBe('listed')
+      // Metadata only: the model's reply is never stored or served.
+      expect(runs[0]).not.toHaveProperty('output')
       expect(runs[0]?.operations).toEqual([])
+    })
+
+    it('pages the run log with a cursor', async () => {
+      const { cookie, workspaceId } = await enabledWorkspace(h)
+      const base = Date.now() - 60_000
+      await h.app.services.db.insert(aiRuns).values(
+        [0, 1, 2].map((index) => settledRow(workspaceId, `page_${String(index)}`, new Date(base + index * 1000))),
+      )
+
+      const first = readRecord(await (await h.client.send('GET', '/v1/ai/runs?limit=2', { cookie })).json())
+      const firstIds = (first.data as readonly { readonly id: string }[]).map((run) => run.id)
+      expect(firstIds).toEqual(['ai_page_2', 'ai_page_1'])
+      expect(typeof first.next_cursor).toBe('string')
+
+      const second = readRecord(
+        await (
+          await h.client.send('GET', `/v1/ai/runs?limit=2&cursor=${encodeURIComponent(String(first.next_cursor))}`, {
+            cookie,
+          })
+        ).json(),
+      )
+      expect((second.data as readonly { readonly id: string }[]).map((run) => run.id)).toEqual(['ai_page_0'])
+      expect(second.next_cursor).toBeNull()
+    })
+
+    it('trims settled runs past the workspace run log limit', async () => {
+      const { workspaceId } = await enabledWorkspace(h)
+      await h.app.services.db.update(aiSettings).set({ runLogLimit: 3 }).where(eq(aiSettings.workspaceId, workspaceId))
+      const thisMonth = new Date(monthWindowStart(new Date()).getTime() + 1000)
+      await h.app.services.db
+        .insert(aiRuns)
+        .values([
+          settledRow(workspaceId, 'current', thisMonth),
+          settledRow(workspaceId, 'old_1', daysAgo(40)),
+          settledRow(workspaceId, 'old_2', daysAgo(41)),
+          settledRow(workspaceId, 'old_3', daysAgo(42)),
+        ])
+
+      h.provider.queue(endTurn(proposal({ summary: 'ok' }), { inputTokens: 1, outputTokens: 1 }))
+      await deliver(h, dispatchBody({ runId: 'run_after_trim', workspaceId }))
+      await settled(h, 'run_after_trim')
+
+      expect(await runIds(h, workspaceId)).toEqual(['ai_current', 'ai_old_1', 'ai_old_2', 'new'])
+    })
+
+    it('never trims a run from the current month, so the monthly count holds', async () => {
+      const { workspaceId } = await enabledWorkspace(h)
+      await h.app.services.db.update(aiSettings).set({ runLogLimit: 1 }).where(eq(aiSettings.workspaceId, workspaceId))
+      const monthStart = monthWindowStart(new Date()).getTime()
+      await h.app.services.db
+        .insert(aiRuns)
+        .values([
+          settledRow(workspaceId, 'current_1', new Date(monthStart + 1000)),
+          settledRow(workspaceId, 'current_2', new Date(monthStart + 2000)),
+          settledRow(workspaceId, 'old_1', daysAgo(40)),
+        ])
+
+      h.provider.queue(endTurn(proposal({ summary: 'ok' }), { inputTokens: 1, outputTokens: 1 }))
+      await deliver(h, dispatchBody({ runId: 'run_after_trim', workspaceId }))
+      await settled(h, 'run_after_trim')
+
+      expect(await runIds(h, workspaceId)).toEqual(['ai_current_1', 'ai_current_2', 'new'])
     })
 
     it('reseals a dispatch secret left by the HTTP version, and is idempotent', async () => {

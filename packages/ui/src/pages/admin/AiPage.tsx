@@ -8,6 +8,7 @@ import { useAiRuns, useAiSettings, useDisableAi, useSaveAiSettings } from '../..
 import { Chip } from '../../components/Chip.tsx'
 import type { ChipTone } from '../../components/Chip.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
+import { Paginator } from '../../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { formatRelativeTime } from '../../lib/dates.ts'
 
@@ -316,7 +317,8 @@ function SettingsPanel({ settings }: { readonly settings: AiSettings }): React.J
 }
 
 function RunLog(): React.JSX.Element {
-  const { records: runs, isLoading, error } = useAiRuns()
+  const list = useAiRuns()
+  const { records: runs, isLoading, error } = list
   const timezone = useTimezone()
 
   return (
@@ -348,11 +350,6 @@ function RunLog(): React.JSX.Element {
                   : ''}
               </p>
               {run.failureReason !== null && <p className="mt-2 text-[12px] text-danger">{run.failureReason}</p>}
-              {run.output !== null && (
-                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2 text-[12px] text-ink">
-                  {run.output}
-                </pre>
-              )}
               {run.operations !== null && run.operations.length > 0 && (
                 <ul className="mt-2 flex flex-col gap-1">
                   {run.operations.map((operation, index) => (
@@ -368,6 +365,7 @@ function RunLog(): React.JSX.Element {
           ))}
         </ul>
       )}
+      {runs.length > 0 && <Paginator list={list} />}
     </section>
   )
 }

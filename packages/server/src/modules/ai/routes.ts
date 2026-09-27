@@ -3,6 +3,7 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError, toErrorDetails } from '../../lib/errors.ts'
+import { pageBody, readListParameters } from '../../lib/http.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { AiRunView, AiService, AiSettingsChanges, AiSettingsView } from './service.ts'
@@ -83,7 +84,6 @@ function runBody(run: AiRunView): Record<string, unknown> {
     target_id: run.targetId,
     status: run.status,
     model: run.model,
-    output: run.output,
     operations: run.operations,
     failure_reason: run.failureReason,
     input_tokens: run.inputTokens,
@@ -122,9 +122,9 @@ export function mountAiRoutes(router: Hono, dependencies: AiRoutesDependencies):
 
   router.get('/ai/runs', async (context) => {
     const actor = await resolveActorFrom(dependencies, context)
-    const runs = await dependencies.service.listRuns(actor)
+    const page = await dependencies.service.listRuns(actor, readListParameters(context))
 
-    return context.json({ data: runs.map(runBody), next_cursor: null })
+    return context.json(pageBody(page, runBody))
   })
 
   router.get('/ai/runs/:id', async (context) => {

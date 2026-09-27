@@ -17,7 +17,8 @@ import { AI_RUN_STATUSES } from '@kelpie/schemas'
  * here with the module. The first four keep their cloud journal timestamps,
  * so a database that applied them there sees them as done.
  *
- * `ai_runs` records every run this module handled. The dedupe key is the
+ * `ai_runs` records every run this module handled: metadata only, never the
+ * model's reply. The dedupe key is the
  * `agent_run_id` core assigned, because core dispatches at-least-once in
  * principle (in practice one attempt with no retries, per its own dispatch
  * doctrine) and the intake must be idempotent regardless.
@@ -27,38 +28,50 @@ import { AI_RUN_STATUSES } from '@kelpie/schemas'
  * `workspace.deleted` in `service.ts`.
  */
 
-export const aiSettings = pgTable('ai_settings', {
-  workspaceId: text('workspace_id').primaryKey(),
-  /**
-   * The sealed `Bearer` header core's engine sent when it dispatched to this
-   * module over HTTP. Core now dispatches in-process, so nothing reads it and
-   * every save writes null. Kept, nullable, so older rows need no data
-   * migration; the reseal pass still covers the values that remain.
-   */
-  dispatchSecretEncrypted: text('dispatch_secret_encrypted'),
-  /**
-   * `workspace` key mode only. The provider the admin picked; null falls back
-   * to `AI_PROVIDER`. Text rather than an enum, like `status` below, and
-   * checked against `AI_PROVIDERS` when read.
-   */
-  provider: text('provider'),
-  /** `workspace` key mode only. Null falls back to `AI_MODEL`, then the provider's default. */
-  model: text('model'),
-  /**
-   * `workspace` key mode only. The provider API key, sealed with
-   * `SECRET_ENCRYPTION_KEY`. Null falls back to `AI_API_KEY`. Never returned
-   * on the wire; the settings view shows its last four characters.
-   */
-  apiKeyEncrypted: text('api_key_encrypted'),
-  /**
-   * Whether person intake may hand the model the provider's web search tool.
-   * Either key mode: it is a workspace choice about research, not about the
-   * provider. Agent-task runs never search, whatever this says.
-   */
-  webSearch: boolean('web_search').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
-})
+export const aiSettings = pgTable(
+  'ai_settings',
+  {
+    workspaceId: text('workspace_id').primaryKey(),
+    /**
+     * The sealed `Bearer` header core's engine sent when it dispatched to this
+     * module over HTTP. Core now dispatches in-process, so nothing reads it and
+     * every save writes null. Kept, nullable, so older rows need no data
+     * migration; the reseal pass still covers the values that remain.
+     */
+    dispatchSecretEncrypted: text('dispatch_secret_encrypted'),
+    /**
+     * `workspace` key mode only. The provider the admin picked; null falls back
+     * to `AI_PROVIDER`. Text rather than an enum, like `status` below, and
+     * checked against `AI_PROVIDERS` when read.
+     */
+    provider: text('provider'),
+    /** `workspace` key mode only. Null falls back to `AI_MODEL`, then the provider's default. */
+    model: text('model'),
+    /**
+     * `workspace` key mode only. The provider API key, sealed with
+     * `SECRET_ENCRYPTION_KEY`. Null falls back to `AI_API_KEY`. Never returned
+     * on the wire; the settings view shows its last four characters.
+     */
+    apiKeyEncrypted: text('api_key_encrypted'),
+    /**
+     * Whether person intake may hand the model the provider's web search tool.
+     * Either key mode: it is a workspace choice about research, not about the
+     * provider. Agent-task runs never search, whatever this says.
+     */
+    webSearch: boolean('web_search').notNull().default(true),
+    /**
+     * How many runs this workspace keeps in `ai_runs`. Null falls back to
+     * `AI_RUN_LOG_LIMIT`. No UI sets it yet; an operator can write it directly.
+     */
+    runLogLimit: integer('run_log_limit'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Zero would trim every settled run from before this month.
+    check('ai_settings_run_log_limit_check', sql`${table.runLogLimit} is null or ${table.runLogLimit} >= 1`),
+  ],
+)
 
 export const aiRuns = pgTable(
   'ai_runs',
@@ -76,21 +89,21 @@ export const aiRuns = pgTable(
     /** Model this run used, recorded so a later model change does not rewrite history. */
     model: text('model').notNull(),
     /**
-     * The rendered task prompt core sent to intake. Stored so the executor
-     * can replay it after a crash-and-sweep cycle and so the run log can show
-     * exactly what the model was asked.
+     * The rendered task prompt core sent to intake, or the text a person
+     * intake call sent. Held only while the run is in flight, because the
+     * executor claims a queued run by id and needs the prompt to start it.
+     * Cleared when the run settles or is swept: it holds personal data.
      */
-    prompt: text('prompt').notNull(),
+    prompt: text('prompt'),
     /**
      * The `context` bag from core's dispatch payload (`target_label`, deep
      * link, related id buckets, and so on). Persisted alongside the prompt
      * because the executor runs after the intake returns 202 — a claim from
      * `claimOldestQueuedRun` is the only handle it has, and the ids in this
-     * bag are what the context-pack builder reads from.
+     * bag are what the context-pack builder reads from. Cleared with
+     * `prompt` when the run settles, since `target_label` names the record.
      */
     context: jsonb('context'),
-    /** The model's summary of what it proposed. Null until the run settles. */
-    output: text('output'),
     /**
      * The per-operation outcome list this run applied. Null until settle.
      * Shape: `[{ kind, status: 'applied'|'failed'|'skipped', detail }]`.

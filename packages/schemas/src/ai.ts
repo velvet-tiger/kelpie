@@ -139,7 +139,6 @@ export interface AiRun extends RecordTimestamps {
   readonly targetId: string
   readonly status: AiRunStatus
   readonly model: string
-  readonly output: string | null
   readonly operations: readonly AiOperationOutcome[] | null
   readonly failureReason: string | null
   readonly inputTokens: number | null
@@ -161,7 +160,6 @@ export const aiRunSchema: z.ZodType<AiRun, unknown> = z
     target_id: idSchema,
     status: z.enum(AI_RUN_STATUSES),
     model: z.string(),
-    output: z.string().nullable(),
     operations: z.array(operationOutcomeSchema).nullable(),
     failure_reason: z.string().nullable(),
     input_tokens: z.number().int().nullable(),
@@ -177,7 +175,6 @@ export const aiRunSchema: z.ZodType<AiRun, unknown> = z
       targetId: wire.target_id,
       status: wire.status,
       model: wire.model,
-      output: wire.output,
       operations: wire.operations,
       failureReason: wire.failure_reason,
       inputTokens: wire.input_tokens,

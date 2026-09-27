@@ -135,6 +135,18 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
 
   async function execute(run: AiRunRecord): Promise<void> {
     try {
+      // Only a settled run loses its prompt, and a claim takes queued rows.
+      if (run.prompt === null) {
+        await settleRun(
+          dependencies.db,
+          run.id,
+          { status: 'failed', failureReason: 'The run has no prompt to send' },
+          dependencies.now(),
+        )
+        return
+      }
+      const prompt = run.prompt
+
       const targetType = toKnownTargetType(run.targetType)
       if (targetType === undefined) {
         await settleRun(
@@ -205,7 +217,7 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
 
       const initialMessage: AiMessage = {
         role: 'user',
-        text: renderUserMessage(run.prompt, pack.markdown),
+        text: renderUserMessage(prompt, pack.markdown),
       }
       const messages: AiMessage[] = [initialMessage]
 
@@ -295,7 +307,6 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
         run.id,
         {
           status: 'succeeded',
-          output: validated.proposal.summary,
           operations: outcomes,
           inputTokens,
           outputTokens,

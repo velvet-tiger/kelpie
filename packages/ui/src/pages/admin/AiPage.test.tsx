@@ -40,7 +40,6 @@ const FAILED_RUN = {
   target_id: 'per_1',
   status: 'failed',
   model: 'claude-opus-5',
-  output: null,
   operations: null,
   failure_reason: 'The Anthropic API key was rejected. Check the key in AI settings.',
   input_tokens: null,
