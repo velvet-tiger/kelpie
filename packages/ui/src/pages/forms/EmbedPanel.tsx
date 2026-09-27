@@ -160,10 +160,14 @@ function EmbedPreviewModal({
       return
     }
 
+    // The same check the pasted snippet makes: only the embed page may resize it.
+    const embedOrigin = new URL(url, window.location.href).origin
+
     function onMessage(event: MessageEvent): void {
       const data = event.data as { kelpie?: string; formId?: string; height?: number } | null
 
       if (
+        event.origin !== embedOrigin ||
         data === null ||
         typeof data !== 'object' ||
         data.kelpie !== 'height' ||
@@ -182,7 +186,7 @@ function EmbedPreviewModal({
     return () => {
       window.removeEventListener('message', onMessage)
     }
-  }, [formId, mode])
+  }, [formId, mode, url])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {

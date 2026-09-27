@@ -261,6 +261,20 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
 
       expect(sameOrigin.status).toBe(200)
 
+      // Behind a proxy that ends TLS: the request arrives as http, the page is https.
+      const behindProxy = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://localhost',
+          'X-Forwarded-Proto': 'https',
+          Authorization: `Bearer ${workspaceKey}`,
+        },
+        body: JSON.stringify(request(1, 'ping')),
+      })
+
+      expect(behindProxy.status).toBe(200)
+
       // What a real MCP client sends: no Origin at all, because it is not a browser.
       expect((await post(request(1, 'ping'))).status).toBe(200)
     })

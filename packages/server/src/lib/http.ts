@@ -23,9 +23,24 @@ export const PUBLIC_ROUTE_PREFIX = '/v1/public'
  * reached from and needs no new environment variable. Behind a proxy it is only
  * right if that proxy preserves the external `Host`, which is the same condition
  * every redirect and cookie domain already depends on.
+ *
+ * A proxy that ends TLS (Fly, a load balancer) forwards plain `http`, so the
+ * request URL alone says `http` on an `https` site. The scheme comes from
+ * `X-Forwarded-Proto` when it says `http` or `https`. It is trusted without the
+ * hop count `X-Forwarded-For` needs, because a forged value does no harm here:
+ * it changes the snippets shown to the caller who forged it, and a cross-origin
+ * browser cannot send a custom header past a CORS preflight to pass the MCP
+ * origin check.
  */
 export function requestOrigin(context: Context): string {
-  return new URL(context.req.url).origin
+  const url = new URL(context.req.url)
+  const forwarded = context.req.header('X-Forwarded-Proto')?.split(',')[0]?.trim().toLowerCase()
+
+  if (forwarded === 'http' || forwarded === 'https') {
+    url.protocol = `${forwarded}:`
+  }
+
+  return url.origin
 }
 
 /**

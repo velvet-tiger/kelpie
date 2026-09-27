@@ -599,8 +599,13 @@ export interface EmbedSnippets {
  * is the same form without page chrome — what belongs inside somebody else's
  * site. The plain iframe is fixed height; the script listens for height
  * messages as fields appear and as the thank-you replaces the form.
+ *
+ * The listener accepts a message only from the embed URL's origin, so another
+ * frame on the customer's page cannot resize the form. A parsed URL's origin
+ * holds no quote or angle bracket, so it is safe inside the script literal.
  */
 export function embedSnippets(hostedUrl: string, embedUrl: string, formId: string): EmbedSnippets {
+  const embedOrigin = new URL(embedUrl).origin
   const iframe =
     `<iframe src="${escapeHtml(embedUrl)}" title="Contact form" ` +
     `style="width:100%;border:0;height:720px" loading="lazy"></iframe>`
@@ -610,6 +615,7 @@ export function embedSnippets(hostedUrl: string, embedUrl: string, formId: strin
     `        style="width:100%;border:0;height:720px" loading="lazy"></iframe>`,
     `<script>`,
     `  window.addEventListener('message', function (event) {`,
+    `    if (event.origin !== '${embedOrigin}') return;`,
     `    if (event.data && event.data.kelpie === 'height' && event.data.formId === '${formId}') {`,
     `      document.getElementById('kelpie-${formId}').style.height = event.data.height + 'px';`,
     `    }`,

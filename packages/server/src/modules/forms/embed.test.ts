@@ -331,4 +331,14 @@ describe('embedSnippets', () => {
     expect(snippets.script).toContain("event.data.formId === 'form_1'")
     expect(snippets.script).toContain('src="https://kelpie.test/v1/public/workspaces/ws_1/forms/form_1/embed"')
   })
+
+  it('resizes only on messages from the embed origin', () => {
+    const snippets = embedSnippets(
+      'https://kelpie.test:8443/v1/public/workspaces/ws_1/forms/form_1/embed?view=page',
+      'https://kelpie.test:8443/v1/public/workspaces/ws_1/forms/form_1/embed',
+      'form_1',
+    )
+
+    expect(snippets.script).toContain("if (event.origin !== 'https://kelpie.test:8443') return;")
+  })
 })
