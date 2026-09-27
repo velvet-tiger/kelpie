@@ -12,14 +12,13 @@ import {
   useDeleteAgent,
 } from '../../api/resources/agentTasks.ts'
 import { useMcpTools } from '../../api/resources/mcpTools.ts'
-import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { CopyButton } from '../../components/CopyButton.tsx'
 import { formatRelativeTime } from '../../lib/dates.ts'
 import { mcpClientConfig, mcpEndpoint } from '../../lib/mcpConfig.ts'
 
 /**
- * How an agent connects to this workspace.
+ * How an agent connects to this workspace: the MCP tab on Admin → AI.
  *
  * Everything on the page is derived rather than written down. The endpoint comes
  * from the origin the browser reached the app on, the same way a form's embed URL
@@ -50,14 +49,13 @@ function matches(tool: McpTool, term: string): boolean {
   )
 }
 
-export function McpPage(): React.JSX.Element {
+/** The MCP tab on Admin → AI. Core, so every install has it. */
+export function McpPanel(): React.JSX.Element {
   const endpoint = mcpEndpoint()
   const config = mcpClientConfig(endpoint, 'kp_live_…')
 
   return (
-    <div className="animate-slide-in mx-auto max-w-4xl space-y-6">
-      <PageHeader title="MCP" description="Connect agents to this workspace over Streamable HTTP." />
-
+    <div className="space-y-6">
       <section className="rounded-md border border-border p-5">
         <h2 className="text-[15px] font-semibold text-ink">How agents use Kelpie</h2>
         <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-muted">

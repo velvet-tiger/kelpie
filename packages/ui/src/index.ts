@@ -208,12 +208,14 @@ export type { ThemePreference } from './lib/theme.ts'
 
 export { EXTENSIBLE_RECORD_TYPES, NAV_SLOTS } from './registry/contributions.ts'
 export type {
+  AdminTab,
   AgentRunner,
   AgentRunnerAvailability,
   AgentRunnerProgress,
   AuthMethod,
   AuthMethodContext,
   DashboardCard,
+  ExtensibleAdminPage,
   ExtensibleRecordType,
   NavItem,
   NavSlot,
@@ -232,6 +234,7 @@ export { NO_UI_MODULES, UiModuleError, inSlotOrder, registerUiModules } from './
 export type { UiExtensions, UiModule, UiModuleContext } from './registry/registry.ts'
 
 export {
+  useAdminTabs,
   useAgentRunner,
   useAuthMethods,
   useDashboardCards,
@@ -250,5 +253,5 @@ export type { UiExtensionProviderProps } from './registry/UiExtensionProvider.ts
 // The optional `ai` module's UI. An assembly that lists `createAiModule()` on
 // the server lists `aiUi` in its `uiModules`.
 export { aiUi } from './modules/ai.tsx'
-export { AiPage } from './pages/admin/AiPage.tsx'
+export { AiRunLogTab, AiSettingsTab } from './pages/admin/AiPage.tsx'
 export { useAiRuns, useAiSettings, useDisableAi, useSaveAiSettings } from './api/resources/ai.ts'

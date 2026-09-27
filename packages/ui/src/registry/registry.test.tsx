@@ -110,6 +110,7 @@ describe('an assembly with no UI modules', () => {
     expect(NO_UI_MODULES.routes()).toEqual([])
     expect(NO_UI_MODULES.recordTabs('person')).toEqual([])
     expect(NO_UI_MODULES.recordSidebarCards('company')).toEqual([])
+    expect(NO_UI_MODULES.adminTabs('ai')).toEqual([])
     expect(NO_UI_MODULES.dashboardCards()).toEqual([])
     expect(NO_UI_MODULES.authMethods()).toEqual([])
     expect(NO_UI_MODULES.navItems('account')).toEqual([])
@@ -231,6 +232,23 @@ describe('a build that would break at runtime', () => {
     }
 
     expect(() => registerUiModules([gmailModule, clashing])).toThrow(/already taken/u)
+  })
+
+  it('orders admin tabs, and refuses two modules claiming one admin tab id', () => {
+    const tabs = (id: string, entries: readonly [string, number][]): UiModule => ({
+      id,
+      register: (context) => {
+        for (const [tabId, order] of entries) {
+          context.adminTab('ai', { id: tabId, label: tabId, order, render: () => <p>{tabId}</p> })
+        }
+      },
+    })
+
+    const extensions = registerUiModules([tabs('one', [['runs', 200]]), tabs('two', [['settings', 100]])])
+    expect(extensions.adminTabs('ai').map((tab) => tab.id)).toEqual(['settings', 'runs'])
+    expect(() => registerUiModules([tabs('one', [['runs', 200]]), tabs('two', [['runs', 300]])])).toThrow(
+      /already taken/u,
+    )
   })
 
   it('allows one id in two different slots', () => {

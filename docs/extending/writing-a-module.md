@@ -46,7 +46,7 @@ export const flags: KelpieModule = {
 
 ## Agents a module runs
 
-A module can register its own agent for the Run menu. Write a row to `agent_registrations` with `managed_by` set to the module's id, and call `context.agentDispatch.provide(dispatcher)` in `register`. Core then hands each run for that row to your dispatcher in-process, with the same payload it would POST to an HTTP agent, and records the outcome you return (`{ delivered, status, reason }`) on the run. Queue the work and return quickly, as an HTTP receiver would. Core refuses `PATCH` and `DELETE` on a managed row, and the MCP page links to its `settings_path`. The `ai` module is the example.
+A module can register its own agent for the Run menu. Write a row to `agent_registrations` with `managed_by` set to the module's id, and call `context.agentDispatch.provide(dispatcher)` in `register`. Core then hands each run for that row to your dispatcher in-process, with the same payload it would POST to an HTTP agent, and records the outcome you return (`{ delivered, status, reason }`) on the run. Queue the work and return quickly, as an HTTP receiver would. Core refuses `PATCH` and `DELETE` on a managed row, and the MCP tab on Admin → AI links to its `settings_path`. The `ai` module is the example.
 
 ## Events
 
@@ -70,7 +70,7 @@ export const flagsUi: UiModule = {
 
 Nav slots are `primary`, `admin`, and `account`; there is also `auth.methods` on the signed-out pages, covered below.
 
-Core numbers its own items in hundreds, so an `order` like 250 lands between core entries. Record tabs render on person, company, deal, opportunity, partnership, and raise detail pages. Component overrides go through typed tokens (`defineOverridable` / `context.override`), so an override with the wrong props is a compile error. Clashes — two modules claiming one id, or overriding the same component — fail the build rather than a browser.
+Core numbers its own items in hundreds, so an `order` like 250 lands between core entries. Record tabs render on person, company, deal, opportunity, partnership, and raise detail pages. `context.adminTab('ai', tab)` adds a tab to Admin → AI, beside core's MCP tab; the `ai` module adds its Settings and Run log tabs this way. Its `?tab=` opens a tab by id. Component overrides go through typed tokens (`defineOverridable` / `context.override`), so an override with the wrong props is a compile error. Clashes — two modules claiming one id, or overriding the same component — fail the build rather than a browser.
 
 Two registered slot kinds have **no render site yet**: record sidebar cards and dashboard cards. Contributions to them compile and register but draw nothing until core renders those slots.
 

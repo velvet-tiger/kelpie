@@ -7,7 +7,7 @@ import { ApiProvider } from '../../api/ApiProvider.tsx'
 import { ApiError } from '../../api/client.ts'
 import { setInputValue } from '../../testing/inputs.ts'
 import { stubClient } from '../../testing/stubClient.ts'
-import { McpPage } from './McpPage.tsx'
+import { McpPanel } from './McpPanel.tsx'
 
 afterEach(cleanup)
 
@@ -115,13 +115,13 @@ function renderPage(stubs: PageStubs = {}): void {
   render(
     <MemoryRouter>
       <ApiProvider client={client} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <McpPage />
+        <McpPanel />
       </ApiProvider>
     </MemoryRouter>,
   )
 }
 
-describe('McpPage', () => {
+describe('McpPanel', () => {
   it('shows the endpoint this deployment answers on, not a written-down one', async () => {
     renderPage({ tools: () => ({ items: TOOLS, nextCursor: null }) })
 

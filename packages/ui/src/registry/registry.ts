@@ -1,10 +1,12 @@
 import type { ComponentType } from 'react'
 
 import type {
+  AdminTab,
   AgentRunner,
   AuthMethod,
   PersonIntakeProvider,
   DashboardCard,
+  ExtensibleAdminPage,
   ExtensibleRecordType,
   NavItem,
   NavSlot,
@@ -33,6 +35,8 @@ export interface UiModuleContext {
   route(route: RouteContribution): void
   recordTab(objectType: ExtensibleRecordType, tab: RecordTab): void
   recordSidebarCard(objectType: ExtensibleRecordType, card: RecordSidebarCard): void
+  /** A tab on an admin page core owns, beside core's own tabs. */
+  adminTab(page: ExtensibleAdminPage, tab: AdminTab): void
   dashboardCard(card: DashboardCard): void
   /** Another way to sign in, rendered beside the password form on `/login` and `/signup`. */
   authMethod(method: AuthMethod): void
@@ -55,6 +59,7 @@ export interface UiExtensions {
   routes(): readonly RouteContribution[]
   recordTabs(objectType: ExtensibleRecordType): readonly RecordTab[]
   recordSidebarCards(objectType: ExtensibleRecordType): readonly RecordSidebarCard[]
+  adminTabs(page: ExtensibleAdminPage): readonly AdminTab[]
   dashboardCards(): readonly DashboardCard[]
   authMethods(): readonly AuthMethod[]
   /** The registered runner, or `undefined` when no module provides one. */
@@ -85,6 +90,7 @@ interface Accumulator {
   readonly routes: RouteContribution[]
   readonly recordTabs: Map<ExtensibleRecordType, RecordTab[]>
   readonly recordSidebarCards: Map<ExtensibleRecordType, RecordSidebarCard[]>
+  readonly adminTabs: Map<ExtensibleAdminPage, AdminTab[]>
   readonly dashboardCards: DashboardCard[]
   readonly authMethods: AuthMethod[]
   readonly overrides: OverrideStore
@@ -146,6 +152,11 @@ function createModuleContext(
       pushInto(accumulator.recordSidebarCards, objectType, card)
     },
 
+    adminTab(page, tab) {
+      claim(taken, module.id, `admin.tabs.${page}`, tab.id)
+      pushInto(accumulator.adminTabs, page, tab)
+    },
+
     dashboardCard(card) {
       claim(taken, module.id, 'dashboard.cards', card.id)
       accumulator.dashboardCards.push(card)
@@ -200,6 +211,7 @@ export function registerUiModules(modules: readonly UiModule[]): UiExtensions {
     routes: [],
     recordTabs: new Map(),
     recordSidebarCards: new Map(),
+    adminTabs: new Map(),
     dashboardCards: [],
     authMethods: [],
     overrides: createOverrideStore(),
@@ -222,6 +234,7 @@ export function registerUiModules(modules: readonly UiModule[]): UiExtensions {
     recordTabs: (objectType) => inSlotOrder(accumulator.recordTabs.get(objectType) ?? []),
     recordSidebarCards: (objectType) =>
       inSlotOrder(accumulator.recordSidebarCards.get(objectType) ?? []),
+    adminTabs: (page) => inSlotOrder(accumulator.adminTabs.get(page) ?? []),
     dashboardCards: () => inSlotOrder(accumulator.dashboardCards),
     authMethods: () => inSlotOrder(accumulator.authMethods),
     agentRunner: () => accumulator.agentRunner,

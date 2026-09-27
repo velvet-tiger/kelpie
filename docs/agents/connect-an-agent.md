@@ -2,7 +2,7 @@
 
 Point Claude, Cursor, or any MCP client at a Kelpie workspace. Every operation the app offers is also an MCP tool over Streamable HTTP, so a connected agent reads and writes the same records your team does — through the same API, with the same refusals.
 
-The **Admin → MCP** page in your Kelpie shows the live version of everything here: your exact endpoint URL, a ready-made config snippet, and the current tool catalog (121 tools at the time of writing, and modules can extend it — trust the page, not this number).
+The **Admin → AI → MCP** page in your Kelpie shows the live version of everything here: your exact endpoint URL, a ready-made config snippet, and the current tool catalog (121 tools at the time of writing, and modules can extend it — trust the page, not this number).
 
 ## Step 1: create an API key
 
@@ -54,7 +54,7 @@ Add the block to `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` in on
 
 ## Any other MCP client
 
-The generic shape is the one Admin → MCP generates for you:
+The generic shape is the one Admin → AI → MCP generates for you:
 
 ```json
 {
@@ -77,7 +77,7 @@ The client machine must reach the deployment — an agent on your laptop cannot 
 
 ## Check it works
 
-Ask the client to list tools; the same catalog is on Admin → MCP, and `GET /v1/mcp/tools` returns it over ordinary credentials. Then ask the agent something real: "list the people in my CRM".
+Ask the client to list tools; the same catalog is on Admin → AI → MCP, and `GET /v1/mcp/tools` returns it over ordinary credentials. Then ask the agent something real: "list the people in my CRM".
 
 ## Give the agent the Kelpie skill
 
@@ -100,7 +100,7 @@ MCP connection and **Run** are different paths:
 | | MCP connection | Registered agent (Run) |
 | --- | --- | --- |
 | **Direction** | Agent → Kelpie | Kelpie → your endpoint |
-| **Setup** | API key + MCP config (above) | Register an HTTP endpoint on Admin → MCP |
+| **Setup** | API key + MCP config (above) | Register an HTTP endpoint on Admin → AI → MCP |
 | **Use** | Open-ended CRM work | One-click task dispatch from record pages |
 
 Connecting over MCP does not register the client for Run. To dispatch tasks from the UI without building a receiver, use **Copy prompt** on the record page and paste the resolved prompt into your connected agent.

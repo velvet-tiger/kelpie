@@ -88,7 +88,7 @@ Deliveries and their retries live in the server process — there is no durable 
 
 ## Agent task dispatches
 
-Separate from webhooks and from MCP connection. When someone clicks **Run** on a record page, Kelpie POSTs a resolved task to a **registered agent** — an HTTP endpoint you register on Admin → MCP. Your receiver then calls Kelpie back over the API or MCP with its own key.
+Separate from webhooks and from MCP connection. When someone clicks **Run** on a record page, Kelpie POSTs a resolved task to a **registered agent** — an HTTP endpoint you register on Admin → AI → MCP. Your receiver then calls Kelpie back over the API or MCP with its own key.
 
 Kelpie does not ship a receiver and does not integrate with named AI products directly. Any server that accepts the POST works. MCP clients (Claude, Cursor, …) connect **to** Kelpie; Run dispatches **from** Kelpie **to** your endpoint.
 

@@ -50,7 +50,7 @@ Either kind is shown once at creation and stored hashed; copy it then or make a 
 
 ## Registered agents and Run
 
-**Admin → MCP** also lists **registered agents** — HTTP endpoints Kelpie POSTs to when someone clicks **Run** on a record page. This is the opposite direction from MCP connection: Kelpie sends a resolved task **to** your server, and your server calls Kelpie back over the API or MCP with its own key.
+**Admin → AI → MCP** also lists **registered agents** — HTTP endpoints Kelpie POSTs to when someone clicks **Run** on a record page. This is the opposite direction from MCP connection: Kelpie sends a resolved task **to** your server, and your server calls Kelpie back over the API or MCP with its own key.
 
 Registering is admin work. Running is open to every member. Copy prompt works without a registered agent; Run needs one. Full contract and what works as a receiver: [Agent tasks](../agents/agent-tasks.md).
 

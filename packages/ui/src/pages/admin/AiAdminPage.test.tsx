@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../../api/ApiProvider.tsx'
 import { setInputValue } from '../../testing/inputs.ts'
 import { stubClient } from '../../testing/stubClient.ts'
-import { AiPage } from './AiPage.tsx'
+import { aiUi } from '../../modules/ai.tsx'
+import { registerUiModules } from '../../registry/registry.ts'
+import type { UiModule } from '../../registry/registry.ts'
+import { UiExtensionProvider } from '../../registry/UiExtensionProvider.tsx'
+import { AiAdminPage } from './AiAdminPage.tsx'
 
 afterEach(cleanup)
 
@@ -87,6 +91,9 @@ interface PageStubs {
   readonly settings?: Record<string, unknown>
   readonly runs?: readonly unknown[]
   readonly onPost?: (body: unknown) => Record<string, unknown>
+  /** The UI modules the assembly lists. The `ai` module unless a test says otherwise. */
+  readonly modules?: readonly UiModule[]
+  readonly path?: string
 }
 
 function renderPage(stubs: PageStubs = {}): void {
@@ -118,18 +125,20 @@ function renderPage(stubs: PageStubs = {}): void {
   })
 
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[stubs.path ?? '/admin/ai']}>
       <ApiProvider
         client={client}
         queryClient={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}
       >
-        <AiPage />
+        <UiExtensionProvider extensions={registerUiModules(stubs.modules ?? [aiUi])}>
+          <AiAdminPage />
+        </UiExtensionProvider>
       </ApiProvider>
     </MemoryRouter>,
   )
 }
 
-describe('AiPage', () => {
+describe('AiAdminPage', () => {
   it('sends the provider and the key the admin typed, then hints at the key without showing it', async () => {
     const posted: unknown[] = []
     renderPage({
@@ -224,5 +233,27 @@ describe('AiPage', () => {
     expect(screen.getByRole('link', { name: 'Acme sells to…' }).getAttribute('href')).toBe(`/companies/com_1#${NOTE_ID}`)
     expect(screen.getByText('person_intake.research')).toBeTruthy()
     expect(screen.queryByText(/ws_01M1DDZF4C4QW2W2NW3K2XV0C5/u)).toBeNull()
+  })
+
+  it('opens on Settings, with MCP after the module tabs', async () => {
+    renderPage({})
+
+    expect(await screen.findByText('Kelpie AI')).toBeTruthy()
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Settings', 'Run log', 'MCP'])
+    expect(screen.getByRole('tab', { name: 'Settings' }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('shows only the core MCP tab when the assembly lists no ai module', () => {
+    renderPage({ modules: [] })
+
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['MCP'])
+    expect(screen.getByText('Streamable HTTP endpoint')).toBeTruthy()
+  })
+
+  it('opens the tab ?tab= names, which is where /admin/mcp redirects', () => {
+    renderPage({ path: '/admin/ai?tab=mcp' })
+
+    expect(screen.getByRole('tab', { name: 'MCP' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('Streamable HTTP endpoint')).toBeTruthy()
   })
 })

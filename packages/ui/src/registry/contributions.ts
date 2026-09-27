@@ -82,6 +82,20 @@ export interface RecordTab {
   readonly render: (context: RecordContext) => ReactNode
 }
 
+/**
+ * An admin page whose tabs modules may add to. `ai` is Admin → AI: core owns
+ * the page and its MCP tab, and the optional `ai` module adds Kelpie AI's
+ * settings and run log.
+ */
+export type ExtensibleAdminPage = 'ai'
+
+export interface AdminTab {
+  readonly id: string
+  readonly label: string
+  readonly order?: number
+  readonly render: () => ReactNode
+}
+
 export interface RecordSidebarCard {
   readonly id: string
   readonly order?: number

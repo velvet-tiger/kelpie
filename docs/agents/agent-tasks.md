@@ -39,7 +39,7 @@ The resolved payload carries the prompt in two framings: `prompt`, written for a
 
 **Run** sends the identical resolved payload to a **registered agent** — an HTTP endpoint you operate. Copy and Run resolve from the same source, so the two can never drift.
 
-Register agents on **Admin → MCP**: a name, an endpoint URL, and an optional auth header. The header is sent as `Authorization` on every dispatch, stored encrypted, and never shown again. A URL with credentials embedded in it is refused — the auth header is where the secret belongs. Registering is admin work; running is open to every member, because the Run action on record pages is built from this list.
+Register agents on **Admin → AI → MCP**: a name, an endpoint URL, and an optional auth header. The header is sent as `Authorization` on every dispatch, stored encrypted, and never shown again. A URL with credentials embedded in it is refused — the auth header is where the secret belongs. Registering is admin work; running is open to every member, because the Run action on record pages is built from this list.
 
 ## What works as a registered agent
 
@@ -66,7 +66,7 @@ Each Run creates a run: `queued`, then `running` while the POST is in flight, th
 
 A run keeps metadata only: the task, the target, the status and the failure reason. The prompt holds personal data from the record, so Kelpie does not store it, and `GET /v1/agent-runs` does not return it. Your receiver gets the prompt once, in the dispatch POST. To see a prompt again, use **Preview** or `POST /v1/agent-tasks/:task_id/resolve`.
 
-Recent runs appear on **Admin → MCP** below the registered agents list.
+Recent runs appear on **Admin → AI → MCP** below the registered agents list.
 
 ## Dispatch contract
 

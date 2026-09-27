@@ -9,18 +9,17 @@ import { useAiRuns, useAiSettings, useDisableAi, useSaveAiSettings } from '../..
 import { Chip } from '../../components/Chip.tsx'
 import type { ChipTone } from '../../components/Chip.tsx'
 import { LinkedText } from '../../components/LinkedText.tsx'
-import { PageHeader } from '../../components/PageHeader.tsx'
 import { Paginator } from '../../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
-import { RecordTabs } from '../../components/RecordTabs.tsx'
 import { formatRelativeTime } from '../../lib/dates.ts'
 import { targetHref } from '../../lib/recordLinks.ts'
 
 /**
- * The AI admin page at `/admin/ai`, from the optional `ai` module.
+ * The optional `ai` module's two tabs on Admin → AI, the core page at
+ * `/admin/ai` (`AiAdminPage`), beside core's MCP tab.
  *
- * Two tabs: the settings for Kelpie AI in this workspace, and its run log.
- * Both read the same `/v1/ai/*` endpoints an agent would use.
+ * Settings for Kelpie AI in this workspace, and its run log. Both read the
+ * same `/v1/ai/*` endpoints an agent would use.
  *
  * What the settings part shows depends on the module's key mode. In
  * `workspace` mode an admin picks a provider, pastes their own API key, and
@@ -420,33 +419,20 @@ function RunLog(): React.JSX.Element {
   )
 }
 
-type AiTab = 'settings' | 'runs'
-
-export function AiPage(): React.JSX.Element {
+/** The Settings tab the `ai` module adds to Admin → AI. */
+export function AiSettingsTab(): React.JSX.Element {
   const { record: settings, isLoading, error } = useAiSettings()
-  const [tab, setTab] = useState<AiTab>('settings')
 
   return (
-    <div className="animate-slide-in mx-auto max-w-4xl space-y-6">
-      <PageHeader title="AI" description="Run agent tasks with your own model provider." />
-      <RecordTabs
-        tabs={[
-          { id: 'settings', label: 'Settings' },
-          { id: 'runs', label: 'Run log' },
-        ]}
-        active={tab}
-        onChange={setTab}
-        ariaLabel="AI sections"
-      >
-        {tab === 'settings' && (
-          <>
-            {isLoading && <LoadingPanel label="Loading AI settings…" />}
-            {error !== null && <ErrorPanel error={error} />}
-            {settings !== undefined && <SettingsPanel settings={settings} />}
-          </>
-        )}
-        {tab === 'runs' && <RunLog />}
-      </RecordTabs>
-    </div>
+    <>
+      {isLoading && <LoadingPanel label="Loading AI settings…" />}
+      {error !== null && <ErrorPanel error={error} />}
+      {settings !== undefined && <SettingsPanel settings={settings} />}
+    </>
   )
+}
+
+/** The Run log tab the `ai` module adds to Admin → AI. */
+export function AiRunLogTab(): React.JSX.Element {
+  return <RunLog />
 }

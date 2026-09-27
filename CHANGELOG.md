@@ -12,9 +12,14 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
-- **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — The **Admin → AI**
-  page has **Settings** and **Run log** tabs. Each run names the record it
-  ran on and links to it, and each operation links the records its detail
+- **`@kelpie/ui`** — **MCP moves under Admin → AI.** Core now owns
+  `/admin/ai` and its **MCP** tab, so every install has the AI menu item.
+  The `ai` module adds **Settings** and **Run log** tabs before it.
+  `/admin/mcp` redirects to `/admin/ai?tab=mcp`, and `?tab=` opens a tab by
+  id. New UI slot: `context.adminTab('ai', tab)` (`AdminTab`,
+  `ExtensibleAdminPage`, `useAdminTabs`).
+- **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — Each AI run
+  names the record it ran on and links to it, and each operation links the records its detail
   cites, as Activity rows do. A `workspace` run no longer shows the
   workspace id. `GET /v1/ai/runs[/:id]` adds `target_name` to a run and
   `references` to each operation.
@@ -48,6 +53,9 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Removed
 
+- **`@kelpie/ui`** — The `AiPage` export. The `ai` module's content is now
+  the `AiSettingsTab` and `AiRunLogTab` exports, on core's Admin → AI page.
+  The `ai` module no longer adds its own AI nav item or `admin/ai` route.
 - **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — The AI run log
   no longer stores the model's reply. `ai_runs.output` and the `output`
   field on `AiRun` are gone. The `ai` module adds migration

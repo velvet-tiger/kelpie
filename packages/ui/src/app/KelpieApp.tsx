@@ -41,11 +41,11 @@ import { PersonalApiKeysPage } from '../pages/account/PersonalApiKeysPage.tsx'
 import { PreferencesPage } from '../pages/account/PreferencesPage.tsx'
 import { ProfilePage } from '../pages/account/ProfilePage.tsx'
 import { SecurityPage } from '../pages/account/SecurityPage.tsx'
+import { AiAdminPage } from '../pages/admin/AiAdminPage.tsx'
 import { ApiKeysPage } from '../pages/admin/ApiKeysPage.tsx'
 import { DataPage } from '../pages/admin/DataPage.tsx'
 import { FieldsPage } from '../pages/admin/FieldsPage.tsx'
 import { PrivacyPage } from '../pages/admin/PrivacyPage.tsx'
-import { McpPage } from '../pages/admin/McpPage.tsx'
 import { ModulesPage } from '../pages/admin/ModulesPage.tsx'
 import { TeamPage } from '../pages/admin/TeamPage.tsx'
 import { WebhooksPage } from '../pages/admin/WebhooksPage.tsx'
@@ -200,7 +200,9 @@ function AppRoutes(): React.JSX.Element {
           <Route path="admin/privacy" element={<PrivacyPage />} />
           <Route path="admin/data" element={<DataPage />} />
           <Route path="admin/api-keys" element={<ApiKeysPage />} />
-          <Route path="admin/mcp" element={<McpPage />} />
+          <Route path="admin/ai" element={<AiAdminPage />} />
+          {/* MCP moved to a tab on Admin → AI. */}
+          <Route path="admin/mcp" element={<Navigate to="/admin/ai?tab=mcp" replace />} />
           <Route path="admin/webhooks" element={<WebhooksPage />} />
           <Route path="admin/modules" element={<ModulesPage />} />
           {/* The mockup's own shape: /account opens the first tab. */}

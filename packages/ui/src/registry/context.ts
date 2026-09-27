@@ -2,9 +2,11 @@ import { createContext, useContext } from 'react'
 import type { ComponentType } from 'react'
 
 import type {
+  AdminTab,
   AgentRunner,
   AuthMethod,
   DashboardCard,
+  ExtensibleAdminPage,
   ExtensibleRecordType,
   NavItem,
   NavSlot,
@@ -50,6 +52,11 @@ export function useRecordTabs(objectType: ExtensibleRecordType): readonly Record
 
 export function useRecordSidebarCards(objectType: ExtensibleRecordType): readonly RecordSidebarCard[] {
   return useUiExtensions().recordSidebarCards(objectType)
+}
+
+/** Module tabs for an admin page, in order. The page merges its own tabs in. */
+export function useAdminTabs(page: ExtensibleAdminPage): readonly AdminTab[] {
+  return useUiExtensions().adminTabs(page)
 }
 
 export function useDashboardCards(): readonly DashboardCard[] {
