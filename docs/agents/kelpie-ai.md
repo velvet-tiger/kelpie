@@ -25,7 +25,7 @@ Only admins can change these settings. Every member can run a task.
 3. The model replies with a summary and a list of operations: update allowed fields on the record, add a note, pin a note, add a plan item, record a decision, or add a position.
 4. Kelpie checks each operation and applies it through the same tools any agent uses. It drops fields and operations that the task does not allow, and records each drop.
 
-The **Admin → AI** run log shows each run: its status, the model, the token counts, and each operation with its outcome. It stores metadata only. The model's reply is never stored, and the prompt and context sent to the model are deleted when the run ends. Each workspace keeps its newest 100 runs, or the number `AI_RUN_LOG_LIMIT` sets. Runs from the current month are always kept.
+The **Admin → AI** page has two tabs, **Settings** and **Run log**. The run log shows each run: its status, the record it ran on, the model, the token counts, and each operation with its outcome. The record, and any record an operation names, link to their pages. It stores metadata only. The model's reply is never stored, and the prompt and context sent to the model are deleted when the run ends. Each workspace keeps its newest 100 runs, or the number `AI_RUN_LOG_LIMIT` sets. Runs from the current month are always kept.
 
 If the provider refuses the key, or the account has no quota, the run fails with the provider's message. Fix the key in **Admin → AI** and run the task again.
 

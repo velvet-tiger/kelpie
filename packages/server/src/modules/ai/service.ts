@@ -1,4 +1,5 @@
-import type { AiKeyMode, AiKeySource, AiProvider } from '@kelpie/schemas'
+import { isRecordReferenceType } from '@kelpie/schemas'
+import type { AiKeyMode, AiKeySource, AiProvider, RecordReference } from '@kelpie/schemas'
 
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -11,6 +12,9 @@ import { limitFor } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import { actorWorkspaceId } from '../auth/actor.ts'
+import { resolveReferences } from '../recordReferences.ts'
+import type { ReferenceTarget } from '../recordReferences.ts'
+import { targetKey } from '../recordTargets.ts'
 import type { Actor } from '../auth/actor.ts'
 import { roleAllows } from '../workspace/roles.ts'
 import type { AiCredentialResolver, AiCredentials } from './credentials.ts'
@@ -32,6 +36,7 @@ import {
   trimRuns,
   upsertSettings,
 } from './repository.ts'
+import type { OperationOutcome } from './proposal.ts'
 import type { AiRunRecord, AiSettingsRow, SettleRunInput } from './repository.ts'
 import {
   AI_RUNS_LIMIT,
@@ -119,7 +124,59 @@ export interface AiSyncRun {
   readonly webSearch: boolean
 }
 
-export interface AiRunView extends AiRunRecord {}
+/** An operation as the run log shows it: its outcome plus the records its detail cites. */
+export interface AiOperationView extends OperationOutcome {
+  readonly references: readonly RecordReference[]
+}
+
+/**
+ * A run as the API returns one: the stored row, plus the name of the record it
+ * ran on and the records each operation's detail cites. A `workspace` target
+ * has no name: the log shows the task alone.
+ */
+export interface AiRunView extends Omit<AiRunRecord, 'operations'> {
+  readonly targetName: string | null
+  readonly operations: readonly AiOperationView[] | null
+}
+
+/**
+ * The record a run's target names, as a citation. `handbook` is a handbook page.
+ * A `workspace` target is not named: the log shows the task alone.
+ */
+function runTarget(run: AiRunRecord): ReferenceTarget | undefined {
+  const targetType = run.targetType === 'handbook' ? 'handbook_page' : run.targetType
+
+  return isRecordReferenceType(targetType)
+    ? { targetType, targetId: run.targetId }
+    : undefined
+}
+
+/** Names every run's target and each operation's cited records in one lookup for the page. */
+async function toRunViews(db: Database, workspaceId: string, runs: readonly AiRunRecord[]): Promise<AiRunView[]> {
+  const { names, referencesIn } = await resolveReferences(
+    db,
+    workspaceId,
+    runs.flatMap((run) => (run.operations ?? []).map((operation) => operation.detail)),
+    runs.flatMap((run) => {
+      const target = runTarget(run)
+
+      return target === undefined ? [] : [target]
+    }),
+  )
+
+  return runs.map((run) => {
+    const target = runTarget(run)
+
+    return {
+      ...run,
+      targetName: target === undefined ? null : (names.get(targetKey(target)) ?? null),
+      operations:
+        run.operations === null
+          ? null
+          : run.operations.map((operation) => ({ ...operation, references: referencesIn(operation.detail) })),
+    }
+  })
+}
 
 /**
  * The `context` bag core sends on dispatch. Loose on purpose — new keys pass
@@ -393,8 +450,9 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       const workspaceId = requireWorkspace(actor)
       const window = readListWindow(query, RUN_SORTS, DEFAULT_RUN_SORT)
       const rows = await listRuns(dependencies.db, workspaceId, window)
+      const page = toPage(rows, window, (run) => run.id)
 
-      return toPage(rows, window, (run) => run.id)
+      return { ...page, items: await toRunViews(dependencies.db, workspaceId, page.items) }
     },
 
     async getRun(actor, id) {
@@ -405,7 +463,13 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
         throw AppError.notFound('No AI run has that id')
       }
 
-      return run
+      const [view] = await toRunViews(dependencies.db, workspaceId, [run])
+
+      if (view === undefined) {
+        throw new Error('toRunViews returned no view for one run')
+      }
+
+      return view
     },
 
     async accept(payload) {

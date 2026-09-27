@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { recordReferenceSchema } from './reference.ts'
+import type { RecordReference } from './reference.ts'
 import { AGENT_TASK_TARGET_TYPES } from './values.ts'
 import type { AgentTaskTargetType } from './values.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
@@ -129,6 +131,8 @@ export interface AiOperationOutcome {
   readonly kind: string
   readonly status: 'applied' | 'failed' | 'skipped'
   readonly detail: string
+  /** The records `detail` names by id. See `RecordReference`. */
+  readonly references: readonly RecordReference[]
 }
 
 export interface AiRun extends RecordTimestamps {
@@ -137,6 +141,8 @@ export interface AiRun extends RecordTimestamps {
   readonly taskId: string
   readonly targetType: AgentTaskTargetType
   readonly targetId: string
+  /** The name of the record the run was on. Null for a `workspace` target, or a record since deleted. */
+  readonly targetName: string | null
   readonly status: AiRunStatus
   readonly model: string
   readonly operations: readonly AiOperationOutcome[] | null
@@ -149,6 +155,7 @@ const operationOutcomeSchema = z.object({
   kind: z.string(),
   status: z.enum(['applied', 'failed', 'skipped']),
   detail: z.string(),
+  references: z.array(recordReferenceSchema),
 })
 
 export const aiRunSchema: z.ZodType<AiRun, unknown> = z
@@ -158,6 +165,7 @@ export const aiRunSchema: z.ZodType<AiRun, unknown> = z
     task_id: z.string(),
     target_type: z.enum(AGENT_TASK_TARGET_TYPES),
     target_id: idSchema,
+    target_name: z.string().nullable(),
     status: z.enum(AI_RUN_STATUSES),
     model: z.string(),
     operations: z.array(operationOutcomeSchema).nullable(),
@@ -173,6 +181,7 @@ export const aiRunSchema: z.ZodType<AiRun, unknown> = z
       taskId: wire.task_id,
       targetType: wire.target_type,
       targetId: wire.target_id,
+      targetName: wire.target_name,
       status: wire.status,
       model: wire.model,
       operations: wire.operations,

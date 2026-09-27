@@ -1,17 +1,20 @@
 import { AI_DEFAULT_MODELS, AI_PROVIDER_LABELS, AI_PROVIDERS } from '@kelpie/schemas'
-import type { AiProvider, AiRun, AiSettings, AiSettingsInput } from '@kelpie/schemas'
+import type { AgentTaskTargetType, AiProvider, AiRun, AiSettings, AiSettingsInput } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link } from 'react-router'
 
 import { useTimezone } from '../../api/resources/account.ts'
 import { useAiRuns, useAiSettings, useDisableAi, useSaveAiSettings } from '../../api/resources/ai.ts'
 import { Chip } from '../../components/Chip.tsx'
 import type { ChipTone } from '../../components/Chip.tsx'
+import { LinkedText } from '../../components/LinkedText.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { Paginator } from '../../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { RecordTabs } from '../../components/RecordTabs.tsx'
 import { formatRelativeTime } from '../../lib/dates.ts'
+import { targetHref } from '../../lib/recordLinks.ts'
 
 /**
  * The AI admin page at `/admin/ai`, from the optional `ai` module.
@@ -37,6 +40,21 @@ const OPERATION_TONES: Readonly<Record<string, ChipTone>> = {
   applied: 'success',
   failed: 'danger',
   skipped: 'neutral',
+}
+
+/** A `workspace` target is not shown: every run is in this workspace. */
+const TARGET_TYPE_LABELS: Readonly<Record<Exclude<AgentTaskTargetType, 'workspace'>, string>> = {
+  person: 'Person',
+  company: 'Company',
+  deal: 'Deal',
+  opportunity: 'Opportunity',
+  partnership: 'Partnership',
+  raise: 'Raise',
+  enquiry: 'Enquiry',
+  event: 'Event',
+  candidate: 'Candidate',
+  role: 'Role',
+  handbook: 'Handbook page',
 }
 
 const inputClass =
@@ -317,6 +335,37 @@ function SettingsPanel({ settings }: { readonly settings: AiSettings }): React.J
   )
 }
 
+/**
+ * `Company · Acme`, with the name linked to the record's page, as an Activity
+ * row names its record. Nothing for a `workspace` target. The type alone when
+ * the record has no name, because it has since been deleted.
+ */
+function RunTarget({ run }: { readonly run: AiRun }): React.JSX.Element | null {
+  if (run.targetType === 'workspace') {
+    return null
+  }
+
+  const href = targetHref(run.targetType === 'handbook' ? 'handbook_page' : run.targetType, run.targetId)
+
+  return (
+    <span className="text-[12px] text-ink-muted">
+      {TARGET_TYPE_LABELS[run.targetType]}
+      {run.targetName !== null && (
+        <>
+          {' · '}
+          {href === undefined ? (
+            run.targetName
+          ) : (
+            <Link to={href} title={run.targetId} className="hover:text-accent hover:underline">
+              {run.targetName}
+            </Link>
+          )}
+        </>
+      )}
+    </span>
+  )
+}
+
 function RunLog(): React.JSX.Element {
   const list = useAiRuns()
   const { records: runs, isLoading, error } = list
@@ -339,9 +388,7 @@ function RunLog(): React.JSX.Element {
               <div className="flex flex-wrap items-center gap-2">
                 <Chip tone={STATUS_TONES[run.status]}>{run.status}</Chip>
                 <span className="text-[13px] font-medium text-ink">{run.taskId}</span>
-                <span className="text-[12px] text-ink-muted">
-                  {run.targetType} · {run.targetId}
-                </span>
+                <RunTarget run={run} />
                 <span className="ml-auto text-[12px] text-ink-faint">{formatRelativeTime(run.createdAt, timezone)}</span>
               </div>
               <p className="mt-1 text-[12px] text-ink-muted">
@@ -357,7 +404,9 @@ function RunLog(): React.JSX.Element {
                     <li key={`${run.id}-op-${String(index)}`} className="flex flex-wrap items-center gap-2 text-[12px]">
                       <Chip tone={OPERATION_TONES[operation.status] ?? 'neutral'}>{operation.status}</Chip>
                       <span className="font-medium text-ink">{operation.kind}</span>
-                      <span className="text-ink-muted">{operation.detail}</span>
+                      <span className="text-ink-muted">
+                        <LinkedText text={operation.detail} references={operation.references} />
+                      </span>
                     </li>
                   ))}
                 </ul>

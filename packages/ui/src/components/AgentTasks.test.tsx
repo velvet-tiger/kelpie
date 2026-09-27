@@ -100,6 +100,7 @@ function aiRunWire(status: string): Record<string, unknown> {
     task_id: 'company.enrich',
     target_type: 'company',
     target_id: 'com_1',
+    target_name: 'Acme',
     status,
     model: 'claude-opus-5',
     output: null,

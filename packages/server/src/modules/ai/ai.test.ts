@@ -983,6 +983,62 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(second.next_cursor).toBeNull()
     })
 
+    it('names each run target and the records its operations cite, but not the workspace', async () => {
+      const { cookie, workspaceId } = await enabledWorkspace(h)
+      const company = readRecord(
+        await (await h.client.send('POST', '/v1/companies', { body: { name: 'Acme' }, cookie })).json(),
+      )
+      const note = readRecord(
+        await (
+          await h.client.send('POST', '/v1/notes', {
+            body: { target_type: 'company', target_id: company.id, body: 'Acme sells to banks.' },
+            cookie,
+          })
+        ).json(),
+      )
+      const base = Date.now() - 60_000
+      await h.app.services.db.insert(aiRuns).values([
+        {
+          ...settledRow(workspaceId, 'named_company', new Date(base)),
+          taskId: 'company.account_brief',
+          targetType: 'company',
+          targetId: String(company.id),
+          operations: [{ kind: 'append_note', status: 'applied', detail: `Created note ${String(note.id)}` }],
+        },
+        {
+          ...settledRow(workspaceId, 'named_workspace', new Date(base + 1000)),
+          taskId: 'person_intake.research',
+          targetType: 'workspace',
+          targetId: workspaceId,
+        },
+      ])
+
+      const runs = readList(await (await h.client.send('GET', '/v1/ai/runs', { cookie })).json())
+      expect(runs.map((run) => [run.id, run.target_name])).toEqual([
+        ['ai_named_workspace', null],
+        ['ai_named_company', 'Acme'],
+      ])
+      expect(runs[1]?.operations).toEqual([
+        {
+          kind: 'append_note',
+          status: 'applied',
+          detail: `Created note ${String(note.id)}`,
+          references: [
+            {
+              target_type: 'note',
+              target_id: note.id,
+              name: 'Acme sells to banks.',
+              parent_type: 'company',
+              parent_id: company.id,
+            },
+          ],
+        },
+      ])
+
+      const single = readRecord(await (await h.client.send('GET', '/v1/ai/runs/ai_named_company', { cookie })).json())
+      expect(single.target_name).toBe('Acme')
+    })
+
     it('trims settled runs past the workspace run log limit', async () => {
       const { workspaceId } = await enabledWorkspace(h)
       await h.app.services.db.update(aiSettings).set({ runLogLimit: 3 }).where(eq(aiSettings.workspaceId, workspaceId))

@@ -6,6 +6,7 @@ import { AppError, toErrorDetails } from '../../lib/errors.ts'
 import { pageBody, readListParameters } from '../../lib/http.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { referenceResponse } from '../recordReferences.ts'
 import type { AiRunView, AiService, AiSettingsChanges, AiSettingsView } from './service.ts'
 
 /**
@@ -82,9 +83,16 @@ function runBody(run: AiRunView): Record<string, unknown> {
     task_id: run.taskId,
     target_type: run.targetType,
     target_id: run.targetId,
+    target_name: run.targetName,
     status: run.status,
     model: run.model,
-    operations: run.operations,
+    operations:
+      run.operations?.map((operation) => ({
+        kind: operation.kind,
+        status: operation.status,
+        detail: operation.detail,
+        references: operation.references.map(referenceResponse),
+      })) ?? null,
     failure_reason: run.failureReason,
     input_tokens: run.inputTokens,
     output_tokens: run.outputTokens,

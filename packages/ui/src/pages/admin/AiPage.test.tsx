@@ -38,6 +38,7 @@ const FAILED_RUN = {
   task_id: 'person.enrich',
   target_type: 'person',
   target_id: 'per_1',
+  target_name: 'Ada Lovelace',
   status: 'failed',
   model: 'claude-opus-5',
   operations: null,
@@ -46,6 +47,40 @@ const FAILED_RUN = {
   output_tokens: null,
   created_at: '2026-09-20T01:00:00.000Z',
   updated_at: '2026-09-20T01:00:05.000Z',
+}
+
+const NOTE_ID = 'note_01M3FYKBGF5BZ0C2SN5E97VQAK'
+
+const APPLIED_RUN = {
+  ...FAILED_RUN,
+  id: 'ai_2',
+  task_id: 'company.account_brief',
+  target_type: 'company',
+  target_id: 'com_1',
+  target_name: 'Acme',
+  status: 'succeeded',
+  failure_reason: null,
+  operations: [
+    {
+      kind: 'append_note',
+      status: 'applied',
+      detail: `Created note ${NOTE_ID}`,
+      references: [
+        { target_type: 'note', target_id: NOTE_ID, name: 'Acme sells to…', parent_type: 'company', parent_id: 'com_1' },
+      ],
+    },
+  ],
+}
+
+const WORKSPACE_RUN = {
+  ...FAILED_RUN,
+  id: 'ai_3',
+  task_id: 'person_intake.research',
+  target_type: 'workspace',
+  target_id: 'ws_01M1DDZF4C4QW2W2NW3K2XV0C5',
+  target_name: null,
+  status: 'succeeded',
+  failure_reason: null,
 }
 
 interface PageStubs {
@@ -177,5 +212,17 @@ describe('AiPage', () => {
 
     expect(await screen.findByText('The Anthropic API key was rejected. Check the key in AI settings.')).toBeTruthy()
     expect(screen.getByText('person.enrich')).toBeTruthy()
+  })
+
+  it('links each run to its record and each cited record, and leaves the workspace id out', async () => {
+    renderPage({ runs: [APPLIED_RUN, WORKSPACE_RUN] })
+    act(() => {
+      screen.getByRole('tab', { name: 'Run log' }).click()
+    })
+
+    expect((await screen.findByRole('link', { name: 'Acme' })).getAttribute('href')).toBe('/companies/com_1')
+    expect(screen.getByRole('link', { name: 'Acme sells to…' }).getAttribute('href')).toBe(`/companies/com_1#${NOTE_ID}`)
+    expect(screen.getByText('person_intake.research')).toBeTruthy()
+    expect(screen.queryByText(/ws_01M1DDZF4C4QW2W2NW3K2XV0C5/u)).toBeNull()
   })
 })

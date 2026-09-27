@@ -12,6 +12,12 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — The **Admin → AI**
+  page has **Settings** and **Run log** tabs. Each run names the record it
+  ran on and links to it, and each operation links the records its detail
+  cites, as Activity rows do. A `workspace` run no longer shows the
+  workspace id. `GET /v1/ai/runs[/:id]` adds `target_name` to a run and
+  `references` to each operation.
 - **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **Add a person
   from notes.** People has an **Add from notes** button next to **+**. With
   Kelpie AI ready, a wizard identifies the person from pasted notes,
