@@ -152,6 +152,10 @@ export function NotesField({
         placeholder={'Names, emails, a LinkedIn URL, an email signature, meeting notes…\n\nDana Reyes, dana@brightline.health. Met at HLTH; asked about a pilot.'}
         className="mt-1 block w-full resize-y rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] font-normal text-ink outline-none placeholder:text-ink-faint focus:border-accent disabled:opacity-60"
       />
+      <span className="mt-1 block font-normal text-ink-faint">
+        LinkedIn pages cannot be read without signing in. For the full profile, open it in your own browser, select
+        all, copy, and paste it here.
+      </span>
     </label>
   )
 }

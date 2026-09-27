@@ -270,6 +270,8 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       const [candidate] = body.candidates as Record<string, unknown>[]
 
       expect(h.provider.requests[0]?.webSearch).toEqual({ maxUses: 4 })
+      // LinkedIn cannot be opened; the model is told to read search snippets instead.
+      expect(h.provider.requests[0]?.instructions).toContain('LinkedIn pages cannot be opened')
       expect(h.provider.requests[0]?.messages[0]?.text).toContain('dana@brightline.health')
       expect(candidate).toMatchObject({
         key: 'c1',
@@ -307,6 +309,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
 
       expect(h.provider.requests[0]?.webSearch).toBeUndefined()
       expect(h.provider.requests[0]?.instructions).toContain('Web search is off')
+      expect(h.provider.requests[0]?.instructions).not.toContain('LinkedIn pages cannot be opened')
       // With no search, a URL counts only when the user pasted it.
       expect(body.sources).toEqual([{ url: 'https://brightline.health/team', title: 'Team' }])
     })

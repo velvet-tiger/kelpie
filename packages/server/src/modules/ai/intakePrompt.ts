@@ -18,10 +18,29 @@ const SHARED_RULES = [
   'Reply with one JSON object and nothing else: no prose before or after it, no code fence.',
 ]
 
-function searchLine(webSearch: boolean): string {
+/**
+ * LinkedIn shows a sign-in wall to anyone not logged in, and the provider's
+ * search is not, so a profile page never opens. Search engines do index the
+ * public profile, so the result snippet usually carries the headline,
+ * company and location. Say so, or the model spends its searches on a page
+ * it cannot read.
+ */
+const LINKEDIN_LINES = [
+  'LinkedIn pages cannot be opened: LinkedIn asks every visitor to sign in. Do not try to fetch a linkedin.com URL.',
+  'Treat a LinkedIn URL in the notes as a hint instead: its slug (the part after /in/) usually spells the person\'s name.',
+  'To learn what the profile says, search for the person\'s name with their company and "LinkedIn", and read the search result snippets, which often show the headline, current company and location.',
+  'When the notes contain text pasted from a LinkedIn profile, trust it over search results.',
+]
+
+function searchLines(webSearch: boolean): string[] {
   return webSearch
-    ? 'You may use web search to look the person up. Prefer the company website, professional profiles and reputable press. List every page you relied on in `sources`, with its exact URL.'
-    : 'Web search is off. Work only from the pasted notes and the CRM records below. List in `sources` only URLs that appear in the notes.'
+    ? [
+        'You may use web search to look the person up. Prefer the company website, professional profiles and reputable press. List every page you relied on in `sources`, with its exact URL.',
+        ...LINKEDIN_LINES,
+      ]
+    : [
+        'Web search is off. Work only from the pasted notes and the CRM records below. List in `sources` only URLs that appear in the notes.',
+      ]
 }
 
 export function renderIdentifyInstructions(webSearch: boolean): string {
@@ -29,7 +48,7 @@ export function renderIdentifyInstructions(webSearch: boolean): string {
     'You are Kelpie AI, helping a user add a person to their CRM from notes they pasted.',
     'Your task now: work out who this person is. Do not build the record yet; the user will confirm the person first.',
     '',
-    searchLine(webSearch),
+    ...searchLines(webSearch),
     '',
     'Rules:',
     ...SHARED_RULES.map((rule) => `- ${rule}`),
@@ -59,7 +78,7 @@ export function renderResearchInstructions(webSearch: boolean): string {
     'You are Kelpie AI, helping a user add a person to their CRM from notes they pasted.',
     'The user has confirmed who the person is. Your task now: research them and propose the records to create.',
     '',
-    searchLine(webSearch),
+    ...searchLines(webSearch),
     '',
     'Rules:',
     ...SHARED_RULES.map((rule) => `- ${rule}`),

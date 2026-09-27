@@ -209,7 +209,8 @@ describe('PersonIntakeDialog', () => {
     // Done: every written item, with a link.
     expect(await screen.findByText('Done. Kelpie wrote these records.')).toBeTruthy()
     const applyPost = recorded.posts.find((post) => post.path === '/ai/person-intake/apply')
-    expect((applyPost?.body as { items: { key: string }[] }).items.map((item) => item.key)).toEqual([
+    const applied = applyPost === undefined ? [] : (applyPost.body as { items: { key: string }[] }).items
+    expect(applied.map((item) => item.key)).toEqual([
       'person',
       'co1',
       'pos1',

@@ -44,6 +44,8 @@ The two AI steps each count as one run in the run log and against any monthly li
 
 **Web search.** Kelpie AI uses your provider's own web search for this, and only for this. Agent-task runs never search. It keeps a source link only when the search really returned that page. To work from your notes and the CRM only, switch **Web search** off on **Admin → AI**.
 
+**LinkedIn.** LinkedIn asks every visitor to sign in, so Kelpie AI cannot open a LinkedIn page. It uses the URL as a hint for the name, and reads what search results show about the profile: usually the headline, the current company and the location. For the full profile, open it in your own browser, select all, copy, and paste it into the notes. Kelpie AI trusts pasted profile text over search results.
+
 **Without Kelpie AI**, **Add from notes** still opens. It gives you a prompt, with your notes in it, to paste into your own agent. That agent then creates the records through MCP.
 
 ## A key for the whole install
