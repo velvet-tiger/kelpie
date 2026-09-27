@@ -120,19 +120,25 @@ const APPLY_ORDER: readonly PersonIntakeItemWire['kind'][] = [
   'enquiry',
 ]
 
+/** What one intake call spent, over its first turn and any repair turn. */
+interface RunUsage {
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly modelRequests: number
+  readonly webSearches: number
+}
+
 type JsonCall<Value> =
   | {
       readonly ok: true
       readonly value: Value
       readonly webSources: readonly AiWebSource[]
-      readonly inputTokens: number
-      readonly outputTokens: number
+      readonly usage: RunUsage
     }
   | {
       readonly ok: false
       readonly error: AppError
-      readonly inputTokens: number
-      readonly outputTokens: number
+      readonly usage: RunUsage
     }
 
 function requireWorkspace(actor: Actor): string {
@@ -187,22 +193,22 @@ function emailDomain(email: string | null): string | null {
   return domain === undefined || domain === '' || FREE_MAIL_DOMAINS.has(domain) ? null : domain
 }
 
-/** A failed model call that still spent tokens, so the run log can record them. */
+/** A failed model call that still spent tokens and searches, so the run log can record them. */
 class IntakeCallError extends AppError {
-  readonly tokens: { readonly input: number; readonly output: number }
+  readonly usage: RunUsage
 
-  constructor(error: AppError, input: number, output: number) {
+  constructor(error: AppError, usage: RunUsage) {
     super(error.code, error.message, error.details)
-    this.tokens = { input, output }
+    this.usage = usage
   }
 }
 
 export function createPersonIntake(dependencies: PersonIntakeDependencies): PersonIntake {
-  async function portFor(workspaceId: string, runId: string): Promise<AiProviderPort> {
+  async function portFor(workspaceId: string): Promise<AiProviderPort> {
     const resolution = await dependencies.resolvePort(workspaceId)
 
     if (resolution.kind === 'unavailable') {
-      await dependencies.service.settleSyncRun(runId, { status: 'failed', failureReason: resolution.reason })
+      // `withSyncRun` settles the run as failed with this message.
       throw AppError.conflict(resolution.reason)
     }
 
@@ -260,6 +266,9 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
     const webSources: AiWebSource[] = []
     let inputTokens = 0
     let outputTokens = 0
+    let modelRequests = 0
+    let webSearches = 0
+    const usage = (): RunUsage => ({ inputTokens, outputTokens, modelRequests, webSearches })
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const result = await port.complete({
@@ -274,6 +283,8 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
 
       inputTokens += result.usage.inputTokens
       outputTokens += result.usage.outputTokens
+      modelRequests += result.usage.requests ?? 1
+      webSearches += result.usage.webSearches ?? 0
       webSources.push(...(result.webSources ?? []))
 
       const failure = failureFor(result)
@@ -284,12 +295,12 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
             error: result.failure?.message ?? 'no message',
           })
         }
-        return { ok: false, error: failure, inputTokens, outputTokens }
+        return { ok: false, error: failure, usage: usage() }
       }
 
       const parsed = parseReply(result.text, request.schema)
       if ('value' in parsed) {
-        return { ok: true, value: parsed.value, webSources, inputTokens, outputTokens }
+        return { ok: true, value: parsed.value, webSources, usage: usage() }
       }
 
       if (attempt === 0) {
@@ -304,14 +315,13 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
         return {
           ok: false,
           error: AppError.conflict(`The model did not return a valid reply: ${parsed.issues.slice(0, 3).join('; ')}`),
-          inputTokens,
-          outputTokens,
+          usage: usage(),
         }
       }
     }
 
     // Unreachable: the loop returns on both attempts.
-    return { ok: false, error: new AppError('internal_error', PROVIDER_FAILURE_MESSAGE), inputTokens, outputTokens }
+    return { ok: false, error: new AppError('internal_error', PROVIDER_FAILURE_MESSAGE), usage: usage() }
   }
 
   /**
@@ -324,8 +334,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
     prompt: string,
     body: (sync: { readonly runId: string; readonly model: string; readonly webSearch: boolean }) => Promise<{
       readonly result: Result
-      readonly inputTokens: number
-      readonly outputTokens: number
+      readonly usage: RunUsage
     }>,
   ): Promise<Result> {
     const sync = await dependencies.service.startSyncRun(workspaceId, taskId, prompt)
@@ -335,21 +344,17 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
     try {
       const outcome = await body({ runId, model: sync.model, webSearch: sync.webSearch })
       settled = true
-      await dependencies.service.settleSyncRun(runId, {
-        status: 'succeeded',
-        inputTokens: outcome.inputTokens,
-        outputTokens: outcome.outputTokens,
-      })
+      await dependencies.service.settleSyncRun(workspaceId, runId, { status: 'succeeded', ...outcome.usage })
 
       return outcome.result
     } catch (thrown: unknown) {
       if (!settled) {
-        const tokens = thrown instanceof IntakeCallError ? thrown.tokens : undefined
+        const usage = thrown instanceof IntakeCallError ? thrown.usage : undefined
         await dependencies.service
-          .settleSyncRun(runId, {
+          .settleSyncRun(workspaceId, runId, {
             status: 'failed',
             failureReason: thrown instanceof AppError ? thrown.message : PROVIDER_FAILURE_MESSAGE,
-            ...(tokens === undefined ? {} : { inputTokens: tokens.input, outputTokens: tokens.output }),
+            ...usage,
           })
           .catch((settleError: unknown) => {
             dependencies.log.error('ai intake run could not be settled', { runId, error: describeThrown(settleError) })
@@ -409,7 +414,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
       const tools = indexByName(dependencies.listTools())
 
       return withSyncRun(workspaceId, 'person_intake.identify', text, async (sync) => {
-        const port = await portFor(workspaceId, sync.runId)
+        const port = await portFor(workspaceId)
         const call = await callForJson(port, {
           model: sync.model,
           instructions: renderIdentifyInstructions(sync.webSearch),
@@ -420,7 +425,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
           maxSearches: sync.webSearch ? IDENTIFY_MAX_SEARCHES : null,
         })
 
-        if (!call.ok) throw new IntakeCallError(call.error, call.inputTokens, call.outputTokens)
+        if (!call.ok) throw new IntakeCallError(call.error, call.usage)
 
         const candidates = normaliseCandidates(call.value)
         for (const [index, candidate] of candidates.entries()) {
@@ -436,8 +441,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
 
         return {
           result: response,
-          inputTokens: call.inputTokens,
-          outputTokens: call.outputTokens,
+          usage: call.usage,
         }
       })
     },
@@ -484,7 +488,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
               .join('\n')
 
       return withSyncRun(workspaceId, 'person_intake.research', input.text, async (sync) => {
-        const port = await portFor(workspaceId, sync.runId)
+        const port = await portFor(workspaceId)
         const call = await callForJson(port, {
           model: sync.model,
           instructions: renderResearchInstructions(sync.webSearch),
@@ -500,7 +504,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
           maxSearches: sync.webSearch ? RESEARCH_MAX_SEARCHES : null,
         })
 
-        if (!call.ok) throw new IntakeCallError(call.error, call.inputTokens, call.outputTokens)
+        if (!call.ok) throw new IntakeCallError(call.error, call.usage)
 
         const sources = keepSources(call.value.sources, sync.webSearch ? call.webSources : undefined, input.text)
         const items = normaliseResearch({
@@ -520,8 +524,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
 
         return {
           result: response,
-          inputTokens: call.inputTokens,
-          outputTokens: call.outputTokens,
+          usage: call.usage,
         }
       })
     },

@@ -50,7 +50,7 @@ describe('createAnthropicPort', () => {
     expect(result).toEqual({
       stopReason: 'end_turn',
       text: '{"summary":"ok","operations":[]}',
-      usage: { inputTokens: 30, outputTokens: 10 },
+      usage: { inputTokens: 30, outputTokens: 10, requests: 1, webSearches: 0 },
     })
     expect(sent[0]).toMatchObject({
       model: 'claude-opus-5',
@@ -133,7 +133,8 @@ describe('createAnthropicPort', () => {
     expect(await port.complete(request)).toEqual({
       stopReason: 'failed',
       text: '',
-      usage: { inputTokens: 0, outputTokens: 0 },
+      // The provider answered nothing, so nothing counts as a request.
+      usage: { inputTokens: 0, outputTokens: 0, requests: 0, webSearches: 0 },
       failure: { code: 'invalid_api_key', message: 'The Anthropic API key was rejected. Check the key in AI settings.' },
     })
   })
@@ -179,7 +180,7 @@ describe('createOpenAiPort', () => {
     expect(await port.complete({ ...request, model: 'gpt-5-mini' })).toEqual({
       stopReason: 'end_turn',
       text: '{"summary":"ok"}',
-      usage: { inputTokens: 5, outputTokens: 6 },
+      usage: { inputTokens: 5, outputTokens: 6, requests: 1, webSearches: 0 },
     })
   })
 
@@ -207,6 +208,7 @@ describe('web search', () => {
     const replies = [
       anthropicMessage({
         stop_reason: 'pause_turn',
+        usage: { input_tokens: 30, output_tokens: 10, server_tool_use: { web_search_requests: 1 } },
         content: [
           { type: 'text', text: 'Let me look {that} up.' },
           { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: { query: 'Dana Reyes' } },
@@ -238,7 +240,8 @@ describe('web search', () => {
     expect(result).toEqual({
       stopReason: 'end_turn',
       text: '{"candidates":[]}',
-      usage: { inputTokens: 60, outputTokens: 20 },
+      // Two requests: the paused turn and its continuation. One search between them.
+      usage: { inputTokens: 60, outputTokens: 20, requests: 2, webSearches: 1 },
       webSources: [{ url: 'https://brightline.health/team', title: 'Team' }],
     })
     expect(sent[0]?.tools).toEqual([{ type: 'web_search_20260209', name: 'web_search', max_uses: 4 }])
@@ -296,6 +299,12 @@ describe('web search', () => {
               action: { type: 'search', sources: [{ type: 'url', url: 'https://brightline.health/team' }] },
             },
             {
+              type: 'web_search_call',
+              id: 'ws_2',
+              status: 'completed',
+              action: { type: 'open_page', url: 'https://brightline.health/team' },
+            },
+            {
               type: 'message',
               content: [
                 {
@@ -324,5 +333,34 @@ describe('web search', () => {
       { url: 'https://brightline.health/team', title: 'https://brightline.health/team' },
       { url: 'https://example.com/a', title: 'A' },
     ])
+    // Every web_search_call counts, the page open too: max_tool_calls caps them all.
+    expect(result.usage).toEqual({ inputTokens: 5, outputTokens: 6, requests: 1, webSearches: 2 })
+  })
+
+  it('keeps what earlier requests used when a resumed Anthropic turn throws', async () => {
+    let calls = 0
+    const port = createAnthropicPort({
+      apiKey: 'unused',
+      client: anthropicClient(() => {
+        calls += 1
+        if (calls === 1) {
+          return Promise.resolve(
+            anthropicMessage({
+              stop_reason: 'pause_turn',
+              usage: { input_tokens: 40, output_tokens: 5, server_tool_use: { web_search_requests: 2 } },
+              content: [{ type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: { query: 'x' } }],
+            }),
+          )
+        }
+        return Promise.reject(
+          new Anthropic.RateLimitError(429, { type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }, 'slow down', new Headers()),
+        )
+      }),
+    })
+
+    const result = await port.complete(searchRequest)
+
+    expect(result.stopReason).toBe('failed')
+    expect(result.usage).toEqual({ inputTokens: 40, outputTokens: 5, requests: 1, webSearches: 2 })
   })
 })

@@ -61,6 +61,8 @@ export interface AiRunRecord {
   readonly failureReason: string | null
   readonly inputTokens: number | null
   readonly outputTokens: number | null
+  readonly modelRequests: number | null
+  readonly webSearches: number | null
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -80,6 +82,8 @@ function toRun(row: {
   failureReason: string | null
   inputTokens: number | null
   outputTokens: number | null
+  modelRequests: number | null
+  webSearches: number | null
   createdAt: Date
   updatedAt: Date
 }): AiRunRecord {
@@ -101,6 +105,8 @@ function toRun(row: {
     failureReason: row.failureReason,
     inputTokens: row.inputTokens,
     outputTokens: row.outputTokens,
+    modelRequests: row.modelRequests,
+    webSearches: row.webSearches,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -300,7 +306,7 @@ export async function countRunningRuns(db: Queryable, workspaceId: string): Prom
  * Deliberately runs on the intake path (there is no scheduler), so a crashed
  * executor never wedges a workspace's queue forever.
  *
- * @returns The number of rows swept, for the log.
+ * @returns The swept runs, so the caller can log them and report each one settled.
  */
 export async function sweepStaleRuns(
   db: Queryable,
@@ -308,7 +314,7 @@ export async function sweepStaleRuns(
   before: Date,
   now: Date,
   reason: string,
-): Promise<number> {
+): Promise<AiRunRecord[]> {
   const rows = await db
     .update(aiRuns)
     .set({ status: 'failed', failureReason: reason, prompt: null, context: null, updatedAt: now })
@@ -319,9 +325,9 @@ export async function sweepStaleRuns(
         lt(aiRuns.updatedAt, before),
       ),
     )
-    .returning({ id: aiRuns.id })
+    .returning()
 
-  return rows.length
+  return rows.map(toRun)
 }
 
 /**
@@ -363,6 +369,8 @@ export interface SettleRunInput {
   readonly failureReason?: string | null
   readonly inputTokens?: number | null
   readonly outputTokens?: number | null
+  readonly modelRequests?: number | null
+  readonly webSearches?: number | null
 }
 
 export async function settleRun(
@@ -370,7 +378,7 @@ export async function settleRun(
   id: string,
   changes: SettleRunInput,
   now: Date,
-): Promise<void> {
+): Promise<AiRunRecord | undefined> {
   // A settled run keeps metadata only. The prompt and the context bag hold
   // personal data and nothing reads them after the run, so they go now.
   const update: Record<string, unknown> = { status: changes.status, prompt: null, context: null, updatedAt: now }
@@ -379,8 +387,13 @@ export async function settleRun(
   if (changes.failureReason !== undefined) update.failureReason = changes.failureReason
   if (changes.inputTokens !== undefined) update.inputTokens = changes.inputTokens
   if (changes.outputTokens !== undefined) update.outputTokens = changes.outputTokens
+  if (changes.modelRequests !== undefined) update.modelRequests = changes.modelRequests
+  if (changes.webSearches !== undefined) update.webSearches = changes.webSearches
 
-  await db.update(aiRuns).set(update).where(eq(aiRuns.id, id))
+  const rows = await db.update(aiRuns).set(update).where(eq(aiRuns.id, id)).returning()
+  const row = rows[0]
+
+  return row === undefined ? undefined : toRun(row)
 }
 
 /**

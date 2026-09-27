@@ -76,9 +76,14 @@ export function createOpenAiPort(options: OpenAiPortOptions): AiProviderPort {
         return failureFromThrown(thrown)
       }
 
+      // Every `web_search_call` counts, not only `search` actions: the
+      // `max_tool_calls` cap covers page opens and finds too, and OpenAI does
+      // not say which of them it bills.
       const usage = {
         inputTokens: response.usage?.input_tokens ?? 0,
         outputTokens: response.usage?.output_tokens ?? 0,
+        requests: 1,
+        webSearches: response.output.filter((item) => item.type === 'web_search_call').length,
       }
       let text = ''
       const searching = request.webSearch !== undefined
@@ -163,7 +168,12 @@ function toInputItem(message: AiMessage): Responses.ResponseInputItem {
 }
 
 function failed(code: string, message: string): AiCompletionResult {
-  return { stopReason: 'failed', text: '', usage: { inputTokens: 0, outputTokens: 0 }, failure: { code, message } }
+  return {
+    stopReason: 'failed',
+    text: '',
+    usage: { inputTokens: 0, outputTokens: 0, requests: 0, webSearches: 0 },
+    failure: { code, message },
+  }
 }
 
 function failureFromThrown(thrown: unknown): AiCompletionResult {

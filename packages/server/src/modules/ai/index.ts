@@ -9,6 +9,7 @@ import type { KelpieModule, McpTool } from '../../runtime/module.ts'
 import { createAnthropicPort } from './anthropic.ts'
 import { createAiCredentialResolver } from './credentials.ts'
 import { createAiDispatcher } from './dispatch.ts'
+import { aiEvents } from './events.ts'
 import { createAiExecutor } from './executor.ts'
 import type { AiPortResolution } from './executor.ts'
 import { createAiRunIdFactory } from './ids.ts'
@@ -28,6 +29,7 @@ import {
 } from './rules.ts'
 import * as schema from './schema.ts'
 import { createAiService } from './service.ts'
+import { createAiRunSettler } from './settle.ts'
 
 /**
  * Kelpie AI: an agent that runs agent tasks with a model provider.
@@ -145,6 +147,7 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
     // dispatch surface fail at boot rather than register an agent nothing
     // will ever call.
     id: 'ai',
+    events: aiEvents,
     requires: ['workspace', 'agent-tasks', ...(options.requires ?? [])],
 
     register(context) {
@@ -195,8 +198,11 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         return { kind: 'ready', port }
       }
 
+      const settler = createAiRunSettler({ transaction: context.transaction, now: context.now })
+
       const executor = createAiExecutor({
         db: context.db,
+        settler,
         resolvePort,
         // Read at run time: the list is complete only after boot.
         listTools: options.tools ?? (() => context.mcp.list()),
@@ -209,6 +215,7 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
       const service = createAiService({
         db: context.db,
         transaction: context.transaction,
+        settler,
         cipher,
         credentials,
         serviceName: options.service ?? 'custom',

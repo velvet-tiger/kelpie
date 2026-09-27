@@ -46,6 +46,16 @@ While the major version is `0`, a minor bump may break the API.
   `0006_intake_web_search`.
 - **`@kelpie/ui`** — `personIntake` UI registry slot and
   `usePersonIntakeProvider`.
+- **`@kelpie/server`** — **AI usage counts.** Each AI run records how many
+  requests the provider answered and how many web searches it ran, in new
+  `ai_runs` columns `model_requests` and `web_searches` (migration
+  `0009_run_usage_counts`; null on older runs). The `ai` module publishes
+  `ai.run.settled` when a run ends, `succeeded` or `failed`, from the
+  executor, person intake and the stale sweep. The event carries counts only:
+  task, model, tokens, requests, searches and timestamps. Webhooks do not
+  deliver it. New type `AiRunSettledData`. `AiTokenUsage` adds optional
+  `requests` and `webSearches`; a provider port that leaves them out counts
+  as one request and no searches.
 
 ### Changed
 

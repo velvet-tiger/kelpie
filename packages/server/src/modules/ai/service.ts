@@ -31,11 +31,10 @@ import {
   listRuns,
   DEFAULT_RUN_SORT,
   RUN_SORTS,
-  settleRun,
-  sweepStaleRuns,
   trimRuns,
   upsertSettings,
 } from './repository.ts'
+import type { AiRunSettler } from './settle.ts'
 import type { OperationOutcome } from './proposal.ts'
 import type { AiRunRecord, AiSettingsRow, SettleRunInput } from './repository.ts'
 import {
@@ -77,6 +76,8 @@ const DEPLOYMENT_MANAGED_MESSAGE =
 export interface AiServiceDependencies {
   readonly db: Database
   readonly transaction: TransactionScope
+  /** Ends runs and reports each as `ai.run.settled`. */
+  readonly settler: AiRunSettler
   readonly cipher: SecretCipher
   readonly credentials: AiCredentialResolver
   /** Which AI service this install offers. Names the Run menu's agent row. */
@@ -232,7 +233,7 @@ export interface AiService {
    * limit. The row starts `running`; the caller must settle it.
    */
   startSyncRun(workspaceId: string, taskId: string, prompt: string): Promise<AiSyncRun>
-  settleSyncRun(runId: string, changes: SettleRunInput): Promise<void>
+  settleSyncRun(workspaceId: string, runId: string, changes: SettleRunInput): Promise<void>
   /** Removes every row this module holds for the workspace. Idempotent. */
   forget(workspaceId: string): Promise<void>
 }
@@ -341,11 +342,9 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
     // Stale sweep before the capacity decision, so a crashed executor can
     // never wedge a workspace's queue forever. Inline, per the "no
     // scheduler" doctrine.
-    const swept = await sweepStaleRuns(
-      dependencies.db,
+    const swept = await dependencies.settler.sweepStale(
       workspaceId,
       staleBefore(now, dependencies.runTimeoutMinutes),
-      now,
       STALE_RUN_REASON,
     )
     if (swept > 0) {
@@ -535,8 +534,8 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       return { run, model: credentials.model, webSearch: settings.webSearch }
     },
 
-    async settleSyncRun(runId, changes) {
-      await settleRun(dependencies.db, runId, changes, dependencies.now())
+    async settleSyncRun(workspaceId, runId, changes) {
+      await dependencies.settler.settle(workspaceId, runId, changes)
     },
 
     async forget(workspaceId) {

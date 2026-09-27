@@ -78,6 +78,15 @@ export type AiStopReason =
 export interface AiTokenUsage {
   readonly inputTokens: number
   readonly outputTokens: number
+  /**
+   * Requests the provider answered for this one call. More than one when the
+   * provider pauses a long search and the adapter resumes it; zero when the
+   * first request was refused outright (a rejected key, a rate limit).
+   * Absent means 1, so a port written before this field still counts.
+   */
+  readonly requests?: number
+  /** Web searches the provider reported for this call. Absent means 0. */
+  readonly webSearches?: number
 }
 
 export interface AiFailure {

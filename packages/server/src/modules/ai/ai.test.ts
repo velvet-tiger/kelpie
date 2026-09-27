@@ -26,7 +26,8 @@ import type { Actor } from '../auth/actor.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import { createAiModule } from './index.ts'
 import type { AiModuleOptions } from './index.ts'
-import type { AiCompletionRequest, AiCompletionResult, AiProviderPort } from './provider.ts'
+import type { AiRunSettledData } from './events.ts'
+import type { AiCompletionRequest, AiCompletionResult, AiProviderPort, AiTokenUsage } from './provider.ts'
 import { resealAiSecrets } from './reseal.ts'
 import { AI_RUNS_LIMIT, monthWindowStart } from './rules.ts'
 import { aiRuns, aiSettings } from './schema.ts'
@@ -129,7 +130,7 @@ function proposal(payload: { readonly summary: string; readonly operations?: rea
   return JSON.stringify({ summary: payload.summary, operations: payload.operations ?? [] })
 }
 
-function endTurn(text: string, usage = { inputTokens: 40, outputTokens: 25 }): AiCompletionResult {
+function endTurn(text: string, usage: AiTokenUsage = { inputTokens: 40, outputTokens: 25 }): AiCompletionResult {
   return { stopReason: 'end_turn', text, usage }
 }
 
@@ -363,6 +364,8 @@ interface RunRow {
   readonly failureReason: string | null
   readonly inputTokens: number | null
   readonly outputTokens: number | null
+  readonly modelRequests: number | null
+  readonly webSearches: number | null
 }
 
 async function fetchRun(h: Harness, agentRunId: string): Promise<RunRow | undefined> {
@@ -376,6 +379,8 @@ async function fetchRun(h: Harness, agentRunId: string): Promise<RunRow | undefi
       failureReason: aiRuns.failureReason,
       inputTokens: aiRuns.inputTokens,
       outputTokens: aiRuns.outputTokens,
+      modelRequests: aiRuns.modelRequests,
+      webSearches: aiRuns.webSearches,
     })
     .from(aiRuns)
     .where(eq(aiRuns.agentRunId, agentRunId))
@@ -442,14 +447,19 @@ describe.skipIf(connectionString === undefined)('ai', () => {
 
   describe('deployment key mode', () => {
     let h: Harness
+    const settledEvents: AiRunSettledData[] = []
 
     beforeAll(async () => {
       // Kelpie Cloud's shape: the hosted service on the deployment's key.
       h = await buildHarness(database, { keyMode: 'deployment', service: 'kelpie_ai', environment: DEPLOYMENT_ENVIRONMENT })
+      h.app.services.events.subscribe('ai.run.settled', (event) => {
+        settledEvents.push(event.data)
+      })
     })
 
     beforeEach(async () => {
       await database.truncateAll()
+      settledEvents.length = 0
       h.provider.reset()
       h.toolLog.length = 0
       h.behaviors.clear()
@@ -741,6 +751,57 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(row.failureReason ?? '').toMatch(/valid proposal/)
     })
 
+    it('adds up requests and searches over the repair turn, and reports the settled run with counts only', async () => {
+      const { workspaceId } = await enabledWorkspace(h)
+      h.provider.queue(endTurn('this is not JSON', { inputTokens: 10, outputTokens: 5, requests: 2, webSearches: 1 }))
+      h.provider.queue(endTurn(proposal({ summary: 'ok' }), { inputTokens: 12, outputTokens: 6, requests: 1, webSearches: 0 }))
+
+      await deliver(h, dispatchBody({ runId: 'run_counts', workspaceId }))
+      const row = await settled(h, 'run_counts')
+
+      expect(row.status).toBe('succeeded')
+      expect(row).toMatchObject({ inputTokens: 22, outputTokens: 11, modelRequests: 3, webSearches: 1 })
+
+      await h.app.services.events.drain()
+      expect(settledEvents).toHaveLength(1)
+      expect(settledEvents[0]).toEqual({
+        runId: expect.stringMatching(/^ai_/) as unknown,
+        taskId: 'person.enrich',
+        status: 'succeeded',
+        model: 'gpt-5.6-luna',
+        inputTokens: 22,
+        outputTokens: 11,
+        modelRequests: 3,
+        webSearches: 1,
+        createdAt: expect.any(String) as unknown,
+        settledAt: expect.any(String) as unknown,
+      })
+    })
+
+    it('counts a port that does not report requests as one request each', async () => {
+      const { workspaceId } = await enabledWorkspace(h)
+      h.provider.queue(endTurn(proposal({ summary: 'ok' }), { inputTokens: 1, outputTokens: 1 }))
+
+      await deliver(h, dispatchBody({ runId: 'run_old_port', workspaceId }))
+      const row = await settled(h, 'run_old_port')
+
+      expect(row).toMatchObject({ modelRequests: 1, webSearches: 0 })
+    })
+
+    it('reports a failed run as settled, with what it spent', async () => {
+      const { workspaceId } = await enabledWorkspace(h)
+      h.provider.queue(endTurn('this is not JSON', { inputTokens: 10, outputTokens: 5 }))
+      h.provider.queue(endTurn('still not JSON', { inputTokens: 10, outputTokens: 5 }))
+
+      await deliver(h, dispatchBody({ runId: 'run_failed_counts', workspaceId }))
+      await settled(h, 'run_failed_counts')
+
+      await h.app.services.events.drain()
+      expect(settledEvents).toMatchObject([
+        { status: 'failed', inputTokens: 20, outputTokens: 10, modelRequests: 2, webSearches: 0 },
+      ])
+    })
+
     it('records a per-operation failure without aborting the rest', async () => {
       const { workspaceId } = await enabledWorkspace(h)
       h.behaviors.set('notes_create', { throwsOnce: 'notes_create failed for test' })
@@ -916,6 +977,16 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(stale.failureReason).toContain('AI_RUN_TIMEOUT_MINUTES')
       expect(stale.prompt).toBeNull()
       expect(stale.context).toBeNull()
+
+      // The swept run is reported too, with no counts: nothing recorded them.
+      await settled(h, 'run_after_stale')
+      await h.app.services.events.drain()
+      expect(settledEvents.find((event) => event.runId === 'ai_test_stale')).toMatchObject({
+        status: 'failed',
+        inputTokens: null,
+        modelRequests: null,
+        webSearches: null,
+      })
     })
 
     it('forgets a workspace when the workspace is deleted', async () => {

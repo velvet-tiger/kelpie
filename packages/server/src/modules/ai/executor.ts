@@ -26,10 +26,10 @@ import type {
 import {
   claimOldestQueuedRun,
   countRunningRuns,
-  settleRun,
   touchRun,
 } from './repository.ts'
 import type { AiRunRecord } from './repository.ts'
+import type { AiRunSettler } from './settle.ts'
 import { aiActorFor } from './tools.ts'
 
 /**
@@ -64,6 +64,8 @@ export type AiPortResolution =
 
 export interface AiExecutorDependencies {
   readonly db: Database
+  /** Ends a run and reports it as `ai.run.settled`. */
+  readonly settler: AiRunSettler
   /**
    * Builds the port for a workspace at run time. In `workspace` key mode the
    * key is the workspace's, so there is no single port for the process.
@@ -137,11 +139,10 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
     try {
       // Only a settled run loses its prompt, and a claim takes queued rows.
       if (run.prompt === null) {
-        await settleRun(
-          dependencies.db,
+        await dependencies.settler.settle(
+          run.workspaceId,
           run.id,
           { status: 'failed', failureReason: 'The run has no prompt to send' },
-          dependencies.now(),
         )
         return
       }
@@ -149,25 +150,23 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
 
       const targetType = toKnownTargetType(run.targetType)
       if (targetType === undefined) {
-        await settleRun(
-          dependencies.db,
+        await dependencies.settler.settle(
+          run.workspaceId,
           run.id,
           {
             status: 'failed',
             failureReason: `Unknown target type "${run.targetType}"; the deployment may be missing a module`,
           },
-          dependencies.now(),
         )
         return
       }
 
       const resolution = await dependencies.resolvePort(run.workspaceId)
       if (resolution.kind === 'unavailable') {
-        await settleRun(
-          dependencies.db,
+        await dependencies.settler.settle(
+          run.workspaceId,
           run.id,
           { status: 'failed', failureReason: resolution.reason },
-          dependencies.now(),
         )
         return
       }
@@ -197,11 +196,10 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
             ? thrown.message
             : `Could not load the context pack: ${describeThrown(thrown)}`
 
-        await settleRun(
-          dependencies.db,
+        await dependencies.settler.settle(
+          run.workspaceId,
           run.id,
           { status: 'failed', failureReason: reason },
-          dependencies.now(),
         )
         return
       }
@@ -214,6 +212,8 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
 
       let inputTokens = 0
       let outputTokens = 0
+      let modelRequests = 0
+      let webSearches = 0
 
       const initialMessage: AiMessage = {
         role: 'user',
@@ -232,21 +232,24 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
       logProviderFailure(first, run)
       inputTokens += first.usage.inputTokens
       outputTokens += first.usage.outputTokens
+      modelRequests += first.usage.requests ?? 1
+      webSearches += first.usage.webSearches ?? 0
 
       const firstOutcome = interpretProviderResult(first, targetType, dependencies.exposeProviderErrors)
       let validated: ValidateProposalSuccess | undefined
 
       if (firstOutcome.kind === 'fail') {
-        await settleRun(
-          dependencies.db,
+        await dependencies.settler.settle(
+          run.workspaceId,
           run.id,
           {
             status: 'failed',
             failureReason: firstOutcome.reason,
             inputTokens,
             outputTokens,
+            modelRequests,
+            webSearches,
           },
-          dependencies.now(),
         )
         return
       }
@@ -268,6 +271,8 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
         logProviderFailure(second, run)
         inputTokens += second.usage.inputTokens
         outputTokens += second.usage.outputTokens
+        modelRequests += second.usage.requests ?? 1
+        webSearches += second.usage.webSearches ?? 0
 
         const secondOutcome = interpretProviderResult(second, targetType, dependencies.exposeProviderErrors)
         if (secondOutcome.kind === 'proposal') {
@@ -277,16 +282,17 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
             secondOutcome.kind === 'fail'
               ? secondOutcome.reason
               : `The model did not return a valid proposal after a repair turn: ${secondOutcome.issues.join('; ')}`
-          await settleRun(
-            dependencies.db,
+          await dependencies.settler.settle(
+            run.workspaceId,
             run.id,
             {
               status: 'failed',
               failureReason,
               inputTokens,
               outputTokens,
+              modelRequests,
+              webSearches,
             },
-            dependencies.now(),
           )
           return
         }
@@ -302,16 +308,17 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
         log: dependencies.log,
       })
 
-      await settleRun(
-        dependencies.db,
+      await dependencies.settler.settle(
+        run.workspaceId,
         run.id,
         {
           status: 'succeeded',
           operations: outcomes,
           inputTokens,
           outputTokens,
+          modelRequests,
+          webSearches,
         },
-        dependencies.now(),
       )
     } catch (thrown: unknown) {
       dependencies.log.error('ai run execution threw', {
@@ -321,8 +328,8 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
       })
 
       try {
-        await settleRun(
-          dependencies.db,
+        await dependencies.settler.settle(
+          run.workspaceId,
           run.id,
           {
             status: 'failed',
@@ -330,7 +337,6 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
             // above for an operator to read.
             failureReason: PROVIDER_FAILURE_MESSAGE,
           },
-          dependencies.now(),
         )
       } catch (settleError: unknown) {
         // If the database is down there is nothing sound to write; log and

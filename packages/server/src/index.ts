@@ -180,6 +180,7 @@ export { coreMigrationsDirectory, coreModules } from './modules/core.ts'
 // passes `resealAiSecrets` to `runReseal`'s `extraPasses`.
 export { aiMigrationsDirectory, createAiModule } from './modules/ai/index.ts'
 export type { AiModuleOptions, AiProviderFactory } from './modules/ai/index.ts'
+export type { AiRunSettledData } from './modules/ai/events.ts'
 export { resealAiSecrets } from './modules/ai/reseal.ts'
 export { AI_RUNS_LIMIT } from './modules/ai/rules.ts'
 export type {

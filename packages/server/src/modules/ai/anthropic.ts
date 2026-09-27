@@ -90,7 +90,7 @@ export function createAnthropicPort(options: AnthropicPortOptions): AiProviderPo
         content: message.text,
       }))
       const webSources: AiWebSource[] = []
-      const usage = { inputTokens: 0, outputTokens: 0 }
+      const usage = { inputTokens: 0, outputTokens: 0, requests: 0, webSearches: 0 }
       let response: Anthropic.Beta.BetaMessage | undefined
 
       for (let attempt = 0; attempt <= MAX_PAUSE_CONTINUATIONS; attempt += 1) {
@@ -104,11 +104,15 @@ export function createAnthropicPort(options: AnthropicPortOptions): AiProviderPo
             ...(useFallbacks ? { betas: [FALLBACK_BETA], fallbacks: 'default' as const } : {}),
           })
         } catch (thrown: unknown) {
-          return failureFromThrown(thrown)
+          // A resumed turn that throws keeps what the earlier requests used:
+          // those were billed.
+          return { ...failureFromThrown(thrown), usage }
         }
 
+        usage.requests += 1
         usage.inputTokens += response.usage.input_tokens
         usage.outputTokens += response.usage.output_tokens
+        usage.webSearches += response.usage.server_tool_use?.web_search_requests ?? 0
         webSources.push(...webSourcesIn(response.content))
 
         if (response.stop_reason !== 'pause_turn') {
@@ -245,7 +249,12 @@ export function extractJsonObject(text: string): string {
 }
 
 function failed(code: string, message: string): AiCompletionResult {
-  return { stopReason: 'failed', text: '', usage: { inputTokens: 0, outputTokens: 0 }, failure: { code, message } }
+  return {
+    stopReason: 'failed',
+    text: '',
+    usage: { inputTokens: 0, outputTokens: 0, requests: 0, webSearches: 0 },
+    failure: { code, message },
+  }
 }
 
 function failureFromThrown(thrown: unknown): AiCompletionResult {

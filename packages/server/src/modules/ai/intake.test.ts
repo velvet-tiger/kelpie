@@ -13,6 +13,7 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
+import type { AiRunSettledData } from './events.ts'
 import { createAiModule } from './index.ts'
 import type { AiCompletionRequest, AiCompletionResult, AiProviderPort } from './provider.ts'
 import { AI_RUNS_LIMIT } from './rules.ts'
@@ -208,6 +209,7 @@ async function runRows(h: Harness, workspaceId: string): Promise<(typeof aiRuns.
 describe.skipIf(connectionString === undefined)('ai person intake', () => {
   let database: TestDatabase
   let h: Harness
+  const settledEvents: AiRunSettledData[] = []
 
   beforeAll(async () => {
     if (connectionString === undefined) {
@@ -216,6 +218,9 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
 
     database = await connectTestDatabase(connectionString)
     h = await buildHarness(database)
+    h.app.services.events.subscribe('ai.run.settled', (event) => {
+      settledEvents.push(event.data)
+    })
   })
 
   afterAll(async () => {
@@ -224,6 +229,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
 
   beforeEach(async () => {
     await database.truncateAll()
+    settledEvents.length = 0
     h.provider.reset()
     h.limit = undefined
   })
@@ -331,6 +337,35 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect(body.question).toBe('Which company does Sam work at?')
     })
 
+    it('records the requests and searches a run spent, and reports it settled once', async () => {
+      const owner = await enabledOwner(h, 'counts@example.com')
+      h.provider.queue({ ...reply(IDENTIFY_REPLY, SEARCHED), usage: { inputTokens: 100, outputTokens: 50, requests: 3, webSearches: 4 } })
+
+      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
+        cookie: owner.cookie,
+        body: { text: 'Dana Reyes, dana@brightline.health' },
+      })
+      expect(response.status).toBe(200)
+
+      const [run] = await runRows(h, owner.workspaceId)
+      expect(run).toMatchObject({ modelRequests: 3, webSearches: 4 })
+
+      await h.app.services.events.drain()
+      expect(settledEvents).toEqual([
+        expect.objectContaining({
+          runId: run?.id,
+          taskId: 'person_intake.identify',
+          status: 'succeeded',
+          inputTokens: 100,
+          outputTokens: 50,
+          modelRequests: 3,
+          webSearches: 4,
+        }),
+      ])
+      // Counts only: the notes never reach a subscriber.
+      expect(JSON.stringify(settledEvents)).not.toContain('Dana')
+    })
+
     it('repairs an invalid reply once, and fails the run after a second', async () => {
       const owner = await enabledOwner(h, 'repair@example.com')
       h.provider.queue(reply('not json at all'))
@@ -356,6 +391,8 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       const rows = await runRows(h, owner.workspaceId)
       expect(rows.map((row) => row.status).sort()).toEqual(['failed', 'succeeded'])
       expect(rows.find((row) => row.status === 'failed')?.inputTokens).toBe(200)
+      // A port that does not report requests counts one for each call.
+      expect(rows.find((row) => row.status === 'failed')?.modelRequests).toBe(2)
     })
 
     it('shows a provider failure on a workspace key and settles the run failed', async () => {

@@ -115,6 +115,14 @@ export const aiRuns = pgTable(
     failureReason: text('failure_reason'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    /**
+     * HTTP requests sent to the provider, over the first turn, any paused
+     * search resumed, and the repair turn. Null on runs settled before the
+     * column existed.
+     */
+    modelRequests: integer('model_requests'),
+    /** Web searches the provider reported for the run. Null as above. */
+    webSearches: integer('web_searches'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
