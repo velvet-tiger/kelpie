@@ -6,7 +6,8 @@ import {
 import type { FormOptionValueType, FormSubmissionActionEntry } from '@kelpie/schemas'
 import { boolean, index, integer, jsonb, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
 
-import { checkOneOf, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, moment, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { enquiries } from '../enquiries/schema.ts'
@@ -125,9 +126,15 @@ export const forms = pgTable(
     publicKey: text('public_key').notNull().unique(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    searchVector: searchVector((): readonly SearchVectorPart[] => [
+      { column: forms.name, weight: 'A' },
+      { column: forms.title, weight: 'B' },
+      { column: forms.description, weight: 'B' },
+    ]),
   },
   (table) => [
     index('forms_workspace_idx').on(table.workspaceId),
+    index('forms_search_idx').using('gin', table.searchVector),
     checkOneOf('forms_status_check', table.status, FORM_STATUSES),
   ],
 )

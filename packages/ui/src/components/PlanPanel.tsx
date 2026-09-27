@@ -11,6 +11,7 @@ import {
   useUpdatePlanItem,
 } from '../api/resources/planItems.ts'
 import { formatDay } from '../lib/dates.ts'
+import { FRAGMENT_HIGHLIGHT, useFragmentTarget } from '../lib/fragmentTarget.ts'
 import { planStatusTone } from '../lib/plan.ts'
 import { Chip } from './Chip.tsx'
 import { Paginator } from './Paginator.tsx'
@@ -113,6 +114,7 @@ function PlanItemRow({ item }: { readonly item: PlanItem }): React.JSX.Element {
   const updateItem = useUpdatePlanItem()
   const deleteItem = useDeletePlanItem()
   const [editing, setEditing] = useState(false)
+  const target = useFragmentTarget<HTMLLIElement>(item.id)
 
   function save(fields: PlanFields): void {
     updateItem.run({
@@ -148,7 +150,13 @@ function PlanItemRow({ item }: { readonly item: PlanItem }): React.JSX.Element {
   }
 
   return (
-    <li className="group flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border px-4 py-2.5 last:border-0">
+    <li
+      id={item.id}
+      ref={target.ref}
+      className={`group flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border px-4 py-2.5 transition-colors last:border-0 ${
+        target.highlighted ? FRAGMENT_HIGHLIGHT : ''
+      }`}
+    >
       <time dateTime={item.date} className="shrink-0 text-[12px] font-medium text-ink tabular-nums">
         {formatDay(item.date)}
       </time>

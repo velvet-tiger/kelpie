@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { recordReferenceSchema } from './reference.ts'
+import type { RecordReference } from './reference.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
 import type { RecordTimestamps } from './wire.ts'
 
@@ -14,6 +16,9 @@ import type { RecordTimestamps } from './wire.ts'
  * `updatedBy` is a workspace member id, not a user id, and is null when no
  * member was behind the write (a workspace API key). Resolving it to a name is
  * the caller's job, as with a note's author.
+ *
+ * `references` are the records `body` cites, by id or by `[[type:id|Label]]`
+ * token. See `RecordReference`.
  */
 
 /** Top-level pages are 0, so `MAX_DEPTH` of 4 allows five levels. Mirrors the server's cap. */
@@ -28,6 +33,7 @@ export interface HandbookPage extends RecordTimestamps {
   readonly sortOrder: number
   readonly body: string
   readonly updatedBy: string | null
+  readonly references: readonly RecordReference[]
 }
 
 export const handbookPageSchema: z.ZodType<HandbookPage, unknown> = z
@@ -39,6 +45,7 @@ export const handbookPageSchema: z.ZodType<HandbookPage, unknown> = z
     sort_order: z.number().int(),
     body: z.string(),
     updated_by: idSchema.nullable(),
+    references: z.array(recordReferenceSchema),
     ...recordTimestamps,
   })
   .transform(
@@ -50,6 +57,7 @@ export const handbookPageSchema: z.ZodType<HandbookPage, unknown> = z
       sortOrder: wire.sort_order,
       body: wire.body,
       updatedBy: wire.updated_by,
+      references: wire.references,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),

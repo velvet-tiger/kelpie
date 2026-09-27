@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { recordReferenceSchema } from './reference.ts'
+import type { RecordReference } from './reference.ts'
 import { ACTIVITY_KINDS, RECORD_TARGET_TYPES } from './values.ts'
 import type { ActivityKind, RecordTargetType } from './values.ts'
 import { idSchema, timestampSchema } from './wire.ts'
@@ -11,17 +13,25 @@ import { idSchema, timestampSchema } from './wire.ts'
  *
  * `actorLabel` is the display name to use when `actorMemberId` is null, e.g.
  * "Form", "Gmail", "API key". Exactly one of the two is set.
+ *
+ * `targetName` names the record the row is filed on. A timeline rolls up rows
+ * from related records, and a rolled-up row names where it came from. It is
+ * null when the record no longer resolves.
+ *
+ * `references` are the records `detail` names by id. See `RecordReference`.
  */
 
 export interface Activity {
   readonly id: string
   readonly targetType: RecordTargetType
   readonly targetId: string
+  readonly targetName: string | null
   readonly kind: ActivityKind
   readonly actorMemberId: string | null
   readonly actorLabel: string | null
   readonly action: string
   readonly detail: string | null
+  readonly references: readonly RecordReference[]
   readonly createdAt: Date
 }
 
@@ -30,11 +40,13 @@ export const activitySchema: z.ZodType<Activity, unknown> = z
     id: idSchema,
     target_type: z.enum(RECORD_TARGET_TYPES),
     target_id: idSchema,
+    target_name: z.string().nullable(),
     kind: z.enum(ACTIVITY_KINDS),
     actor_member_id: idSchema.nullable(),
     actor_label: z.string().nullable(),
     action: z.string(),
     detail: z.string().nullable(),
+    references: z.array(recordReferenceSchema),
     created_at: timestampSchema,
   })
   .transform(
@@ -42,11 +54,13 @@ export const activitySchema: z.ZodType<Activity, unknown> = z
       id: wire.id,
       targetType: wire.target_type,
       targetId: wire.target_id,
+      targetName: wire.target_name,
       kind: wire.kind,
       actorMemberId: wire.actor_member_id,
       actorLabel: wire.actor_label,
       action: wire.action,
       detail: wire.detail,
+      references: wire.references,
       createdAt: wire.created_at,
     }),
   )

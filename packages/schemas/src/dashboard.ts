@@ -7,6 +7,8 @@ import {
   RECORD_TARGET_TYPES,
 } from './values.ts'
 import type { ActivityKind, PipelineKind, PlanItemStatus, RecordTargetType } from './values.ts'
+import { recordReferenceSchema } from './reference.ts'
+import type { RecordReference } from './reference.ts'
 import { idSchema, nullableTimestampSchema, timestampSchema } from './wire.ts'
 
 /**
@@ -172,6 +174,8 @@ export interface DashboardActivity extends TargetRef {
   readonly actorLabel: string | null
   readonly action: string
   readonly detail: string | null
+  /** The records `detail` names by id. */
+  readonly references: readonly RecordReference[]
   readonly createdAt: Date
 }
 
@@ -184,6 +188,7 @@ const dashboardActivitySchema: z.ZodType<DashboardActivity, unknown> = z
     actor_label: z.string().nullable(),
     action: z.string(),
     detail: z.string().nullable(),
+    references: z.array(recordReferenceSchema),
     created_at: timestampSchema,
   })
   .transform((wire) => ({
@@ -194,6 +199,7 @@ const dashboardActivitySchema: z.ZodType<DashboardActivity, unknown> = z
     actorLabel: wire.actor_label,
     action: wire.action,
     detail: wire.detail,
+    references: wire.references,
     createdAt: wire.created_at,
   }))
 
@@ -202,6 +208,8 @@ export interface DashboardNote extends TargetRef {
   readonly body: string
   readonly authorId: string | null
   readonly pinned: boolean
+  /** The records `body` names by id. */
+  readonly references: readonly RecordReference[]
   readonly createdAt: Date
 }
 
@@ -212,6 +220,7 @@ const dashboardNoteSchema: z.ZodType<DashboardNote, unknown> = z
     body: z.string(),
     author_id: idSchema.nullable(),
     pinned: z.boolean(),
+    references: z.array(recordReferenceSchema),
     created_at: timestampSchema,
   })
   .transform((wire) => ({
@@ -220,6 +229,7 @@ const dashboardNoteSchema: z.ZodType<DashboardNote, unknown> = z
     body: wire.body,
     authorId: wire.author_id,
     pinned: wire.pinned,
+    references: wire.references,
     createdAt: wire.created_at,
   }))
 

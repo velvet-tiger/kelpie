@@ -5,6 +5,7 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { referenceResponse } from '../recordReferences.ts'
 import { MAX_SLUG_LENGTH, SLUG_PATTERN } from './slugs.ts'
 import type {
   CreateHandbookPageInput,
@@ -86,6 +87,7 @@ export function handbookPageResponse(page: HandbookPageView): Record<string, unk
     sort_order: page.sortOrder,
     body: page.body,
     updated_by: page.updatedBy,
+    references: page.references.map(referenceResponse),
     created_at: page.createdAt.toISOString(),
     updated_at: page.updatedAt.toISOString(),
   }

@@ -4,6 +4,7 @@ import { readPageSize } from '../../lib/pagination.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { referenceResponse } from '../recordReferences.ts'
 import type {
   ActivitySignal,
   DashboardService,
@@ -119,6 +120,7 @@ function activityBody(activity: ActivitySignal): Record<string, unknown> {
     actor_label: activity.actorLabel,
     action: activity.action,
     detail: activity.detail,
+    references: activity.references.map(referenceResponse),
     created_at: activity.createdAt.toISOString(),
   }
 }
@@ -132,6 +134,7 @@ function noteBody(note: NoteSignal): Record<string, unknown> {
     body: note.body,
     author_id: note.authorId,
     pinned: note.pinned,
+    references: note.references.map(referenceResponse),
     created_at: note.createdAt.toISOString(),
   }
 }

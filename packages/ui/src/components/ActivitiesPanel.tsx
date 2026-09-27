@@ -1,9 +1,12 @@
 import type { Activity, ActivityKind, RecordTargetType } from '@kelpie/schemas'
+import { Link } from 'react-router'
 
 import { useTimezone } from '../api/resources/account.ts'
 import { useActivities } from '../api/resources/activities.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { formatRelativeTime, monthLabel } from '../lib/dates.ts'
+import { targetHref } from '../lib/recordLinks.ts'
+import { LinkedText } from './LinkedText.tsx'
 import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
@@ -17,10 +20,13 @@ import { SectionHeader } from './SectionHeader.tsx'
  * The roll-up is the server's: a person's timeline already carries the deals and
  * partnerships they are on, so nothing here fetches related records to merge in.
  *
- * A rolled-up row says which kind of record it came from and stops there. The
- * mockup also names it and links to it, which needs the Deals, Opportunities and
- * Partnerships endpoints. Naming a record this page cannot fetch would mean
- * printing an id or inventing a label, and both are worse than the type alone.
+ * A rolled-up row says which kind of record it came from, names it, and links
+ * to it, as the mockup does. The name comes with the row (`targetName`), so the
+ * page fetches nothing more for it. A record the server could not name shows
+ * its type alone rather than an id.
+ *
+ * Record ids that the detail cites become links to those records too
+ * (`references`).
  */
 
 export interface ActivitiesPanelProps {
@@ -233,15 +239,37 @@ function ActivityEvent({
             {formatRelativeTime(activity.createdAt, timezone)}
           </time>
         </div>
-        {isRolledUp && (
-          <p className="text-[11px] leading-snug text-ink-faint">
-            on <span className="text-ink-muted">{TARGET_TYPE_LABELS[activity.targetType]}</span>
-          </p>
-        )}
+        {isRolledUp && <RolledUpTarget activity={activity} />}
         {activity.detail !== null && (
-          <p className="text-[11px] leading-snug text-ink-faint">{activity.detail}</p>
+          <p className="text-[11px] leading-snug text-ink-faint">
+            <LinkedText text={activity.detail} references={activity.references} />
+          </p>
         )}
       </div>
     </li>
+  )
+}
+
+/** `on Partnership · Sandbox`, with the name linked to the record when it has a page. */
+function RolledUpTarget({ activity }: { readonly activity: Activity }): React.JSX.Element {
+  const href = targetHref(activity.targetType, activity.targetId)
+  const name = activity.targetName
+
+  return (
+    <p className="text-[11px] leading-snug text-ink-faint">
+      on <span className="text-ink-muted">{TARGET_TYPE_LABELS[activity.targetType]}</span>
+      {name !== null && (
+        <>
+          {' · '}
+          {href === undefined ? (
+            <span className="text-ink-muted">{name}</span>
+          ) : (
+            <Link to={href} className="text-ink-muted hover:text-accent hover:underline">
+              {name}
+            </Link>
+          )}
+        </>
+      )}
+    </p>
   )
 }

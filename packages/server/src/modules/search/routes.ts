@@ -93,6 +93,8 @@ function itemBody(item: SearchItem): Record<string, unknown> {
     title: item.title,
     subtitle: item.subtitle,
     snippet: item.snippet,
+    target_type: item.target?.type ?? null,
+    target_id: item.target?.id ?? null,
   }
 }
 

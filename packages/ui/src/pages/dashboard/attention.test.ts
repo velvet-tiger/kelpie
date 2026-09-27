@@ -8,7 +8,7 @@ import type {
 } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
-import { attentionRows, targetDescription, targetHref } from './attention.ts'
+import { attentionRows, targetDescription } from './attention.ts'
 
 /** The empty snapshot every case below adds one signal to. */
 function emptySignal<Item>(): DashboardSignal<Item> {
@@ -92,18 +92,6 @@ function staleContact(overrides: Partial<DashboardStaleContact> = {}): Dashboard
     ...overrides,
   }
 }
-
-describe('targetHref', () => {
-  it('points at the record for every type that has a page', () => {
-    expect(targetHref('person', 'per_1')).toBe('/people/per_1')
-    expect(targetHref('raise', 'rse_1')).toBe('/fundraising/rse_1')
-    expect(targetHref('event', 'event_1')).toBe('/events/event_1')
-  })
-
-  it('has none for a candidate, which is reached through its Role', () => {
-    expect(targetHref('candidate', 'cand_1')).toBeUndefined()
-  })
-})
 
 describe('targetDescription', () => {
   it('names the type and the record', () => {

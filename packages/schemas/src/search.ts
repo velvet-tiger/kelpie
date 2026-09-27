@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import { SEARCH_COLLECTIONS } from './values.ts'
-import type { SearchCollection } from './values.ts'
+import { RECORD_TARGET_TYPES, SEARCH_COLLECTIONS } from './values.ts'
+import type { RecordTargetType, SearchCollection } from './values.ts'
 import { idSchema } from './wire.ts'
 
 /**
@@ -29,6 +29,12 @@ export interface SearchResult {
   readonly subtitle: string | null
   /** A fragment of the record's prose centred on the match. Empty when it has none. */
   readonly snippet: string
+  /**
+   * The record a Note, Decision or Plan item is on, because none of them has a
+   * page of its own: a result opens that record's page. Null for every other
+   * collection.
+   */
+  readonly target: { readonly type: RecordTargetType; readonly id: string } | null
 }
 
 export interface SearchResultGroup {
@@ -51,12 +57,21 @@ const resultSchema: z.ZodType<SearchResult, unknown> = z
     title: z.string(),
     subtitle: z.string().nullable(),
     snippet: z.string(),
+    target_type: z.enum(RECORD_TARGET_TYPES).nullish(),
+    target_id: idSchema.nullish(),
   })
   .transform((wire) => ({
     id: wire.id,
     title: wire.title,
     subtitle: wire.subtitle,
     snippet: wire.snippet,
+    target:
+      wire.target_type === null ||
+      wire.target_type === undefined ||
+      wire.target_id === null ||
+      wire.target_id === undefined
+        ? null
+        : { type: wire.target_type, id: wire.target_id },
   }))
 
 const groupSchema: z.ZodType<SearchResultGroup, unknown> = z

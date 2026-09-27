@@ -9,10 +9,12 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
 import { Chip } from '../../components/Chip.tsx'
+import { LinkedText } from '../../components/LinkedText.tsx'
 import { MarkdownView } from '../../components/MarkdownView.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
 import { formatDate, formatRelativeTime } from '../../lib/dates.ts'
-import { targetHref, targetTypeLabel } from './attention.ts'
+import { targetHref } from '../../lib/recordLinks.ts'
+import { targetTypeLabel } from './attention.ts'
 import type { AttentionRow } from './attention.ts'
 
 /**
@@ -184,7 +186,9 @@ export function ActivityFeed({
                   <TargetLink target={activity} />
                 </p>
                 {activity.detail !== null && (
-                  <p className="text-[11px] leading-snug text-ink-faint">{activity.detail}</p>
+                  <p className="text-[11px] leading-snug text-ink-faint">
+                    <LinkedText text={activity.detail} references={activity.references} />
+                  </p>
                 )}
               </div>
             </li>
@@ -230,7 +234,7 @@ export function NotesList({
             <li key={note.id} className="py-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="line-clamp-3 min-w-0 flex-1">
-                  <MarkdownView source={note.body} />
+                  <MarkdownView source={note.body} references={note.references} />
                 </div>
                 {note.pinned && (
                   <span className="shrink-0 text-[10px] font-medium tracking-wide text-accent uppercase">

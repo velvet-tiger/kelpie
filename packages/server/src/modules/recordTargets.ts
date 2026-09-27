@@ -129,7 +129,7 @@ export interface RecordTarget {
 }
 
 /** The key `resolveTargetNames` returns names under. Type and id together, because ids are unique only within a type. */
-export function targetKey(target: RecordTarget): string {
+export function targetKey(target: { readonly targetType: string; readonly targetId: string }): string {
   return `${target.targetType}:${target.targetId}`
 }
 

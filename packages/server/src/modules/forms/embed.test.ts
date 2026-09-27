@@ -77,6 +77,7 @@ function form(overrides: Partial<FormRecord> = {}): FormRecord {
     publicKey: 'pk_test',
     createdAt: stamp,
     updatedAt: stamp,
+    searchVector: null,
     ...overrides,
   }
 }

@@ -23,6 +23,7 @@ import {
 import { useMembers } from '../../api/resources/members.ts'
 import { AgentTasks } from '../../components/AgentTasks.tsx'
 import { MarkdownView } from '../../components/MarkdownView.tsx'
+import { RecordLinkTextarea } from '../../components/RecordLinkTextarea.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { formatDateTime } from '../../lib/dates.ts'
 import { INDENT, descendantIds, flattenTree, landingMoves, projectDrop } from './tree.ts'
@@ -482,18 +483,16 @@ function HandbookEditor({
           </div>
         )}
         {editing ? (
-          <textarea
+          <RecordLinkTextarea
             value={body}
-            aria-label="Page body"
-            onChange={(event) => {
-              setBody(event.target.value)
-            }}
+            ariaLabel="Page body"
+            onChange={setBody}
             className="min-h-[480px] w-full resize-y rounded-md border border-border bg-surface p-4 font-mono text-[13px] leading-relaxed outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
             spellCheck
           />
         ) : (
           <div className="animate-slide-in max-w-3xl">
-            <MarkdownView source={page.body} />
+            <MarkdownView source={page.body} references={page.references} />
           </div>
         )}
       </div>

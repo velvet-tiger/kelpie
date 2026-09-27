@@ -158,6 +158,10 @@ export const SEARCH_COLLECTIONS = [
   'partnership',
   'event',
   'decision',
+  'note',
+  'plan_item',
+  'list',
+  'form',
 ] as const
 
 export type SearchCollection = (typeof SEARCH_COLLECTIONS)[number]

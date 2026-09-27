@@ -5,6 +5,7 @@ import { pageBody, readListParameters } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { referenceResponse } from '../recordReferences.ts'
 import { isRecordTargetType } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import type { ActivitiesService, ActivityView } from './service.ts'
@@ -27,11 +28,13 @@ export function activityResponse(activity: ActivityView): Record<string, unknown
     id: activity.id,
     target_type: activity.targetType,
     target_id: activity.targetId,
+    target_name: activity.targetName,
     kind: activity.kind,
     actor_member_id: activity.actorMemberId,
     actor_label: activity.actorLabel,
     action: activity.action,
     detail: activity.detail,
+    references: activity.references.map(referenceResponse),
     created_at: activity.createdAt.toISOString(),
   }
 }

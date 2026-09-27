@@ -34,7 +34,7 @@ const DETAIL_PATHS: Readonly<Record<PipelineKind, string>> = {
   enquiry: '/enquiries',
   deal: '/deals',
   opportunity: '/opportunities',
-  raise: '/raises',
+  raise: '/fundraising',
   partnership: '/partnerships',
 }
 

@@ -6,15 +6,18 @@ import { useTimezone } from '../api/resources/account.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useCreateNote, useDeleteNote, useNotes, useUpdateNote } from '../api/resources/notes.ts'
 import { formatDateTime } from '../lib/dates.ts'
+import { FRAGMENT_HIGHLIGHT, useFragmentTarget } from '../lib/fragmentTarget.ts'
 import { MarkdownView } from './MarkdownView.tsx'
 import { Paginator } from './Paginator.tsx'
+import { RecordLinkTextarea } from './RecordLinkTextarea.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
 
 /**
  * The notes on one record.
  *
- * Bodies are markdown, rendered with the same component as the handbook.
+ * Bodies are markdown, rendered with the same component as the handbook. Typing
+ * `[[` in the editor links a record; see `RecordLinkTextarea`.
  * Notes can be created, edited, and deleted here. There is no pin control: the
  * mockup renders the badge on a note that carries the flag and offers no way to
  * set it. `PATCH /v1/notes/:id` takes `pinned`, so an agent can still pin.
@@ -76,12 +79,10 @@ export function NotesPanel({ targetType, targetId }: NotesPanelProps): React.JSX
 
       {adding && (
         <form onSubmit={submit} className="mb-3 space-y-2">
-          <textarea
+          <RecordLinkTextarea
             value={body}
-            onChange={(event) => {
-              setBody(event.target.value)
-            }}
-            placeholder="Write a note… (Markdown supported)"
+            onChange={setBody}
+            placeholder="Write a note… (Markdown supported, [[ to link a record)"
             rows={3}
             autoFocus
             className="w-full resize-y rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
@@ -147,6 +148,7 @@ function NoteItem({
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [draft, setDraft] = useState(note.body)
+  const target = useFragmentTarget<HTMLLIElement>(note.id)
 
   function cancelEdit(): void {
     setDraft(note.body)
@@ -173,11 +175,9 @@ function NoteItem({
     return (
       <li className="rounded-md border border-border bg-surface-raised px-3.5 py-3">
         <form onSubmit={submitEdit} className="space-y-2">
-          <textarea
+          <RecordLinkTextarea
             value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value)
-            }}
+            onChange={setDraft}
             rows={3}
             autoFocus
             className="w-full resize-y rounded-md border border-border bg-surface-raised px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
@@ -208,10 +208,16 @@ function NoteItem({
   }
 
   return (
-    <li className="group rounded-md border border-border bg-surface-raised px-3.5 py-3">
+    <li
+      id={note.id}
+      ref={target.ref}
+      className={`group rounded-md border border-border bg-surface-raised px-3.5 py-3 transition-colors ${
+        target.highlighted ? FRAGMENT_HIGHLIGHT : ''
+      }`}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <MarkdownView source={note.body} />
+          <MarkdownView source={note.body} references={note.references} />
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {note.pinned && (

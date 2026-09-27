@@ -507,6 +507,19 @@ export type {
   AiSettingsInput,
 } from './ai.ts'
 
+export {
+  RECORD_REFERENCE_TYPES,
+  formatRecordLinkToken,
+  isRecordReferenceType,
+  recordReferenceSchema,
+  splitRecordLinkTokens,
+} from './reference.ts'
+export type {
+  RecordLinkToken,
+  RecordLinkTokenSegment,
+  RecordReference,
+  RecordReferenceType,
+} from './reference.ts'
 export { activitySchema } from './activity.ts'
 export type { Activity } from './activity.ts'
 

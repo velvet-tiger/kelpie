@@ -6,6 +6,7 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { referenceResponse } from '../recordReferences.ts'
 import { isRecordTargetType } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import { RECORD_TARGET_TYPES } from './schema.ts'
@@ -61,6 +62,7 @@ export function noteResponse(note: NoteView): Record<string, unknown> {
     body: note.body,
     author_id: note.authorId,
     pinned: note.pinned,
+    references: note.references.map(referenceResponse),
     created_at: note.createdAt.toISOString(),
     updated_at: note.updatedAt.toISOString(),
   }

@@ -1,7 +1,8 @@
 import { RECORD_TARGET_TYPES } from '@kelpie/schemas'
 import { foreignKey, index, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
 
-import { checkOneOf, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { workspaces } from '../workspace/schema.ts'
 
 /**
@@ -36,9 +37,14 @@ export const lists = pgTable(
     targetType: text('target_type').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    searchVector: searchVector((): readonly SearchVectorPart[] => [
+      { column: lists.name, weight: 'A' },
+      { column: lists.description, weight: 'B' },
+    ]),
   },
   (table) => [
     index('lists_workspace_idx').on(table.workspaceId),
+    index('lists_search_idx').using('gin', table.searchVector),
     unique('lists_workspace_name_key').on(table.workspaceId, table.name),
     // The referent of the composite FK from `list_members`. Postgres requires a
     // unique key over the referenced columns; this exists solely to satisfy it.

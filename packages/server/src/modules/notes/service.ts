@@ -1,8 +1,10 @@
+import type { RecordReference } from '@kelpie/schemas'
+
 import { changedKeys } from '../../lib/changes.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
-import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
+import { readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import { describeNote } from '../activities/wording.ts'
@@ -11,6 +13,7 @@ import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
+import { resolveReferences } from '../recordReferences.ts'
 import { missingTargets } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import * as repository from './repository.ts'
@@ -38,8 +41,13 @@ export interface NotesDependencies {
   readonly recordActivity: ActivityRecorder
 }
 
-/** A note as the API returns one: the stored row minus the tenancy column. */
-export type NoteView = Omit<NoteRecord, 'workspaceId'>
+/**
+ * A note as the API returns one: the stored row minus the tenancy column, plus
+ * the records its body cites by id.
+ */
+export type NoteView = Omit<NoteRecord, 'workspaceId'> & {
+  readonly references: readonly RecordReference[]
+}
 
 export interface CreateNoteInput {
   readonly targetType: RecordTargetType
@@ -62,13 +70,40 @@ export interface NotesService {
   remove(actor: Actor, id: string): Promise<void>
 }
 
-function toView(record: NoteRecord): NoteView {
-  const { workspaceId: _workspaceId, ...view } = record
+/** Names every record the page's bodies cite, in one lookup for the page. */
+async function toViews(
+  db: Database,
+  workspaceId: string,
+  records: readonly NoteRecord[],
+): Promise<NoteView[]> {
+  const { referencesIn } = await resolveReferences(
+    db,
+    workspaceId,
+    records.map((record) => record.body),
+  )
 
-  return view
+  return records.map((record) => {
+    const { workspaceId: _workspaceId, ...view } = record
+
+    return { ...view, references: referencesIn(record.body) }
+  })
 }
 
 export function createNotesService(dependencies: NotesDependencies): NotesService {
+  /**
+   * Read after the write commits, not inside it: the cited records are other
+   * rows, and naming them has no part in whether the note is saved.
+   */
+  async function toView(workspaceId: string, record: NoteRecord): Promise<NoteView> {
+    const [view] = await toViews(dependencies.db, workspaceId, [record])
+
+    if (view === undefined) {
+      throw new Error(`Rendering note ${record.id} returned no view`)
+    }
+
+    return view
+  }
+
   async function require(workspaceId: string, id: string): Promise<NoteRecord> {
     const note = await repository.findNote(dependencies.db, workspaceId, id)
 
@@ -108,14 +143,18 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
       const window = readListWindow(query, NOTE_SORTS, DEFAULT_NOTE_SORT)
       const rows = await repository.listNotes(dependencies.db, workspaceId, filters, window)
 
-      return mapPage(
-        toPage(rows, window, (note) => note.id),
-        toView,
-      )
+      const page = toPage(rows, window, (note) => note.id)
+
+      return {
+        items: await toViews(dependencies.db, workspaceId, page.items),
+        nextCursor: page.nextCursor,
+      }
     },
 
     async get(actor, id) {
-      return toView(await require(requireWorkspaceId(actor), id))
+      const workspaceId = requireWorkspaceId(actor)
+
+      return toView(workspaceId, await require(workspaceId, id))
     },
 
     async create(actor, input) {
@@ -125,8 +164,8 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
 
       const id = dependencies.createId('note')
 
-      return dependencies.transaction(async ({ tx, events }) => {
-        const created = await repository.insertNote(tx, {
+      const created = await dependencies.transaction(async ({ tx, events }) => {
+        const inserted = await repository.insertNote(tx, {
           id,
           workspaceId,
           targetType: input.targetType,
@@ -149,12 +188,14 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
         // attached to.
         events.emit(
           'notes.note.added',
-          { type: created.targetType, id: created.targetId },
-          { noteId: created.id },
+          { type: inserted.targetType, id: inserted.targetId },
+          { noteId: inserted.id },
         )
 
-        return toView(created)
+        return inserted
       }, { workspaceId, actor: toEventActor(actor) })
+
+      return toView(workspaceId, created)
     },
 
     async update(actor, id, changes) {
@@ -169,24 +210,26 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
       // A PATCH that changes nothing is not a write. Bumping `updated_at` for it
       // would make the note look freshly touched to anything sorting by it.
       if (changed.length === 0) {
-        return toView(existing)
+        return toView(workspaceId, existing)
       }
 
       // No event. The catalog carries `note.added` and nothing for a note
       // changing or going away, and inventing one here would add a name the
       // webhooks engine has never been told about. Recorded as a follow-up.
-      return dependencies.transaction(async ({ tx }) => {
-        const updated = await repository.updateNote(tx, workspaceId, id, {
+      const updated = await dependencies.transaction(async ({ tx }) => {
+        const row = await repository.updateNote(tx, workspaceId, id, {
           ...columns,
           updatedAt: dependencies.now(),
         })
 
-        if (updated === undefined) {
+        if (row === undefined) {
           throw AppError.notFound('Note not found')
         }
 
-        return toView(updated)
+        return row
       })
+
+      return toView(workspaceId, updated)
     },
 
     async remove(actor, id) {

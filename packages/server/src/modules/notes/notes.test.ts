@@ -65,6 +65,95 @@ describe.skipIf(connectionString === undefined)('notes', () => {
     personId = await createPerson('Ada Lovelace')
   })
 
+  describe('cited records', () => {
+    it('names the records a body cites by id on create, get, list and edit', async () => {
+      const cited = await createPerson('Charles Babbage')
+      const created = await noteOn(personId, `Introduced by ${cited}. Unknown: per_01M1DDZFG3N7TWB3F3X4AV4S96`)
+      const expected = [{ target_type: 'person', target_id: cited, name: 'Charles Babbage', parent_type: null, parent_id: null }]
+
+      expect(created.references).toEqual(expected)
+
+      const noteId = readString(created, 'id')
+      const fetched = readRecord(
+        await (await client.send('GET', `/v1/notes/${noteId}`, { cookie: acme.cookie })).json(),
+      )
+
+      expect(fetched.references).toEqual(expected)
+
+      const listed = readList(
+        await (await listNotes(`target_type=person&target_id=${personId}`)).json(),
+      )
+
+      expect(listed[0]?.references).toEqual(expected)
+
+      const edited = readRecord(
+        await (
+          await client.send('PATCH', `/v1/notes/${noteId}`, {
+            body: { body: 'No citation now' },
+            cookie: acme.cookie,
+          })
+        ).json(),
+      )
+
+      expect(edited.references).toEqual([])
+    })
+
+    it('names a record cited through a [[type:id|Label]] link, with its current name', async () => {
+      const cited = await createPerson('Charles Babbage')
+      const created = await noteOn(personId, `Met [[person:${cited}|Charlie]] at the salon`)
+
+      expect(created.references).toEqual([
+        { target_type: 'person', target_id: cited, name: 'Charles Babbage', parent_type: null, parent_id: null },
+      ])
+    })
+
+    it('names a Role and a handbook page, which are not note targets', async () => {
+      const role = readRecord(
+        await (await client.send('POST', '/v1/roles', { body: { title: 'Staff Engineer' }, cookie: acme.cookie })).json(),
+      )
+      const page = readRecord(
+        await (
+          await client.send('POST', '/v1/handbook_pages', {
+            body: { title: 'How we sell', body: 'Discovery first.' },
+            cookie: acme.cookie,
+          })
+        ).json(),
+      )
+      const roleId = readString(role, 'id')
+      const pageId = readString(page, 'id')
+      const created = await noteOn(personId, `For [[role:${roleId}|Engineer]], read ${pageId}.`)
+
+      expect(created.references).toEqual([
+        { target_type: 'role', target_id: roleId, name: 'Staff Engineer', parent_type: null, parent_id: null },
+        { target_type: 'handbook_page', target_id: pageId, name: 'How we sell', parent_type: null, parent_id: null },
+      ])
+    })
+
+    it('names a cited note by its first line, with the record it is on', async () => {
+      const first = await noteOn(personId, '# Pricing call\n\nThey want annual billing.')
+      const firstId = readString(first, 'id')
+      const created = await noteOn(personId, `Follow-up to ${firstId}`)
+
+      expect(created.references).toEqual([
+        {
+          target_type: 'note',
+          target_id: firstId,
+          name: 'Pricing call',
+          parent_type: 'person',
+          parent_id: personId,
+        },
+      ])
+    })
+
+    it('does not name a record in another workspace', async () => {
+      const other = await client.owner('grace@example.com')
+      const theirs = await createPerson('Grace Hopper', other.cookie)
+      const created = await noteOn(personId, `Knows ${theirs}`)
+
+      expect(created.references).toEqual([])
+    })
+  })
+
   describe('creating', () => {
     it('attaches a note to a person and attributes it to the author', async () => {
       const response = await addNote({

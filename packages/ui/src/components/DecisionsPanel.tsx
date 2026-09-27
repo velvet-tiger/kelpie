@@ -7,6 +7,7 @@ import { useTimezone } from '../api/resources/account.ts'
 import { useCreateDecision, useDecisions, useDeleteDecision } from '../api/resources/decisions.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { formatDate } from '../lib/dates.ts'
+import { FRAGMENT_HIGHLIGHT, useFragmentTarget } from '../lib/fragmentTarget.ts'
 import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
@@ -202,9 +203,16 @@ function DecisionItem({
   readonly onRemove: () => void
 }): React.JSX.Element {
   const timezone = useTimezone()
+  const target = useFragmentTarget<HTMLLIElement>(decision.id)
 
   return (
-    <li className="border-b border-border px-4 py-3 last:border-0">
+    <li
+      id={decision.id}
+      ref={target.ref}
+      className={`border-b border-border px-4 py-3 transition-colors last:border-0 ${
+        target.highlighted ? FRAGMENT_HIGHLIGHT : ''
+      }`}
+    >
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 flex-1 text-[13px] font-medium text-ink">{decision.body}</p>
         <button

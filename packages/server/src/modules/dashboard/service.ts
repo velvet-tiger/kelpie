@@ -1,12 +1,15 @@
 import { PIPELINE_KINDS } from '@kelpie/schemas'
-import type { PipelineKind } from '@kelpie/schemas'
+import type { PipelineKind, RecordReference } from '@kelpie/schemas'
 
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import { dayIn } from '../../lib/timezones.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
-import { isRecordTargetType, resolveTargetNames, targetKey } from '../recordTargets.ts'
+import { recordIdsIn, referenceReader, resolveReferenceNames } from '../recordReferences.ts'
+import type { ReferenceTarget, ResolvedReferences } from '../recordReferences.ts'
+import type { ReferenceReader } from '../recordReferences.ts'
+import { isRecordTargetType, targetKey } from '../recordTargets.ts'
 import type { RecordTarget } from '../recordTargets.ts'
 import {
   DEFAULT_SIGNAL_LIMIT,
@@ -97,6 +100,7 @@ export interface ActivitySignal extends TargetRef {
   readonly actorLabel: string | null
   readonly action: string
   readonly detail: string | null
+  readonly references: readonly RecordReference[]
   readonly createdAt: Date
 }
 
@@ -105,6 +109,7 @@ export interface NoteSignal extends TargetRef {
   readonly body: string
   readonly authorId: string | null
   readonly pinned: boolean
+  readonly references: readonly RecordReference[]
   readonly createdAt: Date
 }
 
@@ -309,9 +314,19 @@ function targetOf(row: { readonly targetType: string; readonly targetId: string 
     : undefined
 }
 
-/** Every cross-record row on the page, so one pass resolves all of their names. */
-function targetsIn(rows: SignalRows): readonly RecordTarget[] {
-  return [
+/**
+ * Every cross-record row on the page, and every record the activity and note
+ * text cites by id, so one pass resolves all of their names.
+ */
+function targetsIn(rows: SignalRows): readonly ReferenceTarget[] {
+  // Cited ids are already typed by their prefix, and may be a Role or a handbook
+  // page, which `targetOf` would drop.
+  const cited = [
+    ...rows.recentActivity.flatMap((row) => recordIdsIn(row.detail)),
+    ...rows.recentNotes.flatMap((row) => recordIdsIn(row.body)),
+  ]
+
+  const rowTargets = [
     ...rows.overduePlanItems.items,
     ...rows.dueSoonPlanItems.items,
     ...rows.recentActivity,
@@ -322,6 +337,8 @@ function targetsIn(rows: SignalRows): readonly RecordTarget[] {
 
     return target === undefined ? [] : [target]
   })
+
+  return [...cited, ...rowTargets]
 }
 
 /** Reads a name out of the resolved map, for a row that carries its own target columns. */
@@ -392,12 +409,13 @@ function toStaleContactSignal(
 /** Shapes the rows into the answer. Pure: no clock, no database, no ambient state. */
 function toSnapshot(
   rows: SignalRows,
-  names: ReadonlyMap<string, string>,
+  resolved: ResolvedReferences,
   generatedAt: Date,
   timezone: string,
   days: DayBounds,
 ): DashboardSnapshot {
-  const nameOf = nameReader(names)
+  const nameOf = nameReader(resolved.names)
+  const referencesIn: ReferenceReader = referenceReader(resolved)
 
   return {
     generatedAt,
@@ -433,6 +451,7 @@ function toSnapshot(
       actorLabel: row.actorLabel,
       action: row.action,
       detail: row.detail,
+      references: referencesIn(row.detail),
       createdAt: row.createdAt,
     })),
     recentNotes: rows.recentNotes.map((row) => ({
@@ -443,6 +462,7 @@ function toSnapshot(
       body: row.body,
       authorId: row.authorId,
       pinned: row.pinned,
+      references: referencesIn(row.body),
       createdAt: row.createdAt,
     })),
     recentDecisions: rows.recentDecisions.map((row) => ({
@@ -489,9 +509,9 @@ export function createDashboardService(dependencies: DashboardDependencies): Das
       const rows = await readSignals(dependencies.db, workspaceId, timezone, days, limit)
       // After the rows, not alongside them: which records need naming is not
       // known until every list has come back.
-      const names = await resolveTargetNames(dependencies.db, workspaceId, targetsIn(rows))
+      const resolved = await resolveReferenceNames(dependencies.db, workspaceId, targetsIn(rows))
 
-      return toSnapshot(rows, names, generatedAt, timezone, days)
+      return toSnapshot(rows, resolved, generatedAt, timezone, days)
     },
   }
 }

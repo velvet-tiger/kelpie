@@ -4,7 +4,7 @@ import { createSearchService } from './service.ts'
 import { registerSearchTools } from './tools.ts'
 
 /**
- * One box across twelve collections.
+ * One box across every searchable collection.
  *
  * It contributes no tables and calls no `context.schema`. The `search_vector`
  * column each searchable table carries belongs to that table's own module, which
@@ -39,6 +39,9 @@ export function createSearchModule(): KelpieModule {
       'plans',
       'decisions',
       'handbook',
+      'notes',
+      'lists',
+      'forms',
     ],
     structural: true,
 

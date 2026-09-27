@@ -351,6 +351,13 @@
       "when": 1789300000000,
       "tag": "0049_drop_workspace_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1789400000000,
+      "tag": "0050_search_notes_lists_forms",
+      "breakpoints": true
     }
   ]
 }

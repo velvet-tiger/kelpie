@@ -1,10 +1,13 @@
+import type { RecordReference } from '@kelpie/schemas'
+
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
-import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
+import { readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
-import { targetExists } from '../recordTargets.ts'
+import { resolveReferences } from '../recordReferences.ts'
+import { isRecordTargetType, targetExists, targetKey } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_ACTIVITY_SORT, ACTIVITY_SORTS } from './repository.ts'
@@ -28,8 +31,14 @@ export interface ActivitiesDependencies {
   readonly db: Database
 }
 
-/** An activity as the API returns one: the stored row minus the tenancy column. */
-export type ActivityView = Omit<ActivityRecord, 'workspaceId'>
+/**
+ * An activity as the API returns one: the stored row minus the tenancy column,
+ * plus the name of the record it is filed on and the records its detail cites.
+ */
+export type ActivityView = Omit<ActivityRecord, 'workspaceId'> & {
+  readonly targetName: string | null
+  readonly references: readonly RecordReference[]
+}
 
 export interface ActivityTimelineQuery {
   readonly targetType: RecordTargetType
@@ -44,10 +53,35 @@ export interface ActivitiesService {
   ): Promise<Page<ActivityView>>
 }
 
-function toView(record: ActivityRecord): ActivityView {
-  const { workspaceId: _workspaceId, ...view } = record
+/**
+ * Names the page's rows in one lookup: each row's own record, for a rolled-up
+ * row's "on Partnership · Sandbox", and every record id its detail cites.
+ */
+async function toViews(
+  db: Database,
+  workspaceId: string,
+  records: readonly ActivityRecord[],
+): Promise<ActivityView[]> {
+  const { names, referencesIn } = await resolveReferences(
+    db,
+    workspaceId,
+    records.map((record) => record.detail),
+    records.flatMap((record) =>
+      isRecordTargetType(record.targetType)
+        ? [{ targetType: record.targetType, targetId: record.targetId }]
+        : [],
+    ),
+  )
 
-  return view
+  return records.map((record) => {
+    const { workspaceId: _workspaceId, ...view } = record
+    const targetName = isRecordTargetType(record.targetType)
+      ? (names.get(targetKey({ targetType: record.targetType, targetId: record.targetId })) ??
+        null)
+      : null
+
+    return { ...view, targetName, references: referencesIn(record.detail) }
+  })
 }
 
 export function createActivitiesService(
@@ -84,10 +118,12 @@ export function createActivitiesService(
         window,
       )
 
-      return mapPage(
-        toPage(rows, window, (activity) => activity.id),
-        toView,
-      )
+      const page = toPage(rows, window, (activity) => activity.id)
+
+      return {
+        items: await toViews(dependencies.db, workspaceId, page.items),
+        nextCursor: page.nextCursor,
+      }
     },
   }
 }

@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router'
 import { useSearch } from '../api/resources/search.ts'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
+import { attachedHref } from '../lib/recordLinks.ts'
 
 /**
  * `/search?q=`, the destination of the box in the application shell.
@@ -13,21 +14,35 @@ import { PageHeader } from '../components/PageHeader.tsx'
  * renderer, and the only thing it still owns is where a result links to.
  */
 
+/**
+ * Where a Decision, Note or Plan item result opens: the page of the record it is
+ * on, at the item. With no record to open, the fallback.
+ */
+function onItsRecord(fallback: string): (item: SearchResult) => string {
+  return (item) => (item.target === null ? fallback : (attachedHref(item.id, item.target) ?? fallback))
+}
+
 /** What each collection is called on screen, and where one of its results lives. */
-const COLLECTIONS: Readonly<Record<SearchCollection, { label: string; path: (id: string) => string }>> = {
-  handbook_page: { label: 'Handbook', path: (id) => `/handbook/${id}` },
-  person: { label: 'People', path: (id) => `/people/${id}` },
-  role: { label: 'Roles', path: (id) => `/hiring/${id}` },
-  company: { label: 'Companies', path: (id) => `/companies/${id}` },
-  enquiry: { label: 'Enquiries', path: (id) => `/enquiries/${id}` },
-  deal: { label: 'Deals', path: (id) => `/deals/${id}` },
-  opportunity: { label: 'Opportunities', path: (id) => `/opportunities/${id}` },
-  raise: { label: 'Fundraising', path: (id) => `/fundraising/${id}` },
-  partnership: { label: 'Partnerships', path: (id) => `/partnerships/${id}` },
-  event: { label: 'Events', path: (id) => `/events/${id}` },
-  // Decisions have no detail page of their own, in the mockup or here. The global
-  // list is where one is read.
-  decision: { label: 'Decisions', path: () => '/decisions' },
+const COLLECTIONS: Readonly<
+  Record<SearchCollection, { label: string; path: (item: SearchResult) => string }>
+> = {
+  handbook_page: { label: 'Handbook', path: (item) => `/handbook/${item.id}` },
+  person: { label: 'People', path: (item) => `/people/${item.id}` },
+  role: { label: 'Roles', path: (item) => `/hiring/${item.id}` },
+  company: { label: 'Companies', path: (item) => `/companies/${item.id}` },
+  enquiry: { label: 'Enquiries', path: (item) => `/enquiries/${item.id}` },
+  deal: { label: 'Deals', path: (item) => `/deals/${item.id}` },
+  opportunity: { label: 'Opportunities', path: (item) => `/opportunities/${item.id}` },
+  raise: { label: 'Fundraising', path: (item) => `/fundraising/${item.id}` },
+  partnership: { label: 'Partnerships', path: (item) => `/partnerships/${item.id}` },
+  event: { label: 'Events', path: (item) => `/events/${item.id}` },
+  // Decisions, Notes and Plan items have no page of their own. Each opens on the
+  // record it is on; the global list is where a decision with none is read.
+  decision: { label: 'Decisions', path: onItsRecord('/decisions') },
+  note: { label: 'Notes', path: onItsRecord('/dashboard') },
+  plan_item: { label: 'Plan items', path: onItsRecord('/planning') },
+  list: { label: 'Lists', path: (item) => `/lists/${item.id}` },
+  form: { label: 'Forms', path: (item) => `/forms/${item.id}` },
 }
 
 export function SearchPage(): React.JSX.Element {
@@ -120,7 +135,7 @@ function ResultRow({
 }): React.JSX.Element {
   return (
     <Link
-      to={COLLECTIONS[collection].path(item.id)}
+      to={COLLECTIONS[collection].path(item)}
       className="block px-4 py-2.5 transition hover:bg-accent-soft/30"
     >
       <div className="flex items-center justify-between gap-3">

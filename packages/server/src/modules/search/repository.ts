@@ -19,6 +19,12 @@ import { planItems } from '../plans/schema.ts'
 import { positions } from '../positions/schema.ts'
 import { raises } from '../raises/schema.ts'
 import { events } from '../events/schema.ts'
+import { forms } from '../forms/schema.ts'
+import { lists } from '../lists/schema.ts'
+import { notes } from '../notes/schema.ts'
+import { excerptName } from '../recordReferences.ts'
+import { isRecordTargetType } from '../recordTargets.ts'
+import type { RecordTargetType } from '../recordTargets.ts'
 
 /**
  * The reads behind `GET /v1/search`: one query per collection, each against that
@@ -43,6 +49,8 @@ export interface SearchHit {
   readonly title: string
   readonly subtitle: string | null
   readonly snippetSource: string | null
+  /** The record a Note, Decision or Plan item is on. Null for everything else. */
+  readonly target: { readonly type: RecordTargetType; readonly id: string } | null
 }
 
 /** What one collection answered: a capped, ranked page and the exact number of matches. */
@@ -415,6 +423,8 @@ export async function searchDecisions(
       // stage; when it was made is the line the mockup shows beside it.
       subtitle: sql<string>`to_char(${decisions.decidedAt} at time zone 'UTC', 'YYYY-MM-DD')`,
       snippetSource: decisions.rationale,
+      targetType: decisions.targetType,
+      targetId: decisions.targetId,
       total,
     })
     .from(decisions)
@@ -430,7 +440,117 @@ interface HitRow {
   readonly title: string
   readonly subtitle: string | null
   readonly snippetSource: string | null
+  readonly targetType?: string
+  readonly targetId?: string
   readonly total: number
+}
+
+/** The record a row is on, when it carries one and its type is a real target. */
+function targetOf(row: HitRow): SearchHit['target'] {
+  return row.targetType !== undefined && row.targetId !== undefined && isRecordTargetType(row.targetType)
+    ? { type: row.targetType, id: row.targetId }
+    : null
+}
+
+/**
+ * Notes, like Decisions, have no name, so the title is the first line of the
+ * body. Plan items are named by their title. All three are found on the page of
+ * the record they are on, which is why each hit carries that record.
+ */
+export async function searchNotes(
+  db: Queryable,
+  workspaceId: string,
+  query: SQL,
+  limit: number,
+): Promise<CollectionHits> {
+  const rows = await db
+    .select({
+      id: notes.id,
+      title: notes.body,
+      subtitle: sql<string>`to_char(${notes.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`,
+      snippetSource: notes.body,
+      targetType: notes.targetType,
+      targetId: notes.targetId,
+      total,
+    })
+    .from(notes)
+    .where(and(eq(notes.workspaceId, workspaceId), matches(notes.searchVector, query)))
+    .orderBy(desc(rank(notes.searchVector, query)), asc(notes.id))
+    .limit(limit)
+
+  return collect(
+    'note',
+    rows.map((row) => ({ ...row, title: excerptName(row.title) })),
+  )
+}
+
+export async function searchPlanItems(
+  db: Queryable,
+  workspaceId: string,
+  query: SQL,
+  limit: number,
+): Promise<CollectionHits> {
+  const rows = await db
+    .select({
+      id: planItems.id,
+      title: planItems.title,
+      subtitle: sql<string>`to_char(${planItems.date}, 'YYYY-MM-DD')`,
+      snippetSource: sql<string | null>`null`,
+      targetType: planItems.targetType,
+      targetId: planItems.targetId,
+      total,
+    })
+    .from(planItems)
+    .where(and(eq(planItems.workspaceId, workspaceId), matches(planItems.searchVector, query)))
+    .orderBy(desc(rank(planItems.searchVector, query)), asc(planItems.id))
+    .limit(limit)
+
+  return collect('plan_item', rows)
+}
+
+export async function searchLists(
+  db: Queryable,
+  workspaceId: string,
+  query: SQL,
+  limit: number,
+): Promise<CollectionHits> {
+  const rows = await db
+    .select({
+      id: lists.id,
+      title: lists.name,
+      // What the list holds, as a type: `person`, `company`, …
+      subtitle: lists.targetType,
+      snippetSource: lists.description,
+      total,
+    })
+    .from(lists)
+    .where(and(eq(lists.workspaceId, workspaceId), matches(lists.searchVector, query)))
+    .orderBy(desc(rank(lists.searchVector, query)), asc(lists.id))
+    .limit(limit)
+
+  return collect('list', rows)
+}
+
+export async function searchForms(
+  db: Queryable,
+  workspaceId: string,
+  query: SQL,
+  limit: number,
+): Promise<CollectionHits> {
+  const rows = await db
+    .select({
+      id: forms.id,
+      title: forms.name,
+      subtitle: forms.status,
+      snippetSource: forms.description,
+      total,
+    })
+    .from(forms)
+    .where(and(eq(forms.workspaceId, workspaceId), matches(forms.searchVector, query)))
+    .orderBy(desc(rank(forms.searchVector, query)), asc(forms.id))
+    .limit(limit)
+
+  return collect('form', rows)
 }
 
 /**
@@ -440,11 +560,12 @@ interface HitRow {
 function collect(collection: SearchCollection, rows: readonly HitRow[]): CollectionHits {
   return {
     collection,
-    hits: rows.map(({ id, title, subtitle, snippetSource }) => ({
-      id,
-      title,
-      subtitle,
-      snippetSource,
+    hits: rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      subtitle: row.subtitle,
+      snippetSource: row.snippetSource,
+      target: targetOf(row),
     })),
     total: rows[0]?.total ?? 0,
   }

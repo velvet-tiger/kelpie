@@ -12,14 +12,18 @@ import {
   searchDecisions,
   searchEnquiries,
   searchEvents,
+  searchForms,
   searchHandbookPages,
+  searchLists,
+  searchNotes,
   searchOpportunities,
   searchPartnerships,
   searchPeople,
+  searchPlanItems,
   searchRaises,
   searchRoles,
 } from './repository.ts'
-import type { CollectionHits } from './repository.ts'
+import type { CollectionHits, SearchHit } from './repository.ts'
 
 /**
  * One box across twelve collections, ranked per collection rather than merged.
@@ -37,6 +41,8 @@ export interface SearchItem {
   readonly subtitle: string | null
   /** A fragment of the record's prose, centred on the match. Empty when it has none. */
   readonly snippet: string
+  /** The record a Note, Decision or Plan item is on. Null for everything else. */
+  readonly target: SearchHit['target']
 }
 
 export interface SearchGroup {
@@ -98,6 +104,10 @@ const SEARCHES: Readonly<Record<SearchCollection, CollectionSearch>> = {
   partnership: searchPartnerships,
   event: searchEvents,
   decision: searchDecisions,
+  note: searchNotes,
+  plan_item: searchPlanItems,
+  list: searchLists,
+  form: searchForms,
 }
 
 /** A term that tokenises to nothing still answers, with every group empty. */
@@ -119,6 +129,7 @@ function toGroup(hits: CollectionHits, words: readonly string[]): SearchGroup {
       title: hit.title,
       subtitle: hit.subtitle,
       snippet: hit.snippetSource === null ? '' : snippet(hit.snippetSource, words),
+      target: hit.target,
     })),
   }
 }

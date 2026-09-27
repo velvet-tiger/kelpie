@@ -21,6 +21,7 @@ function page(id: string, parentId: string | null, sortOrder: number): HandbookP
     sortOrder,
     body: '',
     updatedBy: null,
+    references: [],
     createdAt: new Date('2026-08-01T00:00:00.000Z'),
     updatedAt: new Date('2026-08-01T00:00:00.000Z'),
   }

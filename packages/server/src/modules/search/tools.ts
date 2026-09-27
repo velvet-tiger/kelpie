@@ -28,7 +28,7 @@ const queryArgs = z.strictObject({
     .array(z.enum(SEARCH_COLLECTIONS))
     .nonempty()
     .optional()
-    .describe('Which collections to look through. Omit to search all nine.'),
+    .describe('Which collections to look through. Omit to search all of them.'),
   limit: z
     .number()
     .int()
@@ -43,10 +43,12 @@ export function registerSearchTools(mcp: McpToolRegistry, service: SearchService
     name: 'search_query',
     description:
       'Search every CRM record and handbook page at once: People (including the job titles on ' +
-      'their Positions), Companies, Deals, Opportunities, Raises, Partnerships, Roles, Decisions, ' +
-      'and handbook bodies. Deals, Opportunities and Raises also match the titles of their Plan ' +
-      'items. Results come back grouped by collection, each group ranked and carrying an exact ' +
-      'total, with a snippet centred on the match. Mirrors GET /v1/search.',
+      'their Positions), Companies, Deals, Opportunities, Raises, Partnerships, Roles, Events, ' +
+      'Decisions, Notes, Plan items, Lists, Forms, and handbook bodies. Deals, Opportunities and ' +
+      'Raises also match the titles of their Plan items. Results come back grouped by collection, ' +
+      'each group ranked and carrying an exact total, with a snippet centred on the match. A ' +
+      'Decision, Note or Plan item result carries target_type and target_id: the record it is on. ' +
+      'Mirrors GET /v1/search.',
     inputSchema: queryArgs,
     invoke: async (args, actor) =>
       searchResponse(

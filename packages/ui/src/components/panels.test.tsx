@@ -48,6 +48,8 @@ interface Stubs {
   readonly onPatch?: (path: string, body: unknown) => unknown
   readonly onDelete?: (path: string) => void
   readonly onList?: (path: string) => void
+  /** Answers `GET /search`, for the note editor's `[[` picker. */
+  readonly search?: (query: Record<string, unknown> | undefined) => unknown
   /** Overrides `activities` from the second request onwards, for invalidation tests. */
   readonly activitiesAfterRefetch?: readonly unknown[]
 }
@@ -56,9 +58,13 @@ function panelsClient(stubs: Stubs): ApiClient {
   let activityRequests = 0
 
   return stubClient({
-    get: (path) => {
+    get: (path, query) => {
       if (path === '/auth/me') {
         return SESSION
+      }
+
+      if (path === '/search' && stubs.search !== undefined) {
+        return stubs.search(query)
       }
 
       throw new Error(`Unexpected get ${path}`)
@@ -134,11 +140,13 @@ function activity(overrides: Record<string, unknown> = {}): Record<string, unkno
     id: 'act_1',
     target_type: 'person',
     target_id: 'per_1',
+    target_name: null,
     kind: 'created',
     actor_member_id: 'mem_1',
     actor_label: null,
     action: 'created Person',
     detail: null,
+    references: [],
     created_at: '2026-08-01T00:00:00.000Z',
     ...overrides,
   }
@@ -168,6 +176,7 @@ function note(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     body: 'Cares about implementation.',
     author_id: 'mem_1',
     pinned: false,
+    references: [],
     created_at: '2026-08-01T00:00:00.000Z',
     updated_at: '2026-08-01T00:00:00.000Z',
     ...overrides,
@@ -207,6 +216,52 @@ describe('ActivitiesPanel', () => {
     )
 
     await screen.findByText('Deal')
+  })
+
+  it('names a rolled-up row\'s record and links to it', async () => {
+    renderWithClient(
+      panelsClient({
+        activities: [
+          activity({
+            id: 'act_2',
+            target_type: 'deal',
+            target_id: 'deal_1',
+            target_name: 'Acme renewal',
+            action: 'created Deal',
+          }),
+        ],
+      }),
+      <ActivitiesPanel targetType="person" targetId="per_1" />,
+    )
+
+    const link = await screen.findByRole('link', { name: 'Acme renewal' })
+
+    expect(link.getAttribute('href')).toBe('/deals/deal_1')
+  })
+
+  it('links a record the detail cites by id, labelled with its name', async () => {
+    const partnershipId = 'prt_01M1DDZFG3N7TWB3F3X4AV4S96'
+
+    renderWithClient(
+      panelsClient({
+        activities: [
+          activity({
+            kind: 'note_added',
+            action: 'added a note',
+            detail: `Evidence: Partnership ${partnershipId} (alumni network)`,
+            references: [
+              { target_type: 'partnership', target_id: partnershipId, name: 'Sandbox alumni' },
+            ],
+          }),
+        ],
+      }),
+      <ActivitiesPanel targetType="person" targetId="per_1" />,
+    )
+
+    const link = await screen.findByRole('link', { name: 'Sandbox alumni' })
+
+    expect(link.getAttribute('href')).toBe(`/partnerships/${partnershipId}`)
+    expect(link.closest('p')?.textContent).toBe('Evidence: Partnership Sandbox alumni (alumni network)')
   })
 
   it('does not mark a row filed against the record being looked at', async () => {
@@ -324,6 +379,107 @@ describe('NotesPanel', () => {
     await screen.findByText('Ada Lovelace')
   })
 
+  it('links a record the body cites by id, labelled with its name', async () => {
+    const companyId = 'com_01M1DDZFG3N7TWB3F3X4AV4S97'
+
+    renderWithClient(
+      panelsClient({
+        notes: [
+          note({
+            body: `Parent is ${companyId}, see \`${companyId}\``,
+            references: [{ target_type: 'company', target_id: companyId, name: 'Sandbox Inc' }],
+          }),
+        ],
+      }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    const link = await screen.findByRole('link', { name: 'Sandbox Inc' })
+
+    expect(link.getAttribute('href')).toBe(`/companies/${companyId}`)
+    // Code is literal: the id inside backticks stays as written.
+    expect(screen.getByText(companyId).tagName).toBe('CODE')
+  })
+
+  it('links a [[type:id|Label]] token by the name the server gives, not its label', async () => {
+    const pageId = 'hb_01M1DDZFG3N7TWB3F3X4AV4S97'
+
+    renderWithClient(
+      panelsClient({
+        notes: [
+          note({
+            body: `Read [[handbook_page:${pageId}|Old title]] and [[company:com_gone|Gone Corp]] first`,
+            references: [{ target_type: 'handbook_page', target_id: pageId, name: 'How we sell' }],
+          }),
+        ],
+      }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    const link = await screen.findByRole('link', { name: 'How we sell' })
+
+    expect(link.getAttribute('href')).toBe(`/handbook/${pageId}`)
+    expect(screen.queryByText(/Old title/u)).toBeNull()
+    // A record that no longer resolves keeps its label, without the brackets.
+    expect(screen.getByText(/Gone Corp first/u).textContent).not.toContain('[[')
+    expect(screen.queryByRole('link', { name: 'Gone Corp' })).toBeNull()
+  })
+
+  it('links a cited note to the page of the record it is on, at the note', async () => {
+    const citedId = 'note_01M1DDZFG3N7TWB3F3X4AV4S97'
+
+    renderWithClient(
+      panelsClient({
+        notes: [
+          note({
+            body: `See ${citedId}`,
+            references: [
+              {
+                target_type: 'note',
+                target_id: citedId,
+                name: 'Pricing call',
+                parent_type: 'company',
+                parent_id: 'com_1',
+              },
+            ],
+          }),
+        ],
+      }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    const link = await screen.findByRole('link', { name: 'Pricing call' })
+
+    expect(link.getAttribute('href')).toBe(`/companies/com_1#${citedId}`)
+  })
+
+  it('highlights the note the address points at', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <MemoryRouter initialEntries={['/people/per_1#note_2']}>
+        <ApiProvider
+          client={panelsClient({
+            notes: [note({ id: 'note_1', body: 'Other' }), note({ id: 'note_2', body: 'The one' })],
+          })}
+          queryClient={queryClient}
+        >
+          <NotesPanel targetType="person" targetId="per_1" />
+        </ApiProvider>
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('The one')
+
+    const target = document.getElementById('note_2')
+    const other = document.getElementById('note_1')
+
+    await waitFor(() => {
+      expect(target?.className).toContain('ring-2')
+    })
+    expect(other?.className).not.toContain('ring-2')
+  })
+
   it('reads a null author as the workspace key that wrote it', async () => {
     renderWithClient(
       panelsClient({ notes: [note({ author_id: null })] }),
@@ -393,7 +549,7 @@ describe('NotesPanel', () => {
       screen.getByRole('button', { name: 'Add note' }).click()
     })
 
-    const textarea = screen.getByPlaceholderText('Write a note… (Markdown supported)')
+    const textarea = screen.getByPlaceholderText(/^Write a note…/u)
 
     await act(async () => {
       Object.getOwnPropertyDescriptor(
@@ -416,6 +572,103 @@ describe('NotesPanel', () => {
       target_id: 'per_1',
       body: 'Written just now',
     })
+  })
+
+  it('links a record picked after typing [[, and saves it as a token', async () => {
+    const posted: { body?: unknown } = {}
+    const searched: unknown[] = []
+    const client = panelsClient({
+      notes: [],
+      search: (query) => {
+        searched.push(query?.q)
+
+        return {
+          query: 'acm',
+          limit: 10,
+          total: 2,
+          groups: [
+            {
+              type: 'decision',
+              total: 1,
+              items: [
+                { id: 'dec_1', title: 'Acme pricing', subtitle: null, snippet: '', target_type: 'company', target_id: 'com_1' },
+              ],
+            },
+            { type: 'company', total: 1, items: [{ id: 'com_1', title: 'Acme | Corp', subtitle: 'acme.test', snippet: '' }] },
+          ],
+        }
+      },
+      onPost: (_path, body) => {
+        posted.body = body
+
+        return note({ body: 'saved' })
+      },
+    })
+
+    renderWithClient(client, <NotesPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('No notes yet.')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Add note' }).click()
+    })
+
+    const textarea = screen.getByPlaceholderText(/^Write a note…/u)
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        globalThis.HTMLTextAreaElement.prototype,
+        'value',
+      )?.set?.call(textarea, 'Met [[acm')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    const option = await screen.findByRole('option', { name: /Acme \| Corp/u })
+
+    // A decision is offered too: it opens on the record it is on.
+    expect(screen.getByRole('option', { name: /Acme pricing/u })).not.toBeNull()
+    expect(searched).toContain('acm')
+
+    await act(async () => {
+      option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    })
+
+    expect((textarea as HTMLTextAreaElement).value).toBe('Met [[company:com_1|Acme Corp]]')
+    expect(screen.queryByRole('listbox')).toBeNull()
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Save note' }).click()
+    })
+
+    await waitFor(() => {
+      expect(posted.body).toEqual({
+        target_type: 'person',
+        target_id: 'per_1',
+        body: 'Met [[company:com_1|Acme Corp]]',
+      })
+    })
+  })
+
+  it('does not open the picker for @, which is kept for members', async () => {
+    renderWithClient(panelsClient({ notes: [] }), <NotesPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('No notes yet.')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Add note' }).click()
+    })
+
+    const textarea = screen.getByPlaceholderText(/^Write a note…/u)
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        globalThis.HTMLTextAreaElement.prototype,
+        'value',
+      )?.set?.call(textarea, 'Ask @ada and [[x]] done')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 
   it('patches a note when its body is edited', async () => {

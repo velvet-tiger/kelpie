@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { recordReferenceSchema } from './reference.ts'
+import type { RecordReference } from './reference.ts'
 import { RECORD_TARGET_TYPES } from './values.ts'
 import type { RecordTargetType } from './values.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
@@ -12,6 +14,8 @@ import type { RecordTimestamps } from './wire.ts'
  * was behind the write, which today means a workspace API key. Resolving it to a
  * name is the caller's job: the API has no include-expansion, so a panel joins
  * against the workspace member list it already holds.
+ *
+ * `references` are the records `body` names by id. See `RecordReference`.
  */
 
 export interface Note extends RecordTimestamps {
@@ -21,6 +25,7 @@ export interface Note extends RecordTimestamps {
   readonly body: string
   readonly authorId: string | null
   readonly pinned: boolean
+  readonly references: readonly RecordReference[]
 }
 
 export const noteSchema: z.ZodType<Note, unknown> = z
@@ -31,6 +36,7 @@ export const noteSchema: z.ZodType<Note, unknown> = z
     body: z.string(),
     author_id: idSchema.nullable(),
     pinned: z.boolean(),
+    references: z.array(recordReferenceSchema),
     ...recordTimestamps,
   })
   .transform(
@@ -41,6 +47,7 @@ export const noteSchema: z.ZodType<Note, unknown> = z
       body: wire.body,
       authorId: wire.author_id,
       pinned: wire.pinned,
+      references: wire.references,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),

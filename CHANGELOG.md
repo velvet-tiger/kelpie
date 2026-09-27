@@ -57,6 +57,38 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Record ids in
+  notes and activity are links.** When a note body or an activity detail
+  holds a record id (`prt_01M1…`), the response now names it in a new
+  `references` array: `{ target_type, target_id, name }`. Only records in
+  the same workspace are named. Notes, `GET /v1/activities` and the
+  dashboard's activity and note rows carry it, and so do the MCP tools
+  over them. Activities also carry `target_name`. The UI shows each cited
+  id as the record's name, linked to its page, on the timeline, the
+  dashboard and in note bodies. A rolled-up timeline row ("on
+  Partnership") now names and links its record. In `MarkdownView`, a link
+  to a path inside the app (`/…`) now stays in the same tab.
+
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Notes and
+  handbook pages link records by name.** Type `[[` in the note or handbook
+  editor and pick a search result to insert a `[[type:id|Label]]` link
+  token. The text shows the record's current name from `references`, so a
+  rename shows at once; a token for a record that is gone shows its label
+  as plain text. Roles, handbook pages, Lists, Forms, Notes, Decisions and
+  Plan items can now be cited, by token or by plain id. A Note, Decision or
+  Plan item reference carries `parent_type` and `parent_id`, and its link
+  opens that record's page, scrolled to the item and highlighted. Handbook
+  pages now carry `references`. `@kelpie/schemas` exports
+  `splitRecordLinkTokens`, `formatRecordLinkToken` and
+  `RECORD_REFERENCE_TYPES`.
+
+- **`@kelpie/server`, `@kelpie/schemas`** — **Search finds Notes, Plan
+  items, Lists and Forms.** `GET /v1/search` and `search_query` have four
+  more collections: `note`, `plan_item`, `list` and `form`. A Decision,
+  Note or Plan item result carries `target_type` and `target_id`.
+  Migration `0050` adds a generated `search_vector` column and index to
+  `notes`, `lists` and `forms`.
+
 - **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Deleting a
   workspace now takes its name, not its slug.** `DELETE
   /v1/workspaces/:id` reads `?name=` where it read `?slug=`. The
@@ -74,6 +106,10 @@ While the major version is `0`, a minor bump may break the API.
   the column, so workspace names need not be unique.
 
 ### Fixed
+
+- **`@kelpie/ui`** — The link to a record made by converting into a Raise
+  went to `/raises/:id`, which has no page. It now goes to
+  `/fundraising/:id`.
 
 - **`@kelpie/ui`** — Creating a workspace now clears the query cache, as a
   workspace switch does. Before, records from the previous workspace could

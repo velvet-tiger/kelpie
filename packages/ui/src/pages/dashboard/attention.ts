@@ -9,6 +9,7 @@ import type {
 
 import type { ChipTone } from '../../components/Chip.tsx'
 import { formatDate, formatDay } from '../../lib/dates.ts'
+import { targetHref } from '../../lib/recordLinks.ts'
 
 /**
  * Reading the workspace snapshot as a page: one attention list from the
@@ -19,20 +20,6 @@ import { formatDate, formatDay } from '../../lib/dates.ts'
  * decided what is overdue, against the workspace's own day, and a browser that
  * re-derived it from its own clock would disagree with the totals beside it.
  */
-
-/** Where each kind of record lives. A Candidate has no page of its own: it is reached through its Role. */
-const ROUTES: Readonly<Record<RecordTargetType, string | undefined>> = {
-  person: '/people',
-  company: '/companies',
-  deal: '/deals',
-  opportunity: '/opportunities',
-  partnership: '/partnerships',
-  raise: '/fundraising',
-  enquiry: '/enquiries',
-  candidate: undefined,
-  event: '/events',
-  attendance: undefined,
-}
 
 const TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {
   person: 'Person',
@@ -49,16 +36,6 @@ const TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {
 
 export function targetTypeLabel(targetType: RecordTargetType): string {
   return TARGET_TYPE_LABELS[targetType]
-}
-
-/**
- * @returns The record's page, or undefined when it has none. A row without a
- *   link renders as plain text rather than as a link to nowhere.
- */
-export function targetHref(targetType: RecordTargetType, targetId: string): string | undefined {
-  const route = ROUTES[targetType]
-
-  return route === undefined ? undefined : `${route}/${targetId}`
 }
 
 /** How a target reads when it is named on another record's row. */

@@ -1,15 +1,18 @@
+import type { RecordReference } from '@kelpie/schemas'
+
 import { changedKeys } from '../../lib/changes.ts'
 import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
-import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
+import { readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { Transaction, TransactionScope } from '../../runtime/transaction.ts'
 import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
 import './events.ts'
+import { resolveReferences } from '../recordReferences.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_HANDBOOK_PAGE_SORT, HANDBOOK_PAGE_SORTS } from './repository.ts'
 import type { HandbookPageFilters, HandbookPageRecord } from './repository.ts'
@@ -36,8 +39,13 @@ export interface HandbookDependencies {
   readonly now: () => Date
 }
 
-/** A page as the API returns one: the stored row minus the tenancy column. */
-export type HandbookPageView = Omit<HandbookPageRecord, 'workspaceId'>
+/**
+ * A page as the API returns one: the stored row minus the tenancy column, plus
+ * the records its body cites.
+ */
+export type HandbookPageView = Omit<HandbookPageRecord, 'workspaceId'> & {
+  readonly references: readonly RecordReference[]
+}
 
 export interface CreateHandbookPageInput {
   readonly title: string
@@ -78,10 +86,23 @@ export interface HandbookService {
   remove(actor: Actor, id: string): Promise<void>
 }
 
-function toView(record: HandbookPageRecord): HandbookPageView {
-  const { workspaceId: _workspaceId, ...view } = record
+/** Names every record the bodies cite, in one lookup for the whole set. */
+async function toViews(
+  db: Database,
+  workspaceId: string,
+  records: readonly HandbookPageRecord[],
+): Promise<HandbookPageView[]> {
+  const { referencesIn } = await resolveReferences(
+    db,
+    workspaceId,
+    records.map((record) => record.body),
+  )
 
-  return view
+  return records.map((record) => {
+    const { workspaceId: _workspaceId, ...view } = record
+
+    return { ...view, references: referencesIn(record.body) }
+  })
 }
 
 /** The 422 a refused move produces. Each rejection is a different mistake, so each says something different. */
@@ -105,6 +126,20 @@ function duplicateSlug(): AppError {
 }
 
 export function createHandbookService(dependencies: HandbookDependencies): HandbookService {
+  /**
+   * Read after a write commits, not inside it: the cited records are other rows,
+   * and naming them has no part in whether the page is saved.
+   */
+  async function toView(workspaceId: string, record: HandbookPageRecord): Promise<HandbookPageView> {
+    const [view] = await toViews(dependencies.db, workspaceId, [record])
+
+    if (view === undefined) {
+      throw new Error(`Rendering handbook page ${record.id} returned no view`)
+    }
+
+    return view
+  }
+
   async function require(workspaceId: string, id: string): Promise<HandbookPageRecord> {
     const page = await repository.findPage(dependencies.db, workspaceId, id)
 
@@ -252,18 +287,25 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
       const window = readListWindow(query, HANDBOOK_PAGE_SORTS, DEFAULT_HANDBOOK_PAGE_SORT)
       const rows = await repository.listPages(dependencies.db, workspaceId, filters, window)
 
-      return mapPage(toPage(rows, window, (page) => page.id), toView)
+      const page = toPage(rows, window, (row) => row.id)
+
+      return {
+        items: await toViews(dependencies.db, workspaceId, page.items),
+        nextCursor: page.nextCursor,
+      }
     },
 
     async get(actor, id) {
-      return toView(await require(requireWorkspaceId(actor), id))
+      const workspaceId = requireWorkspaceId(actor)
+
+      return toView(workspaceId, await require(workspaceId, id))
     },
 
     async create(actor, input) {
       const workspaceId = requireWorkspaceId(actor)
       const id = dependencies.createId('handbookPage')
 
-      return dependencies.transaction(async ({ tx, events }) => {
+      const created = await dependencies.transaction(async ({ tx, events }) => {
         const all = await repository.listAllPages(tx, workspaceId)
 
         if (input.parentId !== null) {
@@ -283,7 +325,7 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
         const siblings = childrenOf(all, input.parentId)
 
         try {
-          const created = await repository.insertPage(tx, {
+          const inserted = await repository.insertPage(tx, {
             id,
             workspaceId,
             title: input.title,
@@ -296,7 +338,7 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
 
           events.emit('handbook.page.created', { type: 'handbook_page', id }, {})
 
-          return toView(created)
+          return inserted
         } catch (error: unknown) {
           // A slug given by the caller, or two concurrent creates that derived
           // the same one from the same read of `taken`.
@@ -307,6 +349,8 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
           throw error
         }
       }, { workspaceId, actor: toEventActor(actor) })
+
+      return toView(workspaceId, created)
     },
 
     async update(actor, id, changes) {
@@ -321,10 +365,10 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
       const moves = changes.parentId !== undefined || changes.sortOrder !== undefined
 
       if (written.length === 0 && !moves) {
-        return toView(existing)
+        return toView(workspaceId, existing)
       }
 
-      return dependencies.transaction(async ({ tx, events }) => {
+      const updated = await dependencies.transaction(async ({ tx, events }) => {
         const movedFields = moves
           ? await move(
               tx,
@@ -335,9 +379,9 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
             )
           : []
 
-        const updated = await writeContent(tx, workspaceId, id, columns, actor, written.length > 0)
+        const saved = await writeContent(tx, workspaceId, id, columns, actor, written.length > 0)
 
-        if (updated === undefined) {
+        if (saved === undefined) {
           throw AppError.notFound('Handbook page not found')
         }
 
@@ -347,8 +391,10 @@ export function createHandbookService(dependencies: HandbookDependencies): Handb
           events.emit('handbook.page.updated', { type: 'handbook_page', id }, { changed })
         }
 
-        return toView(updated)
+        return saved
       }, { workspaceId, actor: toEventActor(actor) })
+
+      return toView(workspaceId, updated)
     },
 
     /**

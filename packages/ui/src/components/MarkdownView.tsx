@@ -1,6 +1,11 @@
+import type { RecordReference } from '@kelpie/schemas'
+import { useMemo } from 'react'
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
+import { Link } from 'react-router'
 import remarkGfm from 'remark-gfm'
+
+import { remarkRecordReferences } from '../lib/recordReferences.ts'
 
 /**
  * Handbook markdown, rendered by a library rather than by hand (roadmap
@@ -20,7 +25,15 @@ import remarkGfm from 'remark-gfm'
  *
  * The class names are the mockup's, element for element, so a page reads the
  * same as it did before the swap.
+ *
+ * `references` are the records the source cites by id, as the server named
+ * them. Each cited id renders as a link to the record, labelled with its name.
  */
+
+/** An app path such as `/partnerships/prt_…`. `//host` is another site, so it does not count. */
+function isAppPath(href: string | undefined): href is string {
+  return href !== undefined && href.startsWith('/') && !href.startsWith('//')
+}
 
 const components: Components = {
   h1: ({ children }) => (
@@ -41,11 +54,18 @@ const components: Components = {
   blockquote: ({ children }) => (
     <blockquote className="border-l-2 border-border pl-3 text-ink-muted">{children}</blockquote>
   ),
-  a: ({ href, children }) => (
-    <a href={href} className="text-accent hover:underline" target="_blank" rel="noreferrer">
-      {children}
-    </a>
-  ),
+  // A path inside the app stays in this tab and in the router; anything else
+  // opens beside it.
+  a: ({ href, children }) =>
+    isAppPath(href) ? (
+      <Link to={href} className="text-accent hover:underline">
+        {children}
+      </Link>
+    ) : (
+      <a href={href} className="text-accent hover:underline" target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    ),
   hr: () => <hr className="border-border" />,
   // The wrapper scrolls rather than the page, so a wide table cannot push the
   // sidebar off screen.
@@ -62,10 +82,20 @@ const components: Components = {
   td: ({ children }) => <td className="px-3 py-2">{children}</td>,
 }
 
-export function MarkdownView({ source }: { readonly source: string }): React.JSX.Element {
+const NO_REFERENCES: readonly RecordReference[] = []
+
+export function MarkdownView({
+  source,
+  references = NO_REFERENCES,
+}: {
+  readonly source: string
+  readonly references?: readonly RecordReference[]
+}): React.JSX.Element {
+  const plugins = useMemo(() => [remarkGfm, remarkRecordReferences(references)], [references])
+
   return (
     <div className="markdown space-y-3 text-[13px] leading-relaxed text-ink">
-      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+      <Markdown remarkPlugins={plugins} components={components}>
         {source}
       </Markdown>
     </div>

@@ -146,6 +146,10 @@ describe.skipIf(connectionString === undefined)('search', () => {
         'partnership',
         'event',
         'decision',
+        'note',
+        'plan_item',
+        'list',
+        'form',
       ])
     })
 
@@ -475,6 +479,60 @@ describe.skipIf(connectionString === undefined)('search', () => {
 
       expect(payload.total).toBe(0)
       expect(items(payload, 'company')).toEqual([])
+    })
+  })
+
+  describe('notes, plan items, lists and forms', () => {
+    it('finds a note by its body, named by its first line and placed on its record', async () => {
+      const personId = await createPerson('Ada Lovelace')
+
+      await create('/v1/notes', {
+        target_type: 'person',
+        target_id: personId,
+        body: '## Call recap\n\nShe wants the difference engine demo.',
+      })
+
+      const [hit] = items(await search('q=difference'), 'note')
+
+      expect(hit?.title).toBe('Call recap')
+      expect(hit?.target_type).toBe('person')
+      expect(hit?.target_id).toBe(personId)
+    })
+
+    it('finds a plan item by its title, placed on its record', async () => {
+      const companyId = await createCompany('Globex')
+      const dealId = readString(
+        await create('/v1/deals', {
+          name: 'Globex rollout',
+          company_id: companyId,
+          stage_id: await stageId('deal', 'qualifying'),
+        }),
+        'id',
+      )
+
+      await create('/v1/plan_items', {
+        target_type: 'deal',
+        target_id: dealId,
+        title: 'Send the quotation',
+        date: '2026-10-01',
+      })
+
+      const [hit] = items(await search('q=quotation&type=plan_item'), 'plan_item')
+
+      expect(hit?.title).toBe('Send the quotation')
+      expect(hit?.target_type).toBe('deal')
+      expect(hit?.target_id).toBe(dealId)
+    })
+
+    it('finds a list by name and a form by name, with no target', async () => {
+      await create('/v1/lists', { name: 'Conference leads', target_type: 'person' })
+      await create('/v1/forms', { name: 'Conference signup', title: 'Sign up', fields: [{ label: 'Email', type: 'email', map_to: 'person.email', required: true }] })
+
+      const payload = await search('q=conference')
+
+      expect(titles(payload, 'list')).toEqual(['Conference leads'])
+      expect(titles(payload, 'form')).toEqual(['Conference signup'])
+      expect(items(payload, 'list')[0]?.target_type).toBeNull()
     })
   })
 

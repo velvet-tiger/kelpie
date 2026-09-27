@@ -1,7 +1,8 @@
 import { RECORD_TARGET_TYPES } from '@kelpie/schemas'
 import { boolean, index, pgTable, text } from 'drizzle-orm/pg-core'
 
-import { checkOneOf, createdAt, primaryId, updatedAt } from '../../lib/columns.ts'
+import { checkOneOf, createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import type { SearchVectorPart } from '../../lib/columns.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
 
 /**
@@ -34,9 +35,11 @@ export const notes = pgTable(
     pinned: boolean('pinned').notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    searchVector: searchVector((): readonly SearchVectorPart[] => [{ column: notes.body, weight: 'A' }]),
   },
   (table) => [
     index('notes_target_idx').on(table.workspaceId, table.targetType, table.targetId),
+    index('notes_search_idx').using('gin', table.searchVector),
     checkOneOf('notes_target_type_check', table.targetType, RECORD_TARGET_TYPES),
   ],
 )

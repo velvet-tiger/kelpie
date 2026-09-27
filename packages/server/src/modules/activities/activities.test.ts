@@ -278,6 +278,39 @@ describe.skipIf(connectionString === undefined)('activities', () => {
 
       expect(rows.map((row) => row.kind)).toEqual(['note_added', 'created'])
     })
+
+    it('names the records the note cites, and only ones in this workspace', async () => {
+      const personId = await createPerson('Ada Lovelace')
+      const companyId = await createCompany('Analytical Engines')
+      const other = await client.owner('grace@example.com')
+      const theirsResponse = await client.send('POST', '/v1/people', {
+        body: { name: 'Grace Hopper' },
+        cookie: other.cookie,
+      })
+      const theirs = readString(await theirsResponse.json(), 'id')
+
+      await client.send('POST', '/v1/notes', {
+        body: {
+          target_type: 'person',
+          target_id: personId,
+          body: `Works at ${companyId}. Knows ${theirs}. Again: ${companyId}`,
+        },
+        cookie: acme.cookie,
+      })
+
+      const rows = await timeline('person', personId)
+
+      expect(rows[0]?.references).toEqual([
+        { target_type: 'company', target_id: companyId, name: 'Analytical Engines', parent_type: null, parent_id: null },
+      ])
+    })
+
+    it('cites nothing when the detail names no record', async () => {
+      const personId = await createPerson('Ada Lovelace')
+      const rows = await timeline('person', personId)
+
+      expect(rows[0]?.references).toEqual([])
+    })
   })
 
   describe('actor', () => {
@@ -312,6 +345,20 @@ describe.skipIf(connectionString === undefined)('activities', () => {
 
       expect(rows.map((row) => row.target_type)).toContain('deal')
       expect(rows.find((row) => row.target_type === 'deal')?.detail).toBe('Pilot scoped')
+    })
+
+    it('names the record a rolled-up row is filed on', async () => {
+      const companyId = await createCompany('Analytical Engines')
+      const dealId = await insertDeal('Northwind Pilot', companyId)
+
+      await recordDealActivity(dealId, 'Pilot scoped')
+
+      const rows = await timeline('company', companyId)
+
+      expect(rows.find((row) => row.target_type === 'deal')?.target_name).toBe('Northwind Pilot')
+      expect(rows.find((row) => row.target_type === 'company')?.target_name).toBe(
+        'Analytical Engines',
+      )
     })
 
     it("includes the deals a person is on, on their timeline", async () => {
