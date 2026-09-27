@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import type { AiService } from '@kelpie/schemas'
 
 import type { Environment } from '../../lib/config.ts'
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
@@ -232,6 +233,8 @@ interface Harness {
 
 interface HarnessOptions {
   readonly keyMode: 'workspace' | 'deployment'
+  /** The AI service the install offers. The module's default, `custom`, when absent. */
+  readonly service?: AiService
   readonly environment?: Environment
   /** Stub the tools (the default) or use the real registry. */
   readonly realTools?: boolean
@@ -276,6 +279,7 @@ async function buildHarness(database: TestDatabase, options: HarnessOptions): Pr
 
   const aiModule = createAiModule({
     keyMode: options.keyMode,
+    ...(options.service === undefined ? {} : { service: options.service }),
     providers: fakeProviders(provider),
     ...(options.realTools === true ? {} : { tools: () => stubs }),
   })
@@ -440,7 +444,8 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     let h: Harness
 
     beforeAll(async () => {
-      h = await buildHarness(database, { keyMode: 'deployment', environment: DEPLOYMENT_ENVIRONMENT })
+      // Kelpie Cloud's shape: the hosted service on the deployment's key.
+      h = await buildHarness(database, { keyMode: 'deployment', service: 'kelpie_ai', environment: DEPLOYMENT_ENVIRONMENT })
     })
 
     beforeEach(async () => {
@@ -941,6 +946,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(settingsResponse.status).toBe(200)
       const settings = readRecord(await settingsResponse.json())
       expect(settings).toMatchObject({
+        service: 'kelpie_ai',
         key_mode: 'deployment',
         configured: true,
         enabled: true,
@@ -1142,6 +1148,29 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       await database.truncateAll()
       h.provider.reset()
       h.toolLog.length = 0
+    })
+
+    it('offers a custom provider by default, and names its Run menu agent for it', async () => {
+      const { cookie, workspaceId } = await enabledWorkspace(h, 'custom@example.com', {
+        provider: 'openai',
+        api_key: 'sk-custom-key-0001',
+      })
+
+      const view = readRecord(await (await h.client.send('GET', '/v1/ai/settings', { cookie })).json())
+      expect(view.service).toBe('custom')
+
+      // A row an older version named "Kelpie AI" takes the service's name on the next save.
+      await h.app.services.db
+        .update(agentRegistrations)
+        .set({ name: 'Kelpie AI' })
+        .where(eq(agentRegistrations.workspaceId, workspaceId))
+      expect((await h.client.send('POST', '/v1/ai/settings', { cookie, body: {} })).status).toBe(200)
+
+      const names = await h.app.services.db
+        .select({ name: agentRegistrations.name })
+        .from(agentRegistrations)
+        .where(and(eq(agentRegistrations.workspaceId, workspaceId), eq(agentRegistrations.managedBy, 'ai')))
+      expect(names).toEqual([{ name: 'Custom provider' }])
     })
 
     it('refuses enable until the workspace chooses a provider and enters a key', async () => {
@@ -1398,7 +1427,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       const personId = readString(await person.json(), 'id')
 
       const agents = readList(await (await h.client.send('GET', '/v1/agents', { cookie })).json())
-      const kelpieAi = agents.find((agent) => agent.name === 'Kelpie AI')
+      const kelpieAi = agents.find((agent) => agent.name === 'Custom provider')
       expect(kelpieAi).toBeDefined()
 
       h.provider.queue(
@@ -1444,7 +1473,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       const person = await h.client.send('POST', '/v1/people', { cookie, body: { name: 'Ada Lovelace' } })
       const personId = readString(await person.json(), 'id')
       const agents = readList(await (await h.client.send('GET', '/v1/agents', { cookie })).json())
-      const agentId = agents.find((agent) => agent.name === 'Kelpie AI')?.id
+      const agentId = agents.find((agent) => agent.name === 'Custom provider')?.id
 
       h.provider.queue(endTurn(proposal({ summary: 'Nothing to change.' })))
       const run = await h.client.send('POST', '/v1/agent-tasks/person.enrich/run', {

@@ -76,9 +76,9 @@ The per-account login budget is the one an attacker rotating IP addresses cannot
 | --- | --- | --- |
 | `BLOCK_PRIVATE_EGRESS` | no | `true` refuses webhook deliveries and agent-task dispatches whose URL resolves to a private or reserved address. Default `false`, because a self-hosted install legitimately posts to internal hosts. Turn it on when strangers can register webhooks on your deployment. |
 
-## Kelpie AI
+## AI module
 
-Read by the optional `ai` module, and only when `kelpie.config.ts` lists `createAiModule()`. Every variable is optional: each workspace admin can enter their own key in **Admin → AI**. See [Kelpie AI](../agents/kelpie-ai.md).
+Read by the optional `ai` module, and only when `kelpie.config.ts` lists `createAiModule()`. Every variable is optional: each workspace admin can enter their own key in **Admin → AI**. See [The AI module](../agents/kelpie-ai.md).
 
 | Variable | Required | Meaning |
 | --- | --- | --- |

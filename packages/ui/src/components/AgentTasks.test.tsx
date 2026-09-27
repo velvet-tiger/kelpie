@@ -79,6 +79,7 @@ const KELPIE_AI_AGENT = {
 
 function aiSettings(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    service: 'custom',
     key_mode: 'workspace',
     configured: true,
     enabled: true,

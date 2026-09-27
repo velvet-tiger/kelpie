@@ -22,6 +22,7 @@ const SESSION = { user_id: 'usr_1', session_id: 'ses_1', workspace_id: 'ws_1', r
 const WORKSPACE = { id: 'ws_1', name: 'Acme', timezone: 'UTC' }
 
 const AI_SETTINGS = {
+  service: 'custom',
   key_mode: 'workspace',
   configured: true,
   enabled: true,
@@ -151,7 +152,7 @@ describe('PersonIntakeDialog', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const recorded = renderDialog({ ai: false })
 
-    expect(screen.getByText('Kelpie AI is not part of this install.')).toBeTruthy()
+    expect(screen.getByText('The AI module is not part of this install.')).toBeTruthy()
     await typeNotes('Dana Reyes, dana@brightline.health')
     await waitFor(() => {
       expect((screen.getByRole('button', { name: 'Copy prompt for your agent' }) as HTMLButtonElement).disabled).toBe(false)
@@ -172,7 +173,7 @@ describe('PersonIntakeDialog', () => {
   it('falls back to the prompt, with the reason, while Kelpie AI is not enabled', async () => {
     renderDialog({ ai: true, settings: { ...AI_SETTINGS, enabled: false } })
 
-    expect(await screen.findByText(/Kelpie AI is not enabled/u)).toBeTruthy()
+    expect(await screen.findByText(/Custom provider is not enabled/u)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Copy prompt for your agent' })).toBeTruthy()
   })
 

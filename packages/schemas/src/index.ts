@@ -492,6 +492,8 @@ export {
   AI_PROVIDER_LABELS,
   AI_PROVIDERS,
   AI_RUN_STATUSES,
+  AI_SERVICE_LABELS,
+  AI_SERVICES,
   aiRunSchema,
   aiSettingsBody,
   aiSettingsSchema,
@@ -503,6 +505,7 @@ export type {
   AiProvider,
   AiRun,
   AiRunStatus,
+  AiService,
   AiSettings,
   AiSettingsInput,
 } from './ai.ts'

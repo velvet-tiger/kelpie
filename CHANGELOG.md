@@ -12,6 +12,15 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **AI service
+  names.** `createAiModule({ service })` says which AI service an install
+  offers: `custom` (the default) or `kelpie_ai`. An open source install
+  calls it **Custom provider** everywhere users see it, including the Run
+  menu's agent row. Kelpie Cloud passes `kelpie_ai`: it is **Kelpie AI**, and
+  Admin → AI shows neither its provider nor its model. `GET /v1/ai/settings`
+  adds `service`; new `AI_SERVICES`, `AI_SERVICE_LABELS` and `AiService` in
+  `@kelpie/schemas`. An existing Run menu row takes the new name when an
+  admin next saves Admin → AI.
 - **`@kelpie/ui`** — **MCP moves under Admin → AI.** Core now owns
   `/admin/ai` and its **MCP** tab, so every install has the AI menu item.
   The `ai` module adds **Settings** and **Run log** tabs before it.

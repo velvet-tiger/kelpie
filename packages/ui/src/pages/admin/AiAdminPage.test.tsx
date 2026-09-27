@@ -22,6 +22,7 @@ afterEach(cleanup)
 
 function settings(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    service: 'custom',
     key_mode: 'workspace',
     configured: false,
     enabled: false,
@@ -238,7 +239,7 @@ describe('AiAdminPage', () => {
   it('opens on Settings, with MCP after the module tabs', async () => {
     renderPage({})
 
-    expect(await screen.findByText('Kelpie AI')).toBeTruthy()
+    expect(await screen.findByText('Custom provider')).toBeTruthy()
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Settings', 'Run log', 'MCP'])
     expect(screen.getByRole('tab', { name: 'Settings' }).getAttribute('aria-selected')).toBe('true')
   })
@@ -255,5 +256,36 @@ describe('AiAdminPage', () => {
 
     expect(screen.getByRole('tab', { name: 'MCP' }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByText('Streamable HTTP endpoint')).toBeTruthy()
+  })
+
+  it('names a custom provider and shows which provider and model it runs', async () => {
+    renderPage({ settings: settings({ configured: true, enabled: true, provider: 'openai', model: 'gpt-5.6-luna' }) })
+
+    expect(await screen.findByRole('heading', { name: 'Custom provider' })).toBeTruthy()
+    expect(screen.getByText('OpenAI', { selector: 'dd' })).toBeTruthy()
+    expect(screen.getByText('gpt-5.6-luna', { selector: 'dd' })).toBeTruthy()
+  })
+
+  it('names Kelpie AI, and shows neither its provider nor its model', async () => {
+    const hosted = settings({
+      service: 'kelpie_ai',
+      key_mode: 'deployment',
+      configured: true,
+      enabled: true,
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      key_source: 'environment',
+    })
+    renderPage({ settings: hosted, runs: [APPLIED_RUN] })
+
+    expect(await screen.findByRole('heading', { name: 'Kelpie AI' })).toBeTruthy()
+    expect(screen.queryByText('OpenAI')).toBeNull()
+    expect(screen.queryByText('gpt-5.6-luna')).toBeNull()
+
+    act(() => {
+      screen.getByRole('tab', { name: 'Run log' }).click()
+    })
+    expect(await screen.findByText('company.account_brief')).toBeTruthy()
+    expect(screen.queryByText(APPLIED_RUN.model)).toBeNull()
   })
 })

@@ -1,3 +1,5 @@
+import { AI_SERVICE_LABELS } from '@kelpie/schemas'
+
 import { ApiError } from '../api/client.ts'
 import { useAiRunForAgentRun, useAiSettings } from '../api/resources/ai.ts'
 import { useAgents } from '../api/resources/agentTasks.ts'
@@ -25,20 +27,21 @@ function useAvailability(options: { readonly enabled: boolean }): AgentRunnerAva
   if (settings.error !== null) {
     // The runtime answers 403 or 404 when the module is switched off.
     return settings.error instanceof ApiError && (settings.error.status === 403 || settings.error.status === 404)
-      ? { status: 'unavailable', reason: 'Kelpie AI is switched off for this workspace.' }
-      : { status: 'unavailable', reason: 'Kelpie AI settings could not be read.' }
+      ? { status: 'unavailable', reason: 'AI is switched off for this workspace.' }
+      : { status: 'unavailable', reason: 'AI settings could not be read.' }
   }
 
   const record = settings.record
+  const label = record === undefined ? 'AI' : AI_SERVICE_LABELS[record.service]
 
   if (record === undefined || !record.enabled) {
-    return { status: 'unavailable', reason: 'Kelpie AI is not enabled. An admin can enable it under Admin → AI.' }
+    return { status: 'unavailable', reason: `${label} is not enabled. An admin can enable it under Admin → AI.` }
   }
 
   if (!record.configured) {
     return {
       status: 'unavailable',
-      reason: 'Kelpie AI has no provider key. An admin can add one under Admin → AI.',
+      reason: `${label} has no provider key. An admin can add one under Admin → AI.`,
     }
   }
 
@@ -47,7 +50,7 @@ function useAvailability(options: { readonly enabled: boolean }): AgentRunnerAva
   if (agent === undefined) {
     return {
       status: 'unavailable',
-      reason: 'The Kelpie AI agent is missing. An admin can save Admin → AI again to restore it.',
+      reason: `The ${label} agent is missing. An admin can save Admin → AI again to restore it.`,
     }
   }
 

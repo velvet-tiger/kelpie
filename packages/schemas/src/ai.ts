@@ -39,6 +39,27 @@ export const AI_DEFAULT_MODELS: Readonly<Record<AiProvider, string>> = {
   anthropic: 'claude-opus-5',
 }
 
+/**
+ * Which AI service an install offers, set by the assembly.
+ *
+ *   - `custom`: the workspace's own provider and model. What an open source
+ *     install offers.
+ *   - `kelpie_ai`: Kelpie AI, the hosted service. What Kelpie Cloud offers. Its
+ *     provider and model are the service's own, so the UI does not show them.
+ *
+ * One service per install today. An install that offers both, with a choice per
+ * workspace, is later work.
+ */
+export const AI_SERVICES = ['custom', 'kelpie_ai'] as const
+
+export type AiService = (typeof AI_SERVICES)[number]
+
+/** What the UI, and the Run menu's agent row, call each service. */
+export const AI_SERVICE_LABELS: Readonly<Record<AiService, string>> = {
+  custom: 'Custom provider',
+  kelpie_ai: 'Kelpie AI',
+}
+
 export const AI_KEY_MODES = ['workspace', 'deployment'] as const
 
 export type AiKeyMode = (typeof AI_KEY_MODES)[number]
@@ -53,6 +74,7 @@ export const AI_RUN_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as c
 export type AiRunStatus = (typeof AI_RUN_STATUSES)[number]
 
 export interface AiSettings {
+  readonly service: AiService
   readonly keyMode: AiKeyMode
   /** True when a run can start now: there is a provider and a key for it. */
   readonly configured: boolean
@@ -74,6 +96,7 @@ export interface AiSettings {
 
 export const aiSettingsSchema: z.ZodType<AiSettings, unknown> = z
   .object({
+    service: z.enum(AI_SERVICES),
     key_mode: z.enum(AI_KEY_MODES),
     configured: z.boolean(),
     enabled: z.boolean(),
@@ -87,6 +110,7 @@ export const aiSettingsSchema: z.ZodType<AiSettings, unknown> = z
   })
   .transform(
     (wire): AiSettings => ({
+      service: wire.service,
       keyMode: wire.key_mode,
       configured: wire.configured,
       enabled: wire.enabled,

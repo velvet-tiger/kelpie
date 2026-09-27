@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 
 import { AI_PROVIDERS } from '@kelpie/schemas'
-import type { AiKeyMode, AiProvider } from '@kelpie/schemas'
+import type { AiKeyMode, AiProvider, AiService as AiServiceName } from '@kelpie/schemas'
 import { z } from 'zod'
 
 import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secrets.ts'
@@ -99,6 +99,12 @@ const configSchema = z.object({
 export type AiProviderFactory = (options: { readonly apiKey: string }) => AiProviderPort
 
 export interface AiModuleOptions {
+  /**
+   * Which AI service this install offers. Defaults to `custom`, the
+   * workspace's own provider. Kelpie Cloud passes `kelpie_ai`. Independent of
+   * `keyMode`: a self-hosted install may one day offer Kelpie AI too.
+   */
+  readonly service?: AiServiceName
   /** Defaults to `workspace`. A hosted assembly passes `deployment`. */
   readonly keyMode?: AiKeyMode
   /**
@@ -205,6 +211,7 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         transaction: context.transaction,
         cipher,
         credentials,
+        serviceName: options.service ?? 'custom',
         keyMode,
         coreCreateId: context.createId,
         createRunId,

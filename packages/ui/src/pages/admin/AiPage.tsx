@@ -1,11 +1,11 @@
-import { AI_DEFAULT_MODELS, AI_PROVIDER_LABELS, AI_PROVIDERS } from '@kelpie/schemas'
+import { AI_DEFAULT_MODELS, AI_PROVIDER_LABELS, AI_PROVIDERS, AI_SERVICE_LABELS } from '@kelpie/schemas'
 import type { AgentTaskTargetType, AiProvider, AiRun, AiSettings, AiSettingsInput } from '@kelpie/schemas'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router'
 
 import { useTimezone } from '../../api/resources/account.ts'
-import { useAiRuns, useAiSettings, useDisableAi, useSaveAiSettings } from '../../api/resources/ai.ts'
+import { useAiRuns, useAiServiceLabel, useAiSettings, useDisableAi, useSaveAiSettings } from '../../api/resources/ai.ts'
 import { Chip } from '../../components/Chip.tsx'
 import type { ChipTone } from '../../components/Chip.tsx'
 import { LinkedText } from '../../components/LinkedText.tsx'
@@ -269,22 +269,32 @@ function WebSearchToggle({ settings }: { readonly settings: AiSettings }): React
   )
 }
 
+/**
+ * Kelpie AI is a hosted service: its provider and model are its own, so the
+ * panel names the service and leaves them out. A custom provider is the
+ * workspace's own, so the panel shows which one and which model.
+ */
 function SettingsPanel({ settings }: { readonly settings: AiSettings }): React.JSX.Element {
   const disable = useDisableAi()
+  const label = AI_SERVICE_LABELS[settings.service]
+  const isHosted = settings.service === 'kelpie_ai'
 
   return (
     <section className="rounded-md border border-border p-5">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-[15px] font-semibold text-ink">Kelpie AI</h2>
+        <h2 className="text-[15px] font-semibold text-ink">{label}</h2>
         <Chip tone={settings.enabled ? 'success' : 'neutral'}>{settings.enabled ? 'Enabled' : 'Not enabled'}</Chip>
       </div>
       <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-muted">
-        Kelpie AI runs agent tasks for you: enrichment, summaries, follow-ups and notes. It reads the record and its
-        neighbours, asks the model for a reply, and applies that reply through the same tools any agent uses.
+        {isHosted
+          ? 'Kelpie AI runs agent tasks for you: enrichment, summaries, follow-ups and notes.'
+          : 'Run agent tasks on your own OpenAI or Anthropic key: enrichment, summaries, follow-ups and notes.'}{' '}
+        Kelpie reads the record and its neighbours, asks the model for a reply, and applies that reply through the
+        same tools any agent uses.
       </p>
 
       <dl className="mt-4 grid max-w-md grid-cols-2 gap-y-2 text-[13px]">
-        {settings.provider !== null && (
+        {!isHosted && settings.provider !== null && (
           <>
             <dt className="text-ink-muted">Provider</dt>
             <dd className="text-ink">{AI_PROVIDER_LABELS[settings.provider]}</dd>
@@ -325,13 +335,20 @@ function SettingsPanel({ settings }: { readonly settings: AiSettings }): React.J
             {disable.isPending ? 'Disabling…' : 'Disable AI'}
           </button>
           <p className="text-[12px] text-ink-muted">
-            Disabling removes Kelpie AI from the Run menu
+            Disabling removes {label} from the Run menu
             {settings.keySource === 'workspace' ? ' and deletes the stored key' : ''}. The run log is kept.
           </p>
         </div>
       )}
     </section>
   )
+}
+
+/** `22012 in · 1576 out`, or null when the run recorded no token counts. */
+function tokens(run: AiRun): string | null {
+  return run.inputTokens === null || run.outputTokens === null
+    ? null
+    : `${String(run.inputTokens)} in · ${String(run.outputTokens)} out`
 }
 
 /**
@@ -367,6 +384,9 @@ function RunTarget({ run }: { readonly run: AiRun }): React.JSX.Element | null {
 
 function RunLog(): React.JSX.Element {
   const list = useAiRuns()
+  const serviceLabel = useAiServiceLabel()
+  // Kelpie AI's model is the hosted service's own, as on the Settings tab.
+  const showModel = useAiSettings().record?.service !== 'kelpie_ai'
   const { records: runs, isLoading, error } = list
   const timezone = useTimezone()
 
@@ -377,7 +397,7 @@ function RunLog(): React.JSX.Element {
       {error !== null && <ErrorPanel error={error} />}
       {!isLoading && error === null && runs.length === 0 && (
         <p className="mt-2 text-[13px] text-ink-muted">
-          No runs yet. Start one from the Agent menu on any record page and pick <em>Kelpie AI</em>.
+          No runs yet. Start one from the Agent menu on any record page and pick <em>{serviceLabel}</em>.
         </p>
       )}
       {runs.length > 0 && (
@@ -391,10 +411,9 @@ function RunLog(): React.JSX.Element {
                 <span className="ml-auto text-[12px] text-ink-faint">{formatRelativeTime(run.createdAt, timezone)}</span>
               </div>
               <p className="mt-1 text-[12px] text-ink-muted">
-                <span className="font-mono">{run.model}</span>
-                {run.inputTokens !== null && run.outputTokens !== null
-                  ? ` · ${String(run.inputTokens)} in · ${String(run.outputTokens)} out`
-                  : ''}
+                {showModel && <span className="font-mono">{run.model}</span>}
+                {showModel && tokens(run) !== null && ' · '}
+                {tokens(run)}
               </p>
               {run.failureReason !== null && <p className="mt-2 text-[12px] text-danger">{run.failureReason}</p>}
               {run.operations !== null && run.operations.length > 0 && (

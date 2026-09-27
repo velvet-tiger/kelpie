@@ -41,7 +41,7 @@ const NO_RUNNER: AgentRunner = {
   id: 'none',
   useAvailability: () => ({
     status: 'unavailable',
-    reason: 'Running needs Kelpie AI, which this deployment does not include. Use Preview to dispatch to a registered agent.',
+    reason: 'Running needs the AI module, which this deployment does not include. Use Preview to dispatch to a registered agent.',
   }),
   useProgress: () => undefined,
 }
@@ -254,7 +254,7 @@ export function AgentTasks({
           ? 'A task is running.'
           : null
         : availability.status === 'loading'
-          ? 'Checking Kelpie AI…'
+          ? 'Checking AI…'
           : availability.reason,
     activeTaskId: directRun?.taskId ?? null,
     status: directStatus,

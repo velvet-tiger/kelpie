@@ -1,5 +1,5 @@
-import { isRecordReferenceType } from '@kelpie/schemas'
-import type { AiKeyMode, AiKeySource, AiProvider, RecordReference } from '@kelpie/schemas'
+import { AI_SERVICE_LABELS, isRecordReferenceType } from '@kelpie/schemas'
+import type { AiKeyMode, AiKeySource, AiProvider, AiService as AiServiceName, RecordReference } from '@kelpie/schemas'
 
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -79,6 +79,8 @@ export interface AiServiceDependencies {
   readonly transaction: TransactionScope
   readonly cipher: SecretCipher
   readonly credentials: AiCredentialResolver
+  /** Which AI service this install offers. Names the Run menu's agent row. */
+  readonly serviceName: AiServiceName
   readonly keyMode: AiKeyMode
   readonly coreCreateId: IdFactory
   readonly createRunId: AiIdFactory
@@ -92,6 +94,7 @@ export interface AiServiceDependencies {
 }
 
 export interface AiSettingsView {
+  readonly service: AiServiceName
   readonly keyMode: AiKeyMode
   /** True when a run could start now: a provider and a usable key. */
   readonly configured: boolean
@@ -297,6 +300,7 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
     )
 
     return {
+      service: dependencies.serviceName,
       keyMode: dependencies.keyMode,
       configured: isUsable(credentials),
       enabled: settings !== undefined,
@@ -414,7 +418,13 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
           },
           now,
         )
-        await ensureKelpieRegistration(tx, dependencies.coreCreateId, workspaceId, now)
+        await ensureKelpieRegistration(
+          tx,
+          dependencies.coreCreateId,
+          workspaceId,
+          AI_SERVICE_LABELS[dependencies.serviceName],
+          now,
+        )
       })
 
       // Never the key, and never its hint: the provider and where the key

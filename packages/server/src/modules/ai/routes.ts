@@ -63,6 +63,7 @@ export interface AiRoutesDependencies extends CredentialDependencies {
 
 function settingsBody(view: AiSettingsView): Record<string, unknown> {
   return {
+    service: view.service,
     key_mode: view.keyMode,
     configured: view.configured,
     enabled: view.enabled,

@@ -17,6 +17,7 @@ import type {
 import { useState } from 'react'
 import { Link } from 'react-router'
 
+import { useAiServiceLabel } from '../api/resources/ai.ts'
 import { useApplyPersonIntake, useIdentifyPerson, useResearchPerson } from '../api/resources/personIntake.ts'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
@@ -26,7 +27,7 @@ import type { PersonIntakeWizardProps } from '../registry/contributions.ts'
 import { effectiveSelection } from './personIntakeSelection.ts'
 
 /**
- * Kelpie AI's wizard behind People's **Add from notes**: notes, confirm the
+ * The `ai` module's wizard behind People's **Add from notes**: notes, confirm the
  * person, choose what to create, done. Spec: person intake, in the `ai`
  * module's docs (`docs/agents/kelpie-ai.md`).
  *
@@ -148,6 +149,7 @@ function NotesStep({
   readonly error: Error | null
   readonly onNext: () => void
 }): React.JSX.Element {
+  const serviceLabel = useAiServiceLabel()
   return (
     <IntakeFrame
       footer={
@@ -159,7 +161,7 @@ function NotesStep({
       <NotesField value={text} onChange={onChange} disabled={pending} />
       {pending && (
         <p className="mt-2 text-[12px] text-ink-muted">
-          Kelpie AI is looking this person up. With web search on, this can take a minute.
+          {serviceLabel} is looking this person up. With web search on, this can take a minute.
         </p>
       )}
       {error !== null && (
@@ -193,6 +195,7 @@ function ConfirmStep({
   readonly onBack: () => void
   readonly onNext: (candidate: PersonIntakeCandidate, existingPersonId: string | null) => void
 }): React.JSX.Element {
+  const serviceLabel = useAiServiceLabel()
   const first = identified.candidates[0]
   const [candidateKey, setCandidateKey] = useState(first?.key ?? '')
   const [target, setTarget] = useState<Target>(first?.existingPeople[0]?.id ?? 'new')
@@ -207,7 +210,7 @@ function ConfirmStep({
           </button>
         }
       >
-        <p className="text-[13px] font-medium text-ink">Kelpie AI could not tell who this is.</p>
+        <p className="text-[13px] font-medium text-ink">{serviceLabel} could not tell who this is.</p>
         {identified.question !== null && <p className="mt-1 text-[13px] text-ink-muted">{identified.question}</p>}
       </IntakeFrame>
     )
@@ -320,7 +323,7 @@ function ConfirmStep({
       </fieldset>
       {pending && (
         <p className="mt-3 text-[12px] text-ink-muted">
-          Kelpie AI is researching this person. With web search on, this can take a minute.
+          {serviceLabel} is researching this person. With web search on, this can take a minute.
         </p>
       )}
       <Sources sources={identified.sources} />

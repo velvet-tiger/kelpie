@@ -80,7 +80,7 @@ export function PersonIntakeDialog({ onClose }: PersonIntakeDialogProps): React.
           </button>
         </div>
         {provider === undefined ? (
-          <CopyPromptIntake reason="Kelpie AI is not part of this install." />
+          <CopyPromptIntake reason="The AI module is not part of this install." />
         ) : (
           <ProvidedIntake provider={provider} onClose={onClose} />
         )}
@@ -100,7 +100,7 @@ function ProvidedIntake({
   const availability: AgentRunnerAvailability = provider.useAvailability({ enabled: true })
 
   if (availability.status === 'loading') {
-    return <LoadingPanel label="Checking Kelpie AI…" />
+    return <LoadingPanel label="Checking AI…" />
   }
 
   if (availability.status === 'unavailable') {
@@ -199,7 +199,7 @@ function CopyPromptIntake({ reason }: { readonly reason: string }): React.JSX.El
       }
     >
       <div className="mb-3 rounded-md border border-border bg-surface-sunken px-3 py-2 text-[12px] text-ink-muted">
-        <p className="font-medium text-ink">Kelpie AI cannot run this for you now.</p>
+        <p className="font-medium text-ink">AI cannot run this for you now.</p>
         <p className="mt-0.5">{reason}</p>
         <p className="mt-1">
           You can still copy a prompt with your notes in it. Paste it into an agent connected to Kelpie over MCP

@@ -1,4 +1,4 @@
-import { aiRunSchema, aiSettingsBody, aiSettingsSchema } from '@kelpie/schemas'
+import { AI_SERVICE_LABELS, aiRunSchema, aiSettingsBody, aiSettingsSchema } from '@kelpie/schemas'
 import type { AiRun, AiSettings, AiSettingsInput } from '@kelpie/schemas'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -37,6 +37,16 @@ export function useAiSettings(options: ListOptions = {}): RecordResult<AiSetting
     error: toError(result.error),
     isNotFound: result.error instanceof ApiError && result.error.status === 404,
   }
+}
+
+/**
+ * What to call the install's AI service: "Kelpie AI" on Kelpie Cloud, "Custom
+ * provider" on an open source install. Plain "AI" until the settings load.
+ */
+export function useAiServiceLabel(): string {
+  const { record } = useAiSettings()
+
+  return record === undefined ? 'AI' : AI_SERVICE_LABELS[record.service]
 }
 
 /** Enables AI, or saves a new provider, key or model when it is on already. */

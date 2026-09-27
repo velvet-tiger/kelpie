@@ -7,8 +7,9 @@ import type { Queryable } from '../../runtime/transaction.ts'
 /**
  * The one file that writes core's `agent_registrations`.
  *
- * Kelpie AI shows up in the workspace's Run dialog exactly like any customer-
- * registered agent: as a row in that table. The row is marked
+ * The module's agent shows up in the workspace's Run dialog exactly like any
+ * customer-registered agent: as a row in that table, named for the install's
+ * AI service (`AI_SERVICE_LABELS`): "Kelpie AI" or "Custom provider". The row is marked
  * `managed_by = 'ai'`, and that is what routes a run to this module: core's
  * agent-tasks engine calls the dispatcher this module provides
  * (`context.agentDispatch`) in-process, and never reads the row's endpoint or
@@ -16,11 +17,10 @@ import type { Queryable } from '../../runtime/transaction.ts'
  * row, and the MCP page links to `settings_path` in place of Remove.
  *
  * The row is found by `managed_by`, never by name, so an admin's own agent
- * called "Kelpie AI" is left alone. Core's partial unique index on
+ * with the same name is left alone. An upsert also renames the row, so an
+ * install that changes its service renames the row on the next save. Core's partial unique index on
  * `(workspace_id, managed_by)` makes the write a single upsert.
  */
-
-export const KELPIE_AGENT_NAME = 'Kelpie AI'
 
 /** This module's id, written to `managed_by`. Matches `id` in `index.ts`. */
 export const AI_MODULE_ID = 'ai'
@@ -39,6 +39,7 @@ export async function ensureKelpieRegistration(
   db: Queryable,
   createId: IdFactory,
   workspaceId: string,
+  name: string,
   now: Date,
 ): Promise<void> {
   await db
@@ -48,7 +49,7 @@ export async function ensureKelpieRegistration(
       // indistinguishable from one core would have inserted.
       id: createId('agentRegistration'),
       workspaceId,
-      name: KELPIE_AGENT_NAME,
+      name,
       endpoint: AI_AGENT_ENDPOINT,
       authHeaderEncrypted: null,
       managedBy: AI_MODULE_ID,
@@ -61,6 +62,7 @@ export async function ensureKelpieRegistration(
       // Names the partial index: its predicate must match for Postgres to use it.
       targetWhere: isNotNull(agentRegistrations.managedBy),
       set: {
+        name,
         endpoint: AI_AGENT_ENDPOINT,
         authHeaderEncrypted: null,
         settingsPath: AI_SETTINGS_PATH,
