@@ -243,6 +243,7 @@ export function createConversionsService(dependencies: ConversionsDependencies):
           targetId,
           kind: 'created',
           ...describeCreationFrom(targetLabel, sourceLabel, source.name),
+          subject: { type: sourceKind, id: sourceId },
         })
 
         await dependencies.recordActivity(tx, workspaceId, actor, {
@@ -250,6 +251,7 @@ export function createConversionsService(dependencies: ConversionsDependencies):
           targetId: sourceId,
           kind: 'updated',
           ...describeConversion(targetLabel, payload.name),
+          subject: { type: targetKind, id: targetId },
         })
 
         if (stageChanged && currentSourceStage !== undefined) {

@@ -32,6 +32,12 @@ export interface Activity {
   readonly action: string
   readonly detail: string | null
   readonly references: readonly RecordReference[]
+  /**
+   * The record the row is about, when that is not the one it is filed on: the
+   * note added, the company linked to, the form a deal came through. Named with
+   * its current name; null when there is none or it no longer resolves.
+   */
+  readonly subject: RecordReference | null
   readonly createdAt: Date
 }
 
@@ -47,6 +53,7 @@ export const activitySchema: z.ZodType<Activity, unknown> = z
     action: z.string(),
     detail: z.string().nullable(),
     references: z.array(recordReferenceSchema),
+    subject: recordReferenceSchema.nullish(),
     created_at: timestampSchema,
   })
   .transform(
@@ -61,6 +68,7 @@ export const activitySchema: z.ZodType<Activity, unknown> = z
       action: wire.action,
       detail: wire.detail,
       references: wire.references,
+      subject: wire.subject ?? null,
       createdAt: wire.created_at,
     }),
   )

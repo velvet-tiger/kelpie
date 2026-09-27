@@ -329,6 +329,7 @@ export function createOpportunitiesService(
             targetId: id,
             kind: 'linked',
             ...describeLink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 
@@ -453,6 +454,7 @@ export function createOpportunitiesService(
             targetId: id,
             kind: 'linked',
             ...describeLink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 
@@ -462,6 +464,7 @@ export function createOpportunitiesService(
             targetId: id,
             kind: 'unlinked',
             ...describeUnlink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 

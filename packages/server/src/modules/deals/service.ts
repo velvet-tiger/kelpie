@@ -331,6 +331,7 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
             targetId: id,
             kind: 'linked',
             ...describeLink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 
@@ -447,6 +448,7 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
             targetId: id,
             kind: 'linked',
             ...describeLink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 
@@ -456,6 +458,7 @@ export function createDealsService(dependencies: DealsDependencies): DealsServic
             targetId: id,
             kind: 'unlinked',
             ...describeUnlink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 

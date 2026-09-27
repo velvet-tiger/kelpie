@@ -176,6 +176,8 @@ export interface DashboardActivity extends TargetRef {
   readonly detail: string | null
   /** The records `detail` names by id. */
   readonly references: readonly RecordReference[]
+  /** The record the row is about. See `Activity.subject`. */
+  readonly subject: RecordReference | null
   readonly createdAt: Date
 }
 
@@ -189,6 +191,7 @@ const dashboardActivitySchema: z.ZodType<DashboardActivity, unknown> = z
     action: z.string(),
     detail: z.string().nullable(),
     references: z.array(recordReferenceSchema),
+    subject: recordReferenceSchema.nullish(),
     created_at: timestampSchema,
   })
   .transform((wire) => ({
@@ -200,6 +203,7 @@ const dashboardActivitySchema: z.ZodType<DashboardActivity, unknown> = z
     action: wire.action,
     detail: wire.detail,
     references: wire.references,
+    subject: wire.subject ?? null,
     createdAt: wire.created_at,
   }))
 

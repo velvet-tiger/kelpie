@@ -150,12 +150,14 @@ export function createAttendancesService(
             targetId: input.eventId,
             kind: 'linked',
             ...describeLink('person', personName),
+            subject: { type: 'person', id: input.personId },
           })
           await dependencies.recordActivity(tx, workspaceId, actor, {
             targetType: 'person',
             targetId: input.personId,
             kind: 'linked',
             ...describeLink('event', eventName),
+            subject: { type: 'event', id: input.eventId },
           })
 
           events.emit('events.attendance.created', { type: 'attendance', id }, {})
@@ -228,12 +230,14 @@ export function createAttendancesService(
             targetId: existing.eventId,
             kind: 'unlinked',
             ...describeUnlink('person', personName),
+            subject: { type: 'person', id: existing.personId },
           })
           await dependencies.recordActivity(tx, workspaceId, actor, {
             targetType: 'person',
             targetId: existing.personId,
             kind: 'unlinked',
             ...describeUnlink('event', eventName),
+            subject: { type: 'event', id: existing.eventId },
           })
 
           events.emit('events.attendance.deleted', { type: 'attendance', id }, {})

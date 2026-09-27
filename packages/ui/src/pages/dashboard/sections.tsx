@@ -8,6 +8,7 @@ import type {
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
+import { ActivityAction } from '../../components/ActivityAction.tsx'
 import { Chip } from '../../components/Chip.tsx'
 import { LinkedText } from '../../components/LinkedText.tsx'
 import { MarkdownView } from '../../components/MarkdownView.tsx'
@@ -171,7 +172,7 @@ export function ActivityFeed({
                 <div className="flex items-baseline justify-between gap-3">
                   <p className="min-w-0 text-[12px] leading-snug text-ink">
                     <span className="font-semibold">{actorNameFor(activity, nameById)}</span>{' '}
-                    <span className="text-ink-muted">{activity.action}</span>
+                    <ActivityAction action={activity.action} subject={activity.subject} />
                   </p>
                   <time
                     dateTime={activity.createdAt.toISOString()}

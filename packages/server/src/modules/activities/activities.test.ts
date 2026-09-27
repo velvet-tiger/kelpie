@@ -313,6 +313,59 @@ describe.skipIf(connectionString === undefined)('activities', () => {
     })
   })
 
+  describe('subject', () => {
+    it('names the note an "added a note" row is about, and where it lives', async () => {
+      const personId = await createPerson('Ada Lovelace')
+      const response = await client.send('POST', '/v1/notes', {
+        body: { target_type: 'person', target_id: personId, body: '# Call recap\n\nWants a demo.' },
+        cookie: acme.cookie,
+      })
+      const noteId = readString(await response.json(), 'id')
+
+      const rows = await timeline('person', personId)
+
+      expect(rows[0]?.subject).toEqual({
+        target_type: 'note',
+        target_id: noteId,
+        name: 'Call recap',
+        parent_type: 'person',
+        parent_id: personId,
+      })
+    })
+
+    it('names the other end of a link, on both ends', async () => {
+      const personId = await createPerson('Ada Lovelace')
+      const companyId = await createCompany('Analytical Engines')
+
+      await client.send('POST', '/v1/positions', {
+        body: { person_id: personId, company_id: companyId, title: 'Engineer' },
+        cookie: acme.cookie,
+      })
+
+      const onPerson = (await timeline('person', personId)).find((row) => row.kind === 'linked')
+      const onCompany = (await timeline('company', companyId)).find((row) => row.kind === 'linked')
+
+      expect(onPerson?.subject).toMatchObject({ target_type: 'company', target_id: companyId, name: 'Analytical Engines' })
+      expect(onCompany?.subject).toMatchObject({ target_type: 'person', target_id: personId, name: 'Ada Lovelace' })
+    })
+
+    it('has none once the note is deleted, and none on a row about nothing else', async () => {
+      const personId = await createPerson('Ada Lovelace')
+      const response = await client.send('POST', '/v1/notes', {
+        body: { target_type: 'person', target_id: personId, body: 'Short-lived' },
+        cookie: acme.cookie,
+      })
+      const noteId = readString(await response.json(), 'id')
+
+      await client.send('DELETE', `/v1/notes/${noteId}`, { cookie: acme.cookie })
+
+      const rows = await timeline('person', personId)
+
+      expect(rows.find((row) => row.kind === 'note_added')?.subject).toBeNull()
+      expect(rows.find((row) => row.kind === 'created')?.subject).toBeNull()
+    })
+  })
+
   describe('actor', () => {
     it('labels a workspace key rather than attributing it to a member', async () => {
       const keyResponse = await client.send('POST', '/v1/api-keys', {

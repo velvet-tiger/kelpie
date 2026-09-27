@@ -6,6 +6,7 @@ import { useActivities } from '../api/resources/activities.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { formatRelativeTime, monthLabel } from '../lib/dates.ts'
 import { targetHref } from '../lib/recordLinks.ts'
+import { ActivityAction } from './ActivityAction.tsx'
 import { LinkedText } from './LinkedText.tsx'
 import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
@@ -230,7 +231,7 @@ function ActivityEvent({
         <div className="flex items-baseline justify-between gap-3">
           <p className="min-w-0 text-[12px] leading-snug text-ink">
             <span className="font-semibold">{actorName}</span>{' '}
-            <span className="text-ink-muted">{activity.action}</span>
+            <ActivityAction action={activity.action} subject={activity.subject} />
           </p>
           <time
             dateTime={activity.createdAt.toISOString()}

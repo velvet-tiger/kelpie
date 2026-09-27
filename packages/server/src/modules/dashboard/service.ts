@@ -1,4 +1,4 @@
-import { PIPELINE_KINDS } from '@kelpie/schemas'
+import { PIPELINE_KINDS, isRecordReferenceType } from '@kelpie/schemas'
 import type { PipelineKind, RecordReference } from '@kelpie/schemas'
 
 import type { Database } from '../../lib/database.ts'
@@ -6,7 +6,7 @@ import { AppError } from '../../lib/errors.ts'
 import { dayIn } from '../../lib/timezones.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
-import { recordIdsIn, referenceReader, resolveReferenceNames } from '../recordReferences.ts'
+import { recordIdsIn, referenceReader, referenceTo, resolveReferenceNames } from '../recordReferences.ts'
 import type { ReferenceTarget, ResolvedReferences } from '../recordReferences.ts'
 import type { ReferenceReader } from '../recordReferences.ts'
 import { isRecordTargetType, targetKey } from '../recordTargets.ts'
@@ -101,6 +101,8 @@ export interface ActivitySignal extends TargetRef {
   readonly action: string
   readonly detail: string | null
   readonly references: readonly RecordReference[]
+  /** The record the row is about, named, or null. See the activities service. */
+  readonly subject: RecordReference | null
   readonly createdAt: Date
 }
 
@@ -323,6 +325,11 @@ function targetsIn(rows: SignalRows): readonly ReferenceTarget[] {
   // page, which `targetOf` would drop.
   const cited = [
     ...rows.recentActivity.flatMap((row) => recordIdsIn(row.detail)),
+    ...rows.recentActivity.flatMap((row): readonly ReferenceTarget[] =>
+      row.subjectType !== null && row.subjectId !== null && isRecordReferenceType(row.subjectType)
+        ? [{ targetType: row.subjectType, targetId: row.subjectId }]
+        : [],
+    ),
     ...rows.recentNotes.flatMap((row) => recordIdsIn(row.body)),
   ]
 
@@ -452,6 +459,7 @@ function toSnapshot(
       action: row.action,
       detail: row.detail,
       references: referencesIn(row.detail),
+      subject: referenceTo(resolved, row.subjectType, row.subjectId),
       createdAt: row.createdAt,
     })),
     recentNotes: rows.recentNotes.map((row) => ({

@@ -1,3 +1,4 @@
+import { isRecordReferenceType } from '@kelpie/schemas'
 import type { RecordReference } from '@kelpie/schemas'
 
 import type { Database } from '../../lib/database.ts'
@@ -6,7 +7,8 @@ import { readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
-import { resolveReferences } from '../recordReferences.ts'
+import { referenceTo, resolveReferences } from '../recordReferences.ts'
+import type { ReferenceTarget } from '../recordReferences.ts'
 import { isRecordTargetType, targetExists, targetKey } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import * as repository from './repository.ts'
@@ -38,6 +40,8 @@ export interface ActivitiesDependencies {
 export type ActivityView = Omit<ActivityRecord, 'workspaceId'> & {
   readonly targetName: string | null
   readonly references: readonly RecordReference[]
+  /** The record the row is about, named, or null when there is none or it is gone. */
+  readonly subject: RecordReference | null
 }
 
 export interface ActivityTimelineQuery {
@@ -53,24 +57,35 @@ export interface ActivitiesService {
   ): Promise<Page<ActivityView>>
 }
 
+/** A row's subject as a target to name, when it has one of a known type. */
+function subjectOf(record: ActivityRecord): readonly ReferenceTarget[] {
+  return record.subjectType !== null &&
+    record.subjectId !== null &&
+    isRecordReferenceType(record.subjectType)
+    ? [{ targetType: record.subjectType, targetId: record.subjectId }]
+    : []
+}
+
 /**
  * Names the page's rows in one lookup: each row's own record, for a rolled-up
- * row's "on Partnership · Sandbox", and every record id its detail cites.
+ * row's "on Partnership · Sandbox", its subject, and every record id its detail
+ * cites.
  */
 async function toViews(
   db: Database,
   workspaceId: string,
   records: readonly ActivityRecord[],
 ): Promise<ActivityView[]> {
-  const { names, referencesIn } = await resolveReferences(
+  const { names, resolved, referencesIn } = await resolveReferences(
     db,
     workspaceId,
     records.map((record) => record.detail),
-    records.flatMap((record) =>
-      isRecordTargetType(record.targetType)
+    records.flatMap((record): readonly ReferenceTarget[] => [
+      ...(isRecordTargetType(record.targetType)
         ? [{ targetType: record.targetType, targetId: record.targetId }]
-        : [],
-    ),
+        : []),
+      ...subjectOf(record),
+    ]),
   )
 
   return records.map((record) => {
@@ -80,7 +95,12 @@ async function toViews(
         null)
       : null
 
-    return { ...view, targetName, references: referencesIn(record.detail) }
+    return {
+      ...view,
+      targetName,
+      references: referencesIn(record.detail),
+      subject: referenceTo(resolved, record.subjectType, record.subjectId),
+    }
   })
 }
 

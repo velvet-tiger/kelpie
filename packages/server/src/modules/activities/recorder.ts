@@ -1,3 +1,5 @@
+import type { RecordReferenceType } from '@kelpie/schemas'
+
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import type { Actor } from '../auth/actor.ts'
@@ -26,6 +28,11 @@ export interface ActivityDraft extends ActivityWording {
   readonly targetType: RecordTargetType
   readonly targetId: string
   readonly kind: ActivityKind
+  /**
+   * The record the row is about, when it is not the target: the note added, the
+   * record linked to, the form something came in through. The timeline links it.
+   */
+  readonly subject?: { readonly type: RecordReferenceType; readonly id: string }
 }
 
 /**
@@ -102,6 +109,8 @@ export function createActivityRecorder(
       actorLabel: label,
       action: draft.action,
       detail: draft.detail,
+      subjectType: draft.subject?.type ?? null,
+      subjectId: draft.subject?.id ?? null,
       createdAt: dependencies.now(),
     })
   }

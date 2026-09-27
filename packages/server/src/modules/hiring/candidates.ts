@@ -288,6 +288,7 @@ export function createCandidatesService(dependencies: CandidatesDependencies): C
           targetId: input.personId,
           kind: 'linked',
           ...describeLink('role', roleTitle),
+          subject: { type: 'role', id: input.roleId },
         })
 
         events.emit('hiring.candidate.created', { type: 'candidate', id }, {})
@@ -380,6 +381,7 @@ export function createCandidatesService(dependencies: CandidatesDependencies): C
           targetId: candidate.personId,
           kind: 'unlinked',
           ...describeUnlink('role', roleTitle),
+          subject: { type: 'role', id: candidate.roleId },
         })
 
         events.emit('hiring.candidate.deleted', { type: 'candidate', id }, {})

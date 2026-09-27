@@ -567,6 +567,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       targetId: id,
       kind: 'created',
       ...describeCreationVia('Deal', form.name),
+      subject: { type: 'form', id: form.id },
     })
 
     emit('deals.deal.created', { type: 'deal', id }, {})
@@ -628,6 +629,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       targetId: id,
       kind: 'created',
       ...describeCreationVia('Opportunity', form.name),
+      subject: { type: 'form', id: form.id },
     })
 
     emit('opportunities.opportunity.created', { type: 'opportunity', id }, {})
@@ -686,6 +688,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       targetId: id,
       kind: 'created',
       ...describeCreationVia('Partnership', form.name),
+      subject: { type: 'form', id: form.id },
     })
 
     emit('partnerships.partnership.created', { type: 'partnership', id }, {})
@@ -745,6 +748,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       targetId: id,
       kind: 'created',
       ...describeCreationVia('Enquiry', form.name),
+      subject: { type: 'form', id: form.id },
     })
 
     emit('enquiries.enquiry.created', { type: 'enquiry', id }, {})
@@ -1291,6 +1295,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           targetId: person.record.id,
           kind: 'created',
           ...describeFormSubmission(form.name, describeAnswers(fields, answers)),
+          subject: { type: 'form', id: form.id },
         })
 
         emitRecordEvents(events, workspaceId, { person, company, position })

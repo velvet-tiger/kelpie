@@ -121,6 +121,7 @@ function activityBody(activity: ActivitySignal): Record<string, unknown> {
     action: activity.action,
     detail: activity.detail,
     references: activity.references.map(referenceResponse),
+    subject: activity.subject === null ? null : referenceResponse(activity.subject),
     created_at: activity.createdAt.toISOString(),
   }
 }

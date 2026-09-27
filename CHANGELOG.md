@@ -82,6 +82,15 @@ While the major version is `0`, a minor bump may break the API.
   `splitRecordLinkTokens`, `formatRecordLinkToken` and
   `RECORD_REFERENCE_TYPES`.
 
+- **`@kelpie/schemas`, `@kelpie/server`, `@kelpie/ui`** — **Activity rows
+  link what they are about.** Activities, and the dashboard's recent
+  activity rows, carry `subject`: the note added, the other end of a link,
+  the other record of a conversion, or the form behind a submission, named
+  with its current name. The timeline links the row's action ("added a
+  note") to it. Migration `0051` adds `subject_type` and `subject_id` to
+  `activities`, and matches older "added a note" rows to their notes where
+  the match is certain.
+
 - **`@kelpie/server`, `@kelpie/schemas`** — **Search finds Notes, Plan
   items, Lists and Forms.** `GET /v1/search` and `search_query` have four
   more collections: `note`, `plan_item`, `list` and `form`. A Decision,

@@ -1,4 +1,4 @@
-import { splitRecordLinkTokens } from '@kelpie/schemas'
+import { isRecordReferenceType, splitRecordLinkTokens } from '@kelpie/schemas'
 import type { RecordReference, RecordReferenceType } from '@kelpie/schemas'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
@@ -146,6 +146,28 @@ export function referenceReader(resolved: ResolvedReferences): ReferenceReader {
 
       return name === undefined ? [] : [{ ...target, name, parent: resolved.parents.get(key) ?? null }]
     })
+}
+
+/**
+ * One record, named, when it resolves: an activity's subject, for example.
+ *
+ * @returns Null for no target, an unknown type, or a record that is gone.
+ */
+export function referenceTo(
+  resolved: ResolvedReferences,
+  targetType: string | null,
+  targetId: string | null,
+): RecordReference | null {
+  if (targetType === null || targetId === null || !isRecordReferenceType(targetType)) {
+    return null
+  }
+
+  const key = targetKey({ targetType, targetId })
+  const name = resolved.names.get(key)
+
+  return name === undefined
+    ? null
+    : { targetType, targetId, name, parent: resolved.parents.get(key) ?? null }
 }
 
 /** How long a name made from prose may be before it is cut. */
@@ -304,13 +326,17 @@ export async function resolveReferences(
   db: Queryable,
   workspaceId: string,
   texts: readonly (string | null)[],
-  extra: readonly RecordTarget[] = [],
-): Promise<{ readonly names: ReadonlyMap<string, string>; readonly referencesIn: ReferenceReader }> {
+  extra: readonly ReferenceTarget[] = [],
+): Promise<{
+  readonly names: ReadonlyMap<string, string>
+  readonly resolved: ResolvedReferences
+  readonly referencesIn: ReferenceReader
+}> {
   const targets = [...extra, ...texts.flatMap((text) => recordIdsIn(text))]
   const resolved: ResolvedReferences =
     targets.length === 0
       ? { names: new Map(), parents: new Map() }
       : await resolveReferenceNames(db, workspaceId, targets)
 
-  return { names: resolved.names, referencesIn: referenceReader(resolved) }
+  return { names: resolved.names, resolved, referencesIn: referenceReader(resolved) }
 }

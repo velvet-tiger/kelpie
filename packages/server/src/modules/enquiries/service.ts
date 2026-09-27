@@ -321,6 +321,7 @@ export function createEnquiriesService(dependencies: EnquiriesDependencies): Enq
             targetId: id,
             kind: 'linked',
             ...describeLink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 
@@ -439,6 +440,7 @@ export function createEnquiriesService(dependencies: EnquiriesDependencies): Enq
             targetId: id,
             kind: 'linked',
             ...describeLink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 
@@ -448,6 +450,7 @@ export function createEnquiriesService(dependencies: EnquiriesDependencies): Enq
             targetId: id,
             kind: 'unlinked',
             ...describeUnlink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 

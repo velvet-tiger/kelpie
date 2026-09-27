@@ -337,6 +337,7 @@ export function createPartnershipsService(
             targetId: id,
             kind: 'linked',
             ...describeLink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 
@@ -458,6 +459,7 @@ export function createPartnershipsService(
             targetId: id,
             kind: 'linked',
             ...describeLink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 
@@ -467,6 +469,7 @@ export function createPartnershipsService(
             targetId: id,
             kind: 'unlinked',
             ...describeUnlink('person', named.get(personId) ?? personId),
+            subject: { type: 'person', id: personId },
           })
         }
 

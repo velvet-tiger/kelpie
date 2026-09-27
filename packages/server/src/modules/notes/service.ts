@@ -180,6 +180,7 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
           targetId: input.targetId,
           kind: 'note_added',
           ...describeNote(input.body),
+          subject: { type: 'note', id },
         })
 
         // `note.added` rather than `record.created`: the catalog gives notes

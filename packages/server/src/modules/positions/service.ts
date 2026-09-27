@@ -168,12 +168,14 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
           targetId: input.personId,
           kind: 'linked',
           ...describeLink('company', ends.companyName),
+          subject: { type: 'company', id: input.companyId },
         })
         await dependencies.recordActivity(tx, workspaceId, actor, {
           targetType: 'company',
           targetId: input.companyId,
           kind: 'linked',
           ...describeLink('person', ends.personName),
+          subject: { type: 'person', id: input.personId },
         })
 
         events.emit('positions.position.created', { type: 'position', id: created.id }, {})
@@ -235,12 +237,14 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
           targetId: position.personId,
           kind: 'unlinked',
           ...describeUnlink('company', ends.companyName),
+          subject: { type: 'company', id: position.companyId },
         })
         await dependencies.recordActivity(tx, workspaceId, actor, {
           targetType: 'company',
           targetId: position.companyId,
           kind: 'unlinked',
           ...describeUnlink('person', ends.personName),
+          subject: { type: 'person', id: position.personId },
         })
 
         events.emit('positions.position.deleted', { type: 'position', id }, {})

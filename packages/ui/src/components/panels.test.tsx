@@ -194,6 +194,42 @@ describe('ActivitiesPanel', () => {
     await screen.findByText('created Person')
   })
 
+  it('links the action to the note an "added a note" row is about', async () => {
+    renderWithClient(
+      panelsClient({
+        activities: [
+          activity({
+            kind: 'note_added',
+            action: 'added a note',
+            detail: 'Recommendation: partner',
+            subject: {
+              target_type: 'note',
+              target_id: 'note_1',
+              name: 'Recommendation: partner',
+              parent_type: 'company',
+              parent_id: 'com_1',
+            },
+          }),
+        ],
+      }),
+      <ActivitiesPanel targetType="person" targetId="per_1" />,
+    )
+
+    const link = await screen.findByRole('link', { name: 'added a note' })
+
+    expect(link.getAttribute('href')).toBe('/companies/com_1#note_1')
+  })
+
+  it('leaves the action as text when the row has no subject', async () => {
+    renderWithClient(
+      panelsClient({ activities: [activity({ subject: null })] }),
+      <ActivitiesPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('created Person')
+    expect(screen.queryByRole('link', { name: 'created Person' })).toBeNull()
+  })
+
   it('uses the actor label when nothing on the team did it', async () => {
     renderWithClient(
       panelsClient({
