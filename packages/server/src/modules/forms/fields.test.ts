@@ -17,6 +17,8 @@ interface DraftOverrides {
   readonly type?: FormFieldType
   readonly mapTo?: FormFieldMapTarget
   readonly options?: readonly OptionDraft[]
+  readonly listIds?: readonly string[]
+  readonly listLabels?: Readonly<Record<string, string>>
 }
 
 function draft(overrides: DraftOverrides = {}): FieldDraft {
@@ -30,6 +32,8 @@ function draft(overrides: DraftOverrides = {}): FieldDraft {
     statement: null,
     consentPurposeIds: [],
     consentPurposeLabels: {},
+    listIds: overrides.listIds ?? [],
+    listLabels: overrides.listLabels ?? {},
   }
 }
 
@@ -203,6 +207,52 @@ describe('findFieldProblems', () => {
       expect(problems.some((problem) => problem.field === 'fields.2.type')).toBe(true)
     })
   })
+
+  describe('an Add to list field', () => {
+    function listField(overrides: DraftOverrides = {}): FieldDraft {
+      return draft({
+        label: 'Add me to the mailing list',
+        type: 'list',
+        mapTo: 'lists',
+        listIds: ['list_news'],
+        ...overrides,
+      })
+    }
+
+    it('accepts one or more lists, and two fields offering lists', () => {
+      const problems = findFieldProblems(
+        [email, listField(), listField({ listIds: ['list_events', 'list_news'] })],
+        false,
+      )
+
+      expect(problems).toEqual([])
+    })
+
+    it('refuses a list field with no lists', () => {
+      expect(findFieldProblems([email, listField({ listIds: [] })], false)).toEqual([
+        { field: 'fields.1.list_ids', message: 'A list field needs at least one list' },
+      ])
+    })
+
+    it('refuses a list offered twice on one field', () => {
+      expect(findFieldProblems([email, listField({ listIds: ['list_news', 'list_news'] })], false)).toEqual([
+        { field: 'fields.1.list_ids', message: 'A list field lists each list only once' },
+      ])
+    })
+
+    it('refuses a list field mapped anywhere but lists', () => {
+      const problems = findFieldProblems([email, listField({ mapTo: 'submission' })], false)
+
+      expect(problems.some((problem) => problem.field === 'fields.1.map_to')).toBe(true)
+    })
+
+    it('refuses another type mapped to lists', () => {
+      expect(findFieldProblems([email, listField({ type: 'text' })], false)).toEqual([
+        { field: 'fields.1.type', message: 'A lists field must be of type "list"' },
+        { field: 'fields.1.list_ids', message: 'A text field offers no lists' },
+      ])
+    })
+  })
 })
 
 describe('fieldsDiffer', () => {
@@ -244,6 +294,16 @@ describe('fieldsDiffer', () => {
       })
 
     expect(fieldsDiffer(stored([email, select('1-10')]), [email, select('1 to 10')])).toBe(true)
+  })
+
+  it('sees a list added to a list field, and a checkbox label edited', () => {
+    const lists = (listIds: readonly string[], listLabels: Readonly<Record<string, string>>): FieldDraft =>
+      draft({ label: 'Lists', type: 'list', mapTo: 'lists', listIds, listLabels })
+    const before = stored([email, lists(['list_news'], {})])
+
+    expect(fieldsDiffer(before, [email, lists(['list_news'], {})])).toBe(false)
+    expect(fieldsDiffer(before, [email, lists(['list_news', 'list_events'], {})])).toBe(true)
+    expect(fieldsDiffer(before, [email, lists(['list_news'], { list_news: 'Yes!' })])).toBe(true)
   })
 })
 

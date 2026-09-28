@@ -51,7 +51,9 @@ const optionBody = z.strictObject({
 })
 
 const fieldBody = z.strictObject({
-  label: z.string().min(1),
+  // May be empty: a field needs no visible heading, such as one checkbox whose
+  // own text says everything.
+  label: z.string(),
   type: z.enum(FORM_FIELD_TYPES),
   required: z.boolean().default(false),
   map_to: z.string().min(1),
@@ -60,6 +62,8 @@ const fieldBody = z.strictObject({
   statement: z.string().nullable().default(null),
   consent_purpose_ids: z.array(z.string().min(1)).default([]),
   consent_purpose_labels: z.record(z.string().min(1), z.string()).default({}),
+  list_ids: z.array(z.string().min(1)).default([]),
+  list_labels: z.record(z.string().min(1), z.string()).default({}),
 })
 
 const attachTargetBody = z.strictObject({
@@ -186,6 +190,8 @@ function toFieldDraft(field: z.infer<typeof fieldBody>): FieldDraft {
     statement: field.statement,
     consentPurposeIds: field.consent_purpose_ids,
     consentPurposeLabels: field.consent_purpose_labels,
+    listIds: field.list_ids,
+    listLabels: field.list_labels,
   }
 }
 
@@ -305,6 +311,8 @@ export function formResponse(form: FormView): Record<string, unknown> {
       statement: field.statement,
       consent_purpose_ids: field.consentPurposeIds,
       consent_purpose_labels: field.consentPurposeLabels,
+      list_ids: field.listIds,
+      list_labels: field.listLabels,
       sort_order: field.sortOrder,
     })),
     thank_you_message: form.thankYouMessage,

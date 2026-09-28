@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createFormBody, formBody, formSchema } from './form.ts'
+import { createFormBody, formBody, formFieldDisplayLabel, formSchema } from './form.ts'
 import type { CreateFormInput, FormInput } from './form.ts'
 
 function wireField(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -15,6 +15,8 @@ function wireField(overrides: Record<string, unknown> = {}): Record<string, unkn
     statement: null,
     consent_purpose_ids: [],
     consent_purpose_labels: {},
+    list_ids: [],
+    list_labels: {},
     sort_order: 0,
     ...overrides,
   }
@@ -80,6 +82,8 @@ describe('formSchema', () => {
           statement: null,
           consentPurposeIds: [],
           consentPurposeLabels: {},
+          listIds: [],
+          listLabels: {},
           sortOrder: 0,
         },
       ],
@@ -127,6 +131,32 @@ describe('formSchema', () => {
     expect(form.fields[0]?.options).toEqual([{ key: 'yes', value: 'Yes', valueType: 'boolean' }])
   })
 
+  it('maps an Add to list field with its lists and checkbox labels', () => {
+    const form = formSchema.parse(
+      wireForm({
+        fields: [
+          wireField({
+            label: 'Add me to the mailing list',
+            type: 'list',
+            required: false,
+            map_to: 'lists',
+            statement: 'One email a month.',
+            list_ids: ['list_news', 'list_events'],
+            list_labels: { list_news: 'Yes!' },
+          }),
+        ],
+      }),
+    )
+
+    expect(form.fields[0]).toMatchObject({
+      type: 'list',
+      mapTo: 'lists',
+      statement: 'One email a month.',
+      listIds: ['list_news', 'list_events'],
+      listLabels: { list_news: 'Yes!' },
+    })
+  })
+
   it('carries description, dealStageId, and dealNameTemplate through as null', () => {
     const form = formSchema.parse(
       wireForm({ description: null, deal_stage_id: null, deal_name_template: null }),
@@ -158,6 +188,14 @@ describe('formSchema', () => {
 
   it('rejects a non-integer sort_order', () => {
     expect(() => formSchema.parse(wireForm({ fields: [wireField({ sort_order: 1.5 })] }))).toThrow()
+  })
+})
+
+describe('formFieldDisplayLabel', () => {
+  it('uses the label, or the map target name when the label is empty', () => {
+    expect(formFieldDisplayLabel({ label: 'Work email', mapTo: 'person.email' })).toBe('Work email')
+    expect(formFieldDisplayLabel({ label: ' ', mapTo: 'person.email' })).toBe('Person · email')
+    expect(formFieldDisplayLabel({ label: '', mapTo: 'lists' })).toBe('Lists · add to list')
   })
 })
 
@@ -197,6 +235,31 @@ describe('createFormBody', () => {
         required: true,
         placeholder: 'Tell us more',
         options: [{ key: 'k', value: 'v' }],
+      },
+    ])
+  })
+
+  it('sends an Add to list field\'s lists and checkbox labels as snake_case', () => {
+    const input: CreateFormInput = {
+      name: 'Newsletter',
+      fields: [
+        {
+          label: 'Add me to the mailing list',
+          type: 'list',
+          mapTo: 'lists',
+          listIds: ['list_news'],
+          listLabels: { list_news: 'Yes!' },
+        },
+      ],
+    }
+
+    expect(createFormBody(input).fields).toEqual([
+      {
+        label: 'Add me to the mailing list',
+        type: 'list',
+        map_to: 'lists',
+        list_ids: ['list_news'],
+        list_labels: { list_news: 'Yes!' },
       },
     ])
   })

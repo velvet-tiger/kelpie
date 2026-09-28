@@ -52,6 +52,7 @@ export {
   FORM_FIELD_MAP_TARGET_LABELS,
   FORM_FIELD_MAP_TARGETS,
   FORM_FIELD_TYPES,
+  FORM_LIST_TARGET,
   FORM_OPTION_VALUE_TYPES,
   FORM_SLUG_PATTERN,
   FORM_STATUSES,
@@ -316,7 +317,7 @@ export type {
   HandbookPageInput,
 } from './handbookPage.ts'
 
-export { createFormBody, formBody, formSchema } from './form.ts'
+export { createFormBody, formBody, formFieldDisplayLabel, formSchema } from './form.ts'
 export type {
   CreateFormInput,
   Form,

@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike, inArray, or } from 'drizzle-orm'
+import { and, arrayContains, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import type { FormSubmissionLinkTarget, FormAttachTargetType } from '@kelpie/schemas'
@@ -184,6 +184,31 @@ export async function insertFields(
   }
 
   return db.insert(formFields).values([...values]).returning()
+}
+
+/**
+ * Takes a deleted list off every "Add to list" field in the workspace, with its
+ * checkbox label. Idempotent, because the `lists.list.deleted` subscriber that
+ * calls it may run twice. A field left with no lists stays stored; the embed
+ * shows nothing for it, and the next save of that form asks for a list.
+ *
+ * @returns How many fields changed.
+ */
+export async function removeListFromFields(
+  db: Queryable,
+  workspaceId: string,
+  listId: string,
+): Promise<number> {
+  const updated = await db
+    .update(formFields)
+    .set({
+      listIds: sql`array_remove(${formFields.listIds}, ${listId})`,
+      listLabels: sql`${formFields.listLabels} - ${listId}`,
+    })
+    .where(and(eq(formFields.workspaceId, workspaceId), arrayContains(formFields.listIds, [listId])))
+    .returning({ id: formFields.id })
+
+  return updated.length
 }
 
 /**

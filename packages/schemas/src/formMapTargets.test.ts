@@ -97,6 +97,7 @@ describe('isRepeatableMapTarget', () => {
   it('allows submission and consent to repeat', () => {
     expect(isRepeatableMapTarget('submission')).toBe(true)
     expect(isRepeatableMapTarget('person.consent')).toBe(true)
+    expect(isRepeatableMapTarget('lists')).toBe(true)
     expect(isRepeatableMapTarget('person.name')).toBe(false)
   })
 })
@@ -107,12 +108,25 @@ describe('suggestedFormFieldType', () => {
     expect(suggestedFormFieldType('deal.risks')).toBe('textarea')
     expect(suggestedFormFieldType('company.stage')).toBe('select')
   })
+
+  it('suggests a list field for the lists target, and leaves it for any other', () => {
+    expect(suggestedFormFieldType('lists')).toBe('list')
+    expect(suggestedFormFieldType('person.name', [], 'list')).toBe('text')
+  })
 })
 
 describe('isCompatibleFormFieldType', () => {
   it('requires consent types for person.consent', () => {
     expect(isCompatibleFormFieldType('consent', 'person.consent')).toBe(true)
     expect(isCompatibleFormFieldType('text', 'person.consent')).toBe(false)
+  })
+
+  it('pairs the list type with the lists target only', () => {
+    expect(isCompatibleFormFieldType('list', 'lists')).toBe(true)
+    expect(isCompatibleFormFieldType('text', 'lists')).toBe(false)
+    expect(isCompatibleFormFieldType('list', 'person.name')).toBe(false)
+    expect(isCompatibleFormFieldType('list', 'submission')).toBe(false)
+    expect(isCompatibleFormFieldType('list', 'person.consent')).toBe(false)
   })
 
   it('accepts text for most string targets', () => {

@@ -8,6 +8,7 @@ import { requireCapability } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import * as consentPurposesRepository from '../consent-purposes/repository.ts'
+import * as listsRepository from '../lists/repository.ts'
 import { findWorkspace } from '../workspace/repository.ts'
 import { embedContentSecurityPolicy, renderEmbedPage } from './embed.ts'
 import type { EmbedConsentPurpose } from './embed.ts'
@@ -63,6 +64,23 @@ async function loadConsentPurposes(
   if (ids.length === 0) return new Map()
   const rows = await consentPurposesRepository.listPurposesByIds(db, workspaceId, ids)
   return new Map(rows.map((row) => [row.id, { label: row.label, statement: row.statement }]))
+}
+
+/**
+ * The names of the lists every "Add to list" field on this form offers, keyed
+ * by id: the default text beside each checkbox. A list that has since been
+ * deleted drops out of the map, and `renderField` leaves its box out.
+ */
+async function loadListNames(
+  db: Database,
+  workspaceId: string,
+  fields: readonly FormFieldRecord[],
+): Promise<ReadonlyMap<string, string>> {
+  const ids = Array.from(
+    new Set(fields.flatMap((field) => (field.type === 'list' ? field.listIds : []))),
+  )
+  const rows = await listsRepository.listListsById(db, workspaceId, ids)
+  return new Map(rows.map((row) => [row.id, row.name]))
 }
 
 function submitResponse(outcome: SubmitOutcome): Record<string, unknown> {
@@ -132,15 +150,15 @@ export function mountPublicFormRoutes(
 
     const nonce = generateNonce()
     const fields = await repository.listFields(dependencies.db, form.id)
-    const consentPurposes = await loadConsentPurposes(
-      dependencies.db,
-      form.workspaceId,
-      fields,
-    )
+    const [consentPurposes, listNames] = await Promise.all([
+      loadConsentPurposes(dependencies.db, form.workspaceId, fields),
+      loadListNames(dependencies.db, form.workspaceId, fields),
+    ])
     const page = renderEmbedPage({
       form,
       fields,
       consentPurposes,
+      listNames,
       submitUrl: submitUrlFor(context, form.workspaceId, form.slug),
       nonce,
       workspaceName: workspace.name,

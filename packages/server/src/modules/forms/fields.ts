@@ -1,4 +1,5 @@
 import {
+  FORM_LIST_TARGET,
   isCompatibleFormFieldType,
   isKnownMapTarget,
   isRepeatableMapTarget,
@@ -30,12 +31,16 @@ export interface FieldDraft {
   readonly mapTo: FormFieldMapTarget
   readonly options: readonly OptionDraft[]
   readonly placeholder: string | null
-  /** The intro sentence for a `consent` field. Ignored for every other type. */
+  /** The intro sentence for a `consent` or `list` field; the text of a `notice`. */
   readonly statement: string | null
   /** Non-empty for `consent` fields; one checkbox per id in display order. */
   readonly consentPurposeIds: readonly string[]
   /** Per-purpose override for the checkbox text. Falls back to the workspace label. */
   readonly consentPurposeLabels: Readonly<Record<string, string>>
+  /** Non-empty for `list` fields; one checkbox per list in display order. */
+  readonly listIds: readonly string[]
+  /** Per-list override for the checkbox text. Falls back to the list's name. */
+  readonly listLabels: Readonly<Record<string, string>>
 }
 
 export interface OptionDraft {
@@ -48,7 +53,7 @@ export interface OptionDraft {
  * Targets a form may map more than one field to.
  *
  * `submission` writes no CRM field; `person.consent` is read separately per
- * purpose. Everything else is unique per form.
+ * purpose, and `lists` per list. Everything else is unique per form.
  */
 
 /** The two targets that establish a company for a submit to attach a Deal to. */
@@ -117,6 +122,7 @@ export function findFieldProblems(
       problems.push({ field: `${at}.map_to`, message: `Unknown map target ${field.mapTo}` })
     } else if (
       field.mapTo !== PERSON_CONSENT_TARGET &&
+      field.mapTo !== FORM_LIST_TARGET &&
       !isCompatibleFormFieldType(field.type as FormFieldType, field.mapTo, customFieldDefinitions)
     ) {
       problems.push({
@@ -177,6 +183,8 @@ export function findFieldProblems(
         field: `${at}.map_to`,
         message: 'A consent or notice field must map to person.consent',
       })
+    } else if (field.mapTo === FORM_LIST_TARGET || field.type === 'list') {
+      problems.push(...findListFieldProblems(field, at))
     } else if (!isRepeatableMapTarget(field.mapTo)) {
       if (seenTargets.has(field.mapTo)) {
         problems.push({ field: `${at}.map_to`, message: `Another field already maps to ${field.mapTo}` })
@@ -185,10 +193,40 @@ export function findFieldProblems(
       seenTargets.add(field.mapTo)
     }
 
+    if (field.type !== 'list' && field.listIds.length > 0) {
+      problems.push({ field: `${at}.list_ids`, message: `A ${field.type} field offers no lists` })
+    }
+
     problems.push(...findOptionProblems(field, at))
   }
 
   return problems
+}
+
+/**
+ * An "Add to list" field offers at least one list, each once. Two fields may
+ * offer the same list: a tick on either adds one membership, and a second add
+ * is logged as already a member. Whether each list exists and targets a person
+ * or a company needs the database, so the service checks that.
+ */
+function findListFieldProblems(field: FieldShape, at: string): readonly ErrorDetail[] {
+  if (field.type !== 'list') {
+    return [{ field: `${at}.type`, message: `A ${FORM_LIST_TARGET} field must be of type "list"` }]
+  }
+
+  if (field.mapTo !== FORM_LIST_TARGET) {
+    return [{ field: `${at}.map_to`, message: `A list field must map to ${FORM_LIST_TARGET}` }]
+  }
+
+  if (field.listIds.length === 0) {
+    return [{ field: `${at}.list_ids`, message: 'A list field needs at least one list' }]
+  }
+
+  if (new Set(field.listIds).size !== field.listIds.length) {
+    return [{ field: `${at}.list_ids`, message: 'A list field lists each list only once' }]
+  }
+
+  return []
 }
 
 /** A select needs choices; everything else must not carry any. */
@@ -253,6 +291,8 @@ export interface FieldShape {
   readonly statement: string | null
   readonly consentPurposeIds: readonly string[]
   readonly consentPurposeLabels: Readonly<Record<string, string>>
+  readonly listIds: readonly string[]
+  readonly listLabels: Readonly<Record<string, string>>
 }
 
 /**
@@ -286,6 +326,8 @@ export function fieldsDiffer(
       field.statement !== draft.statement ||
       stringListDiffer(field.consentPurposeIds, draft.consentPurposeIds) ||
       labelMapDiffer(field.consentPurposeLabels, draft.consentPurposeLabels) ||
+      stringListDiffer(field.listIds, draft.listIds) ||
+      labelMapDiffer(field.listLabels, draft.listLabels) ||
       optionsDiffer(field.options, draft.options)
     )
   })

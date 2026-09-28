@@ -9,7 +9,7 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { FORM_OPTION_VALUE_TYPES, consentCheckboxText } from '@kelpie/schemas'
+import { FORM_OPTION_VALUE_TYPES, consentCheckboxText, formFieldDisplayLabel } from '@kelpie/schemas'
 import type {
   Form,
   FormFieldInput,
@@ -20,8 +20,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useConsentPurposes } from '../../api/resources/consentPurposes.ts'
 import { useCustomFields } from '../../api/resources/customFields.ts'
-import type { ConsentPurpose } from '@kelpie/schemas'
+import type { ConsentPurpose, List } from '@kelpie/schemas'
 import { useUpdateFormFields } from '../../api/resources/forms.ts'
+import { useLists } from '../../api/resources/lists.ts'
 import { useWorkspace } from '../../api/resources/workspace.ts'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { AddFieldMenu } from './AddFieldMenu.tsx'
@@ -283,7 +284,7 @@ function PreviewField({ field, selected, problem, onSelect }: PreviewFieldProps)
       <button
         type="button"
         className="mt-8 shrink-0 cursor-grab touch-none rounded-md px-1 py-1 text-[10px] leading-none text-ink-faint opacity-0 transition hover:text-ink focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100"
-        aria-label={`Drag ${field.label} to reorder`}
+        aria-label={`Drag ${formFieldDisplayLabel(field)} to reorder`}
         {...attributes}
         {...listeners}
       >
@@ -303,16 +304,19 @@ function PreviewField({ field, selected, problem, onSelect }: PreviewFieldProps)
         <button
           type="button"
           onClick={onSelect}
-          aria-label={`Edit ${field.label}`}
+          aria-label={`Edit ${formFieldDisplayLabel(field)}`}
           aria-pressed={selected}
           className="absolute inset-0 z-10 cursor-pointer rounded-md"
         />
 
         <div className="pointer-events-none">
-          <span className="mb-1 block text-[13px] font-medium text-ink">
-            {field.label}
-            {(field.required ?? false) && <span className="ml-0.5 text-danger">*</span>}
-          </span>
+          {/* No label, no heading: the same as the embed. */}
+          {field.label.trim().length > 0 && (
+            <span className="mb-1 block text-[13px] font-medium text-ink">
+              {field.label}
+              {(field.required ?? false) && <span className="ml-0.5 text-danger">*</span>}
+            </span>
+          )}
           <PreviewControl field={field} />
           {problem !== undefined && <p className="mt-1.5 text-[12px] text-danger">{problem}</p>}
         </div>
@@ -367,6 +371,10 @@ function PreviewControl({ field }: { readonly field: EditableField }): React.JSX
 
   if (field.type === 'notice') {
     return <NoticePreview field={field} />
+  }
+
+  if (field.type === 'list') {
+    return <ListPreview field={field} />
   }
 
   return (
@@ -438,6 +446,51 @@ function ConsentPreview({ field }: { readonly field: EditableField }): React.JSX
                 workspaceName,
               )}
             </span>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
+/**
+ * The lists a form can feed: person lists get the submitter, company lists the
+ * resolved company. The same two the form's Actions tab offers.
+ */
+function useFormLists(): { readonly isLoading: boolean; readonly records: readonly List[] } {
+  const personLists = useLists({ targetType: 'person' })
+  const companyLists = useLists({ targetType: 'company' })
+  const records = useMemo(
+    () => [...personLists.records, ...companyLists.records],
+    [personLists.records, companyLists.records],
+  )
+
+  return { isLoading: personLists.isLoading || companyLists.isLoading, records }
+}
+
+/**
+ * The Add to list preview — what the visitor sees: the statement, then one
+ * checkbox per list, each with the field's own text or else the list's name.
+ */
+function ListPreview({ field }: { readonly field: EditableField }): React.JSX.Element {
+  const lists = useFormLists()
+  const nameById = new Map(lists.records.map((list) => [list.id, list.name]))
+  const statement = (field.statement ?? '').trim()
+  const ids = field.listIds ?? []
+  const overrides = field.listLabels ?? {}
+
+  return (
+    <div className="space-y-1.5">
+      {statement.length > 0 && <p className="text-[12px] text-ink-muted">{statement}</p>}
+      {ids.length === 0 ? (
+        <p className="text-[11px] italic text-ink-faint">
+          Pick at least one list in the settings panel.
+        </p>
+      ) : (
+        ids.map((id) => (
+          <div key={id} className="flex items-start gap-2">
+            <input readOnly tabIndex={-1} type="checkbox" className="mt-0.5" />
+            <span className="text-[13px] text-ink">{overrides[id] ?? nameById.get(id) ?? id}</span>
           </div>
         ))
       )}
@@ -595,6 +648,33 @@ function FieldSettings({
               labels={field.consentPurposeLabels ?? {}}
               onChange={(consentPurposeIds, consentPurposeLabels) => {
                 onChange({ consentPurposeIds, consentPurposeLabels })
+              }}
+            />
+          </>
+        )}
+
+        {field.type === 'list' && (
+          <>
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-medium text-ink-faint">
+                Description (text above the checkboxes)
+              </span>
+              <textarea
+                className={inputClass}
+                rows={3}
+                value={field.statement ?? ''}
+                onChange={(event) => {
+                  const value = event.target.value
+                  onChange({ statement: value.length === 0 ? null : value })
+                }}
+                placeholder="We send one email a month."
+              />
+            </label>
+            <FormListPicker
+              value={field.listIds ?? []}
+              labels={field.listLabels ?? {}}
+              onChange={(listIds, listLabels) => {
+                onChange({ listIds, listLabels })
               }}
             />
           </>
@@ -811,6 +891,103 @@ function ConsentPurposePicker({
                     placeholder={
                       purpose.statement.trim().length > 0 ? purpose.statement : purpose.label
                     }
+                  />
+                </label>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </fieldset>
+  )
+}
+
+/**
+ * Picks the lists an Add to list field offers, with a text input beside each
+ * chosen list to override its checkbox text. An empty override falls back to
+ * the list's name. The workspace's list order is the order the visitor sees.
+ */
+function FormListPicker({
+  value,
+  labels,
+  onChange,
+}: {
+  readonly value: readonly string[]
+  readonly labels: Readonly<Record<string, string>>
+  readonly onChange: (ids: readonly string[], labels: Readonly<Record<string, string>>) => void
+}): React.JSX.Element {
+  const lists = useFormLists()
+
+  if (lists.isLoading) {
+    return <p className="text-[12px] text-ink-muted">Loading lists…</p>
+  }
+
+  if (lists.records.length === 0) {
+    return (
+      <p className="text-[12px] text-ink-muted">
+        No person or company lists yet. Add one on the Lists page, then pick it here.
+      </p>
+    )
+  }
+
+  const chosen = new Set(value)
+
+  function toggle(id: string, checked: boolean): void {
+    const nextIds = lists.records
+      .map((list) => list.id)
+      .filter((listId) => (listId === id ? checked : chosen.has(listId)))
+    // A list taken off the field drops its text too, so it does not come
+    // back if the list is picked again later.
+    const nextLabels: Record<string, string> = {}
+    for (const [key, text] of Object.entries(labels)) {
+      if (nextIds.includes(key)) nextLabels[key] = text
+    }
+    onChange(nextIds, nextLabels)
+  }
+
+  function setLabel(id: string, text: string): void {
+    const nextLabels: Record<string, string> = { ...labels }
+    if (text.length === 0) {
+      delete nextLabels[id]
+    } else {
+      nextLabels[id] = text
+    }
+    onChange(value, nextLabels)
+  }
+
+  return (
+    <fieldset className="block">
+      <legend className="mb-1 block text-[11px] font-medium text-ink-faint">
+        Lists (each selected one becomes a checkbox)
+      </legend>
+      <div className="flex flex-col gap-2">
+        {lists.records.map((list) => {
+          const isChosen = chosen.has(list.id)
+          return (
+            <div key={list.id} className="rounded-md border border-border p-2">
+              <label className="flex items-center gap-2 text-[13px] text-ink">
+                <input
+                  type="checkbox"
+                  checked={isChosen}
+                  onChange={(event) => {
+                    toggle(list.id, event.target.checked)
+                  }}
+                />
+                {list.name}
+                <span className="text-[11px] text-ink-faint">{list.targetType}</span>
+              </label>
+              {isChosen && (
+                <label className="mt-1.5 block">
+                  <span className="mb-1 block text-[11px] font-medium text-ink-faint">
+                    Checkbox text (defaults to the list's name)
+                  </span>
+                  <input
+                    className={inputClass}
+                    value={labels[list.id] ?? ''}
+                    onChange={(event) => {
+                      setLabel(list.id, event.target.value)
+                    }}
+                    placeholder={list.name}
                   />
                 </label>
               )}

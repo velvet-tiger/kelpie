@@ -10,6 +10,7 @@ import {
   findAnswerProblems,
   mapAnswers,
   readIntent,
+  readListChoices,
 } from './mapping.ts'
 import type { FormFieldRecord } from './repository.ts'
 import type { FormFieldMapTarget, FormFieldType, StoredFormFieldOption } from './schema.ts'
@@ -29,6 +30,7 @@ interface FieldOverrides {
   readonly required?: boolean
   readonly mapTo?: FormFieldMapTarget
   readonly options?: readonly StoredFormFieldOption[]
+  readonly listIds?: readonly string[]
 }
 
 function field(overrides: FieldOverrides = {}): FormFieldRecord {
@@ -47,6 +49,8 @@ function field(overrides: FieldOverrides = {}): FormFieldRecord {
     statement: null,
     consentPurposeIds: [],
     consentPurposeLabels: {},
+    listIds: [...(overrides.listIds ?? [])],
+    listLabels: {},
     sortOrder: 0,
     createdAt: stamp,
     updatedAt: stamp,
@@ -74,6 +78,57 @@ describe('mapAnswers', () => {
     })
 
     expect(mapped).toEqual({ 'person.email': 'alex@example.com' })
+  })
+})
+
+describe('an Add to list field', () => {
+  const newsField = field({
+    id: 'ff_lists',
+    label: 'Add me to the mailing list',
+    type: 'list',
+    mapTo: 'lists',
+    listIds: ['list_news', 'list_events'],
+  })
+
+  it('writes nothing through mapAnswers', () => {
+    expect(mapAnswers([emailField, newsField], { ff_email: 'a@b.co', ff_lists: 'list_news' })).toEqual({
+      'person.email': 'a@b.co',
+    })
+  })
+
+  it('reads the ticked lists the field offers, each once, and drops the rest', () => {
+    const other = field({ id: 'ff_more', type: 'list', mapTo: 'lists', listIds: ['list_news', 'list_vip'] })
+
+    expect(
+      readListChoices([emailField, newsField, other], {
+        ff_lists: 'list_events, list_news,list_unknown',
+        ff_more: 'list_news,list_vip',
+      }),
+    ).toEqual(['list_events', 'list_news', 'list_vip'])
+  })
+
+  it('reads nothing when no box is ticked', () => {
+    expect(readListChoices([newsField], {})).toEqual([])
+  })
+
+  it('needs one offered list ticked when required', () => {
+    const required = { ...newsField, required: true }
+
+    expect(findAnswerProblems([required], { ff_lists: 'list_unknown' })).toEqual([
+      { field: 'answers.ff_lists', message: 'Add me to the mailing list needs at least one choice' },
+    ])
+    expect(findAnswerProblems([required], { ff_lists: 'list_news' })).toEqual([])
+    expect(findAnswerProblems([newsField], {})).toEqual([])
+  })
+})
+
+describe('a required field with no label', () => {
+  it('calls itself "This field" in the error', () => {
+    const unlabelled = field({ id: 'ff_name', label: '', type: 'text', mapTo: 'person.name', required: true })
+
+    expect(findAnswerProblems([unlabelled], {})).toEqual([
+      { field: 'answers.ff_name', message: 'This field is required' },
+    ])
   })
 })
 

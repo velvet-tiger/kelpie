@@ -1,3 +1,4 @@
+import { formFieldDisplayLabel } from '@kelpie/schemas'
 import type { Form, FormField, FormSubmission, FormSubmissionActionEntry } from '@kelpie/schemas'
 import { useMemo } from 'react'
 import { Link, useParams } from 'react-router'
@@ -112,7 +113,7 @@ function SubmissionDetailView({
                 className="grid gap-0.5 px-3 py-2.5 sm:grid-cols-[10rem_1fr] sm:gap-3"
               >
                 <dt className="text-[12px] font-medium text-ink-muted">
-                  {field.label}
+                  {formFieldDisplayLabel(field)}
                   {field.required && <span className="ml-0.5 text-danger">*</span>}
                 </dt>
                 <dd className="whitespace-pre-wrap text-[13px] text-ink">

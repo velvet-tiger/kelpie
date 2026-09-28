@@ -54,6 +54,7 @@ import {
   mergeTags,
   readConsentGrants,
   readIntent,
+  readListChoices,
 } from './mapping.ts'
 import type { Answers, ConsentGrant, SubmitIntent } from './mapping.ts'
 import * as repository from './repository.ts'
@@ -873,6 +874,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       const intent = readAnswers(fields, answers)
       const mapped = mapAnswers(fields, answers)
       const consentGrants = readConsentGrants(fields, answers)
+      const listChoices = readListChoices(fields, answers)
       const customFieldDefinitions = (
         await Promise.all(
           CUSTOM_FIELD_OBJECT_TYPES.map((objectType) =>
@@ -880,11 +882,26 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           ),
         )
       ).flat()
-      const [formListRows, attachTargets, consentPurposesForGrants] = await Promise.all([
-        repository.listFormLists(dependencies.db, form.id),
-        repository.listAttachTargets(dependencies.db, form.id),
-        loadPurposesForGrants(dependencies.db, workspaceId, consentGrants),
-      ])
+      const [actionListRows, chosenListRows, attachTargets, consentPurposesForGrants] =
+        await Promise.all([
+          repository.listFormLists(dependencies.db, form.id),
+          listsRepository.listListsById(dependencies.db, workspaceId, listChoices),
+          repository.listAttachTargets(dependencies.db, form.id),
+          loadPurposesForGrants(dependencies.db, workspaceId, consentGrants),
+        ])
+      // The form's own lists, then the ones the visitor ticked in an "Add to
+      // list" field. A list in both is added once. A ticked id that no longer
+      // names a list (deleted since the page loaded) is not here, so it is
+      // skipped rather than failing the submit.
+      const actionListIds = new Set(actionListRows.map((row) => row.listId))
+      const formListRows = [
+        ...actionListRows,
+        ...chosenListRows.flatMap((row) =>
+          !actionListIds.has(row.id) && (row.targetType === 'person' || row.targetType === 'company')
+            ? [{ listId: row.id, targetType: row.targetType }]
+            : [],
+        ),
+      ]
 
       return dependencies.transaction(async ({ tx, events }) => {
         const now = dependencies.now()

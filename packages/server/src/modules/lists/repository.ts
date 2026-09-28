@@ -106,10 +106,12 @@ export async function findList(
 /**
  * Bare list rows for a bulk existence + target-type check, without the
  * member-count round trip `findList` pays for. Used by the forms service to
- * validate `list_ids` at write time in one query rather than N.
+ * validate `list_ids` at write time in one query rather than N, and by the
+ * form embed for the names beside an "Add to list" field's checkboxes.
  */
 export interface ListIdRow {
   readonly id: string
+  readonly name: string
   readonly targetType: string
 }
 
@@ -125,6 +127,7 @@ export async function listListsById(
   return db
     .select({
       id: lists.id,
+      name: lists.name,
       targetType: lists.targetType,
     })
     .from(lists)

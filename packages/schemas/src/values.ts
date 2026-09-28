@@ -448,9 +448,18 @@ export type FormStatus = (typeof FORM_STATUSES)[number]
 /**
  * What a field renders as in the embed. Deliberately short: file uploads,
  * multi-page forms and branching are out of scope, and every type here is
- * one `<input>`, `<textarea>` or `<select>`.
+ * one `<input>`, `<textarea>` or `<select>`, or a set of checkboxes (`consent`
+ * and `list`).
  */
-export const FORM_FIELD_TYPES = ['text', 'email', 'textarea', 'select', 'consent', 'notice'] as const
+export const FORM_FIELD_TYPES = [
+  'text',
+  'email',
+  'textarea',
+  'select',
+  'consent',
+  'notice',
+  'list',
+] as const
 
 export type FormFieldType = (typeof FORM_FIELD_TYPES)[number]
 
@@ -518,6 +527,13 @@ export const FORM_FIELD_MAP_TARGET_LABELS: Readonly<
 
 /** The map target for a consent field. Repeats per purpose, unlike `person.email`. */
 export const PERSON_CONSENT_TARGET: FormFieldMapTarget = 'person.consent'
+
+/**
+ * The map target for an "Add to list" field. Repeatable: each field offers its
+ * own lists, one checkbox per list, and a ticked box adds the submitter (or the
+ * resolved company, for a company list) to that list.
+ */
+export const FORM_LIST_TARGET: FormFieldMapTarget = 'lists'
 
 /** The one mapping a form cannot process without, and may carry at most once. */
 export const PERSON_EMAIL_TARGET: FormFieldMapTarget = 'person.email'

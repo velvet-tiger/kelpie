@@ -250,6 +250,23 @@ export const formFields = pgTable(
       .$type<Readonly<Record<string, string>>>()
       .notNull()
       .default({}),
+    /**
+     * The lists an "Add to list" (`list`) field offers, in the order the
+     * visitor sees them. Required (non-empty) when `type === 'list'`. A
+     * `text[]` for the same reason as `consent_purpose_ids`. The service
+     * checks each id at write; deleting a list removes its id from every
+     * field (the `lists.list.deleted` subscriber), and a submit skips an id
+     * that no longer names a list.
+     */
+    listIds: text('list_ids').array().notNull().default([]),
+    /**
+     * Optional per-list override for the checkbox text, keyed by list id.
+     * Absent keys fall back to the list's name.
+     */
+    listLabels: jsonb('list_labels')
+      .$type<Readonly<Record<string, string>>>()
+      .notNull()
+      .default({}),
     sortOrder: integer('sort_order').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

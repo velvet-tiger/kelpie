@@ -51,6 +51,17 @@ function escapeScriptJson(value: unknown): string {
   return JSON.stringify(value).replaceAll('<', '\\u003c').replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029')
 }
 
+/**
+ * The heading above a consent, notice or list field, or nothing when the field
+ * has no label. The required mark goes with the heading, so a field without a
+ * label shows none; the submit still enforces `required`.
+ */
+function renderHeading(field: FormFieldRecord, required: string): string {
+  return field.label.trim().length === 0
+    ? ''
+    : `<div class="field-label">${escapeHtml(field.label)}${required}</div>`
+}
+
 function renderOptions(field: FormFieldRecord): string {
   const blank = field.required ? '' : '<option value="">—</option>'
   const choices = field.options
@@ -66,6 +77,10 @@ function renderControl(field: FormFieldRecord): string {
     `name="${escapeHtml(field.id)}"`,
     ...(field.required ? ['required'] : []),
     ...(field.placeholder === null ? [] : [`placeholder="${escapeHtml(field.placeholder)}"`]),
+    // A control with no visible label still needs an accessible name.
+    ...(field.label.trim().length === 0 && field.placeholder !== null
+      ? [`aria-label="${escapeHtml(field.placeholder)}"`]
+      : []),
   ].join(' ')
 
   if (field.type === 'select') {
@@ -81,6 +96,46 @@ function renderControl(field: FormFieldRecord): string {
   return `<input ${shared} type="${field.type === 'email' ? 'email' : 'text'}">`
 }
 
+/**
+ * An "Add to list" field: the heading, the statement, then one checkbox per
+ * list. The box text is the field's override, else the list's name. A list
+ * that is gone (deleted since the field was saved) has no box.
+ */
+function renderListField(
+  field: FormFieldRecord,
+  listNames: ReadonlyMap<string, string>,
+  required: string,
+): string {
+  const rows = field.listIds
+    .filter((listId) => listNames.has(listId))
+    .map((listId, index) => {
+      const boxId = `${field.id}__${String(index)}`
+      const override = field.listLabels[listId]
+      const label =
+        override !== undefined && override.length > 0 ? override : (listNames.get(listId) ?? listId)
+      return [
+        '<div class="list-row">',
+        `<input type="checkbox" id="${escapeHtml(boxId)}" data-list-field="${escapeHtml(field.id)}" value="${escapeHtml(listId)}">`,
+        `<label for="${escapeHtml(boxId)}">${escapeHtml(label)}</label>`,
+        '</div>',
+      ].join('')
+    })
+
+  if (rows.length === 0) {
+    return ''
+  }
+
+  const statement = (field.statement ?? '').trim()
+
+  return [
+    '<div class="field list">',
+    renderHeading(field, required),
+    statement.length === 0 ? '' : `<p class="list-statement">${escapeHtml(statement)}</p>`,
+    rows.join(''),
+    '</div>',
+  ].join('')
+}
+
 /** What the embed needs to know about a consent purpose to draw its checkbox. */
 export interface EmbedConsentPurpose {
   readonly label: string
@@ -90,9 +145,14 @@ export interface EmbedConsentPurpose {
 function renderField(
   field: FormFieldRecord,
   consentPurposes: ReadonlyMap<string, EmbedConsentPurpose>,
+  listNames: ReadonlyMap<string, string>,
   workspaceName: string,
 ): string {
   const required = field.required ? '<span class="req" aria-hidden="true">*</span>' : ''
+
+  if (field.type === 'list') {
+    return renderListField(field, listNames, required)
+  }
 
   if (field.type === 'notice') {
     // Text-only: prose the visitor reads before submitting. Submission is the
@@ -101,7 +161,7 @@ function renderField(
     const statement = field.statement ?? ''
     return [
       '<div class="field notice">',
-      `<div class="field-label">${escapeHtml(field.label)}</div>`,
+      renderHeading(field, ''),
       `<p class="notice-body">${escapeHtml(statement)}</p>`,
       '</div>',
     ].join('')
@@ -132,7 +192,7 @@ function renderField(
       .join('')
     return [
       '<div class="field consent">',
-      `<div class="field-label">${escapeHtml(field.label)}${required}</div>`,
+      renderHeading(field, required),
       `<p class="consent-statement">${escapeHtml(statement)}</p>`,
       rows,
       '</div>',
@@ -141,7 +201,9 @@ function renderField(
 
   return [
     '<div class="field">',
-    `<label for="${escapeHtml(field.id)}">${escapeHtml(field.label)}${required}</label>`,
+    field.label.trim().length === 0
+      ? ''
+      : `<label for="${escapeHtml(field.id)}">${escapeHtml(field.label)}${required}</label>`,
     renderControl(field),
     '</div>',
   ].join('')
@@ -249,33 +311,36 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 textarea { resize: vertical; min-height: 6.5rem; }
-/* Consent field: label above (heading), a statement, then a checkbox per purpose. */
-.field.consent { gap: 0.35rem; }
-.field.consent .field-label {
+/*
+ * Consent and list fields: label above (heading), a statement, then a
+ * checkbox per purpose or per list.
+ */
+.field.consent, .field.list { gap: 0.35rem; }
+.field.consent .field-label, .field.list .field-label {
   font-weight: 500;
   font-size: 12px;
   color: var(--ink);
 }
-.field.consent .consent-statement {
+.field.consent .consent-statement, .field.list .list-statement {
   margin: 0 0 0.35rem;
   font-size: 12px;
   color: var(--ink-muted);
 }
-.field.consent .consent-row {
+.field.consent .consent-row, .field.list .list-row {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: start;
   gap: 0.5rem;
   padding: 0.15rem 0;
 }
-.field.consent input[type="checkbox"] {
+.field.consent input[type="checkbox"], .field.list input[type="checkbox"] {
   width: 1rem;
   height: 1rem;
   margin-top: 0.2rem;
   padding: 0;
   background: var(--surface);
 }
-.field.consent .consent-row label {
+.field.consent .consent-row label, .field.list .list-row label {
   font-weight: 400;
   color: var(--ink);
 }
@@ -364,12 +429,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline-offset: 1px;
 }
 textarea { resize: vertical; min-height: 6rem; }
-.field.consent { gap: 5px; }
-.field.consent .field-label { font-weight: 600; font-size: 0.875rem; color: CanvasText; }
-.field.consent .consent-statement { margin: 0 0 5px; font-size: 0.8125rem; color: #5c6570; }
-.field.consent .consent-row { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 8px; padding: 2px 0; }
-.field.consent input[type="checkbox"] { width: 1rem; height: 1rem; margin-top: 3px; padding: 0; background: Field; }
-.field.consent .consent-row label { font-weight: 400; }
+.field.consent, .field.list { gap: 5px; }
+.field.consent .field-label, .field.list .field-label { font-weight: 600; font-size: 0.875rem; color: CanvasText; }
+.field.consent .consent-statement, .field.list .list-statement { margin: 0 0 5px; font-size: 0.8125rem; color: #5c6570; }
+.field.consent .consent-row, .field.list .list-row { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 8px; padding: 2px 0; }
+.field.consent input[type="checkbox"], .field.list input[type="checkbox"] { width: 1rem; height: 1rem; margin-top: 3px; padding: 0; background: Field; }
+.field.consent .consent-row label, .field.list .list-row label { font-weight: 400; }
 .field.notice { gap: 5px; }
 .field.notice .field-label { font-weight: 600; font-size: 0.875rem; color: CanvasText; }
 .field.notice .notice-body { margin: 0; padding: 9px 10px; font-size: 0.8125rem; color: CanvasText; background: Field; border: 1px solid #b9bfc9; border-radius: 6px; white-space: pre-line; }
@@ -419,15 +484,16 @@ const EMBED_SCRIPT = `
     button.disabled = true;
 
     var answers = {};
-    // Consent fields render a checkbox per purpose, each tagged with
-    // data-consent-field=<field_id> and value=<purpose_id>. Collect the
-    // ticked ones into a comma-separated list under the field id — the
-    // server parses that back into a set of ticked purpose ids.
-    var consentBoxes = form.querySelectorAll('input[type="checkbox"][data-consent-field]');
+    // Consent and list fields render a checkbox per purpose or list, each
+    // tagged with data-consent-field (or data-list-field)=<field_id> and
+    // value=<purpose_id or list_id>. Collect the ticked ones into a
+    // comma-separated list under the field id — the server parses that back
+    // into a set of ticked ids.
+    var consentBoxes = form.querySelectorAll('input[type="checkbox"][data-consent-field], input[type="checkbox"][data-list-field]');
     var consentByField = {};
     for (var i = 0; i < consentBoxes.length; i += 1) {
       var box = consentBoxes[i];
-      var fieldId = box.getAttribute('data-consent-field');
+      var fieldId = box.getAttribute('data-consent-field') || box.getAttribute('data-list-field');
       if (!consentByField[fieldId]) { consentByField[fieldId] = []; }
       if (box.checked) { consentByField[fieldId].push(box.value); }
     }
@@ -476,6 +542,8 @@ export interface EmbedPageOptions {
   readonly fields: readonly FormFieldRecord[]
   /** The consent purposes the fields refer to, keyed by purpose id. */
   readonly consentPurposes: ReadonlyMap<string, EmbedConsentPurpose>
+  /** The names of the lists the "Add to list" fields offer, keyed by list id. */
+  readonly listNames: ReadonlyMap<string, string>
   /** Absolute URL of the public submit endpoint this page posts to. */
   readonly submitUrl: string
   /** Per-response value tying the inline style and script to the CSP header. */
@@ -506,6 +574,7 @@ function renderFormBody(
   form: FormRecord,
   fields: readonly FormFieldRecord[],
   consentPurposes: ReadonlyMap<string, EmbedConsentPurpose>,
+  listNames: ReadonlyMap<string, string>,
   workspaceName: string,
   config: string,
   nonce: string,
@@ -516,7 +585,7 @@ function renderFormBody(
 
   return [
     '<form id="kelpie-form" novalidate>',
-    fields.map((field) => renderField(field, consentPurposes, workspaceName)).join(''),
+    fields.map((field) => renderField(field, consentPurposes, listNames, workspaceName)).join(''),
     '<div><button id="kelpie-submit" type="submit">Submit</button></div>',
     '<p id="kelpie-status" class="note" role="status" aria-live="polite"></p>',
     '</form>',
@@ -533,7 +602,8 @@ function renderFormBody(
  * form whose submit answers 409.
  */
 export function renderEmbedPage(options: EmbedPageOptions): string {
-  const { form, fields, consentPurposes, submitUrl, nonce, workspaceName, layout } = options
+  const { form, fields, consentPurposes, listNames, submitUrl, nonce, workspaceName, layout } =
+    options
   const heading = displayTitle(form)
   const config = escapeScriptJson({
     formId: form.id,
@@ -541,7 +611,15 @@ export function renderEmbedPage(options: EmbedPageOptions): string {
     thankYou: form.thankYouMessage,
     fieldIds: fields.map((field) => field.id),
   })
-  const formBody = renderFormBody(form, fields, consentPurposes, workspaceName, config, nonce)
+  const formBody = renderFormBody(
+    form,
+    fields,
+    consentPurposes,
+    listNames,
+    workspaceName,
+    config,
+    nonce,
+  )
 
   const styles = layout === 'page' ? HOSTED_STYLES : IFRAME_STYLES
   const shell =

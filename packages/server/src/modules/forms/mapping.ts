@@ -1,4 +1,4 @@
-import { composeName } from '@kelpie/schemas'
+import { composeName, FORM_LIST_TARGET, formFieldDisplayLabel } from '@kelpie/schemas'
 
 import type { ErrorDetail } from '../../lib/errors.ts'
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
@@ -84,7 +84,7 @@ export interface ConsentGrant {
  * refused when the form is written, except for `submission`, which writes
  * nothing and so cannot collide, and `person.consent`, which is read by
  * {@link readConsentGrants} instead — a form may carry several consent boxes,
- * each granting a different purpose.
+ * each granting a different purpose. `lists` is read by {@link readListChoices}.
  */
 export function mapAnswers(fields: readonly FormFieldRecord[], answers: Answers): MappedAnswers {
   const mapped: MappedAnswers = {}
@@ -93,6 +93,8 @@ export function mapAnswers(fields: readonly FormFieldRecord[], answers: Answers)
     // `person.consent` (both `consent` and `notice` types) is read separately
     // — a checkbox field by ticked ids, a notice implicitly by submission.
     if (field.mapTo === 'person.consent') continue
+    // `lists` is read separately too, by ticked list ids.
+    if (field.mapTo === FORM_LIST_TARGET) continue
 
     const value = answers[field.id]?.trim()
 
@@ -157,7 +159,31 @@ export function readConsentGrants(
   return grants
 }
 
-/** Splits a consent field's answer into the ticked purpose ids. */
+/**
+ * Every list ticked across every "Add to list" field, in field order then list
+ * order, each once. An answer is a comma-separated list of ticked list ids,
+ * the same shape a consent field sends. An id the field does not offer is
+ * dropped silently, as it is for consent.
+ */
+export function readListChoices(
+  fields: readonly FormFieldRecord[],
+  answers: Answers,
+): readonly string[] {
+  const chosen = new Set<string>()
+
+  for (const field of fields) {
+    if (field.type !== 'list') continue
+    const offered = new Set(field.listIds)
+
+    for (const listId of parseConsentAnswer(answers[field.id])) {
+      if (offered.has(listId)) chosen.add(listId)
+    }
+  }
+
+  return Array.from(chosen)
+}
+
+/** Splits a consent or list field's answer into the ticked ids. */
 export function parseConsentAnswer(raw: string | undefined): readonly string[] {
   if (raw === undefined) return []
   const parts = raw
@@ -178,6 +204,17 @@ export function parseConsentAnswer(raw: string | undefined): readonly string[] {
  * failure that is about the form rather than the answers, it has its own
  * status, and the caller raises it before reaching this.
  */
+/**
+ * What a visitor's error message calls a field: its label, or "This field"
+ * when it has none. Not the map target's name, which is the CRM's wording and
+ * means nothing to a visitor.
+ */
+function visitorName(field: FormFieldRecord): string {
+  const label = field.label.trim()
+
+  return label.length > 0 ? label : 'This field'
+}
+
 export function findAnswerProblems(
   fields: readonly FormFieldRecord[],
   answers: Answers,
@@ -201,7 +238,21 @@ export function findAnswerProblems(
       if (field.required && ticked.length === 0) {
         problems.push({
           field: `answers.${field.id}`,
-          message: `${field.label} needs at least one choice`,
+          message: `${visitorName(field)} needs at least one choice`,
+        })
+      }
+      continue
+    }
+
+    // A list field's answer has the same shape: required means at least one
+    // ticked list the field offers.
+    if (field.type === 'list') {
+      const offered = new Set(field.listIds)
+      const ticked = parseConsentAnswer(answers[field.id]).filter((listId) => offered.has(listId))
+      if (field.required && ticked.length === 0) {
+        problems.push({
+          field: `answers.${field.id}`,
+          message: `${visitorName(field)} needs at least one choice`,
         })
       }
       continue
@@ -218,7 +269,7 @@ export function findAnswerProblems(
 
     if (value.length === 0) {
       if (field.required) {
-        problems.push({ field: `answers.${field.id}`, message: `${field.label} is required` })
+        problems.push({ field: `answers.${field.id}`, message: `${visitorName(field)} is required` })
       }
 
       continue
@@ -229,7 +280,7 @@ export function findAnswerProblems(
     if (field.type === 'select' && !field.options.some((option) => option.key === value)) {
       problems.push({
         field: `answers.${field.id}`,
-        message: `${field.label} does not offer that choice`,
+        message: `${visitorName(field)} does not offer that choice`,
       })
     }
   }
@@ -407,7 +458,7 @@ export function expectedCloseFrom(from: Date, days: number): string {
  */
 export function describeAnswers(fields: readonly FormFieldRecord[], answers: Answers): string | null {
   const parts = fields
-    .map((field) => ({ label: field.label, value: answers[field.id]?.trim() ?? '' }))
+    .map((field) => ({ label: formFieldDisplayLabel(field), value: answers[field.id]?.trim() ?? '' }))
     .filter((entry) => entry.value.length > 0)
     .slice(0, 3)
     .map((entry) => `${entry.label}: ${entry.value}`)

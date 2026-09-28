@@ -1428,6 +1428,157 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       )
     })
 
+    describe('an Add to list field', () => {
+      async function createList(name: string, targetType = 'person'): Promise<string> {
+        const response = await client.send('POST', '/v1/lists', {
+          body: { name, target_type: targetType },
+          cookie: acme.cookie,
+        })
+
+        expect(response.status).toBe(201)
+
+        return readString(await response.json(), 'id')
+      }
+
+      function listField(listIds: readonly string[], extra: Record<string, unknown> = {}): Record<string, unknown> {
+        return {
+          label: 'Add me to the mailing list',
+          type: 'list',
+          map_to: 'lists',
+          statement: 'One email a month.',
+          list_ids: listIds,
+          list_labels: { [listIds[0] ?? '']: 'Yes!' },
+          ...extra,
+        }
+      }
+
+      async function memberIds(listId: string): Promise<unknown[]> {
+        const response = await client.send('GET', `/v1/lists/${listId}/members`, {
+          cookie: acme.cookie,
+        })
+
+        return readList(await response.json()).map((row) => row.target_id)
+      }
+
+      it('stores the lists and labels, and adds the submitter only to the ticked lists', async () => {
+        const news = await createList('Monthly digest')
+        const events = await createList('Launch invites')
+        const form = await createForm({ fields: [...CONTACT_FIELDS, listField([news, events])] })
+        const field = (form.fields as Record<string, unknown>[]).find((row) => row.type === 'list')
+
+        expect(field).toMatchObject({
+          map_to: 'lists',
+          statement: 'One email a month.',
+          list_ids: [news, events],
+          list_labels: { [news]: 'Yes!' },
+        })
+
+        const ids = fieldIds(form)
+        const response = await submit(
+          formPath(form),
+          filledIn(ids, { [ids['Add me to the mailing list'] ?? '']: news }),
+        )
+
+        expect(response.status).toBe(201)
+
+        const submission = await submissionFor(readString(form, 'id'))
+
+        expect(await memberIds(news)).toEqual([submission.person_id])
+        expect(await memberIds(events)).toEqual([])
+        expect(submission.action_log).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ action: `add_list:${news}`, status: 'ok' }),
+          ]),
+        )
+      })
+
+      it('adds the resolved company to a ticked company list', async () => {
+        const accounts = await createList('Accounts', 'company')
+        const form = await createForm({ fields: [...CONTACT_FIELDS, listField([accounts])] })
+        const ids = fieldIds(form)
+
+        await submit(
+          formPath(form),
+          filledIn(ids, {
+            [ids.Company ?? '']: 'Analytical Engines',
+            [ids['Add me to the mailing list'] ?? '']: accounts,
+          }),
+        )
+
+        const submission = await submissionFor(readString(form, 'id'))
+
+        expect(await memberIds(accounts)).toEqual([submission.company_id])
+      })
+
+      it('adds nobody when no box is ticked, and refuses that when the field is required', async () => {
+        const news = await createList('Monthly digest')
+        const optional = await createForm({ fields: [...CONTACT_FIELDS, listField([news])] })
+
+        expect((await submit(formPath(optional), filledIn(fieldIds(optional)))).status).toBe(201)
+        expect(await memberIds(news)).toEqual([])
+
+        const required = await createForm({
+          slug: 'required-lists',
+          fields: [...CONTACT_FIELDS, listField([news], { required: true })],
+        })
+
+        expect((await submit(formPath(required), filledIn(fieldIds(required)))).status).toBe(422)
+      })
+
+      it('refuses a list that does not exist or targets neither person nor company', async () => {
+        const deals = await createList('Deals', 'deal')
+
+        for (const listIds of [['list_missing'], [deals]]) {
+          const response = await client.send('POST', '/v1/forms', {
+            body: { name: 'Website contact', fields: [...CONTACT_FIELDS, listField(listIds)] },
+            cookie: acme.cookie,
+          })
+
+          expect(response.status).toBe(422)
+          expect(JSON.stringify(await response.json())).toContain('fields.5.list_ids')
+        }
+      })
+
+      it('accepts a field with no label', async () => {
+        const news = await createList('Monthly digest')
+        const form = await createForm({ fields: [...CONTACT_FIELDS, listField([news], { label: '' })] })
+        const field = (form.fields as Record<string, unknown>[]).find((row) => row.type === 'list')
+
+        expect(field).toMatchObject({ label: '' })
+      })
+
+      it('renders the checkbox text on the embed', async () => {
+        const news = await createList('Monthly digest')
+        const events = await createList('Launch invites')
+        const form = await createForm({ fields: [...CONTACT_FIELDS, listField([news, events])] })
+        const html = await loadEmbed(form)
+
+        expect(html).toContain('Add me to the mailing list')
+        expect(html).toContain('>Yes!</label>')
+        expect(html).toContain('>Launch invites</label>')
+      })
+
+      it('drops a deleted list from the field', async () => {
+        const news = await createList('Monthly digest')
+        const events = await createList('Launch invites')
+        const form = await createForm({ fields: [...CONTACT_FIELDS, listField([news, events])] })
+        const deleted = await client.send('DELETE', `/v1/lists/${news}`, { cookie: acme.cookie })
+
+        expect(deleted.status).toBe(204)
+
+        await harness.services.events.drain()
+
+        const response = await client.send('GET', `/v1/forms/${readString(form, 'id')}`, {
+          cookie: acme.cookie,
+        })
+        const reread = readRecord(await response.json())
+        const field = (reread.fields as Record<string, unknown>[]).find((row) => row.type === 'list')
+
+        expect(field).toMatchObject({ list_ids: [events], list_labels: {} })
+        expect(await loadEmbed(reread)).not.toContain('Yes!')
+      })
+    })
+
     it('links the submitter to an attach_target through person_links', async () => {
       const stageId = await firstStageOfKind('opportunity')
       const oppResponse = await client.send('POST', '/v1/opportunities', {

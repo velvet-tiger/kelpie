@@ -12,6 +12,22 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **Add to list
+  form field.** A new field type, `list`, mapped to the new `lists` target,
+  shows one checkbox for each list it offers. A ticked box adds the
+  submitter to a person list, or the resolved company to a company list.
+  The heading (`label`), the text above the boxes (`statement`) and the text
+  of each box (`list_labels`, which defaults to the list's name) can all
+  change. `form_fields` gets `list_ids` and `list_labels` (migration
+  `0055`). A deleted list leaves every field that offered it. New
+  `FORM_LIST_TARGET` in `@kelpie/schemas`; `FormField` and `FormFieldInput`
+  carry `listIds` and `listLabels`.
+- **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **A form field
+  label may be empty.** The embed then shows no heading or label for the
+  field; a text input takes its placeholder as its accessible name. A
+  visitor's error message calls the field "This field". The builder and the
+  submission views use the new `formFieldDisplayLabel`, which falls back to
+  the map target's name.
 - **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **Consent
   statements.** A consent purpose has a new optional `statement`: the
   sentence a form shows beside its checkbox, in place of the label.

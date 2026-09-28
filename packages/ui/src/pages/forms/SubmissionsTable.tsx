@@ -1,3 +1,4 @@
+import { formFieldDisplayLabel } from '@kelpie/schemas'
 import type { Form, FormSubmission, FormSubmissionActionEntry } from '@kelpie/schemas'
 import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router'
@@ -251,7 +252,7 @@ function summarise(form: Form, submission: FormSubmission): string {
           ? (field.options.find((option) => option.key === answer)?.value ?? answer)
           : answer
 
-      return `${field.label}: ${shown}`
+      return `${formFieldDisplayLabel(field)}: ${shown}`
     })
     .filter((part): part is string => part !== undefined)
     .slice(0, 2)

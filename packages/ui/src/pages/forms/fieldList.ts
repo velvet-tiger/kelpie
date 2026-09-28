@@ -1,5 +1,6 @@
 import {
   FORM_FIELD_TYPES,
+  FORM_LIST_TARGET,
   isCompatibleFormFieldType,
   isKnownMapTarget,
   isRepeatableMapTarget,
@@ -35,7 +36,13 @@ export interface EditableField extends FormFieldInput {
   readonly id: string
 }
 
-export const FIELD_TYPE_OPTIONS = FORM_FIELD_TYPES.map((type) => ({ value: type, label: type }))
+/** The type picker's text. Each type shows as its own name, except `list`. */
+const FIELD_TYPE_LABELS: Partial<Record<FormFieldType, string>> = { list: 'add to list' }
+
+export const FIELD_TYPE_OPTIONS = FORM_FIELD_TYPES.map((type) => ({
+  value: type,
+  label: FIELD_TYPE_LABELS[type] ?? type,
+}))
 
 export interface FindProblemsOptions {
   readonly customFieldDefinitions?: readonly CustomFieldDefinitionRef[]
@@ -54,6 +61,8 @@ export function toEditableFields(form: Form): EditableField[] {
     statement: field.statement,
     consentPurposeIds: [...field.consentPurposeIds],
     consentPurposeLabels: { ...field.consentPurposeLabels },
+    listIds: [...field.listIds],
+    listLabels: { ...field.listLabels },
   }))
 }
 
@@ -96,9 +105,9 @@ export function editField(
   return fields.map((field) => {
     if (field.id !== id) {
       // Only one field may carry a CRM target, so taking one releases it
-      // wherever it was. `submission` and `person.consent` are the targets
-      // that may repeat — consent's uniqueness is per purpose, not per
-      // target, and is enforced when the purpose is picked.
+      // wherever it was. `submission`, `person.consent` and `lists` are the
+      // targets that may repeat — consent's uniqueness is per purpose, not
+      // per target, and is enforced when the purpose is picked.
       return change.mapTo !== undefined &&
         !isRepeatableMapTarget(change.mapTo) &&
         field.mapTo === change.mapTo
@@ -106,19 +115,32 @@ export function editField(
         : field
     }
 
-    const next: EditableField = { ...field, ...change }
-
-    // A consent or notice field must map to person.consent; anything else
-    // clears any lingering purpose list.
+    let next: EditableField = { ...field, ...change }
     const isConsentLike = next.type === 'consent' || next.type === 'notice'
+    const isList = next.type === 'list'
+
+    // Only a consent or notice field carries purposes, and only a list field
+    // carries lists. A field that changes type drops the ones it left behind.
+    if (!isConsentLike && (next.consentPurposeIds ?? []).length > 0) {
+      next = { ...next, consentPurposeIds: [], consentPurposeLabels: {} }
+    }
+    if (!isList && (next.listIds ?? []).length > 0) {
+      next = { ...next, listIds: [], listLabels: {} }
+    }
+
+    // A list field maps to `lists`, and a consent or notice field to
+    // person.consent. Each of those targets takes only its own types.
+    if (isList && next.mapTo !== FORM_LIST_TARGET) {
+      return { ...withoutOptions(next), mapTo: FORM_LIST_TARGET }
+    }
     if (isConsentLike && next.mapTo !== PERSON_CONSENT_TARGET) {
       return { ...withoutOptions(next), mapTo: PERSON_CONSENT_TARGET }
     }
     if (next.mapTo === PERSON_CONSENT_TARGET && !isConsentLike) {
       return { ...withoutOptions(next), type: 'consent' }
     }
-    if (!isConsentLike && (next.consentPurposeIds ?? []).length > 0) {
-      return withoutOptions({ ...next, consentPurposeIds: [] })
+    if (next.mapTo === FORM_LIST_TARGET && !isList) {
+      return { ...withoutOptions(next), type: 'list' }
     }
 
     if (next.type !== 'select') {
@@ -241,6 +263,13 @@ export function findProblems(
             usedConsentPurposes.add(purposeId)
           }
         }
+      }
+    } else if (field.mapTo === FORM_LIST_TARGET) {
+      const lists = field.listIds ?? []
+      if (lists.length === 0) {
+        byField.set(field.id, 'Pick at least one list this field offers.')
+      } else if (new Set(lists).size !== lists.length) {
+        byField.set(field.id, 'This field lists a list twice.')
       }
     } else if (!isRepeatableMapTarget(field.mapTo)) {
       if (seen.has(field.mapTo)) {

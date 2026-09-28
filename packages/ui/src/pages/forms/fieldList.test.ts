@@ -70,6 +70,8 @@ function form(fields: readonly EditableField[]): Form {
       statement: null,
       consentPurposeIds: [],
     consentPurposeLabels: {},
+      listIds: [...(entry.listIds ?? [])],
+      listLabels: { ...entry.listLabels },
       sortOrder: index,
     })),
     thankYouMessage: 'Thanks.',
@@ -163,6 +165,32 @@ describe('editField', () => {
 
     expect(asText[0]?.options).toEqual([])
   })
+
+  it('maps a field to lists the moment it becomes an Add to list field', () => {
+    const edited = editField([email, name], 'ff_name', { type: 'list' })
+
+    expect(edited[1]).toMatchObject({ type: 'list', mapTo: 'lists' })
+  })
+
+  it('drops its lists and labels when it stops being one', () => {
+    const lists = field({
+      id: 'ff_lists',
+      type: 'list',
+      mapTo: 'lists',
+      listIds: ['list_news'],
+      listLabels: { list_news: 'Yes!' },
+    })
+    const asText = editField([lists], 'ff_lists', { type: 'text', mapTo: 'submission' })
+
+    expect(asText[0]).toMatchObject({ type: 'text', mapTo: 'submission', listIds: [], listLabels: {} })
+  })
+
+  it('lets several fields map to lists', () => {
+    const first = field({ id: 'ff_a', type: 'list', mapTo: 'lists', listIds: ['list_a'] })
+    const edited = editField([first, name], 'ff_name', { mapTo: 'lists', type: 'list' })
+
+    expect(edited.map((entry) => entry.mapTo)).toEqual(['lists', 'lists'])
+  })
 })
 
 describe('insertField', () => {
@@ -239,6 +267,16 @@ describe('findProblems', () => {
     expect(findProblems([email, empty], false).byField.get('ff_size')).toContain('at least one option')
   })
 
+  it('marks an Add to list field with no lists, and accepts one with a list', () => {
+    const empty = field({ id: 'ff_lists', label: 'Lists', type: 'list', mapTo: 'lists' })
+    const filled = { ...empty, listIds: ['list_news'] }
+
+    expect(findProblems([email, empty], false).byField.get('ff_lists')).toBe(
+      'Pick at least one list this field offers.',
+    )
+    expect(findProblems([email, filled], false).byField.size).toBe(0)
+  })
+
   it('marks two options sharing a key', () => {
     const clashing = field({
       id: 'ff_size',
@@ -278,15 +316,15 @@ describe('unusedCrmPresets', () => {
 
   /**
    * A preset must be addable as-is: no per-field problem the moment it lands.
-   * The consent and notice presets are exempt — the purpose is picked in the
-   * settings panel after the field is added, and without a workspace to read
-   * purposes from there is nothing to auto-fill.
+   * The consent, notice and Add to list presets are exempt — the purpose or
+   * list is picked in the settings panel after the field is added, and without
+   * a workspace to read them from there is nothing to auto-fill.
    */
   it('offers only presets the server would accept', () => {
     const presets = [...CRM_FIELD_PRESETS, ...SUBMISSION_FIELD_PRESETS.map((entry) => entry.field)]
 
     for (const [index, preset] of presets.entries()) {
-      if (preset.type === 'consent' || preset.type === 'notice') continue
+      if (preset.type === 'consent' || preset.type === 'notice' || preset.type === 'list') continue
       const added = insertField([], field({ ...preset, id: `new-${String(index)}` }), null)
 
       expect(findProblems(added, false).byField.size).toBe(0)

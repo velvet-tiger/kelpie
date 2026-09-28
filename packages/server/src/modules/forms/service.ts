@@ -406,32 +406,42 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
   }
 
   /**
-   * The lists an action-configured form names must exist in this workspace and
-   * target `person` or `company`. A list of another target type would never
-   * receive a submitter or a company — a form only knows how to feed those two
-   * — so accepting it would misdirect the visitor's inbound landing.
+   * The lists a form feeds — its action `list_ids` and the lists its "Add to
+   * list" fields offer — must exist in this workspace and target `person` or
+   * `company`. A list of another target type would never receive a submitter
+   * or a company — a form only knows how to feed those two — so accepting it
+   * would misdirect the visitor's inbound landing.
    */
-  async function requireActionLists(
+  async function requireFormLists(
     workspaceId: string,
     listIds: readonly string[],
+    fields: readonly FieldShape[],
   ): Promise<void> {
-    if (listIds.length === 0) {
+    const entries = [
+      ...listIds.map((listId, index) => ({ listId, at: `list_ids.${String(index)}` })),
+      ...fields.flatMap((field, fieldIndex) =>
+        field.listIds.map((listId) => ({ listId, at: `fields.${String(fieldIndex)}.list_ids` })),
+      ),
+    ]
+
+    if (entries.length === 0) {
       return
     }
 
-    const rows = await listsRepository.listListsById(dependencies.db, workspaceId, listIds)
+    const ids = Array.from(new Set(entries.map((entry) => entry.listId)))
+    const rows = await listsRepository.listListsById(dependencies.db, workspaceId, ids)
     const found = new Map(rows.map((row) => [row.id, row.targetType]))
-    const problems = listIds
-      .map((listId, index) => {
+    const problems = entries
+      .map(({ listId, at }) => {
         const targetType = found.get(listId)
 
         if (targetType === undefined) {
-          return { field: `list_ids.${String(index)}`, message: `No list ${listId} here` }
+          return { field: at, message: `No list ${listId} here` }
         }
 
         if (targetType !== 'person' && targetType !== 'company') {
           return {
-            field: `list_ids.${String(index)}`,
+            field: at,
             message: `A list feeding a form must target person or company (got ${targetType})`,
           }
         }
@@ -441,7 +451,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       .filter((problem): problem is NonNullable<typeof problem> => problem !== undefined)
 
     if (problems.length > 0) {
-      throw AppError.validationFailed(`Some list_ids cannot receive a submission`, problems)
+      throw AppError.validationFailed(`Some lists cannot receive a submission`, problems)
     }
   }
 
@@ -546,7 +556,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
   ): Promise<void> {
     await requireUsableFields(workspaceId, state.fields, state.createDeal, state.createPartnership)
     await requireConsentPurposes(workspaceId, state.fields)
-    await requireActionLists(workspaceId, state.listIds)
+    await requireFormLists(workspaceId, state.listIds, state.fields)
     await requireAttachTargets(workspaceId, state.attachTargets)
   }
 
@@ -575,6 +585,8 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         // deselecting one clears its custom text rather than keeping it
         // stored against a purpose the field no longer offers.
         consentPurposeLabels: pruneLabels(field.consentPurposeIds, field.consentPurposeLabels),
+        listIds: [...field.listIds],
+        listLabels: pruneLabels(field.listIds, field.listLabels),
         sortOrder: index,
       })),
     )

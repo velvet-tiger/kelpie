@@ -3,6 +3,7 @@ import { createActivityRecorder } from '../activities/index.ts'
 import { formsEvents } from './events.ts'
 import { mountPublicFormRoutes } from './publicRoutes.ts'
 import { mountFormsRoutes } from './routes.ts'
+import * as repository from './repository.ts'
 import * as schema from './schema.ts'
 import { createFormsService } from './service.ts'
 import { createFormSubmitService } from './submission.ts'
@@ -72,6 +73,13 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
       })
 
       registerFormsTools(context.mcp, service)
+
+      // A deleted list leaves the "Add to list" fields that offered it. The
+      // form-level `form_lists` rows go by foreign-key cascade; field lists
+      // are a `text[]`, so they are cleaned here.
+      context.events.subscribe('lists.list.deleted', async (event) => {
+        await repository.removeListFromFields(context.db, event.workspaceId, event.target.id)
+      })
 
       return Promise.resolve()
     },

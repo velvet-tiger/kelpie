@@ -39,6 +39,8 @@ function field(overrides: FieldOverrides = {}): FormFieldRecord {
     statement: null,
     consentPurposeIds: [],
     consentPurposeLabels: {},
+    listIds: [],
+    listLabels: {},
     sortOrder: 0,
     createdAt: stamp,
     updatedAt: stamp,
@@ -93,6 +95,7 @@ function render(
     form: form(overrides),
     fields,
     consentPurposes: new Map(),
+    listNames: new Map(),
     submitUrl,
     nonce: 'n0nce',
     workspaceName: 'Acme Ventures',
@@ -256,6 +259,7 @@ describe('renderEmbedPage', () => {
       form: form({ title: '<img src=x onerror=alert(1)>' }),
       fields: [field()],
       consentPurposes: new Map(),
+    listNames: new Map(),
       submitUrl,
       nonce: 'n0nce',
       workspaceName: '<b>Acme</b>',
@@ -367,6 +371,7 @@ describe('consent checkbox text', () => {
       form: form(),
       fields: [consentField(labels)],
       consentPurposes: purposes,
+      listNames: new Map(),
       submitUrl,
       nonce: 'n0nce',
       workspaceName,
@@ -412,5 +417,105 @@ describe('consent checkbox text', () => {
     const html = renderConsent(new Map())
 
     expect(html).toContain('<label for="ff_consent__0">cp_contact</label>')
+  })
+})
+
+describe('an Add to list field', () => {
+  function listField(labels: Readonly<Record<string, string>> = {}): FormFieldRecord {
+    return {
+      ...field({ id: 'ff_lists', label: 'Add me to the mailing list', type: 'list', required: false }),
+      mapTo: 'lists',
+      statement: 'One email a month.',
+      listIds: ['list_news', 'list_gone', 'list_events'],
+      listLabels: labels,
+    }
+  }
+
+  function renderLists(labels: Readonly<Record<string, string>> = {}): string {
+    return renderEmbedPage({
+      form: form(),
+      fields: [field(), listField(labels)],
+      consentPurposes: new Map(),
+      listNames: new Map([
+        ['list_news', 'Newsletter'],
+        ['list_events', '<Events>'],
+      ]),
+      submitUrl,
+      nonce: 'n0nce',
+      workspaceName: 'Acme Ventures',
+      layout: 'embed',
+    })
+  }
+
+  it('shows the heading, the statement, and a box per list named by the list', () => {
+    const html = renderLists()
+
+    expect(html).toContain('<div class="field-label">Add me to the mailing list</div>')
+    expect(html).toContain('<p class="list-statement">One email a month.</p>')
+    expect(html).toContain(
+      '<input type="checkbox" id="ff_lists__0" data-list-field="ff_lists" value="list_news">',
+    )
+    expect(html).toContain('<label for="ff_lists__0">Newsletter</label>')
+    expect(html).toContain('<label for="ff_lists__1">&lt;Events&gt;</label>')
+  })
+
+  it("prefers the field's own checkbox text", () => {
+    expect(renderLists({ list_news: 'Yes!' })).toContain('<label for="ff_lists__0">Yes!</label>')
+  })
+
+  it('leaves out a box for a list that no longer exists', () => {
+    expect(renderLists()).not.toContain('list_gone')
+  })
+
+  it('leaves out the whole field when none of its lists exist', () => {
+    const html = renderEmbedPage({
+      form: form(),
+      fields: [field(), listField()],
+      consentPurposes: new Map(),
+      listNames: new Map(),
+      submitUrl,
+      nonce: 'n0nce',
+      workspaceName: 'Acme Ventures',
+      layout: 'embed',
+    })
+
+    expect(html).not.toContain('Add me to the mailing list')
+  })
+
+  it('collects ticked list boxes into the answers like consent boxes', () => {
+    expect(renderLists()).toContain('[data-list-field]')
+  })
+})
+
+describe('a field with no label', () => {
+  it('renders an input with no label element, named by its placeholder', () => {
+    const html = render({}, [field({ label: '', placeholder: 'you@company.com' })])
+
+    expect(html).not.toContain('<label for="ff_email">')
+    expect(html).toContain('aria-label="you@company.com"')
+  })
+
+  it('renders a list field with no heading', () => {
+    const html = renderEmbedPage({
+      form: form(),
+      fields: [
+        field(),
+        {
+          ...field({ id: 'ff_lists', label: '', type: 'list', required: true }),
+          mapTo: 'lists',
+          listIds: ['list_news'],
+          listLabels: { list_news: 'Tick here to get our monthly newsletter' },
+        },
+      ],
+      consentPurposes: new Map(),
+      listNames: new Map([['list_news', 'Newsletter']]),
+      submitUrl,
+      nonce: 'n0nce',
+      workspaceName: 'Acme Ventures',
+      layout: 'embed',
+    })
+
+    expect(html).toContain('<div class="field list"><div class="list-row">')
+    expect(html).toContain('>Tick here to get our monthly newsletter</label>')
   })
 })

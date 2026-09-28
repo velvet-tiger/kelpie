@@ -131,6 +131,19 @@ export const SUBMISSION_FIELD_PRESETS: readonly SubmissionFieldPreset[] = [
     },
   },
   {
+    menuLabel: 'Add to list',
+    field: {
+      label: 'Add to list',
+      type: 'list',
+      required: false,
+      mapTo: 'lists',
+      placeholder: null,
+      statement: null,
+      listIds: [],
+      listLabels: {},
+    },
+  },
+  {
     menuLabel: 'Notice',
     field: {
       label: 'Privacy notice',

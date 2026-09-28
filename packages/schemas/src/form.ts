@@ -13,6 +13,7 @@ import type {
   FormOptionValueType,
   FormStatus,
 } from './values.ts'
+import { labelForMapTarget } from './formMapTargets.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
 import type { RecordTimestamps } from './wire.ts'
 
@@ -39,6 +40,7 @@ export interface FormFieldOption {
 
 export interface FormField {
   readonly id: string
+  /** May be empty: the embed then shows no heading or label for the field. */
   readonly label: string
   readonly type: FormFieldType
   readonly required: boolean
@@ -47,9 +49,10 @@ export interface FormField {
   readonly options: readonly FormFieldOption[]
   readonly placeholder: string | null
   /**
-   * The intro sentence for a `consent` field — sits above the list of purpose
-   * checkboxes. `label` is the field heading; `statement` is what the visitor
-   * reads before ticking. Null for every other type.
+   * The intro sentence for a `consent` or `list` field — sits above the
+   * checkboxes. For a `notice` field it is the notice text. `label` is the
+   * field heading; `statement` is what the visitor reads before ticking. Null
+   * for every other type.
    */
   readonly statement: string | null
   /**
@@ -64,6 +67,17 @@ export interface FormField {
    * changes — the checkbox stays bound to its purpose.
    */
   readonly consentPurposeLabels: Readonly<Record<string, string>>
+  /**
+   * Lists an "Add to list" (`list`) field offers, in display order. Non-empty
+   * when `type === 'list'`; empty otherwise. Each ticked box adds the
+   * submitter to a person list, or the resolved company to a company list.
+   */
+  readonly listIds: readonly string[]
+  /**
+   * Per-list override for the checkbox text, keyed by list id. Absent keys
+   * fall back to the list's name.
+   */
+  readonly listLabels: Readonly<Record<string, string>>
   /** Position in the form, contiguous from 0. The server renumbers on every write. */
   readonly sortOrder: number
 }
@@ -161,6 +175,8 @@ const formFieldSchema = z
     statement: z.string().nullable(),
     consent_purpose_ids: z.array(idSchema),
     consent_purpose_labels: z.record(z.string(), z.string()),
+    list_ids: z.array(idSchema),
+    list_labels: z.record(z.string(), z.string()),
     sort_order: z.number().int(),
   })
   .transform(
@@ -175,6 +191,8 @@ const formFieldSchema = z
       statement: wire.statement,
       consentPurposeIds: wire.consent_purpose_ids,
       consentPurposeLabels: wire.consent_purpose_labels,
+      listIds: wire.list_ids,
+      listLabels: wire.list_labels,
       sortOrder: wire.sort_order,
     }),
   )
@@ -282,12 +300,16 @@ export interface FormFieldInput {
   readonly mapTo: FormFieldMapTarget
   readonly options?: readonly FormFieldOptionInput[]
   readonly placeholder?: string | null
-  /** The intro sentence above the list of consent checkboxes. */
+  /** The intro sentence above the checkboxes of a `consent` or `list` field. */
   readonly statement?: string | null
   /** Non-empty for `consent` fields; each id becomes a checkbox in display order. */
   readonly consentPurposeIds?: readonly string[]
   /** Per-purpose override for the checkbox text. Falls back to the workspace label. */
   readonly consentPurposeLabels?: Readonly<Record<string, string>>
+  /** Non-empty for `list` fields; each id becomes a checkbox in display order. */
+  readonly listIds?: readonly string[]
+  /** Per-list override for the checkbox text. Falls back to the list's name. */
+  readonly listLabels?: Readonly<Record<string, string>>
 }
 
 export interface CreateFormInput {
@@ -374,11 +396,27 @@ function fieldBody(field: FormFieldInput): Record<string, unknown> {
     statement: field.statement,
     consent_purpose_ids: field.consentPurposeIds,
     consent_purpose_labels: field.consentPurposeLabels,
+    list_ids: field.listIds,
+    list_labels: field.listLabels,
   })
 }
 
 function attachTargetBody(target: FormAttachTarget): Record<string, unknown> {
   return { target_type: target.targetType, target_id: target.targetId }
+}
+
+/**
+ * A name for a field where one is always needed, such as the builder and the
+ * submission views. The field's label, or its map target's name when the label
+ * is empty.
+ */
+export function formFieldDisplayLabel(field: {
+  readonly label: string
+  readonly mapTo: string
+}): string {
+  const label = field.label.trim()
+
+  return label.length > 0 ? label : labelForMapTarget(field.mapTo)
 }
 
 export function createFormBody(input: CreateFormInput): Record<string, unknown> {

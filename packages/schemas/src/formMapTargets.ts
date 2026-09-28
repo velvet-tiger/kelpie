@@ -8,6 +8,7 @@ import {
   EVENT_FORMATS,
   EVENT_STATUSES,
   FORM_FIELD_MAP_TARGET_LABELS,
+  FORM_LIST_TARGET,
   ICP_FITS,
   INFLUENCE_LEVELS,
   PERSON_CONSENT_TARGET,
@@ -21,7 +22,7 @@ import {
  * Where a form field's answer may land on submit.
  *
  * Any string matching the catalog (standard fields, workspace custom fields,
- * `submission`, or `person.consent`). The legacy `FORM_FIELD_MAP_TARGETS` enum
+ * `submission`, `person.consent`, or `lists`). The legacy `FORM_FIELD_MAP_TARGETS` enum
  * is a starter subset; validation uses this module instead.
  */
 export type FormFieldMapTarget = string
@@ -68,6 +69,7 @@ export type FormMapValueType =
   | 'url'
   | 'long_text'
   | 'consent'
+  | 'lists'
 
 export interface FormMapStandardField {
   readonly field: string
@@ -79,7 +81,7 @@ export interface FormMapStandardField {
 
 export interface FormMapTargetEntry {
   readonly target: string
-  readonly objectType: FormMapObjectType | 'submission' | 'consent'
+  readonly objectType: FormMapObjectType | 'submission' | 'consent' | 'lists'
   readonly label: string
   readonly fieldKind: 'standard' | 'custom' | 'special'
   readonly valueType: FormMapValueType
@@ -289,6 +291,13 @@ export function listStandardMapTargetEntries(): readonly FormMapTargetEntry[] {
       fieldKind: 'special',
       valueType: 'consent',
     },
+    {
+      target: FORM_LIST_TARGET,
+      objectType: 'lists',
+      label: 'Lists · add to list',
+      fieldKind: 'special',
+      valueType: 'lists',
+    },
   ]
 
   for (const objectType of FORM_MAP_OBJECT_TYPES) {
@@ -348,7 +357,7 @@ function customFieldTypeToMapValueType(type: CustomFieldType): FormMapValueType 
 }
 
 export interface ParsedFormMapTarget {
-  readonly objectType: FormMapObjectType | 'submission' | 'consent'
+  readonly objectType: FormMapObjectType | 'submission' | 'consent' | 'lists'
   readonly fieldPath: string
   readonly isCustomField: boolean
   readonly customFieldKey?: string | undefined
@@ -362,6 +371,10 @@ export function parseFormMapTarget(target: string): ParsedFormMapTarget | undefi
 
   if (target === PERSON_CONSENT_TARGET) {
     return { objectType: 'consent', fieldPath: 'consent', isCustomField: false }
+  }
+
+  if (target === FORM_LIST_TARGET) {
+    return { objectType: 'lists', fieldPath: 'lists', isCustomField: false }
   }
 
   const customMatch = /^([a-z_]+)\.custom_fields\.([a-z][a-z0-9_]*)$/.exec(target)
@@ -406,7 +419,12 @@ export function parseFormMapTarget(target: string): ParsedFormMapTarget | undefi
 
 /** True when more than one form field may share this target. */
 export function isRepeatableMapTarget(target: string): boolean {
-  return target === 'submission' || target === PERSON_CONSENT_TARGET
+  return target === 'submission' || target === PERSON_CONSENT_TARGET || target === FORM_LIST_TARGET
+}
+
+/** The field types that only one special target accepts, and that accept no other. */
+function isSpecialFieldType(type: FormFieldType): boolean {
+  return type === 'consent' || type === 'notice' || type === 'list'
 }
 
 function findStandardEntry(target: string): FormMapTargetEntry | undefined {
@@ -491,10 +509,14 @@ export function suggestedFormFieldType(
     return current === 'notice' ? 'notice' : 'consent'
   }
 
+  if (target === FORM_LIST_TARGET) {
+    return 'list'
+  }
+
   const entry = resolveMapTargetEntry(target, customDefinitions)
 
   if (entry === undefined) {
-    return current === 'consent' || current === 'notice' ? 'text' : current
+    return isSpecialFieldType(current) ? 'text' : current
   }
 
   switch (entry.valueType) {
@@ -511,8 +533,10 @@ export function suggestedFormFieldType(
       return 'select'
     case 'boolean':
       return 'select'
+    case 'lists':
+      return 'list'
     default:
-      return current === 'consent' || current === 'notice' ? 'text' : current
+      return isSpecialFieldType(current) ? 'text' : current
   }
 }
 
@@ -528,6 +552,14 @@ export function isCompatibleFormFieldType(
 
   if (formType === 'consent' || formType === 'notice') {
     return target === PERSON_CONSENT_TARGET
+  }
+
+  if (target === FORM_LIST_TARGET) {
+    return formType === 'list'
+  }
+
+  if (formType === 'list') {
+    return false
   }
 
   const entry = resolveMapTargetEntry(target, customDefinitions)
@@ -560,6 +592,7 @@ export function isCompatibleFormFieldType(
     case 'long_text':
       return formType === 'textarea' || formType === 'text'
     case 'consent':
+    case 'lists':
       return false
     default:
       return formType === 'text' || formType === 'textarea' || formType === 'email' || formType === 'select'
@@ -584,4 +617,4 @@ export function metaForMapTargetEntry(
   return entry.valueType
 }
 
-export { PERSON_CONSENT_TARGET, PERSON_EMAIL_TARGET }
+export { FORM_LIST_TARGET, PERSON_CONSENT_TARGET, PERSON_EMAIL_TARGET }
