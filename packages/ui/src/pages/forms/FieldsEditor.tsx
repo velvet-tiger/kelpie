@@ -283,7 +283,7 @@ function PreviewField({ field, selected, problem, onSelect }: PreviewFieldProps)
     >
       <button
         type="button"
-        className="mt-8 shrink-0 cursor-grab touch-none rounded-md px-1 py-1 text-[10px] leading-none text-ink-faint opacity-0 transition hover:text-ink focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100"
+        className="shrink-0 self-center cursor-grab touch-none rounded-md px-1 py-1 text-[10px] leading-none text-ink-faint opacity-0 transition hover:text-ink focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100"
         aria-label={`Drag ${formFieldDisplayLabel(field)} to reorder`}
         {...attributes}
         {...listeners}
