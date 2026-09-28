@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-28
+
 ### Added
 
 - **`@kelpie/server`, `@kelpie/ui`, `@kelpie/schemas`** — **Add to list
@@ -140,6 +142,19 @@ While the major version is `0`, a minor bump may break the API.
   no `prompt` field. A receiver that read the prompt back from the run must
   keep the one from the dispatch. Migration `0052_drop_agent_run_prompt`
   drops `agent_runs.prompt` and the stored prompts with it.
+
+### Fixed
+
+- **`@kelpie/server`** — Behind a proxy that ends TLS, such as Fly, the
+  request arrives as http. The Embed panel then gave http snippets that an
+  https site blocks, and the MCP origin check refused a same-origin browser.
+  The request origin now takes its scheme from `X-Forwarded-Proto` (`http` or
+  `https` only).
+- **`@kelpie/server`, `@kelpie/ui`** — The form auto-resize snippet and the
+  Embed panel preview accept height messages only from the embed URL's
+  origin, so another frame on the page cannot resize the form.
+- **`@kelpie/ui`** — The drag handle of a field in the form builder is
+  centred on its field.
 
 ## [0.17.0] - 2026-09-27
 
