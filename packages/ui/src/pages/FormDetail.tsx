@@ -118,7 +118,7 @@ function FormHeading({ form }: { readonly form: Form }): React.JSX.Element {
   }
 
   return (
-    <div className="min-w-0 flex-1">
+    <div className="min-w-[12rem] flex-1">
       <div className="flex flex-wrap items-center gap-2">
         <div className="min-w-0 flex-1">
           <InlineEdit

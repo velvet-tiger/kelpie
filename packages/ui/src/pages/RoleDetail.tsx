@@ -73,7 +73,7 @@ export function RoleDetail(): React.JSX.Element {
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <RoleHeading role={record} />
-        <div className="flex shrink-0 flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <RoleStatusField role={record} />
           <AgentTasks targetType="role" targetId={record.id} targetLabel={record.title} />
           <DeleteRecord
@@ -109,7 +109,7 @@ function RoleHeading({ role }: { readonly role: Role }): React.JSX.Element {
   const { patch, error } = useRolePatch(role)
 
   return (
-    <div className="min-w-0 flex-1">
+    <div className="min-w-[12rem] flex-1">
       {error !== null && (
         <div className="mb-2">
           <ErrorPanel error={error} />

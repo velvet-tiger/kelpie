@@ -67,7 +67,7 @@ export function ListDetail(): React.JSX.Element {
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <ListHeading list={record} />
-        <div className="flex shrink-0 flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Chip>{RECORD_TARGET_TYPE_LABELS[record.targetType]}</Chip>
           <DeleteRecord
             recordLabel="List"
@@ -99,7 +99,7 @@ function ListHeading({ list }: { readonly list: List }): React.JSX.Element {
   const { patch, error } = useListPatch(list)
 
   return (
-    <div className="min-w-0 flex-1">
+    <div className="min-w-[12rem] flex-1">
       {error !== null && (
         <div className="mb-2">
           <ErrorPanel error={error} />

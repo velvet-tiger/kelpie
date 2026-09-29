@@ -28,7 +28,8 @@ While the major version is `0`, a minor bump may break the API.
   Escape, or its Close button closes it. Wide tables scroll sideways in
   place of being cut off. Page header actions and segmented controls no
   longer run past the right edge. The handbook page tree stacks above the
-  editor.
+  editor below 1024px. Record headings on the handbook, Form, List and Role
+  pages keep their width, and their buttons move to a new line.
 
 ## [0.18.0] - 2026-09-28
 
