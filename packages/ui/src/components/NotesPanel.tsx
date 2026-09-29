@@ -215,16 +215,19 @@ function NoteItem({
         target.highlighted ? FRAGMENT_HIGHLIGHT : ''
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
+      {/* Below md the label and buttons sit in a row above the note, so the note
+          has the full card width; there is no hover on a phone, so the buttons
+          stay visible there. */}
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
           <MarkdownView source={note.body} references={note.references} />
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
+        <div className="order-first flex shrink-0 items-center gap-2 md:order-none md:flex-col md:items-end md:gap-1">
           {note.pinned && (
             <span className="text-[10px] font-semibold tracking-wide text-accent uppercase">Pinned</span>
           )}
           {confirmingDelete ? (
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2 md:ml-0">
               <span className="text-[11px] text-ink-muted">Delete this note?</span>
               <button
                 type="button"
@@ -248,7 +251,7 @@ function NoteItem({
               </button>
             </div>
           ) : (
-            <span className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <span className="ml-auto flex gap-1 transition-opacity md:ml-0 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
               <button
                 type="button"
                 onClick={() => {

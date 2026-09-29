@@ -30,7 +30,9 @@ While the major version is `0`, a minor bump may break the API.
   longer run past the right edge. The handbook page tree stacks above the
   editor below 1024px. Record headings on the handbook, Form, List and Role
   pages keep their width, and their buttons move to a new line. The People
-  list does not show the Tags column below 768px.
+  list does not show the Tags column below 768px. On a phone a note uses
+  the full card width: its Pinned label and its Edit and Delete buttons sit
+  in a row above it, and the buttons show without hover.
 
 ## [0.18.0] - 2026-09-28
 
