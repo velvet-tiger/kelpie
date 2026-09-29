@@ -71,7 +71,9 @@ export function RoleDetail(): React.JSX.Element {
         ← Hiring
       </Link>
 
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      {/* On a phone the controls go under the heading, so a long role title
+          keeps the full width and does not break over several lines. */}
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <RoleHeading role={record} />
         <div className="flex flex-wrap items-center gap-3">
           <RoleStatusField role={record} />
