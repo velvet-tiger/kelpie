@@ -292,10 +292,13 @@ function CandidateRow({
 
   return (
     <li className="border-b border-border px-4 py-3.5 last:border-0">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      {/* On a phone the controls always take their own line under the name.
+          Left to wrap, whether they fit beside it depends on the name length
+          and on the stage field, so rows in one list came out different. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-3">
         <Link
           to={`/people/${candidate.personId}`}
-          className="text-left text-[13px] font-medium text-ink hover:text-accent"
+          className="self-start text-left text-[13px] font-medium text-ink hover:text-accent"
         >
           {personName ?? candidate.personId}
         </Link>
