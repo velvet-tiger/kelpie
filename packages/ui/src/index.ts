@@ -248,6 +248,11 @@ export {
 } from './registry/context.ts'
 
 export { UiExtensionProvider } from './registry/UiExtensionProvider.tsx'
+
+// The side drawer AI work runs in. Shell provides it; a module or page opens a
+// task in it with `useAiDrawer().open(task)`.
+export { useAiDrawer } from './components/aiDrawerState.ts'
+export type { AiDrawerControls, AiDrawerState, AiDrawerTask } from './components/aiDrawerState.ts'
 export type { UiExtensionProviderProps } from './registry/UiExtensionProvider.tsx'
 
 // The optional `ai` module's UI. An assembly that lists `createAiModule()` on

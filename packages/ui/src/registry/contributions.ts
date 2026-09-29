@@ -140,15 +140,20 @@ export interface AgentRunner {
 }
 
 export interface PersonIntakeWizardProps {
-  /** Closes the dialog the wizard sits in. */
+  /** Ends the intake and closes the AI drawer it sits in. */
   readonly onClose: () => void
+  /**
+   * Called when a model request starts or ends, so the drawer's header button
+   * can show that the task is working while the drawer is hidden.
+   */
+  readonly onPendingChange?: (pending: boolean) => void
 }
 
 /**
  * The model-driven wizard behind People's **Add from notes**.
  *
- * Core owns the button and the dialog, and with no provider (or one that is
- * not ready) the dialog offers a copy-prompt for the user's own agent. A
+ * Core owns the button and the AI drawer panel, and with no provider (or one
+ * that is not ready) the panel offers a copy-prompt for the user's own agent. A
  * provider replaces that with a wizard that identifies, researches and
  * creates. `useAvailability` is a hook, with the runner's shape and rules.
  */

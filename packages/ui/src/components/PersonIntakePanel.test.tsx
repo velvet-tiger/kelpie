@@ -8,13 +8,13 @@ import { aiUi } from '../modules/ai.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
 import { NO_UI_MODULES, registerUiModules } from '../registry/registry.ts'
 import { stubClient } from '../testing/stubClient.ts'
-import { PersonIntakeDialog } from './PersonIntakeDialog.tsx'
+import { PersonIntakePanel } from './PersonIntakePanel.tsx'
 
 afterEach(cleanup)
 
 /**
  * People's Add from notes. With Kelpie AI ready it is the wizard: notes,
- * confirm, choose, done. Without it, the dialog copies the add-person prompt
+ * confirm, choose, done. Without it, the panel copies the add-person prompt
  * with the notes appended, for the user's own agent.
  */
 
@@ -133,7 +133,7 @@ function renderDialog(options: { readonly ai: boolean; readonly settings?: Recor
     <MemoryRouter>
       <ApiProvider client={client} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <UiExtensionProvider extensions={options.ai ? registerUiModules([aiUi]) : NO_UI_MODULES}>
-          <PersonIntakeDialog onClose={() => undefined} />
+          <PersonIntakePanel onClose={() => undefined} onPendingChange={() => undefined} />
         </UiExtensionProvider>
       </ApiProvider>
     </MemoryRouter>,
@@ -146,7 +146,7 @@ async function typeNotes(text: string): Promise<void> {
   fireEvent.change(await screen.findByLabelText(/^What do you know/u), { target: { value: text } })
 }
 
-describe('PersonIntakeDialog', () => {
+describe('PersonIntakePanel', () => {
   it('copies the add-person prompt with the notes when no module provides the wizard', async () => {
     const writeText = vi.fn(() => Promise.resolve())
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })

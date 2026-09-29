@@ -14,14 +14,14 @@ import type {
   PersonIntakeResultStatus,
   PersonIntakeSource,
 } from '@kelpie/schemas'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 
 import { useAiServiceLabel } from '../api/resources/ai.ts'
 import { useApplyPersonIntake, useIdentifyPerson, useResearchPerson } from '../api/resources/personIntake.ts'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
-import { IntakeFrame, NotesField } from '../components/PersonIntakeDialog.tsx'
+import { IntakeFrame, NotesField } from '../components/PersonIntakePanel.tsx'
 import { ErrorPanel } from '../components/QueryState.tsx'
 import type { PersonIntakeWizardProps } from '../registry/contributions.ts'
 import { effectiveSelection } from './personIntakeSelection.ts'
@@ -53,12 +53,17 @@ const primaryButton =
 const secondaryButton =
   'rounded-md px-2.5 py-1.5 text-[12px] font-medium text-ink-muted hover:text-ink disabled:opacity-50'
 
-export function PersonIntakeWizard({ onClose }: PersonIntakeWizardProps): React.JSX.Element {
+export function PersonIntakeWizard({ onClose, onPendingChange }: PersonIntakeWizardProps): React.JSX.Element {
   const [step, setStep] = useState<Step>({ kind: 'notes' })
   const [text, setText] = useState('')
   const identify = useIdentifyPerson()
   const research = useResearchPerson()
   const apply = useApplyPersonIntake()
+  const pending = identify.isPending || research.isPending || apply.isPending
+
+  useEffect(() => {
+    onPendingChange?.(pending)
+  }, [pending, onPendingChange])
 
   async function runIdentify(): Promise<void> {
     const identified = await identify.runAsync(text.trim())
@@ -161,7 +166,7 @@ function NotesStep({
       <NotesField value={text} onChange={onChange} disabled={pending} />
       {pending && (
         <p className="mt-2 text-[12px] text-ink-muted">
-          {serviceLabel} is looking this person up. With web search on, this can take a minute.
+          {serviceLabel} is looking this person up. With web search on, this can take a minute. You can keep working: this task stays open in the drawer.
         </p>
       )}
       {error !== null && (
@@ -323,7 +328,7 @@ function ConfirmStep({
       </fieldset>
       {pending && (
         <p className="mt-3 text-[12px] text-ink-muted">
-          {serviceLabel} is researching this person. With web search on, this can take a minute.
+          {serviceLabel} is researching this person. With web search on, this can take a minute. You can keep working: this task stays open in the drawer.
         </p>
       )}
       <Sources sources={identified.sources} />

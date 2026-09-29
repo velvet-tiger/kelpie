@@ -10,6 +10,17 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Changed
+
+- **`@kelpie/ui`** — **Add from notes runs in a side drawer.** Person intake
+  no longer opens a modal that blocks the window. It opens in the AI drawer
+  at the right side of the shell, and the page narrows beside it. The task
+  stays open when you close the drawer or go to another page; a header
+  button shows it, with a spinner while a request is pending. One task at a
+  time. `useAiDrawer()` and the `AiDrawerTask`, `AiDrawerControls` and
+  `AiDrawerState` types are exported for modules that open their own tasks.
+  `PersonIntakeWizardProps` gains an optional `onPendingChange`.
+
 ## [0.18.0] - 2026-09-28
 
 ### Added

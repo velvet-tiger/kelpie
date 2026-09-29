@@ -9,6 +9,7 @@ import { ONBOARDING_RERUN_ENTRY } from '../pages/onboarding/onboardingRerun.ts'
 import { useNavItems } from '../registry/context.ts'
 import type { NavItem } from '../registry/contributions.ts'
 import { useVisibleNavItems } from '../registry/visibleNav.ts'
+import { AiDrawerLauncher, AiDrawerPanel, AiDrawerProvider } from './AiDrawer.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher.tsx'
 
@@ -90,6 +91,16 @@ const THEME_LABELS: Readonly<Record<ThemePreference, string>> = {
 }
 
 export function Shell(): React.JSX.Element {
+  // The drawer's state sits here, above the routed outlet, so an AI task
+  // survives a route change.
+  return (
+    <AiDrawerProvider>
+      <ShellLayout />
+    </AiDrawerProvider>
+  )
+}
+
+function ShellLayout(): React.JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
   const { account } = useAccount()
@@ -253,6 +264,7 @@ export function Shell(): React.JSX.Element {
               className="w-full max-w-sm rounded-md border border-transparent bg-surface-sunken px-2.5 py-1 text-[13px] text-ink outline-none transition placeholder:text-ink-faint focus:border-border focus:bg-surface-raised"
             />
           </form>
+          <AiDrawerLauncher />
           <button
             type="button"
             onClick={() => {
@@ -343,13 +355,18 @@ export function Shell(): React.JSX.Element {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-auto px-5 py-5">
-          {/* Keyed on the path so navigating away from a crashed page remounts
-              the boundary instead of leaving it stuck showing the old error. */}
-          <ErrorBoundary key={location.pathname}>
-            <Outlet />
-          </ErrorBoundary>
-        </main>
+        <div className="flex min-h-0 flex-1">
+          <main className="min-w-0 flex-1 overflow-auto px-5 py-5">
+            {/* Keyed on the path so navigating away from a crashed page remounts
+                the boundary instead of leaving it stuck showing the old error. */}
+            <ErrorBoundary key={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
+          </main>
+          {/* Outside the route boundary, so a page that throws does not take a
+              running AI task with it. */}
+          <AiDrawerPanel />
+        </div>
       </div>
     </div>
   )

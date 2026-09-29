@@ -35,6 +35,8 @@ If the provider refuses the key, or the account has no quota, the run fails with
 
 On **People**, **Add from notes** (beside **Add person**) builds a full record from what you already know.
 
+It opens in the AI drawer, at the right side of the page. The page stays usable while Kelpie works. **Close** hides the drawer and keeps the task: a button in the header shows it, with a spinner while Kelpie is working, and opens it again. **Discard** ends the task. One task runs at a time. A reload, or a switch to another workspace, ends it.
+
 1. Paste anything about the person: a name, an email, a LinkedIn URL, a signature block, meeting notes.
 2. Kelpie looks the person up and shows up to three matches. Pick the right one. If the person is already in Kelpie, choose **Update** that record or **Create new**.
 3. Kelpie researches the person and lists what it will create: the Person, their Company (or a link to one you already have), a Position with their title, and a pinned research note with its sources. It can also suggest a Partnership, Deal or Enquiry when your notes point to one; those start unticked, with the reason shown. Untick anything you do not want.

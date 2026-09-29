@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 
 import { useAccountWorkspaces, useSession, useSwitchWorkspace } from '../api/resources/session.ts'
 import { ONBOARDING_NEW_WORKSPACE_ENTRY } from '../pages/onboarding/onboardingRerun.ts'
+import { useAiDrawer } from './aiDrawerState.ts'
 
 /**
  * Header control: the workspace this session is in, and a menu to move it.
@@ -17,6 +18,7 @@ export function WorkspaceSwitcher(): React.JSX.Element | null {
   const { session } = useSession()
   const { workspaces, isLoading } = useAccountWorkspaces()
   const switchWorkspace = useSwitchWorkspace()
+  const aiDrawer = useAiDrawer()
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const currentId = session?.workspaceId ?? null
@@ -108,10 +110,19 @@ export function WorkspaceSwitcher(): React.JSX.Element | null {
                     return
                   }
 
+                  // An AI task belongs to one workspace, so the switch discards it.
+                  if (
+                    aiDrawer.isPending &&
+                    !window.confirm('AI is still working on a task. Switching workspace discards it. Switch anyway?')
+                  ) {
+                    return
+                  }
+
                   switchWorkspace
                     .runAsync({ workspaceId: workspace.id })
                     .then(() => {
                       setOpen(false)
+                      aiDrawer.finish()
                       void navigate('/dashboard', { replace: true })
                     })
                     .catch(() => undefined)

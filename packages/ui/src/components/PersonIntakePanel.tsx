@@ -1,5 +1,5 @@
 import { PERSON_INTAKE_MAX_TEXT } from '@kelpie/schemas'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { useResolveAgentTask } from '../api/resources/agentTasks.ts'
@@ -12,9 +12,10 @@ import { ErrorPanel, LoadingPanel } from './QueryState.tsx'
  * People's **Add from notes**: a second way to add a person, from what the
  * user already knows.
  *
- * Core owns the button and this dialog. When a module provides a wizard and
- * it is ready (Kelpie AI enabled, with a key), the dialog renders it. Without
- * one, the dialog still works: it builds the `workspace.add_person` prompt
+ * Core owns the button and this panel, which runs in the AI drawer so the page
+ * stays usable while the model works. When a module provides a wizard and it
+ * is ready (Kelpie AI enabled, with a key), the panel renders it. Without one,
+ * the panel still works: it builds the `workspace.add_person` prompt
  * with the user's notes appended, for the user to paste into their own agent.
  * That is the same pattern as the Log transcript task.
  */
@@ -37,55 +38,19 @@ export function AddFromNotesButton({ onClick }: { readonly onClick: () => void }
   )
 }
 
-export interface PersonIntakeDialogProps {
+export interface PersonIntakePanelProps {
+  /** Ends the intake. */
   readonly onClose: () => void
+  readonly onPendingChange: (pending: boolean) => void
 }
 
-export function PersonIntakeDialog({ onClose }: PersonIntakeDialogProps): React.JSX.Element {
+export function PersonIntakePanel({ onClose, onPendingChange }: PersonIntakePanelProps): React.JSX.Element {
   const provider = usePersonIntakeProvider()
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
-
-  return (
-    <div
-      className="fixed inset-0 z-40 flex items-end justify-center bg-ink/30 p-4 sm:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add a person from notes"
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-surface"
-        onClick={(event) => {
-          event.stopPropagation()
-        }}
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-          <div>
-            <div className="text-[14px] font-semibold text-ink">Add a person from notes</div>
-            <div className="mt-0.5 text-[12px] text-ink-muted">
-              Paste what you know. Kelpie builds the record from it.
-            </div>
-          </div>
-          <button type="button" className="text-[12px] font-medium text-ink-muted hover:text-ink" onClick={onClose}>
-            Close
-          </button>
-        </div>
-        {provider === undefined ? (
-          <CopyPromptIntake reason="The AI module is not part of this install." />
-        ) : (
-          <ProvidedIntake provider={provider} onClose={onClose} />
-        )}
-      </div>
-    </div>
+  return provider === undefined ? (
+    <CopyPromptIntake reason="The AI module is not part of this install." />
+  ) : (
+    <ProvidedIntake provider={provider} onClose={onClose} onPendingChange={onPendingChange} />
   )
 }
 
@@ -93,9 +58,11 @@ export function PersonIntakeDialog({ onClose }: PersonIntakeDialogProps): React.
 function ProvidedIntake({
   provider,
   onClose,
+  onPendingChange,
 }: {
   readonly provider: PersonIntakeProvider
   readonly onClose: () => void
+  readonly onPendingChange: (pending: boolean) => void
 }): React.JSX.Element {
   const availability: AgentRunnerAvailability = provider.useAvailability({ enabled: true })
 
@@ -109,10 +76,10 @@ function ProvidedIntake({
 
   const Wizard = provider.Wizard
 
-  return <Wizard onClose={onClose} />
+  return <Wizard onClose={onClose} onPendingChange={onPendingChange} />
 }
 
-/** The dialog body and footer, the same frame the wizard's steps use. */
+/** The panel body and footer, the same frame the wizard's steps use. */
 export function IntakeFrame({
   children,
   footer,

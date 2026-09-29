@@ -5,11 +5,13 @@ import { useNavigate } from 'react-router'
 
 import { useTimezone } from '../api/resources/account.ts'
 import { useCreatePerson, usePeople } from '../api/resources/people.ts'
+import { useAiDrawer } from '../components/aiDrawerState.ts'
 import { Chip } from '../components/Chip.tsx'
 import { SocialNetworkIcon } from '../components/SocialNetworkIcon.tsx'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
-import { AddFromNotesButton, PersonIntakeDialog } from '../components/PersonIntakeDialog.tsx'
+import { AddFromNotesButton } from '../components/PersonIntakePanel.tsx'
+import { personIntakeTask } from '../components/personIntakeTask.tsx'
 import type { Column } from '../components/DataTable.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
 import { Paginator } from '../components/Paginator.tsx'
@@ -60,7 +62,7 @@ export function PeoplePage(): React.JSX.Element {
   })
   const directory = usePeopleDirectory(people.records.map((person) => person.id))
   const createPerson = useCreatePerson()
-  const [intakeOpen, setIntakeOpen] = useState(false)
+  const aiDrawer = useAiDrawer()
 
   async function addPerson(): Promise<void> {
     // The same defaults the API applies, so a person created here and one
@@ -252,19 +254,12 @@ export function PeoplePage(): React.JSX.Element {
             />
             <AddFromNotesButton
               onClick={() => {
-                setIntakeOpen(true)
+                aiDrawer.open(personIntakeTask())
               }}
             />
           </>
         }
       />
-      {intakeOpen && (
-        <PersonIntakeDialog
-          onClose={() => {
-            setIntakeOpen(false)
-          }}
-        />
-      )}
       <FilterBar
         value={term}
         onChange={setTerm}
