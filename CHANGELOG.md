@@ -20,6 +20,12 @@ While the major version is `0`, a minor bump may break the API.
   time. `useAiDrawer()` and the `AiDrawerTask`, `AiDrawerControls` and
   `AiDrawerState` types are exported for modules that open their own tasks.
   `PersonIntakeWizardProps` gains an optional `onPendingChange`.
+- **`@kelpie/ui`** — **Pipeline boards stack vertically on phones.** Below
+  768px, `KanbanBoard` shows one section per stage in place of columns. A tap
+  on a stage header collapses or opens it. Each card has a stage menu in place
+  of drag, which calls the same `onMove`. Deals, Opportunities, Enquiries,
+  Partnerships and Fundraising all get this; the board from 768px up is
+  unchanged.
 
 ### Fixed
 
