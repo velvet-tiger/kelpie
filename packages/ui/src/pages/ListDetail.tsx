@@ -65,7 +65,9 @@ export function ListDetail(): React.JSX.Element {
         ← Lists
       </Link>
 
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      {/* On a phone the controls go under the heading, so a long title keeps
+          the full width and does not break over several lines. */}
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <ListHeading list={record} />
         <div className="flex flex-wrap items-center gap-3">
           <Chip>{RECORD_TARGET_TYPE_LABELS[record.targetType]}</Chip>

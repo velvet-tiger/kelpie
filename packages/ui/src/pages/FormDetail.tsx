@@ -53,20 +53,24 @@ export function FormDetail(): React.JSX.Element {
         ← Forms
       </Link>
 
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      {/* On a phone the controls go under the heading, so a long title keeps
+          the full width and does not break over several lines. */}
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <FormHeading form={record} />
-        <DeleteRecord
-          recordLabel="Form"
-          recordName={record.name}
-          isPending={deleteForm.isPending}
-          error={deleteForm.error}
-          onConfirm={() => {
-            deleteForm
-              .runAsync(record.id)
-              .then(() => navigate('/forms'))
-              .catch(() => undefined)
-          }}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <DeleteRecord
+            recordLabel="Form"
+            recordName={record.name}
+            isPending={deleteForm.isPending}
+            error={deleteForm.error}
+            onConfirm={() => {
+              deleteForm
+                .runAsync(record.id)
+                .then(() => navigate('/forms'))
+                .catch(() => undefined)
+            }}
+          />
+        </div>
       </div>
 
       <RecordTabs
