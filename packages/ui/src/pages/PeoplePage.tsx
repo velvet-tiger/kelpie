@@ -198,6 +198,8 @@ export function PeoplePage(): React.JSX.Element {
     {
       key: 'tags',
       header: 'Tags',
+      // On a phone the tag chips wrap one per line and make every row tall.
+      className: 'hidden md:table-cell',
       getSortValue: (person) => person.tags.join(', ') || null,
       render: (person) =>
         person.tags.length > 0 ? (

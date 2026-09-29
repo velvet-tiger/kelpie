@@ -29,7 +29,8 @@ While the major version is `0`, a minor bump may break the API.
   place of being cut off. Page header actions and segmented controls no
   longer run past the right edge. The handbook page tree stacks above the
   editor below 1024px. Record headings on the handbook, Form, List and Role
-  pages keep their width, and their buttons move to a new line.
+  pages keep their width, and their buttons move to a new line. The People
+  list does not show the Tags column below 768px.
 
 ## [0.18.0] - 2026-09-28
 
