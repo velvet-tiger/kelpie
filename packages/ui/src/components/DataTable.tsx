@@ -167,7 +167,7 @@ export function DataTable<TRow>({
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-border">
+    <div className="overflow-x-auto rounded-md border border-border">
       <table className="w-full border-collapse text-left text-[13px]">
         <thead>
           <tr className="border-b border-border">

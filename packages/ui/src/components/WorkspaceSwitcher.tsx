@@ -52,7 +52,7 @@ export function WorkspaceSwitcher(): React.JSX.Element | null {
 
   if (isLoading && workspaces.length === 0) {
     return (
-      <span className="max-w-[10rem] truncate px-2 py-1 text-[12px] text-ink-faint" aria-hidden>
+      <span className="max-w-[8rem] truncate px-2 py-1 sm:max-w-[10rem] text-[12px] text-ink-faint" aria-hidden>
         Workspace
       </span>
     )
@@ -75,7 +75,7 @@ export function WorkspaceSwitcher(): React.JSX.Element | null {
         aria-haspopup="menu"
         aria-label="Switch workspace"
         title={label}
-        className="inline-flex max-w-[12rem] items-center gap-1 rounded-md px-2 py-1 text-[12px] text-ink-muted transition hover:bg-surface-sunken hover:text-ink"
+        className="inline-flex max-w-[8rem] items-center gap-1 rounded-md sm:max-w-[12rem] px-2 py-1 text-[12px] text-ink-muted transition hover:bg-surface-sunken hover:text-ink"
       >
         <span className="truncate">{label}</span>
         <svg viewBox="0 0 12 12" aria-hidden className="h-2.5 w-2.5 shrink-0">

@@ -25,7 +25,7 @@ export function PageHeader({
           <p className="mt-0.5 text-[13px] text-ink-muted">{description}</p>
         )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {actions}
         {onAdd !== undefined && <AddButton onClick={onAdd} label={addLabel} />}
       </div>

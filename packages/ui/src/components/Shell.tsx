@@ -108,6 +108,9 @@ function ShellLayout(): React.JSX.Element {
   const moduleNav = useNavItems('primary')
   const moduleAdminNav = useNavItems('admin')
   const [menuOpen, setMenuOpen] = useState(false)
+  // Below `md` the sidebar is an off-canvas drawer; from `md` up it is always
+  // shown and this flag has no effect.
+  const [navOpen, setNavOpen] = useState(false)
   // The same preference the account page writes, so this button and that page
   // cannot disagree about which theme the account is on.
   const { theme, setTheme } = useTheme()
@@ -140,6 +143,24 @@ function ShellLayout(): React.JSX.Element {
     }
   }, [menuOpen])
 
+  useEffect(() => {
+    if (!navOpen) {
+      return
+    }
+
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setNavOpen(false)
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [navOpen])
+
   const navItems = useVisibleNavItems(CORE_NAV, moduleNav)
   const topLevelItems = navItems.filter((item) => TOP_LEVEL_NAV_IDS.has(item.id))
   const nonTopLevelItems = navItems.filter((item) => !TOP_LEVEL_NAV_IDS.has(item.id))
@@ -153,16 +174,50 @@ function ShellLayout(): React.JSX.Element {
 
   return (
     <div className="flex min-h-screen bg-surface">
-      <aside className="flex w-[200px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-        <div className="px-3 py-4">
+      {navOpen && (
+        <div
+          aria-hidden
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={() => {
+            setNavOpen(false)
+          }}
+        />
+      )}
+      <aside
+        id="shell-nav"
+        className={[
+          'fixed inset-y-0 left-0 z-40 flex w-[240px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-150 md:static md:w-[200px] md:translate-x-0',
+          navOpen ? 'translate-x-0' : '-translate-x-full',
+        ].join(' ')}
+      >
+        <div className="flex items-center justify-between px-3 py-4">
           <NavLink to="/dashboard" className="group block px-2">
             <div className="text-[15px] font-semibold tracking-tight text-sidebar-ink transition-opacity group-hover:opacity-80">
               Kelpie
             </div>
           </NavLink>
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => {
+              setNavOpen(false)
+            }}
+            className="rounded-md px-2 py-1 text-[12px] text-sidebar-muted transition hover:bg-sidebar-hover hover:text-sidebar-ink md:hidden"
+          >
+            Close
+          </button>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-2 pb-4">
+        {/* A tap on any link closes the drawer, including a tap on the link
+            for the page already open, which does not change the route. */}
+        <nav
+          className="flex flex-1 flex-col gap-5 overflow-y-auto px-2 pb-4"
+          onClick={(event) => {
+            if (event.target instanceof Element && event.target.closest('a') !== null) {
+              setNavOpen(false)
+            }
+          }}
+        >
           {inAdminNav ? (
             <>
               <Link
@@ -240,9 +295,23 @@ function ShellLayout(): React.JSX.Element {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-11 items-center gap-3 border-b border-border px-5">
+        <header className="flex h-11 items-center gap-2 border-b border-border px-3 sm:gap-3 md:px-5">
+          <button
+            type="button"
+            aria-label="Open navigation"
+            aria-controls="shell-nav"
+            aria-expanded={navOpen}
+            onClick={() => {
+              setNavOpen(true)
+            }}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition hover:bg-surface-sunken hover:text-ink md:hidden"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden className="h-4 w-4">
+              <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
           <form
-            className="flex-1"
+            className="min-w-0 flex-1"
             onSubmit={(event) => {
               event.preventDefault()
               const term = query.trim()
@@ -356,7 +425,7 @@ function ShellLayout(): React.JSX.Element {
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <main className="min-w-0 flex-1 overflow-auto px-5 py-5">
+          <main className="min-w-0 flex-1 overflow-auto px-4 py-5 md:px-5">
             {/* Keyed on the path so navigating away from a crashed page remounts
                 the boundary instead of leaving it stuck showing the old error. */}
             <ErrorBoundary key={location.pathname}>

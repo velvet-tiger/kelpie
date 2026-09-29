@@ -426,7 +426,7 @@ function ApiKeyTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-border">
+    <div className="overflow-x-auto rounded-md border border-border">
       <table className="w-full text-left text-[13px]">
         <thead>
           <tr className="border-b border-border bg-surface text-[11px] font-semibold tracking-wide text-ink-muted uppercase">

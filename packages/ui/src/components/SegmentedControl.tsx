@@ -21,7 +21,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="inline-flex rounded-md border border-border bg-surface-raised p-0.5"
+      className="inline-flex max-w-full overflow-x-auto rounded-md border border-border bg-surface-raised p-0.5"
     >
       {options.map((option) => {
         const selected = value === option.id
@@ -35,7 +35,7 @@ export function SegmentedControl<T extends string>({
               onChange(option.id)
             }}
             className={[
-              'rounded px-2.5 py-1 text-[12px] font-medium transition-colors',
+              'shrink-0 whitespace-nowrap rounded px-2.5 py-1 text-[12px] font-medium transition-colors',
               selected ? 'bg-accent-soft text-accent-hover' : 'text-ink-muted hover:text-ink',
             ].join(' ')}
           >

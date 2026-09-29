@@ -173,8 +173,8 @@ export function HandbookLayout(): React.JSX.Element {
   }
 
   return (
-    <div className="animate-fade-in flex min-h-[calc(100vh-8rem)] gap-0 overflow-hidden rounded-md border border-border">
-      <aside className="flex w-[260px] shrink-0 flex-col border-r border-border bg-surface">
+    <div className="animate-fade-in flex min-h-[calc(100vh-8rem)] flex-col gap-0 overflow-hidden rounded-md border border-border md:flex-row">
+      <aside className="flex w-full shrink-0 flex-col border-b border-border bg-surface md:w-[260px] md:border-r md:border-b-0">
         <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-3">
           <div>
             <div className="text-[13px] font-semibold text-ink">Handbook</div>
@@ -191,7 +191,7 @@ export function HandbookLayout(): React.JSX.Element {
             New
           </button>
         </div>
-        <nav className="flex-1 overflow-y-auto p-2">
+        <nav className="max-h-64 flex-1 overflow-y-auto p-2 md:max-h-none">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}

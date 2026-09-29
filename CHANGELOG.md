@@ -21,6 +21,15 @@ While the major version is `0`, a minor bump may break the API.
   `AiDrawerState` types are exported for modules that open their own tasks.
   `PersonIntakeWizardProps` gains an optional `onPendingChange`.
 
+### Fixed
+
+- **`@kelpie/ui`** — **Phone-width layouts.** Below 768px the shell sidebar
+  is a drawer that a header menu button opens; a link tap, a backdrop tap,
+  Escape, or its Close button closes it. Wide tables scroll sideways in
+  place of being cut off. Page header actions and segmented controls no
+  longer run past the right edge. The handbook page tree stacks above the
+  editor.
+
 ## [0.18.0] - 2026-09-28
 
 ### Added
