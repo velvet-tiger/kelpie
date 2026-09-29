@@ -57,7 +57,7 @@ export function AddFieldMenu({ fields, onAdd }: AddFieldMenuProps): React.JSX.El
   }
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative shrink-0" ref={containerRef}>
       <button
         type="button"
         onClick={() => {
@@ -65,7 +65,7 @@ export function AddFieldMenu({ fields, onAdd }: AddFieldMenuProps): React.JSX.El
         }}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover"
+        className="whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover"
       >
         + Add field
       </button>

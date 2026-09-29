@@ -39,7 +39,8 @@ While the major version is `0`, a minor bump may break the API.
   list does not show the Tags column below 768px. On a phone a note uses
   the full card width: its Pinned label and its Edit and Delete buttons sit
   in a row above it, and the buttons show without hover. On a Role page, each
-  candidate's buttons and status sit on their own line under the name.
+  candidate's buttons and status sit on their own line under the name. The
+  form builder's "Add field" button stays on one line.
 
 ## [0.18.0] - 2026-09-28
 
