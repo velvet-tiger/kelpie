@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-29
+
 ### Changed
 
 - **`@kelpie/ui`** — **Add from notes runs in a side drawer.** Person intake
