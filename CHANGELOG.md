@@ -10,6 +10,14 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/ui`** — **AI prompts on the form Embed tab.** The hosted page,
+  the iframe and the iframe with auto-resize each have an AI button. It opens
+  a modal with a prompt to paste into an AI coding assistant, and a Copy
+  button. The prompt holds the exact URL or snippet and tells the assistant
+  not to change the URL or the listener's origin and form checks.
+
 ## [0.19.0] - 2026-09-29
 
 ### Changed
