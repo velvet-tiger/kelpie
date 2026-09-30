@@ -16,6 +16,7 @@ import { Chip } from '../../components/Chip.tsx'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
 import { toTags } from '../fields.ts'
+import { FormEmails } from './FormEmails.tsx'
 
 /**
  * What the form does with a submission, once the answers are captured.
@@ -49,7 +50,7 @@ export function FormActions({ form }: FormActionsProps): React.JSX.Element {
     <div className="max-w-2xl space-y-6">
       <SectionHeader
         title="Actions"
-        description="What the form creates, tags, lists, and links every submitter to."
+        description="What the form creates, tags, lists, links every submitter to, and emails."
       />
 
       {updateForm.error !== null && <ErrorPanel error={updateForm.error} />}
@@ -131,6 +132,8 @@ export function FormActions({ form }: FormActionsProps): React.JSX.Element {
       <ListsBlock form={form} onChange={(next) => patch({ listIds: next })} />
 
       <AttachTargetsBlock form={form} onChange={(next) => patch({ attachTargets: next })} />
+
+      <FormEmails form={form} />
     </div>
   )
 }

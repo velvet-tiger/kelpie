@@ -4,6 +4,7 @@ import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
+import type { JobHandle } from '../../lib/jobs.ts'
 import { requireCapability } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
@@ -41,6 +42,7 @@ import * as raiseRepository from '../raises/repository.ts'
 import '../raises/events.ts'
 import * as workspaceRepository from '../workspace/repository.ts'
 import './events.ts'
+import type { SendFormEmailsData } from './emailJob.ts'
 import {
   DEAL_CLOSE_HORIZON_DAYS,
   companyNameFrom,
@@ -129,6 +131,8 @@ export interface SubmissionDependencies {
   readonly recordActivity: ActivityRecorder
   /** A submit into a workspace that has turned the forms module off is refused. */
   readonly entitlements: EntitlementRegistry
+  /** Enqueued inside the submit's transaction when the form sends an email. */
+  readonly sendEmailsJob: JobHandle<SendFormEmailsData>
 }
 
 /** What the submit created or matched. Each id is null when the rule did not apply. */
@@ -903,7 +907,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         ),
       ]
 
-      return dependencies.transaction(async ({ tx, events }) => {
+      return dependencies.transaction(async ({ tx, events, jobs }) => {
         const now = dependencies.now()
         // Core capture: atomic. A failure here fails the submit; every
         // post-action below runs under its own savepoint and logs.
@@ -1314,6 +1318,22 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           ...describeFormSubmission(form.name, describeAnswers(fields, answers)),
           subject: { type: 'form', id: form.id },
         })
+
+        // In this transaction, so a submit that rolls back sends nothing. The
+        // job reads the form again when it runs; this only says which emails
+        // this submission asked for.
+        const emailKinds = [
+          ...(form.notifyEmail ? (['notification'] as const) : []),
+          ...(form.autoReply ? (['auto_reply'] as const) : []),
+        ]
+
+        if (emailKinds.length > 0) {
+          await jobs.enqueue(dependencies.sendEmailsJob, {
+            workspaceId,
+            submissionId: submission.id,
+            kinds: emailKinds,
+          })
+        }
 
         emitRecordEvents(events, workspaceId, { person, company, position })
         events.emit(

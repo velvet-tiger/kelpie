@@ -559,6 +559,36 @@ export const FORM_ACTION_STATUSES = ['ok', 'skipped', 'error'] as const
 export type FormActionStatus = (typeof FORM_ACTION_STATUSES)[number]
 
 /**
+ * The two emails a form can send after a submit: a `notification` to people
+ * the workspace names, and an `auto_reply` to the submitter.
+ */
+export const FORM_EMAIL_KINDS = ['notification', 'auto_reply'] as const
+
+export type FormEmailKind = (typeof FORM_EMAIL_KINDS)[number]
+
+/**
+ * How a form names an email recipient: a workspace `member` (resolved to the
+ * member's account email when the email is sent) or a free-text `address`.
+ */
+export const FORM_EMAIL_RECIPIENT_KINDS = ['member', 'address'] as const
+
+export type FormEmailRecipientKind = (typeof FORM_EMAIL_RECIPIENT_KINDS)[number]
+
+/** What happened to one message a form's email job tried to send. */
+export const FORM_EMAIL_SEND_STATUSES = ['sent', 'skipped', 'error'] as const
+
+export type FormEmailSendStatus = (typeof FORM_EMAIL_SEND_STATUSES)[number]
+
+/** The most notification recipients one form can name. */
+export const FORM_EMAIL_MAX_RECIPIENTS = 10
+
+/** Longest email subject template, in characters. */
+export const FORM_EMAIL_SUBJECT_MAX_LENGTH = 200
+
+/** Longest email body template, in characters. */
+export const FORM_EMAIL_BODY_MAX_LENGTH = 10_000
+
+/**
  * The domain events a webhook can subscribe to.
  *
  * A subset of the server's event catalog on purpose: the ticket's minimum

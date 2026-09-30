@@ -1,11 +1,22 @@
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 import {
+  DEFAULT_AUTO_REPLY_BODY,
+  DEFAULT_AUTO_REPLY_SUBJECT,
+  DEFAULT_NOTIFY_BODY,
+  DEFAULT_NOTIFY_SUBJECT,
   FORM_ATTACH_TARGET_TYPES,
+  FORM_EMAIL_BODY_MAX_LENGTH,
+  FORM_EMAIL_MAX_RECIPIENTS,
+  FORM_EMAIL_SUBJECT_MAX_LENGTH,
   FORM_SLUG_PATTERN,
   FORM_SUBMISSION_LINK_TARGETS,
 } from '@kelpie/schemas'
-import type { FormAttachTarget, FormSubmissionLinkTarget } from '@kelpie/schemas'
+import type {
+  FormAttachTarget,
+  FormEmailRecipient,
+  FormSubmissionLinkTarget,
+} from '@kelpie/schemas'
 
 import { AppError } from '../../lib/errors.ts'
 import {
@@ -71,6 +82,22 @@ const attachTargetBody = z.strictObject({
   target_id: z.string().min(1),
 })
 
+/**
+ * A form email recipient. An address is trimmed and lowercased here, so the
+ * stored value and the one a send compares against are the same string.
+ */
+const emailRecipientBody = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('member'), member_id: z.string().min(1) }),
+  z.strictObject({
+    kind: z.literal('address'),
+    address: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .pipe(z.email('Use a valid email address')),
+  }),
+])
+
 const formShape = {
   name: z.string().min(1),
   title: z.string().min(1),
@@ -103,6 +130,14 @@ const formShape = {
   company_tags: z.array(z.string().min(1)),
   list_ids: z.array(z.string().min(1)),
   attach_targets: z.array(attachTargetBody),
+  notify_email: z.boolean(),
+  notify_recipients: z.array(emailRecipientBody).max(FORM_EMAIL_MAX_RECIPIENTS),
+  notify_subject: z.string().max(FORM_EMAIL_SUBJECT_MAX_LENGTH),
+  notify_body: z.string().max(FORM_EMAIL_BODY_MAX_LENGTH),
+  auto_reply: z.boolean(),
+  auto_reply_subject: z.string().max(FORM_EMAIL_SUBJECT_MAX_LENGTH),
+  auto_reply_body: z.string().max(FORM_EMAIL_BODY_MAX_LENGTH),
+  auto_reply_reply_to: emailRecipientBody.nullable(),
 }
 
 /**
@@ -146,6 +181,14 @@ export const createBody = z.strictObject({
   company_tags: formShape.company_tags.default([]),
   list_ids: formShape.list_ids.default([]),
   attach_targets: formShape.attach_targets.default([]),
+  notify_email: formShape.notify_email.default(false),
+  notify_recipients: formShape.notify_recipients.default([]),
+  notify_subject: formShape.notify_subject.default(DEFAULT_NOTIFY_SUBJECT),
+  notify_body: formShape.notify_body.default(DEFAULT_NOTIFY_BODY),
+  auto_reply: formShape.auto_reply.default(false),
+  auto_reply_subject: formShape.auto_reply_subject.default(DEFAULT_AUTO_REPLY_SUBJECT),
+  auto_reply_body: formShape.auto_reply_body.default(DEFAULT_AUTO_REPLY_BODY),
+  auto_reply_reply_to: formShape.auto_reply_reply_to.default(null),
 })
 
 export const updateBody = z.strictObject(formShape).partial()
@@ -199,6 +242,18 @@ function toAttachTarget(body: z.infer<typeof attachTargetBody>): FormAttachTarge
   return { targetType: body.target_type, targetId: body.target_id }
 }
 
+function toEmailRecipient(body: z.infer<typeof emailRecipientBody>): FormEmailRecipient {
+  return body.kind === 'member'
+    ? { kind: 'member', memberId: body.member_id }
+    : { kind: 'address', address: body.address }
+}
+
+function emailRecipientResponse(recipient: FormEmailRecipient): Record<string, unknown> {
+  return recipient.kind === 'member'
+    ? { kind: 'member', member_id: recipient.memberId }
+    : { kind: 'address', address: recipient.address }
+}
+
 export function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput {
   return {
     name: body.name,
@@ -230,6 +285,15 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput
     companyTags: body.company_tags,
     listIds: body.list_ids,
     attachTargets: body.attach_targets.map(toAttachTarget),
+    notifyEmail: body.notify_email,
+    notifyRecipients: body.notify_recipients.map(toEmailRecipient),
+    notifySubject: body.notify_subject,
+    notifyBody: body.notify_body,
+    autoReply: body.auto_reply,
+    autoReplySubject: body.auto_reply_subject,
+    autoReplyBody: body.auto_reply_body,
+    autoReplyReplyTo:
+      body.auto_reply_reply_to === null ? null : toEmailRecipient(body.auto_reply_reply_to),
   }
 }
 
@@ -286,6 +350,23 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateFormInput
     ...(body.attach_targets === undefined
       ? {}
       : { attachTargets: body.attach_targets.map(toAttachTarget) }),
+    ...(body.notify_email === undefined ? {} : { notifyEmail: body.notify_email }),
+    ...(body.notify_recipients === undefined
+      ? {}
+      : { notifyRecipients: body.notify_recipients.map(toEmailRecipient) }),
+    ...(body.notify_subject === undefined ? {} : { notifySubject: body.notify_subject }),
+    ...(body.notify_body === undefined ? {} : { notifyBody: body.notify_body }),
+    ...(body.auto_reply === undefined ? {} : { autoReply: body.auto_reply }),
+    ...(body.auto_reply_subject === undefined
+      ? {}
+      : { autoReplySubject: body.auto_reply_subject }),
+    ...(body.auto_reply_body === undefined ? {} : { autoReplyBody: body.auto_reply_body }),
+    ...(body.auto_reply_reply_to === undefined
+      ? {}
+      : {
+          autoReplyReplyTo:
+            body.auto_reply_reply_to === null ? null : toEmailRecipient(body.auto_reply_reply_to),
+        }),
   }
 }
 
@@ -341,6 +422,15 @@ export function formResponse(form: FormView): Record<string, unknown> {
       target_type: target.targetType,
       target_id: target.targetId,
     })),
+    notify_email: form.notifyEmail,
+    notify_recipients: form.notifyRecipients.map(emailRecipientResponse),
+    notify_subject: form.notifySubject,
+    notify_body: form.notifyBody,
+    auto_reply: form.autoReply,
+    auto_reply_subject: form.autoReplySubject,
+    auto_reply_body: form.autoReplyBody,
+    auto_reply_reply_to:
+      form.autoReplyReplyTo === null ? null : emailRecipientResponse(form.autoReplyReplyTo),
     slug: form.slug,
     created_at: form.createdAt.toISOString(),
     updated_at: form.updatedAt.toISOString(),

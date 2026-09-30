@@ -15,6 +15,8 @@ import type { ModuleContributions } from '../runtime/registry.ts'
 import type { EntitlementRegistry } from '../runtime/entitlements.ts'
 import { registerModules } from '../runtime/registry.ts'
 import { TEST_ENVIRONMENT } from './environment.ts'
+import { createRecordingJobsRegistry } from './jobs.ts'
+import type { RecordingJobsRegistry } from './jobs.ts'
 import { TEST_EMAIL_FROM, TEST_EMAIL_PROVIDER, createTestServices } from './services.ts'
 import type { TestServices } from './services.ts'
 
@@ -71,9 +73,10 @@ export interface TestAppOptions {
   /** Reported through `GET /v1/public/config`. Defaults to `[]`. */
   readonly regions?: readonly PublicRegion[]
   /**
-   * Jobs registry to hand each module at register time. Optional: tests that
-   * never define a job (the common case) leave this unset, and a stub
-   * refuses `define` with a boot-time bug message that names the module.
+   * Jobs registry to hand each module at register time. Optional: unset, the
+   * app gets a recording registry that accepts every definition and runs
+   * nothing (`TestApp.jobs`), which is what a suite booting `coreModules`
+   * needs now that core modules define jobs.
    */
   readonly jobs?: JobRegistry
 }
@@ -84,6 +87,11 @@ export interface TestApp {
   readonly contributions: ModuleContributions
   /** Every log line the app emitted, newest last. */
   readonly logLines: readonly string[]
+  /**
+   * The job definitions the modules registered, when the test passed no
+   * `jobs` of its own. A test runs a handler from here directly.
+   */
+  readonly jobs: RecordingJobsRegistry | undefined
 }
 
 const reachableDatabase = (): Promise<DatabaseProbe> => Promise.resolve({ reachable: true })
@@ -96,6 +104,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   })
 
   const services = options.services ?? createTestServices()
+  const recordingJobs = options.jobs === undefined ? createRecordingJobsRegistry() : undefined
   // Seed the test collecting sender under a stable name and point the email
   // config at it. A test that wants a real provider module in the mix registers
   // it as usual; picking that name in `email.provider` overrides this default.
@@ -109,7 +118,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     ...(options.entitlements === undefined ? {} : { entitlements: options.entitlements }),
     ...(options.moduleConfig === undefined ? {} : { moduleConfig: options.moduleConfig }),
     ...(options.resolveActor === undefined ? {} : { resolveActor: options.resolveActor }),
-    ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
+    jobs: options.jobs ?? recordingJobs,
     services: {
       ...services,
       ...(options.signupsEnabled === undefined ? {} : { signupsEnabled: options.signupsEnabled }),
@@ -131,5 +140,5 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     ...(options.regions === undefined ? {} : { regions: options.regions }),
   })
 
-  return { app, contributions, logLines, services }
+  return { app, contributions, logLines, services, jobs: recordingJobs }
 }

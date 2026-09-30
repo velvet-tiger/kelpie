@@ -53,6 +53,17 @@ function wireForm(overrides: Record<string, unknown> = {}): Record<string, unkno
     company_tags: [],
     list_ids: [],
     attach_targets: [],
+    notify_email: true,
+    notify_recipients: [
+      { kind: 'member', member_id: 'mem_01hx' },
+      { kind: 'address', address: 'sales@example.com' },
+    ],
+    notify_subject: 'New submission: {{form.name}}',
+    notify_body: '{{answers}}',
+    auto_reply: false,
+    auto_reply_subject: 'Thanks for contacting {{workspace.name}}',
+    auto_reply_body: 'We will reply soon.',
+    auto_reply_reply_to: null,
     slug: 'contact',
     created_at: '2026-07-01T00:00:00.000Z',
     updated_at: '2026-08-01T00:00:00.000Z',
@@ -110,6 +121,17 @@ describe('formSchema', () => {
       companyTags: [],
       listIds: [],
       attachTargets: [],
+      notifyEmail: true,
+      notifyRecipients: [
+        { kind: 'member', memberId: 'mem_01hx' },
+        { kind: 'address', address: 'sales@example.com' },
+      ],
+      notifySubject: 'New submission: {{form.name}}',
+      notifyBody: '{{answers}}',
+      autoReply: false,
+      autoReplySubject: 'Thanks for contacting {{workspace.name}}',
+      autoReplyBody: 'We will reply soon.',
+      autoReplyReplyTo: null,
       slug: 'contact',
       createdAt: new Date('2026-07-01T00:00:00.000Z'),
       updatedAt: new Date('2026-08-01T00:00:00.000Z'),
@@ -184,6 +206,20 @@ describe('formSchema', () => {
       formSchema.parse(wireForm({ fields: [wireField({ map_to: 'person.summary' })] })).fields[0]
         ?.mapTo,
     ).toBe('person.summary')
+  })
+
+  it('maps an auto-reply Reply-To recipient to camelCase', () => {
+    const form = formSchema.parse(
+      wireForm({ auto_reply_reply_to: { kind: 'member', member_id: 'mem_02hx' } }),
+    )
+
+    expect(form.autoReplyReplyTo).toEqual({ kind: 'member', memberId: 'mem_02hx' })
+  })
+
+  it('rejects a recipient of an unknown kind', () => {
+    expect(() =>
+      formSchema.parse(wireForm({ notify_recipients: [{ kind: 'team', team_id: 'x' }] })),
+    ).toThrow()
   })
 
   it('rejects a non-integer sort_order', () => {
@@ -280,6 +316,30 @@ describe('formBody', () => {
     expect(formBody({ dealStageId: null, dealNameTemplate: null })).toEqual({
       deal_stage_id: null,
       deal_name_template: null,
+    })
+  })
+
+  it('sends email recipients as snake_case and a null Reply-To as the clear-this signal', () => {
+    expect(
+      formBody({
+        notifyRecipients: [
+          { kind: 'member', memberId: 'mem_01hx' },
+          { kind: 'address', address: 'sales@example.com' },
+        ],
+        autoReplyReplyTo: null,
+      }),
+    ).toEqual({
+      notify_recipients: [
+        { kind: 'member', member_id: 'mem_01hx' },
+        { kind: 'address', address: 'sales@example.com' },
+      ],
+      auto_reply_reply_to: null,
+    })
+  })
+
+  it('sends a Reply-To address recipient as snake_case', () => {
+    expect(formBody({ autoReplyReplyTo: { kind: 'address', address: 'hello@example.com' } })).toEqual({
+      auto_reply_reply_to: { kind: 'address', address: 'hello@example.com' },
     })
   })
 })

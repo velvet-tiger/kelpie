@@ -73,6 +73,10 @@ export function renderEmail(content: EmailContent, appBaseUrl: string): Rendered
     },
   })
 
+  return { text: plainTextOf(content), html }
+}
+
+function plainTextOf(content: EmailContent): string {
   const paragraphs: string[] = []
 
   if (content.intro !== undefined) {
@@ -87,5 +91,46 @@ export function renderEmail(content: EmailContent, appBaseUrl: string): Rendered
     paragraphs.push(content.outro)
   }
 
-  return { text: paragraphs.join('\n\n'), html }
+  return paragraphs.join('\n\n')
+}
+
+const HTML_ESCAPES: Readonly<Record<string, string>> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}
+
+/** Escapes text for HTML, and keeps its line breaks as `<br>`. */
+function htmlFromText(text: string): string {
+  return text.replace(/[&<>"']/gu, (character) => HTML_ESCAPES[character] ?? character).replace(/\r?\n/gu, '<br>')
+}
+
+/**
+ * Renders a message whose words Kelpie did not write: a form email, whose
+ * template an admin wrote and whose values a visitor typed.
+ *
+ * `renderEmail` hands its strings to mailgen, and mailgen puts them into the
+ * HTML part unescaped (`<%- %>`), which is right for Kelpie's own fixed copy
+ * and wrong for anything else: an answer holding markup would become markup.
+ * Here every string is escaped for the HTML part and its line breaks kept.
+ * The plaintext part is the text exactly as given.
+ */
+export function renderTextEmail(content: EmailContent, appBaseUrl: string): RenderedEmail {
+  const escaped: EmailContent = {
+    ...(content.intro === undefined ? {} : { intro: htmlFromText(content.intro) }),
+    ...(content.action === undefined
+      ? {}
+      : {
+          action: {
+            instructions: htmlFromText(content.action.instructions),
+            buttonText: htmlFromText(content.action.buttonText),
+            link: htmlFromText(content.action.link),
+          },
+        }),
+    ...(content.outro === undefined ? {} : { outro: htmlFromText(content.outro) }),
+  }
+
+  return { text: plainTextOf(content), html: renderEmail(escaped, appBaseUrl).html }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { renderEmail } from './emailContent.ts'
+import { renderEmail, renderTextEmail } from './emailContent.ts'
 
 const APP_BASE_URL = 'https://crm.example.com'
 const LINK = 'https://crm.example.com/verify-email?token=abc123_-xyz'
@@ -70,5 +70,33 @@ describe('renderEmail', () => {
     const content = { intro: 'A bare message.' }
 
     expect(renderEmail(content, APP_BASE_URL)).toEqual(renderEmail(content, APP_BASE_URL))
+  })
+})
+
+describe('renderTextEmail', () => {
+  const content = {
+    intro: 'Message: <script>alert(1)</script>\nName: "Alex" & <b>Co</b>',
+    action: {
+      instructions: 'Open the submission in Kelpie.',
+      buttonText: 'View submission',
+      link: 'https://kelpie.test/forms/form_1/submissions/sub_1',
+    },
+  }
+
+  it('keeps the plaintext part exactly as given', () => {
+    const rendered = renderTextEmail(content, 'https://kelpie.test')
+
+    expect(rendered.text).toBe(
+      'Message: <script>alert(1)</script>\nName: "Alex" & <b>Co</b>\n\n' +
+        'Open the submission in Kelpie.\n\nhttps://kelpie.test/forms/form_1/submissions/sub_1',
+    )
+  })
+
+  it('escapes every value in the HTML part and keeps line breaks', () => {
+    const { html } = renderTextEmail(content, 'https://kelpie.test')
+
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('<b>Co</b>')
+    expect(html).toContain('Message: &lt;script&gt;alert(1)&lt;/script&gt;<br>Name: &quot;Alex&quot; &amp; &lt;b&gt;Co&lt;/b&gt;')
   })
 })

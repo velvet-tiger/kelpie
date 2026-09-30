@@ -56,6 +56,12 @@ export const idPrefixes = {
   form: 'form',
   formField: 'ff',
   formSubmission: 'sub',
+  /**
+   * One message a form's email job sent or tried to send. Never returned over
+   * the wire: the outcome reaches a reader through the submission's
+   * `action_log`, so the prefix is not a public one.
+   */
+  formEmailSend: 'fes',
   webhook: 'wh',
   /** One settled delivery. The prefix arrived with the delivery log. */
   webhookDelivery: 'whd',

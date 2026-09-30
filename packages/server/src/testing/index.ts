@@ -1,6 +1,9 @@
 export { createTestApp } from './app.ts'
 export type { TestApp, TestAppOptions } from './app.ts'
 
+export { createRecordingJobsRegistry } from './jobs.ts'
+export type { RecordingJobsRegistry } from './jobs.ts'
+
 export { TEST_ENVIRONMENT, TEST_SECRET_ENCRYPTION_KEY } from './environment.ts'
 
 export { connectTestDatabase, testDatabaseUrl } from './database.ts'

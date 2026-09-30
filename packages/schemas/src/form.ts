@@ -8,6 +8,7 @@ import {
 } from './values.ts'
 import type {
   FormAttachTargetType,
+  FormEmailRecipientKind,
   FormFieldMapTarget,
   FormFieldType,
   FormOptionValueType,
@@ -92,6 +93,15 @@ export interface FormAttachTarget {
   readonly targetId: string
 }
 
+/**
+ * Who a form email goes to. A `member` resolves to that member's account email
+ * when the email is sent, so a member who changes address gets the next one at
+ * the new address. An `address` is free text, stored trimmed and lowercased.
+ */
+export type FormEmailRecipient =
+  | { readonly kind: Extract<FormEmailRecipientKind, 'member'>; readonly memberId: string }
+  | { readonly kind: Extract<FormEmailRecipientKind, 'address'>; readonly address: string }
+
 export interface Form extends RecordTimestamps {
   readonly id: string
   readonly name: string
@@ -142,6 +152,22 @@ export interface Form extends RecordTimestamps {
   readonly listIds: readonly string[]
   /** Pre-existing pipeline records the submitter is linked to via `person_links`. */
   readonly attachTargets: readonly FormAttachTarget[]
+  /** Email the people in `notifyRecipients` after each submit. */
+  readonly notifyEmail: boolean
+  /** Up to 10. Stored while `notifyEmail` is off, so turning it back on keeps them. */
+  readonly notifyRecipients: readonly FormEmailRecipient[]
+  /** Template. See `FORM_EMAIL_PLACEHOLDERS`. */
+  readonly notifySubject: string
+  /** Plain-text template. See `FORM_EMAIL_PLACEHOLDERS`. */
+  readonly notifyBody: string
+  /** Email the submitter, at their `person.email` answer, after each submit. */
+  readonly autoReply: boolean
+  /** Template. Only the placeholders with scope `both`: no visitor text. */
+  readonly autoReplySubject: string
+  /** Plain-text template. Only the placeholders with scope `both`: no visitor text. */
+  readonly autoReplyBody: string
+  /** Where a reply to the auto-reply goes. Null: no Reply-To header. */
+  readonly autoReplyReplyTo: FormEmailRecipient | null
   /**
    * The form's name in its public URLs, `/v1/public/workspaces/:workspace_id/forms/:slug/…`.
    * Unique in its workspace. Not a secret: every page that embeds the form shows it.
@@ -209,6 +235,18 @@ const attachTargetSchema = z
     }),
   )
 
+const emailRecipientSchema = z
+  .discriminatedUnion('kind', [
+    z.object({ kind: z.literal('member'), member_id: idSchema }),
+    z.object({ kind: z.literal('address'), address: z.string() }),
+  ])
+  .transform(
+    (wire): FormEmailRecipient =>
+      wire.kind === 'member'
+        ? { kind: 'member', memberId: wire.member_id }
+        : { kind: 'address', address: wire.address },
+  )
+
 export const formSchema: z.ZodType<Form, unknown> = z
   .object({
     id: idSchema,
@@ -240,6 +278,14 @@ export const formSchema: z.ZodType<Form, unknown> = z
     company_tags: z.array(z.string()),
     list_ids: z.array(idSchema),
     attach_targets: z.array(attachTargetSchema),
+    notify_email: z.boolean(),
+    notify_recipients: z.array(emailRecipientSchema),
+    notify_subject: z.string(),
+    notify_body: z.string(),
+    auto_reply: z.boolean(),
+    auto_reply_subject: z.string(),
+    auto_reply_body: z.string(),
+    auto_reply_reply_to: emailRecipientSchema.nullable(),
     slug: z.string(),
     ...recordTimestamps,
   })
@@ -274,6 +320,14 @@ export const formSchema: z.ZodType<Form, unknown> = z
       companyTags: wire.company_tags,
       listIds: wire.list_ids,
       attachTargets: wire.attach_targets,
+      notifyEmail: wire.notify_email,
+      notifyRecipients: wire.notify_recipients,
+      notifySubject: wire.notify_subject,
+      notifyBody: wire.notify_body,
+      autoReply: wire.auto_reply,
+      autoReplySubject: wire.auto_reply_subject,
+      autoReplyBody: wire.auto_reply_body,
+      autoReplyReplyTo: wire.auto_reply_reply_to,
       slug: wire.slug,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
@@ -344,10 +398,18 @@ export interface CreateFormInput {
   readonly companyTags?: readonly string[]
   readonly listIds?: readonly string[]
   readonly attachTargets?: readonly FormAttachTarget[]
+  readonly notifyEmail?: boolean
+  readonly notifyRecipients?: readonly FormEmailRecipient[]
+  readonly notifySubject?: string
+  readonly notifyBody?: string
+  readonly autoReply?: boolean
+  readonly autoReplySubject?: string
+  readonly autoReplyBody?: string
+  readonly autoReplyReplyTo?: FormEmailRecipient | null
 }
 
 /**
- * `fields`, `list_ids`, and `attach_targets` are each absent or the whole list;
+ * `fields`, `list_ids`, `attach_targets` and `notify_recipients` are each absent or the whole list;
  * there is no per-entry patch.
  */
 export interface FormInput {
@@ -381,6 +443,14 @@ export interface FormInput {
   readonly companyTags?: readonly string[]
   readonly listIds?: readonly string[]
   readonly attachTargets?: readonly FormAttachTarget[]
+  readonly notifyEmail?: boolean
+  readonly notifyRecipients?: readonly FormEmailRecipient[]
+  readonly notifySubject?: string
+  readonly notifyBody?: string
+  readonly autoReply?: boolean
+  readonly autoReplySubject?: string
+  readonly autoReplyBody?: string
+  readonly autoReplyReplyTo?: FormEmailRecipient | null
 }
 
 function fieldBody(field: FormFieldInput): Record<string, unknown> {
@@ -403,6 +473,19 @@ function fieldBody(field: FormFieldInput): Record<string, unknown> {
 
 function attachTargetBody(target: FormAttachTarget): Record<string, unknown> {
   return { target_type: target.targetType, target_id: target.targetId }
+}
+
+function emailRecipientBody(recipient: FormEmailRecipient): Record<string, unknown> {
+  return recipient.kind === 'member'
+    ? { kind: 'member', member_id: recipient.memberId }
+    : { kind: 'address', address: recipient.address }
+}
+
+/** Keeps `null` (clears the Reply-To) apart from absent (leaves it alone). */
+function replyToBody(
+  recipient: FormEmailRecipient | null | undefined,
+): Record<string, unknown> | null | undefined {
+  return recipient === undefined || recipient === null ? recipient : emailRecipientBody(recipient)
 }
 
 /**
@@ -450,6 +533,14 @@ export function createFormBody(input: CreateFormInput): Record<string, unknown> 
     company_tags: input.companyTags,
     list_ids: input.listIds,
     attach_targets: input.attachTargets?.map(attachTargetBody),
+    notify_email: input.notifyEmail,
+    notify_recipients: input.notifyRecipients?.map(emailRecipientBody),
+    notify_subject: input.notifySubject,
+    notify_body: input.notifyBody,
+    auto_reply: input.autoReply,
+    auto_reply_subject: input.autoReplySubject,
+    auto_reply_body: input.autoReplyBody,
+    auto_reply_reply_to: replyToBody(input.autoReplyReplyTo),
   })
 }
 
@@ -484,5 +575,13 @@ export function formBody(input: FormInput): Record<string, unknown> {
     company_tags: input.companyTags,
     list_ids: input.listIds,
     attach_targets: input.attachTargets?.map(attachTargetBody),
+    notify_email: input.notifyEmail,
+    notify_recipients: input.notifyRecipients?.map(emailRecipientBody),
+    notify_subject: input.notifySubject,
+    notify_body: input.notifyBody,
+    auto_reply: input.autoReply,
+    auto_reply_subject: input.autoReplySubject,
+    auto_reply_body: input.autoReplyBody,
+    auto_reply_reply_to: replyToBody(input.autoReplyReplyTo),
   })
 }

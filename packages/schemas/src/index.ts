@@ -49,6 +49,12 @@ export {
   FORM_ACTION_STATUSES,
   FORM_ATTACH_TARGET_TYPES,
   FORM_BOOLEAN_FIELD_TYPES,
+  FORM_EMAIL_BODY_MAX_LENGTH,
+  FORM_EMAIL_KINDS,
+  FORM_EMAIL_MAX_RECIPIENTS,
+  FORM_EMAIL_RECIPIENT_KINDS,
+  FORM_EMAIL_SEND_STATUSES,
+  FORM_EMAIL_SUBJECT_MAX_LENGTH,
   FORM_FIELD_MAP_TARGET_LABELS,
   FORM_FIELD_MAP_TARGETS,
   FORM_FIELD_TYPES,
@@ -114,6 +120,9 @@ export type {
   FormActionStatus,
   FormAttachTargetType,
   FormBooleanFieldType,
+  FormEmailKind,
+  FormEmailRecipientKind,
+  FormEmailSendStatus,
   FormFieldMapTarget,
   FormFieldType,
   FormOptionValueType,
@@ -318,10 +327,24 @@ export type {
 } from './handbookPage.ts'
 
 export { createFormBody, formBody, formFieldDisplayLabel, formSchema } from './form.ts'
+export {
+  DEFAULT_AUTO_REPLY_BODY,
+  DEFAULT_AUTO_REPLY_SUBJECT,
+  DEFAULT_NOTIFY_BODY,
+  DEFAULT_NOTIFY_SUBJECT,
+  FORM_EMAIL_PLACEHOLDERS,
+  fillFormEmailTemplate,
+  findTemplatePlaceholderProblems,
+  formEmailPlaceholderText,
+  isPlaceholderAllowed,
+  readTemplatePlaceholders,
+} from './formEmailTemplates.ts'
+export type { FormEmailPlaceholder, FormEmailPlaceholderScope } from './formEmailTemplates.ts'
 export type {
   CreateFormInput,
   Form,
   FormAttachTarget,
+  FormEmailRecipient,
   FormField,
   FormFieldInput,
   FormFieldOption,

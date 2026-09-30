@@ -12,6 +12,32 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **Form emails.** A form can email a notification to workspace members and
+  typed addresses after each submit, and send an auto-reply to the submitter.
+  Each has a subject and a plain-text message with placeholders. The
+  auto-reply cannot include what the visitor typed. A background job sends
+  them after the submit commits, retries a failure without sending a message
+  twice, and writes the result to the submission's `action_log`.
+  - **`@kelpie/schemas`** — `Form` gains `notifyEmail`, `notifyRecipients`,
+    `notifySubject`, `notifyBody`, `autoReply`, `autoReplySubject`,
+    `autoReplyBody` and `autoReplyReplyTo`, with `FormEmailRecipient`.
+    `FORM_EMAIL_PLACEHOLDERS` and the template helpers in
+    `formEmailTemplates.ts` are the one list of placeholders the server and
+    the builder use.
+  - **`@kelpie/server`** — the fields on `/v1/forms` and the `forms_*` MCP
+    tools; the `forms.send-emails` job; migration `0056_form_emails`
+    (`form_notify_recipients`, `form_email_sends`, and columns on `forms`);
+    `FORMS_AUTO_REPLY_DAILY_LIMIT` (default `500`). `EmailMessage` gains an
+    optional `replyTo`, which the `smtp-email` module sends as `Reply-To`. A
+    provider module that ignores it still delivers the message.
+    `renderTextEmail` renders text Kelpie did not write, escaping it for the
+    HTML part.
+  - **`@kelpie/ui`** — an emails section on the form's Actions tab.
+- **`@kelpie/server`** — `createTestApp` gives modules a recording job
+  registry when a test passes none, and returns it as `jobs`, so a test can
+  run a job handler directly. A suite that boots `coreModules` needs this now
+  that the forms module defines a job.
+
 - **`@kelpie/ui`** — **AI prompts on the form Embed tab.** The hosted page,
   the iframe and the iframe with auto-resize each have an AI button. It opens
   a modal with a prompt to paste into an AI coding assistant, and a Copy

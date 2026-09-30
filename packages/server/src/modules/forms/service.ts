@@ -1,10 +1,16 @@
 import type { CustomFieldDefinitionRef, CustomFieldObjectType, CustomFieldType } from '@kelpie/schemas'
 import type {
   FormAttachTarget,
+  FormEmailKind,
+  FormEmailRecipient,
   FormSubmissionLinkTarget,
   PipelineKind,
 } from '@kelpie/schemas'
-import { FORM_ATTACH_TARGET_TYPES } from '@kelpie/schemas'
+import {
+  FORM_ATTACH_TARGET_TYPES,
+  FORM_EMAIL_MAX_RECIPIENTS,
+  findTemplatePlaceholderProblems,
+} from '@kelpie/schemas'
 
 import { changedKeys } from '../../lib/changes.ts'
 import type { Database } from '../../lib/database.ts'
@@ -23,9 +29,12 @@ import * as customFieldsRepository from '../custom-fields/repository.ts'
 import { CUSTOM_FIELD_OBJECT_TYPES } from '../custom-fields/schema.ts'
 import * as listsRepository from '../lists/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
+import * as workspaceRepository from '../workspace/repository.ts'
 import { missingTargets } from '../recordTargets.ts'
 import { fieldsDiffer, findFieldProblems, storedOptions } from './fields.ts'
 import type { FieldDraft, FieldShape } from './fields.ts'
+import * as emailRepository from './emailRepository.ts'
+import { replyToFrom } from './emailMessages.ts'
 import * as repository from './repository.ts'
 import {
   DEFAULT_FORM_SORT,
@@ -61,15 +70,22 @@ export interface FormsDependencies {
 
 /**
  * A form as the API returns one: the stored row minus tenancy, with its
- * fields, its list memberships, and its attach targets. `list_ids` and
- * `attach_targets` are not columns of `forms` — they live in the joined
- * `form_lists` / `form_attach_targets` tables — but they cross the wire
- * nested under the form to keep write and read shapes symmetric.
+ * fields, its list memberships, its attach targets, and its notification
+ * recipients. `list_ids`, `attach_targets` and `notify_recipients` are not
+ * columns of `forms` — they live in the joined `form_lists` /
+ * `form_attach_targets` / `form_notify_recipients` tables — but they cross the
+ * wire nested under the form to keep write and read shapes symmetric. The two
+ * Reply-To columns cross as one `auto_reply_reply_to` recipient.
  */
-export type FormView = Omit<FormRecord, 'workspaceId'> & {
+export type FormView = Omit<
+  FormRecord,
+  'workspaceId' | 'autoReplyReplyToMemberId' | 'autoReplyReplyToAddress'
+> & {
   readonly fields: readonly FormFieldView[]
   readonly listIds: readonly string[]
   readonly attachTargets: readonly FormAttachTarget[]
+  readonly notifyRecipients: readonly FormEmailRecipient[]
+  readonly autoReplyReplyTo: FormEmailRecipient | null
 }
 
 export type FormFieldView = Omit<FormFieldRecord, 'workspaceId' | 'formId'>
@@ -107,6 +123,15 @@ export interface CreateFormInput {
   readonly companyTags: readonly string[]
   readonly listIds: readonly string[]
   readonly attachTargets: readonly FormAttachTarget[]
+  readonly notifyEmail: boolean
+  /** Addresses arrive trimmed and lowercased from the route. */
+  readonly notifyRecipients: readonly FormEmailRecipient[]
+  readonly notifySubject: string
+  readonly notifyBody: string
+  readonly autoReply: boolean
+  readonly autoReplySubject: string
+  readonly autoReplyBody: string
+  readonly autoReplyReplyTo: FormEmailRecipient | null
 }
 
 /** PATCH semantics: an absent field is left alone, and null clears a nullable one. */
@@ -143,6 +168,16 @@ export interface UpdateFormInput {
   readonly listIds?: readonly string[] | undefined
   /** Absent leaves attach targets alone. Present replaces the whole set. */
   readonly attachTargets?: readonly FormAttachTarget[] | undefined
+  readonly notifyEmail?: boolean | undefined
+  /** Absent leaves the recipients alone. Present replaces the whole list. */
+  readonly notifyRecipients?: readonly FormEmailRecipient[] | undefined
+  readonly notifySubject?: string | undefined
+  readonly notifyBody?: string | undefined
+  readonly autoReply?: boolean | undefined
+  readonly autoReplySubject?: string | undefined
+  readonly autoReplyBody?: string | undefined
+  /** Null clears the Reply-To. */
+  readonly autoReplyReplyTo?: FormEmailRecipient | null | undefined
 }
 
 export interface FormsService {
@@ -178,10 +213,33 @@ function toView(
   fields: readonly FormFieldRecord[],
   listIds: readonly string[],
   attachTargets: readonly FormAttachTarget[],
+  notifyRecipients: readonly FormEmailRecipient[],
 ): FormView {
-  const { workspaceId: _workspaceId, ...view } = record
+  const {
+    workspaceId: _workspaceId,
+    autoReplyReplyToMemberId,
+    autoReplyReplyToAddress,
+    ...view
+  } = record
 
-  return { ...view, fields: fields.map(toFieldView), listIds, attachTargets }
+  return {
+    ...view,
+    fields: fields.map(toFieldView),
+    listIds,
+    attachTargets,
+    notifyRecipients,
+    autoReplyReplyTo: replyToFrom(autoReplyReplyToMemberId, autoReplyReplyToAddress),
+  }
+}
+
+/** One recipient as the two Reply-To columns. Null clears both. */
+function replyToColumns(
+  recipient: FormEmailRecipient | null,
+): Pick<repository.FormColumns, 'autoReplyReplyToMemberId' | 'autoReplyReplyToAddress'> {
+  return {
+    autoReplyReplyToMemberId: recipient?.kind === 'member' ? recipient.memberId : null,
+    autoReplyReplyToAddress: recipient?.kind === 'address' ? recipient.address : null,
+  }
 }
 
 function toSubmissionView(record: FormSubmissionRecord): FormSubmissionView {
@@ -236,6 +294,13 @@ function toStoredColumns(input: UpdateFormInput): Partial<repository.FormColumns
     ...(input.enquiryOwnerId === undefined ? {} : { enquiryOwnerId: input.enquiryOwnerId }),
     ...(input.personTags === undefined ? {} : { personTags: [...input.personTags] }),
     ...(input.companyTags === undefined ? {} : { companyTags: [...input.companyTags] }),
+    ...(input.notifyEmail === undefined ? {} : { notifyEmail: input.notifyEmail }),
+    ...(input.notifySubject === undefined ? {} : { notifySubject: input.notifySubject }),
+    ...(input.notifyBody === undefined ? {} : { notifyBody: input.notifyBody }),
+    ...(input.autoReply === undefined ? {} : { autoReply: input.autoReply }),
+    ...(input.autoReplySubject === undefined ? {} : { autoReplySubject: input.autoReplySubject }),
+    ...(input.autoReplyBody === undefined ? {} : { autoReplyBody: input.autoReplyBody }),
+    ...(input.autoReplyReplyTo === undefined ? {} : replyToColumns(input.autoReplyReplyTo)),
   }
 }
 
@@ -249,6 +314,70 @@ interface ResultingState {
   readonly partnershipKind: string | null
   readonly listIds: readonly string[]
   readonly attachTargets: readonly FormAttachTarget[]
+  readonly email: EmailSettingsState
+}
+
+/** The email settings a form write would leave behind. */
+interface EmailSettingsState {
+  readonly notifyEmail: boolean
+  readonly notifyRecipients: readonly FormEmailRecipient[]
+  readonly notifySubject: string
+  readonly notifyBody: string
+  readonly autoReply: boolean
+  readonly autoReplySubject: string
+  readonly autoReplyBody: string
+  readonly autoReplyReplyTo: FormEmailRecipient | null
+}
+
+/** Order matters: it is the order the builder shows. */
+function sameRecipients(
+  current: readonly FormEmailRecipient[],
+  next: readonly FormEmailRecipient[],
+): boolean {
+  return JSON.stringify(current) === JSON.stringify(next)
+}
+
+/**
+ * Problems with the templates and the on/off rules, which need no query. A
+ * template is checked while its email is off too: it is kept, and turning the
+ * email on later must not find it unusable.
+ */
+function findEmailSettingProblems(state: EmailSettingsState): { field: string; message: string }[] {
+  const problems: { field: string; message: string }[] = []
+  const templates: readonly {
+    readonly field: string
+    readonly kind: FormEmailKind
+    readonly on: boolean
+    readonly text: string
+  }[] = [
+    { field: 'notify_subject', kind: 'notification', on: state.notifyEmail, text: state.notifySubject },
+    { field: 'notify_body', kind: 'notification', on: state.notifyEmail, text: state.notifyBody },
+    { field: 'auto_reply_subject', kind: 'auto_reply', on: state.autoReply, text: state.autoReplySubject },
+    { field: 'auto_reply_body', kind: 'auto_reply', on: state.autoReply, text: state.autoReplyBody },
+  ]
+
+  for (const template of templates) {
+    if (template.on && template.text.trim().length === 0) {
+      problems.push({ field: template.field, message: 'Required while this email is on' })
+    }
+
+    for (const message of findTemplatePlaceholderProblems(template.text, template.kind)) {
+      problems.push({ field: template.field, message })
+    }
+  }
+
+  if (state.notifyEmail && state.notifyRecipients.length === 0) {
+    problems.push({ field: 'notify_recipients', message: 'Add at least one recipient' })
+  }
+
+  if (state.notifyRecipients.length > FORM_EMAIL_MAX_RECIPIENTS) {
+    problems.push({
+      field: 'notify_recipients',
+      message: `Name at most ${String(FORM_EMAIL_MAX_RECIPIENTS)} recipients`,
+    })
+  }
+
+  return problems
 }
 
 /** Sorts an attach-target list so a resent identical set is not a write. */
@@ -546,6 +675,41 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
   }
 
   /**
+   * The email settings a write would leave behind. Every member named as a
+   * recipient or as the Reply-To must be a member of this workspace; the
+   * foreign key would refuse another workspace's member only as a 500, and
+   * would not refuse it at all when the id is real.
+   */
+  async function requireEmailSettings(workspaceId: string, state: EmailSettingsState): Promise<void> {
+    const problems = findEmailSettingProblems(state)
+    const memberEntries = [
+      ...state.notifyRecipients.map((recipient, index) => ({
+        recipient,
+        at: `notify_recipients.${String(index)}`,
+      })),
+      ...(state.autoReplyReplyTo === null
+        ? []
+        : [{ recipient: state.autoReplyReplyTo, at: 'auto_reply_reply_to' }]),
+    ].filter((entry) => entry.recipient.kind === 'member')
+
+    if (memberEntries.length > 0) {
+      const members = new Set(
+        (await workspaceRepository.listMembers(dependencies.db, workspaceId)).map((member) => member.id),
+      )
+
+      for (const { recipient, at } of memberEntries) {
+        if (recipient.kind === 'member' && !members.has(recipient.memberId)) {
+          problems.push({ field: at, message: `No member ${recipient.memberId} in this workspace` })
+        }
+      }
+    }
+
+    if (problems.length > 0) {
+      throw AppError.validationFailed('The form emails cannot be sent as set', problems)
+    }
+  }
+
+  /**
    * Resulting-state validation for everything except the three stage-id
    * checks: those depend on whether the id actually changed, which is only
    * known at the call site, so they stay inline in create() and update().
@@ -558,6 +722,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
     await requireConsentPurposes(workspaceId, state.fields)
     await requireFormLists(workspaceId, state.listIds, state.fields)
     await requireAttachTargets(workspaceId, state.attachTargets)
+    await requireEmailSettings(workspaceId, state.email)
   }
 
   /** Writes a field list as positions 0..n-1, which is the order it arrived in. */
@@ -611,6 +776,11 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       records.map((record) => record.id),
     )
 
+    const recipients = await emailRepository.listNotifyRecipientsFor(
+      dependencies.db,
+      records.map((record) => record.id),
+    )
+
     // list_ids and attach_targets are per-form, so a list-page fetch takes them
     // in one round trip per form. In practice a list page is small (25 rows by
     // default), and the sets themselves are short.
@@ -626,16 +796,18 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           fields.filter((field) => field.formId === record.id),
           listRows.map((row) => row.listId),
           attachTargets,
+          recipients.get(record.id) ?? [],
         )
       }),
     )
   }
 
   async function hydrateOne(record: FormRecord): Promise<FormView> {
-    const [fields, listRows, attachTargets] = await Promise.all([
+    const [fields, listRows, attachTargets, recipients] = await Promise.all([
       repository.listFields(dependencies.db, record.id),
       repository.listFormLists(dependencies.db, record.id),
       repository.listAttachTargets(dependencies.db, record.id),
+      emailRepository.listNotifyRecipients(dependencies.db, record.id),
     ])
 
     return toView(
@@ -643,6 +815,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       fields,
       listRows.map((row) => row.listId),
       attachTargets,
+      recipients,
     )
   }
 
@@ -675,6 +848,16 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         partnershipKind: input.partnershipKind,
         listIds: input.listIds,
         attachTargets: input.attachTargets,
+        email: {
+          notifyEmail: input.notifyEmail,
+          notifyRecipients: input.notifyRecipients,
+          notifySubject: input.notifySubject,
+          notifyBody: input.notifyBody,
+          autoReply: input.autoReply,
+          autoReplySubject: input.autoReplySubject,
+          autoReplyBody: input.autoReplyBody,
+          autoReplyReplyTo: input.autoReplyReplyTo,
+        },
       })
 
       if (input.dealStageId !== null) {
@@ -732,15 +915,29 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           enquiryOwnerId: input.enquiryOwnerId,
           personTags: [...input.personTags],
           companyTags: [...input.companyTags],
+          notifyEmail: input.notifyEmail,
+          notifySubject: input.notifySubject,
+          notifyBody: input.notifyBody,
+          autoReply: input.autoReply,
+          autoReplySubject: input.autoReplySubject,
+          autoReplyBody: input.autoReplyBody,
+          ...replyToColumns(input.autoReplyReplyTo),
           slug: input.slug ?? generateSlug(),
         })
         const fields = await writeFields(tx, workspaceId, id, input.fields)
         await repository.replaceFormLists(tx, workspaceId, id, input.listIds)
         await repository.replaceAttachTargets(tx, workspaceId, id, sortedAttachTargets)
+        await emailRepository.replaceNotifyRecipients(tx, workspaceId, id, input.notifyRecipients)
 
         events.emit('forms.form.created', { type: 'form', id }, {})
 
-        return toView(created, fields, [...input.listIds], sortedAttachTargets)
+        return toView(
+          created,
+          fields,
+          [...input.listIds],
+          sortedAttachTargets,
+          input.notifyRecipients,
+        )
       }, { workspaceId, actor: toEventActor(actor) }))
     },
 
@@ -751,9 +948,11 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       const storedListRows = await repository.listFormLists(dependencies.db, id)
       const storedListIds = storedListRows.map((row) => row.listId)
       const storedAttachTargets = await repository.listAttachTargets(dependencies.db, id)
+      const storedRecipients = await emailRepository.listNotifyRecipients(dependencies.db, id)
 
       const nextListIds = changes.listIds ?? storedListIds
       const nextAttachTargets = sortAttachTargets(changes.attachTargets ?? storedAttachTargets)
+      const nextRecipients = changes.notifyRecipients ?? storedRecipients
 
       // Validated against the state the request would leave behind, not against
       // what it carried. Turning `create_deal` on is what makes a form with no
@@ -773,6 +972,19 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
             : changes.partnershipKind,
         listIds: nextListIds,
         attachTargets: nextAttachTargets,
+        email: {
+          notifyEmail: changes.notifyEmail ?? existing.notifyEmail,
+          notifyRecipients: nextRecipients,
+          notifySubject: changes.notifySubject ?? existing.notifySubject,
+          notifyBody: changes.notifyBody ?? existing.notifyBody,
+          autoReply: changes.autoReply ?? existing.autoReply,
+          autoReplySubject: changes.autoReplySubject ?? existing.autoReplySubject,
+          autoReplyBody: changes.autoReplyBody ?? existing.autoReplyBody,
+          autoReplyReplyTo:
+            changes.autoReplyReplyTo === undefined
+              ? replyToFrom(existing.autoReplyReplyToMemberId, existing.autoReplyReplyToAddress)
+              : changes.autoReplyReplyTo,
+        },
       })
 
       if (typeof changes.dealStageId === 'string' && changes.dealStageId !== existing.dealStageId) {
@@ -824,14 +1036,18 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       const rewritesAttachTargets =
         changes.attachTargets !== undefined &&
         !sameAttachTargets(storedAttachTargets, changes.attachTargets)
+      const rewritesRecipients =
+        changes.notifyRecipients !== undefined &&
+        !sameRecipients(storedRecipients, changes.notifyRecipients)
 
       if (
         written.length === 0 &&
         !rewritesFields &&
         !rewritesLists &&
-        !rewritesAttachTargets
+        !rewritesAttachTargets &&
+        !rewritesRecipients
       ) {
-        return toView(existing, stored, storedListIds, storedAttachTargets)
+        return toView(existing, stored, storedListIds, storedAttachTargets, storedRecipients)
       }
 
       return refusingDuplicateSlug(() => dependencies.transaction(async ({ tx, events }) => {
@@ -863,6 +1079,9 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         if (rewritesAttachTargets) {
           await repository.replaceAttachTargets(tx, workspaceId, id, nextAttachTargets)
         }
+        if (rewritesRecipients) {
+          await emailRepository.replaceNotifyRecipients(tx, workspaceId, id, nextRecipients)
+        }
 
         const changedFields: string[] = [...written]
 
@@ -875,10 +1094,13 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         if (rewritesAttachTargets) {
           changedFields.push('attachTargets')
         }
+        if (rewritesRecipients) {
+          changedFields.push('notifyRecipients')
+        }
 
         events.emit('forms.form.updated', { type: 'form', id }, { changed: changedFields })
 
-        return toView(updated, fields, nextListIds, nextAttachTargets)
+        return toView(updated, fields, nextListIds, nextAttachTargets, nextRecipients)
       }, { workspaceId, actor: toEventActor(actor) }))
     },
 
@@ -899,6 +1121,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         const fields = await repository.listFields(tx, id)
         const listRows = await repository.listFormLists(tx, id)
         const attachTargets = await repository.listAttachTargets(tx, id)
+        const recipients = await emailRepository.listNotifyRecipients(tx, id)
 
         events.emit('forms.form.updated', { type: 'form', id }, { changed: ['slug'] })
 
@@ -907,6 +1130,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           fields,
           listRows.map((row) => row.listId),
           attachTargets,
+          recipients,
         )
       }, { workspaceId, actor: toEventActor(actor) }))
     },

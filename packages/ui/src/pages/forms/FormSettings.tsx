@@ -92,7 +92,7 @@ export function FormSettings({ form }: FormSettingsProps): React.JSX.Element {
       </Labelled>
 
       <p className="rounded-md border border-border bg-surface px-3 py-2 text-[12px] text-ink-muted">
-        Deal, opportunity, partnership, tags, lists, and attached records live on the{' '}
+        Deal, opportunity, partnership, tags, lists, attached records, and emails live on the{' '}
         <strong className="font-medium text-ink">Actions</strong> tab.
       </p>
 

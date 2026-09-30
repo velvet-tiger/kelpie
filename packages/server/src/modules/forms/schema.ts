@@ -1,10 +1,28 @@
 import {
+  DEFAULT_AUTO_REPLY_BODY,
+  DEFAULT_AUTO_REPLY_SUBJECT,
+  DEFAULT_NOTIFY_BODY,
+  DEFAULT_NOTIFY_SUBJECT,
   FORM_ATTACH_TARGET_TYPES,
+  FORM_EMAIL_KINDS,
+  FORM_EMAIL_RECIPIENT_KINDS,
+  FORM_EMAIL_SEND_STATUSES,
   FORM_FIELD_TYPES,
   FORM_STATUSES,
 } from '@kelpie/schemas'
 import type { FormOptionValueType, FormSubmissionActionEntry } from '@kelpie/schemas'
-import { boolean, index, integer, jsonb, pgTable, primaryKey, text, uniqueIndex } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import {
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core'
 
 import { checkOneOf, createdAt, moment, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
 import type { SearchVectorPart } from '../../lib/columns.ts'
@@ -123,6 +141,29 @@ export const forms = pgTable(
     }),
     personTags: text('person_tags').array().notNull().default([]),
     companyTags: text('company_tags').array().notNull().default([]),
+    /**
+     * The emails a submit sends (`docs`: form emails). The recipients of the
+     * notification are rows of `form_notify_recipients`. Templates are kept
+     * while an email is off, so turning it off and on loses no text.
+     */
+    notifyEmail: boolean('notify_email').notNull().default(false),
+    notifySubject: text('notify_subject').notNull().default(DEFAULT_NOTIFY_SUBJECT),
+    notifyBody: text('notify_body').notNull().default(DEFAULT_NOTIFY_BODY),
+    autoReply: boolean('auto_reply').notNull().default(false),
+    autoReplySubject: text('auto_reply_subject').notNull().default(DEFAULT_AUTO_REPLY_SUBJECT),
+    autoReplyBody: text('auto_reply_body').notNull().default(DEFAULT_AUTO_REPLY_BODY),
+    /**
+     * Where a reply to the auto-reply goes: a member, or a free-text address,
+     * or neither (no Reply-To header). At most one is set; the service
+     * writes both together. The member fk is `set null`, so removing that
+     * member leaves an auto-reply with no Reply-To rather than blocking the
+     * removal.
+     */
+    autoReplyReplyToMemberId: text('auto_reply_reply_to_member_id').references(
+      () => workspaceMembers.id,
+      { onDelete: 'set null' },
+    ),
+    autoReplyReplyToAddress: text('auto_reply_reply_to_address'),
     slug: text('slug').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -137,6 +178,45 @@ export const forms = pgTable(
     uniqueIndex('forms_workspace_slug_idx').on(table.workspaceId, table.slug),
     index('forms_search_idx').using('gin', table.searchVector),
     checkOneOf('forms_status_check', table.status, FORM_STATUSES),
+    check(
+      'forms_auto_reply_reply_to_check',
+      sql`${table.autoReplyReplyToMemberId} is null or ${table.autoReplyReplyToAddress} is null`,
+    ),
+  ],
+)
+
+/**
+ * Who the notification email goes to, in the order the builder shows them.
+ *
+ * A member row names a membership and resolves to its account email at send
+ * time. The fk cascades: a member who leaves the workspace stops receiving the
+ * notification, and the form keeps its other recipients. An address row is
+ * free text. Exactly one of the two is set. No `id`: the rows never cross the
+ * wire on their own, and a write replaces the whole list, like `form_lists`.
+ */
+export const formNotifyRecipients = pgTable(
+  'form_notify_recipients',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    formId: text('form_id')
+      .notNull()
+      .references(() => forms.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    kind: text('kind').notNull(),
+    memberId: text('member_id').references(() => workspaceMembers.id, { onDelete: 'cascade' }),
+    address: text('address'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.formId, table.position] }),
+    index('form_notify_recipients_workspace_idx').on(table.workspaceId),
+    index('form_notify_recipients_member_idx').on(table.memberId),
+    checkOneOf('form_notify_recipients_kind_check', table.kind, FORM_EMAIL_RECIPIENT_KINDS),
+    check(
+      'form_notify_recipients_target_check',
+      sql`(${table.kind} = 'member' and ${table.memberId} is not null and ${table.address} is null) or (${table.kind} = 'address' and ${table.address} is not null and ${table.memberId} is null)`,
+    ),
   ],
 )
 
@@ -317,4 +397,44 @@ export const formSubmissions = pgTable(
     createdAt: createdAt(),
   },
   (table) => [index('form_submissions_form_idx').on(table.formId)],
+)
+
+/**
+ * One row for each message a form's email job sent or tried to send.
+ *
+ * The unique key is what makes a retried job safe: a message with a `sent` row
+ * is not sent again. The 24-hour auto-reply rule and the daily auto-reply
+ * limit are both queries on this table, which is why it records `skipped`
+ * rows too but only `sent` rows count toward either.
+ *
+ * `detail` is the reason for a skip or an error. A provider's error text is
+ * shortened before it is stored, and it never carries credentials: the SMTP
+ * module's own error message names the address and the reason only.
+ */
+export const formEmailSends = pgTable(
+  'form_email_sends',
+  {
+    id: primaryId(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    formId: text('form_id')
+      .notNull()
+      .references(() => forms.id, { onDelete: 'cascade' }),
+    submissionId: text('submission_id')
+      .notNull()
+      .references(() => formSubmissions.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    recipient: text('recipient').notNull(),
+    status: text('status').notNull(),
+    detail: text('detail').notNull().default(''),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex('form_email_sends_message_idx').on(table.submissionId, table.kind, table.recipient),
+    index('form_email_sends_recent_idx').on(table.workspaceId, table.kind, table.createdAt),
+    index('form_email_sends_recipient_idx').on(table.formId, table.kind, table.recipient),
+    checkOneOf('form_email_sends_kind_check', table.kind, FORM_EMAIL_KINDS),
+    checkOneOf('form_email_sends_status_check', table.status, FORM_EMAIL_SEND_STATUSES),
+  ],
 )

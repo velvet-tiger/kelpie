@@ -289,6 +289,8 @@ describe.skipIf(connectionString === undefined)('migrations', () => {
       expect(names).toContain('person_links')
       expect(names).toContain('form_lists')
       expect(names).toContain('form_attach_targets')
+      expect(names).toContain('form_notify_recipients')
+      expect(names).toContain('form_email_sends')
       expect(names).toContain('custom_field_definitions')
       expect(names).toContain('consent_purposes')
       expect(names).toContain('person_consents')
@@ -303,7 +305,7 @@ describe.skipIf(connectionString === undefined)('migrations', () => {
       expect(names).toContain('oauth_requests')
       expect(names).toContain('oauth_grants')
       expect(names).toContain('oauth_tokens')
-      expect(names).toHaveLength(52)
+      expect(names).toHaveLength(54)
     } finally {
       await database.close()
     }

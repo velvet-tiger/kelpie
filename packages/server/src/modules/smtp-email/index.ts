@@ -68,6 +68,7 @@ export interface SmtpTransport {
     subject: string
     text: string
     html?: string
+    replyTo?: string
   }): Promise<unknown>
 }
 
@@ -97,6 +98,7 @@ export function createSmtpEmailSender(
           subject: message.subject,
           text: message.body,
           ...(message.html === undefined ? {} : { html: message.html }),
+          ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
         })
       } catch (cause) {
         const reason = describeThrown(cause)

@@ -1,5 +1,9 @@
+import { z } from 'zod'
+
+import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
+import { defineSendFormEmailsJob } from './emailJob.ts'
 import { formsEvents } from './events.ts'
 import { mountPublicFormRoutes } from './publicRoutes.ts'
 import { mountFormsRoutes } from './routes.ts'
@@ -8,6 +12,18 @@ import * as schema from './schema.ts'
 import { createFormsService } from './service.ts'
 import { createFormSubmitService } from './submission.ts'
 import { registerFormsTools } from './tools.ts'
+
+/**
+ * Deployment configuration the forms module reads. Every key is optional.
+ *
+ * `FORMS_AUTO_REPLY_DAILY_LIMIT` caps the auto-replies one workspace sends in
+ * a UTC day. An auto-reply goes to an address an unauthenticated visitor
+ * typed, so the cap protects the deployment's sending reputation from a bot
+ * that fills in a public form with other people's addresses.
+ */
+export const formsConfigSchema = z.object({
+  FORMS_AUTO_REPLY_DAILY_LIMIT: z.coerce.number().int().min(0).default(500),
+})
 
 /**
  * Forms: embeddable inbound capture.
@@ -39,6 +55,19 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
     events: formsEvents,
 
     register(context) {
+      const config = context.config(formsConfigSchema)
+      const sendEmailsJob = context.jobs.define(
+        defineSendFormEmailsJob({
+          db: context.db,
+          email: context.email,
+          createId: context.createId,
+          now: context.now,
+          appBaseUrl: context.appBaseUrl ?? context.config(appUrlConfigSchema).APP_BASE_URL,
+          entitlements: context.entitlements,
+          autoReplyDailyLimit: config.FORMS_AUTO_REPLY_DAILY_LIMIT,
+        }),
+      )
+
       const service = createFormsService({
         db: context.db,
         transaction: context.transaction,
@@ -56,6 +85,7 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
           now: context.now,
         }),
         entitlements: context.entitlements,
+        sendEmailsJob,
       })
 
       context.schema(schema, migrationsDirectory)

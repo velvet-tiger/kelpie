@@ -4,8 +4,9 @@ import type { Logger } from './logger.ts'
 
 /**
  * The port Kelpie sends transactional mail through: invites, password resets,
- * and account-change notifications, nothing else. Kelpie never sends outreach
- * email.
+ * account-change notifications, and form emails (a notification to the people
+ * a form names, and an auto-reply that confirms a submit to the submitter),
+ * nothing else. Kelpie never sends outreach email.
  *
  * The assembly names one named provider in `kelpie.config.ts`'s
  * `email.provider`. The module runtime resolves the name against a registry
@@ -29,6 +30,12 @@ export interface EmailMessage {
    * plain-text message stays expressible.
    */
   readonly html?: string
+  /**
+   * Where a reply goes, when not to the From address. Optional, and a provider
+   * module written before it existed ignores it: the message still arrives,
+   * and a reply goes to the From address instead.
+   */
+  readonly replyTo?: string
 }
 
 export interface EmailSender {
