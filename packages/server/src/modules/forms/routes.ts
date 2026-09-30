@@ -521,6 +521,9 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
    * same on a list and on a read. The snippets are derived from the request's
    * origin, the workspace id and the form id; the origin is not stored. None of
    * them change when the slug does, so a pasted snippet keeps working.
+   *
+   * `submit_url` is the exception: it is built from the slug, for a site that
+   * posts JSON to the form from its own markup, and it moves when the slug does.
    */
   router.get('/forms/:id/embed', async (context) => {
     const actor = await requireActor(context)
@@ -537,6 +540,7 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
       embed_url: snippets.embedUrl,
       iframe_snippet: snippets.iframe,
       script_snippet: snippets.script,
+      submit_url: submitUrlFor(context, workspaceId, form.slug),
     })
   })
 }

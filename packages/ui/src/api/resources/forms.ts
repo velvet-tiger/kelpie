@@ -263,6 +263,8 @@ export interface EmbedSnippets {
   readonly embedUrl: string
   readonly iframeSnippet: string
   readonly scriptSnippet: string
+  /** Where a site's own form posts JSON answers. Built from the slug, so it moves when the slug does. */
+  readonly submitUrl: string
 }
 
 function decodeSnippets(value: unknown): EmbedSnippets {
@@ -271,7 +273,8 @@ function decodeSnippets(value: unknown): EmbedSnippets {
     typeof value.url !== 'string' ||
     typeof value.embed_url !== 'string' ||
     typeof value.iframe_snippet !== 'string' ||
-    typeof value.script_snippet !== 'string'
+    typeof value.script_snippet !== 'string' ||
+    typeof value.submit_url !== 'string'
   ) {
     throw new TypeError('Expected an embed snippet response')
   }
@@ -281,6 +284,7 @@ function decodeSnippets(value: unknown): EmbedSnippets {
     embedUrl: value.embed_url,
     iframeSnippet: value.iframe_snippet,
     scriptSnippet: value.script_snippet,
+    submitUrl: value.submit_url,
   }
 }
 

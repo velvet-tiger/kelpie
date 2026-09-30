@@ -1,11 +1,14 @@
-import type { Form } from '@kelpie/schemas'
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import type { ConsentPurpose, Form } from '@kelpie/schemas'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 
+import { useConsentPurposes } from '../../api/resources/consentPurposes.ts'
 import { useFormEmbed } from '../../api/resources/forms.ts'
+import { useLists } from '../../api/resources/lists.ts'
+import { useWorkspace } from '../../api/resources/workspace.ts'
 import { CopyButton } from '../../components/CopyButton.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
-import { buildEmbedPrompts } from './embedPrompts.ts'
+import { buildEmbedPrompts, buildJsonSubmitPrompt } from './embedPrompts.ts'
 
 /**
  * What to paste into a website.
@@ -20,7 +23,9 @@ import { buildEmbedPrompts } from './embedPrompts.ts'
  * the plain iframe, auto-resize for the script variant.
  *
  * Each option also has an AI button that opens, in a modal, a prompt for a
- * coding assistant to put that option on the person's site.
+ * coding assistant to put that option on the person's site. The fourth option,
+ * Submit as JSON, is for a site that builds its own form and posts to the
+ * public submit endpoint; its prompt lists the fields the answers are keyed by.
  */
 
 export interface EmbedPanelProps {
@@ -39,6 +44,7 @@ export function EmbedPanel({ form }: EmbedPanelProps): React.JSX.Element {
   const { snippets, isLoading, error } = useFormEmbed(form.id)
   const [preview, setPreview] = useState<PreviewMode | null>(null)
   const [aiPrompt, setAiPrompt] = useState<AiPrompt | null>(null)
+  const checkboxText = useCheckboxText()
 
   if (error !== null) {
     return <ErrorPanel error={error} />
@@ -48,8 +54,9 @@ export function EmbedPanel({ form }: EmbedPanelProps): React.JSX.Element {
     return <LoadingPanel label="Loading embed details…" />
   }
 
+  const formName = form.title.trim().length > 0 ? form.title : form.name
   const prompts = buildEmbedPrompts({
-    formName: form.title.trim().length > 0 ? form.title : form.name,
+    formName,
     url: snippets.url,
     iframeSnippet: snippets.iframeSnippet,
     scriptSnippet: snippets.scriptSnippet,
@@ -107,6 +114,37 @@ export function EmbedPanel({ form }: EmbedPanelProps): React.JSX.Element {
           setAiPrompt({ label: 'iframe with auto-resize', prompt: prompts.script })
         }}
       />
+
+      <div>
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <span className="text-[12px] font-medium text-ink">Submit as JSON</span>
+          <div className="flex items-center gap-2">
+            <AiPromptButton
+              label="JSON submit"
+              onOpen={() => {
+                setAiPrompt({
+                  label: 'Submit as JSON',
+                  prompt: buildJsonSubmitPrompt({
+                    formName,
+                    submitUrl: snippets.submitUrl,
+                    fields: form.fields,
+                    thankYouMessage: form.thankYouMessage,
+                    ...checkboxText,
+                  }),
+                })
+              }}
+            />
+            <CopyButton value={snippets.submitUrl} label="Copy the JSON submit endpoint" />
+          </div>
+        </div>
+        <code className="block overflow-x-auto whitespace-nowrap rounded-md border border-border bg-surface-raised px-3 py-2 font-mono text-[12px] text-ink">
+          POST {snippets.submitUrl}
+        </code>
+        <p className="mt-1 text-[11px] text-ink-faint">
+          For a form you build yourself. Post {'{ "answers": { "<field id>": "…" } }'} with no
+          credentials. The URL holds the slug, so it changes when the slug does.
+        </p>
+      </div>
 
       {preview !== null && (
         <EmbedPreviewModal
@@ -173,6 +211,35 @@ function Snippet({
       <p className="mt-1 text-[11px] text-ink-faint">{hint}</p>
     </div>
   )
+}
+
+/**
+ * What the JSON prompt needs to name each consent and list checkbox the way the
+ * embed does: the workspace's purposes, its person and company lists, and its
+ * name for the `{{workspace}}` token in a purpose statement.
+ */
+function useCheckboxText(): {
+  readonly consentPurposes: ReadonlyMap<string, ConsentPurpose>
+  readonly listNames: ReadonlyMap<string, string>
+  readonly workspaceName: string
+} {
+  const purposes = useConsentPurposes({ sort: 'sort_order', limit: 200 })
+  const personLists = useLists({ targetType: 'person' })
+  const companyLists = useLists({ targetType: 'company' })
+  const { workspace } = useWorkspace()
+  const consentPurposes = useMemo(
+    () => new Map(purposes.records.map((purpose): [string, ConsentPurpose] => [purpose.id, purpose])),
+    [purposes.records],
+  )
+  const listNames = useMemo(
+    () =>
+      new Map(
+        [...personLists.records, ...companyLists.records].map((list): [string, string] => [list.id, list.name]),
+      ),
+    [personLists.records, companyLists.records],
+  )
+
+  return { consentPurposes, listNames, workspaceName: workspace?.name ?? '' }
 }
 
 function AiPromptButton({

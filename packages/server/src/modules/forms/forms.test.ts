@@ -439,13 +439,19 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     it('keeps the embed snippets the same through a slug change', async () => {
       const form = await createForm()
       const id = readString(form, 'id')
-      const snippets = async (): Promise<unknown> =>
-        (await client.send('GET', `/v1/forms/${id}/embed`, { cookie: acme.cookie })).json()
-      const before = await snippets()
+      const snippets = async (): Promise<Record<string, unknown>> =>
+        readRecord(await (await client.send('GET', `/v1/forms/${id}/embed`, { cookie: acme.cookie })).json())
+      const { submit_url: submitBefore, ...before } = await snippets()
 
-      await client.send('POST', `/v1/forms/${id}/regenerate-slug`, { cookie: acme.cookie })
+      const regenerated = readRecord(
+        await (await client.send('POST', `/v1/forms/${id}/regenerate-slug`, { cookie: acme.cookie })).json(),
+      )
+      const { submit_url: submitAfter, ...after } = await snippets()
 
-      expect(await snippets()).toEqual(before)
+      expect(after).toEqual(before)
+      // The submit URL is the one built from the slug, so it alone moves.
+      expect(submitAfter).not.toEqual(submitBefore)
+      expect(submitAfter).toMatch(new RegExp(`/v1/public/workspaces/${formPath(regenerated)}/submit$`))
     })
 
     it('does not regenerate a slug without credentials', async () => {
@@ -498,6 +504,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(readString(body, 'iframe_snippet')).toContain(readString(body, 'embed_url'))
       expect(readString(body, 'iframe_snippet')).not.toContain('view=page')
       expect(readString(body, 'script_snippet')).toContain('<script')
+      expect(readString(body, 'submit_url')).toMatch(new RegExp(`/v1/public/workspaces/${formPath(form)}/submit$`))
     })
   })
 

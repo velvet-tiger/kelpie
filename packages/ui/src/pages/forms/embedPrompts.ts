@@ -1,3 +1,6 @@
+import { consentCheckboxText, formFieldDisplayLabel } from '@kelpie/schemas'
+import type { ConsentPurpose, FormField } from '@kelpie/schemas'
+
 /**
  * Prompts a person can paste into an AI coding assistant to put a form on their
  * site.
@@ -5,6 +8,11 @@
  * Each prompt carries the exact URL or snippet from the API, so the assistant
  * has nothing to guess, and names the parts it must not change: the embed
  * address and the origin check in the resize listener.
+ *
+ * The JSON prompt is for a site that builds its own markup and posts to the
+ * public submit endpoint. It also carries the form's fields as they are now,
+ * with the ids the answers are keyed by and the exact text the embed shows
+ * beside each consent and list checkbox.
  */
 
 export interface EmbedPromptInput {
@@ -73,5 +81,148 @@ export function buildEmbedPrompts({
       '',
       'Do not rebuild the form yourself and do not send submissions anywhere else. The iframe handles submission.',
     ].join('\n'),
+  }
+}
+
+export interface JsonSubmitPromptInput {
+  readonly formName: string
+  readonly submitUrl: string
+  readonly fields: readonly FormField[]
+  readonly thankYouMessage: string
+  /** Workspace consent purposes by id, for the checkbox text a consent field shows. */
+  readonly consentPurposes: ReadonlyMap<string, Pick<ConsentPurpose, 'label' | 'statement'>>
+  /** List names by id, for the checkbox text an "Add to list" field shows. */
+  readonly listNames: ReadonlyMap<string, string>
+  readonly workspaceName: string
+}
+
+export function buildJsonSubmitPrompt({
+  formName,
+  submitUrl,
+  fields,
+  thankYouMessage,
+  consentPurposes,
+  listNames,
+  workspaceName,
+}: JsonSubmitPromptInput): string {
+  const ordered = [...fields].sort((left, right) => left.sortOrder - right.sortOrder)
+  const describe = (field: FormField): string =>
+    describeField(field, consentPurposes, listNames, workspaceName)
+  const example = Object.fromEntries(
+    ordered
+      .filter((field) => field.type !== 'notice')
+      .map((field): [string, string] => [field.id, exampleAnswer(field)]),
+  )
+
+  return [
+    `I want to build my own form on my website that sends its answers to my "${formName}" form in Kelpie, a CRM, as JSON.`,
+    '',
+    '## Endpoint',
+    '',
+    `POST ${submitUrl}`,
+    'Content-Type: application/json',
+    '',
+    'Send no API key, cookie or other credential. The endpoint accepts requests from any origin, so the browser can call it directly.',
+    '',
+    '## Request body',
+    '',
+    '```json',
+    JSON.stringify({ answers: example }, null, 2),
+    '```',
+    '',
+    'The values above are examples. Rules for `answers`:',
+    '- The keys are the field ids below. An unknown key makes the request fail.',
+    '- Every value is a string.',
+    '- If the visitor gives no answer, leave the key out. A required field must have a value.',
+    '- Select: send the option key, not the text the visitor sees.',
+    '- Consent and "Add to list": send the ids of the ticked boxes as one comma-separated string, for example "id1,id2". Show the statement and the checkbox text exactly as given below.',
+    '- Notice: show the text. Send no answer for it.',
+    '',
+    '## Fields, in display order',
+    '',
+    ...ordered.map(describe),
+    '',
+    '## Responses',
+    '',
+    '- 201: `{ "id", "form_id", "submitted_at", "thank_you_message" }`. Replace the form with `thank_you_message`.' +
+      (thankYouMessage.trim().length > 0 ? ` It is currently: "${thankYouMessage}"` : ''),
+    '- 422 `validation_failed`: `{ "error": { "code", "message", "details": [{ "field": "answers.<field id>", "message" }] } }`. Show each detail message next to its field, and `error.message` above the form.',
+    '- 404 (form not found), 409 (form paused) and 429 (too many requests): `{ "error": { "code", "message" } }`. Show `error.message`.',
+    '',
+    '## Please',
+    '',
+    '1. Find the page where the form belongs. Ask me if it is not clear.',
+    "2. Build the form with my site's existing components and styles: one input for each field above, in the order given. Use an email input for email fields, a textarea for textarea fields, a select for select fields, and checkboxes for consent and \"Add to list\" fields.",
+    "3. Submit with fetch or my framework's usual data layer. Disable the submit button while the request is pending, and show the responses as described above.",
+    '4. Keep the endpoint URL exactly as given. If my site sets a Content-Security-Policy, add the origin of the endpoint to connect-src.',
+    '5. Do not add credentials, extra headers or extra keys to the request.',
+    '',
+    'The endpoint URL contains the form\'s slug. If the slug changes in Kelpie, the URL changes. If fields change in Kelpie, this field list changes. In both cases, copy a new prompt from Kelpie.',
+  ].join('\n')
+}
+
+function describeField(
+  field: FormField,
+  consentPurposes: ReadonlyMap<string, Pick<ConsentPurpose, 'label' | 'statement'>>,
+  listNames: ReadonlyMap<string, string>,
+  workspaceName: string,
+): string {
+  const label = field.label.trim()
+  const heading = label.length > 0 ? `"${label}"` : `no visible label (holds ${formFieldDisplayLabel(field)})`
+  const lines = [`- \`${field.id}\`: ${heading}. Type ${field.type}, ${field.required ? 'required' : 'optional'}.`]
+
+  if (field.placeholder !== null && field.placeholder.trim().length > 0) {
+    lines.push(`  Placeholder: "${field.placeholder}"`)
+  }
+
+  if (field.type === 'select') {
+    lines.push('  Options (key: text shown):')
+    lines.push(...field.options.map((option) => `  - \`${option.key}\`: "${option.value}"`))
+  }
+
+  if (field.type === 'notice') {
+    lines.push(`  Text: "${field.statement ?? ''}"`)
+  }
+
+  if (field.type === 'consent') {
+    lines.push(`  Statement: "${field.statement ?? field.label}"`)
+    lines.push('  Checkboxes (id: text shown):')
+    lines.push(
+      ...field.consentPurposeIds.map((id) => {
+        const purpose = consentPurposes.get(id) ?? { label: id, statement: '' }
+        const text = consentCheckboxText(field.consentPurposeLabels[id], purpose, workspaceName)
+        return `  - \`${id}\`: "${text}"`
+      }),
+    )
+  }
+
+  if (field.type === 'list') {
+    const statement = (field.statement ?? '').trim()
+    if (statement.length > 0) {
+      lines.push(`  Statement: "${statement}"`)
+    }
+    lines.push('  Checkboxes (id: text shown):')
+    lines.push(
+      ...field.listIds.map((id) => `  - \`${id}\`: "${field.listLabels[id] ?? listNames.get(id) ?? id}"`),
+    )
+  }
+
+  return lines.join('\n')
+}
+
+function exampleAnswer(field: FormField): string {
+  switch (field.type) {
+    case 'email':
+      return 'jane@example.com'
+    case 'select':
+      return field.options[0]?.key ?? ''
+    case 'consent':
+      return field.consentPurposeIds.join(',')
+    case 'list':
+      return field.listIds.join(',')
+    case 'textarea':
+      return 'A longer answer.'
+    default:
+      return 'Example'
   }
 }

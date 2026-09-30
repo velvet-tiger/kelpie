@@ -17,6 +17,13 @@ While the major version is `0`, a minor bump may break the API.
   a modal with a prompt to paste into an AI coding assistant, and a Copy
   button. The prompt holds the exact URL or snippet and tells the assistant
   not to change the URL or the listener's origin and form checks.
+- **`@kelpie/ui`** — **Submit as JSON on the Embed tab.** A fourth option shows
+  the public submit endpoint, with Copy and AI buttons. Its AI prompt lists
+  the form's fields by id, the select option keys, and the exact text beside
+  each consent and list checkbox, with the request body and the responses.
+- **`@kelpie/server`** — `GET /v1/forms/:id/embed` also answers `submit_url`,
+  the public submit endpoint. It is built from the slug, so it moves when the
+  slug does; the other URLs and the snippets do not.
 
 ## [0.19.0] - 2026-09-29
 
