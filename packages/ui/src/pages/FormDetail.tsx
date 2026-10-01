@@ -30,6 +30,7 @@ export function FormDetail(): React.JSX.Element {
   const [tab, setTab] = useState<FormTab>('submissions')
   const { record, isLoading, isNotFound, error } = useForm(id)
   const submissions = useFormSubmissions(id)
+  const spam = useFormSubmissions(id, 'spam')
   const deleteForm = useDeleteForm()
 
   if (isNotFound) {
@@ -85,7 +86,9 @@ export function FormDetail(): React.JSX.Element {
         onChange={setTab}
         ariaLabel="Form sections"
       >
-        {tab === 'submissions' && <SubmissionsTable form={record} submissions={submissions} />}
+        {tab === 'submissions' && (
+          <SubmissionsTable form={record} submissions={submissions} spam={spam} />
+        )}
         {tab === 'fields' && <FieldsEditor form={record} />}
         {tab === 'actions' && <FormActions form={record} />}
         {tab === 'settings' && <FormSettings form={record} />}

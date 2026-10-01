@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 
+import type { CaptchaAccess } from '../../lib/captcha.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import { readJsonBody } from '../../lib/http.ts'
@@ -14,12 +15,13 @@ import { embedContentSecurityPolicy, renderEmbedPage } from './embed.ts'
 import type { EmbedConsentPurpose } from './embed.ts'
 import type { FormFieldRecord } from './repository.ts'
 import * as repository from './repository.ts'
-import { submitUrlFor } from './routes.ts'
+import { submitUrlFor, tokenUrlFor } from './routes.ts'
+import type { SpamTokens } from './spam.ts'
 import type { FormSubmitService, SubmitOutcome } from './submission.ts'
 
 /**
- * `/v1/public/workspaces/:workspaceId/forms/…`: the two endpoints anybody on the
- * internet may call, with no credentials and from any origin.
+ * `/v1/public/workspaces/:workspaceId/forms/…`: the three endpoints anybody on
+ * the internet may call, with no credentials and from any origin.
  *
  * The embed page is addressed by form id, because it is what customers paste
  * into their sites and it must never move. The submit is addressed by slug, and
@@ -33,8 +35,17 @@ import type { FormSubmitService, SubmitOutcome } from './submission.ts'
  * `context.routes` — the mount says which they are.
  */
 
+/**
+ * `token`, `trap` and `captcha_response` are the spam check's inputs
+ * (`spam.ts`). All optional: a form that does not require the check ignores
+ * them, and one that does holds a submit without them as spam, which is not a
+ * refusal and so not a 422.
+ */
 const submitBody = z.strictObject({
   answers: z.record(z.string().min(1), z.string()),
+  token: z.string().optional(),
+  trap: z.string().optional(),
+  captcha_response: z.string().optional(),
 })
 
 export interface PublicFormRoutesDependencies {
@@ -42,6 +53,8 @@ export interface PublicFormRoutesDependencies {
   /** Injected so a test can pin the value the CSP and the tags share. */
   readonly generateNonce?: () => string
   readonly submissions: FormSubmitService
+  readonly spamTokens: SpamTokens
+  readonly captcha: CaptchaAccess
   /** The embed of a form in a workspace that has turned the module off is refused. */
   readonly entitlements: EntitlementRegistry
 }
@@ -84,6 +97,9 @@ async function loadListNames(
 }
 
 function submitResponse(outcome: SubmitOutcome): Record<string, unknown> {
+  // `status` stays off this response too: a submit the spam check held answers
+  // exactly as an accepted one, so a bot cannot tell which it was.
+  //
   // The upserted record ids stay off this response on purpose. The caller is an
   // unauthenticated website, and a Kelpie id is a ULID whose timestamp would tell
   // that caller whether the person or company it named was already in the CRM.
@@ -111,9 +127,37 @@ export function mountPublicFormRoutes(
       context.req.param('workspaceId'),
       context.req.param('slug'),
       body.answers,
+      { token: body.token, trap: body.trap, captchaResponse: body.captcha_response },
     )
 
     return context.json(submitResponse(outcome), 201)
+  })
+
+  /**
+   * A spam-check token for one form, issued now.
+   *
+   * Its own request, never part of the embed page: that page is cached and
+   * shared, and the check reads the token's age as the time this visitor took.
+   * Addressed by form id, like the embed, so it does not move with the slug. A
+   * form that does not require the check still answers, because a token costs
+   * nothing and a page should not have to know the setting to ask.
+   */
+  router.get('/workspaces/:workspaceId/forms/:formId/token', async (context) => {
+    const form = await repository.findForm(
+      dependencies.db,
+      context.req.param('workspaceId'),
+      context.req.param('formId'),
+    )
+
+    if (form === undefined) {
+      throw AppError.notFound('Form not found')
+    }
+
+    await requireCapability(dependencies.entitlements, form.workspaceId, moduleCapabilityName('forms'))
+
+    context.header('Cache-Control', 'no-store')
+
+    return context.json({ token: dependencies.spamTokens.issue(form.id) })
   })
 
   /**
@@ -149,6 +193,9 @@ export function mountPublicFormRoutes(
     const layout = context.req.query('view') === 'page' ? 'page' : 'embed'
 
     const nonce = generateNonce()
+    // Drawn only on a form that requires the check: a widget on a form that
+    // would accept the submit without it is friction that stops nobody.
+    const captcha = form.requireSpamCheck ? dependencies.captcha.current()?.widget : undefined
     const fields = await repository.listFields(dependencies.db, form.id)
     const [consentPurposes, listNames] = await Promise.all([
       loadConsentPurposes(dependencies.db, form.workspaceId, fields),
@@ -163,9 +210,12 @@ export function mountPublicFormRoutes(
       nonce,
       workspaceName: workspace.name,
       layout,
+      spamCheck: form.requireSpamCheck
+        ? { tokenUrl: tokenUrlFor(context, form.workspaceId, form.id), captcha }
+        : undefined,
     })
 
-    context.header('Content-Security-Policy', embedContentSecurityPolicy(nonce))
+    context.header('Content-Security-Policy', embedContentSecurityPolicy(nonce, captcha))
     // The page is per-form and changes whenever the form is edited. A short
     // shared cache keeps a popular landing page off the database on every view
     // without leaving an edited form stale for long. That includes the submit

@@ -559,6 +559,47 @@ export const FORM_ACTION_STATUSES = ['ok', 'skipped', 'error'] as const
 export type FormActionStatus = (typeof FORM_ACTION_STATUSES)[number]
 
 /**
+ * Where a submission stands. `spam` means the spam check caught it: the
+ * answers are kept, and nothing was written to the CRM and no email was sent.
+ * A person can release a `spam` submission, which runs the submit rules on the
+ * stored answers and makes it `accepted`.
+ */
+export const FORM_SUBMISSION_STATUSES = ['accepted', 'spam'] as const
+
+export type FormSubmissionStatus = (typeof FORM_SUBMISSION_STATUSES)[number]
+
+/**
+ * Why the spam check caught a submission.
+ *
+ * `honeypot`: the hidden field had a value. `token_missing`, `token_invalid`,
+ * `token_expired`: the submit did not carry a token this deployment issued for
+ * this form in the last day. `too_fast`: the submit arrived sooner after the
+ * token than a person can fill a form in. `captcha_missing`, `captcha_failed`:
+ * the deployment has a CAPTCHA provider and the answer was absent or refused.
+ */
+export const FORM_SPAM_REASONS = [
+  'honeypot',
+  'token_missing',
+  'token_invalid',
+  'token_expired',
+  'too_fast',
+  'captcha_missing',
+  'captcha_failed',
+] as const
+
+export type FormSpamReason = (typeof FORM_SPAM_REASONS)[number]
+
+export const FORM_SPAM_REASON_LABELS: Readonly<Record<FormSpamReason, string>> = {
+  honeypot: 'A hidden field that people cannot see had a value',
+  token_missing: 'The submit did not come from the Kelpie form',
+  token_invalid: 'The submit carried a token that Kelpie did not issue for this form',
+  token_expired: 'The form page was open for more than a day before the submit',
+  too_fast: 'The submit arrived too quickly for a person to fill in the form',
+  captcha_missing: 'The submit carried no CAPTCHA answer',
+  captcha_failed: 'The CAPTCHA provider refused the answer',
+}
+
+/**
  * The two emails a form can send after a submit: a `notification` to people
  * the workspace names, and an `auto_reply` to the submitter.
  */

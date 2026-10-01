@@ -34,6 +34,8 @@ A scaffolded project reads one file: `.env`, loaded by every script through `--e
 | `SMTP_HOST`, `SMTP_PORT` | when `smtp` | The mail server to connect to. |
 | `SMTP_SECURE` | when `smtp` | `true` connects over TLS from the start (typically port 465). `false` upgrades with STARTTLS (typically 587 or 25). |
 | `SMTP_USER`, `SMTP_PASSWORD` | when the relay requires SMTP AUTH | The credentials. Optional and paired: set both to authenticate, or omit both to connect without SMTP AUTH (for local catch-alls like maildev, MailHog, smtp4dev). Setting exactly one fails at boot. |
+| `FORMS_SPAM_MIN_SECONDS` | no | The shortest time a person takes to fill in a form, in seconds. Default `2`. On a form that requires the spam check, a submit that arrives sooner after its page loaded is held as spam. `0` turns this one rule off. |
+| `CAPTCHA_PROVIDER` | no | The name of a CAPTCHA provider that one of your modules registers. Unset, no form shows a CAPTCHA. Kelpie ships no provider, so a name here with no module that registers it stops boot. |
 | `FORMS_AUTO_REPLY_DAILY_LIMIT` | no | The most form auto-replies one workspace sends in a UTC day. Default `500`. An auto-reply goes to an address a visitor typed, so this limit stops a bot from using a public form to send a lot of mail from your server. Above it, auto-replies are skipped and the submission says why. Notifications to your own team have no limit. |
 
 ## Secrets

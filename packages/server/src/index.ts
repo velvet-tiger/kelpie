@@ -64,6 +64,8 @@ export * as schema from './schema/index.ts'
 
 export { createLogEmailSender, emailConfigSchema } from './lib/email.ts'
 export type { EmailConfig, EmailMessage, EmailSender } from './lib/email.ts'
+export { CAPTCHA_PROVIDER_VARIABLE } from './lib/captcha.ts'
+export type { CaptchaAccess, CaptchaProvider, CaptchaWidget } from './lib/captcha.ts'
 
 export { SMTP_EMAIL_PROVIDER, createSmtpEmailModule, createSmtpEmailSender } from './modules/smtp-email/index.ts'
 export type { SmtpEmailConfig, SmtpEmailModuleOptions, SmtpTransport } from './modules/smtp-email/index.ts'

@@ -12,6 +12,35 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **Spam check for forms.** A form can require a spam check on its public
+  submit: a hidden honeypot input, a signed token that the embed gets when the
+  page loads, a minimum time between that token and the submit, and a CAPTCHA
+  when the deployment has a provider. A submit that fails is not refused. It
+  gets the same `201` and is stored as `spam` with a reason, and it writes
+  nothing to the CRM and sends no email. A member can release it, which runs
+  the submit rules on the stored answers. Held submissions older than 30 days
+  are deleted. Forms that exist keep the check off. A form made in the builder
+  and the starter forms of a new workspace have it on; a form made over the
+  API has it off unless the body sets `require_spam_check`.
+  - **`@kelpie/schemas`** — `Form` gains `requireSpamCheck`. `FormSubmission`
+    gains `status` and `spamReason`, with `FORM_SUBMISSION_STATUSES`,
+    `FORM_SPAM_REASONS` and `FORM_SPAM_REASON_LABELS`.
+  - **`@kelpie/server`** — `require_spam_check` on `/v1/forms`;
+    `GET /v1/public/workspaces/:workspaceId/forms/:formId/token`; `token`,
+    `trap` and `captcha_response` on the public submit; `?status=` on
+    `GET /v1/forms/:id/submissions`, which now lists accepted submissions
+    unless `status=spam`; `POST /v1/forms/:id/submissions/:submissionId/release`
+    and the `form_submissions_release` MCP tool; `token_url` on
+    `GET /v1/forms/:id/embed`; migration `0057_form_spam_check`;
+    `FORMS_SPAM_MIN_SECONDS` (default `2`).
+  - **`@kelpie/server`** — a CAPTCHA provider port. A module registers a
+    provider with `context.provideCaptcha(name, build)`, and `CAPTCHA_PROVIDER`
+    picks one. Core ships no provider. `CaptchaProvider`, `CaptchaWidget` and
+    `CaptchaAccess` are exported.
+  - **`@kelpie/ui`** — a "Require the spam check" setting, a Spam list on the
+    Submissions tab with a Release button, the reason on a held submission,
+    and the token steps in the JSON section and AI prompt of the Embed tab.
+
 - **Form emails.** A form can email a notification to workspace members and
   typed addresses after each submit, and send an auto-reply to the submitter.
   Each has a subject and a plain-text message with placeholders. The

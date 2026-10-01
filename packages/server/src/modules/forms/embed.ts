@@ -1,5 +1,6 @@
 import { consentCheckboxText } from '@kelpie/schemas'
 
+import type { CaptchaWidget } from '../../lib/captcha.ts'
 import type { FormFieldRecord, FormRecord } from './repository.ts'
 
 /**
@@ -391,6 +392,7 @@ button[type="submit"][disabled] { opacity: 0.55; cursor: progress; }
   color: var(--ink-muted);
   text-align: center;
 }
+.trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 `
 
 /**
@@ -454,6 +456,7 @@ button[type="submit"][disabled] { opacity: 0.6; cursor: progress; }
 .error { color: #b4232c; font-weight: 500; }
 .done { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.45; }
 .paused { margin: 0; font-size: 13px; color: #5c6570; }
+.trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 `
 
 /**
@@ -463,6 +466,14 @@ button[type="submit"][disabled] { opacity: 0.6; cursor: progress; }
  * a strict Content-Security-Policy can refuse every external origin. The height
  * is posted to the parent because an iframe cannot size itself; the companion
  * listener ships in `scriptSnippet`.
+ *
+ * The spam check (`spam.ts`) adds three things, all absent from a form that
+ * does not require it. The page asks for a token as it loads, so the token's
+ * age is how long this visitor took; it is not in the page itself because the
+ * page is cached and shared. The submit carries the token and the honeypot's
+ * value. And when the deployment has a CAPTCHA provider, the page loads the
+ * vendor's script, the one thing it ever loads from another origin, and sends
+ * the answer.
  */
 const EMBED_SCRIPT = `
 (function () {
@@ -477,10 +488,51 @@ const EMBED_SCRIPT = `
 
   new ResizeObserver(postHeight).observe(document.documentElement);
 
+  var token = null;
+  var tokenReady = config.tokenUrl
+    ? fetch(config.tokenUrl)
+        .then(function (response) { return response.json(); })
+        .then(function (body) { token = (body && body.token) || null; })
+        .catch(function () {})
+    : Promise.resolve();
+
+  var captcha = config.captcha || null;
+  var captchaResponse = null;
+
+  function captchaApi() {
+    return captcha ? window[captcha.globalName] : null;
+  }
+
+  if (captcha) {
+    var vendor = document.createElement('script');
+    vendor.src = captcha.scriptUrl;
+    vendor.async = true;
+    vendor.onload = function () {
+      var api = captchaApi();
+      if (!api) { return; }
+      var draw = function () {
+        api.render(document.getElementById('kelpie-captcha'), {
+          sitekey: captcha.siteKey,
+          callback: function (response) { captchaResponse = response; }
+        });
+      };
+      // Some vendors define render only once they are ready.
+      if (typeof api.render === 'function') { draw(); } else if (typeof api.ready === 'function') { api.ready(draw); }
+    };
+    document.head.appendChild(vendor);
+  }
+
   form.addEventListener('submit', function (event) {
     event.preventDefault();
     status.textContent = '';
     status.className = 'note';
+
+    if (captcha && !captchaResponse) {
+      status.textContent = 'Complete the check above the button first.';
+      status.className = 'note error';
+      return;
+    }
+
     button.disabled = true;
 
     var answers = {};
@@ -510,10 +562,21 @@ const EMBED_SCRIPT = `
       if (value) { answers[id] = value; }
     });
 
-    fetch(config.submitUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answers: answers })
+    var payload = { answers: answers };
+
+    tokenReady.then(function () {
+      if (config.tokenUrl) {
+        var trap = document.getElementById('kelpie-trap');
+        if (token) { payload.token = token; }
+        if (trap && trap.value) { payload.trap = trap.value; }
+        if (captchaResponse) { payload.captcha_response = captchaResponse; }
+      }
+
+      return fetch(config.submitUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
     }).then(function (response) {
       return response.json().then(function (body) { return { ok: response.ok, body: body }; });
     }).then(function (result) {
@@ -530,12 +593,23 @@ const EMBED_SCRIPT = `
       status.textContent = error.message;
       status.className = 'note error';
       button.disabled = false;
+      // A CAPTCHA answer is good for one try.
+      var api = captchaApi();
+      if (api && typeof api.reset === 'function') { captchaResponse = null; api.reset(); }
     });
   });
 })();
 `
 
 export type EmbedLayout = 'page' | 'embed'
+
+/** What the page needs for a form that requires the spam check. */
+export interface EmbedSpamCheck {
+  /** Absolute URL the page gets its token from as it loads. */
+  readonly tokenUrl: string
+  /** The CAPTCHA to draw, when the deployment picked a provider. */
+  readonly captcha: CaptchaWidget | undefined
+}
 
 export interface EmbedPageOptions {
   readonly form: FormRecord
@@ -558,7 +632,21 @@ export interface EmbedPageOptions {
    * document: fields only, no page design around them.
    */
   readonly layout: EmbedLayout
+  /** Present when the form requires the spam check. Absent, the page is as it was before the check existed. */
+  readonly spamCheck?: EmbedSpamCheck | undefined
 }
+
+/**
+ * The honeypot: a text input a person never sees or reaches. It is moved off
+ * screen rather than hidden with `display: none`, which a bot checks for. The
+ * label is for a screen reader that reads the field anyway.
+ */
+const TRAP_FIELD = [
+  '<div class="trap" aria-hidden="true">',
+  '<label for="kelpie-trap">Leave this field empty</label>',
+  '<input type="text" id="kelpie-trap" name="website_url" tabindex="-1" autocomplete="off">',
+  '</div>',
+].join('')
 
 /**
  * Public heading for the hosted page: the form's `title`, falling back to
@@ -578,6 +666,7 @@ function renderFormBody(
   workspaceName: string,
   config: string,
   nonce: string,
+  spamCheck: EmbedSpamCheck | undefined,
 ): string {
   if (form.status === 'paused') {
     return `<p class="paused">This form is not accepting submissions right now.</p>`
@@ -586,6 +675,8 @@ function renderFormBody(
   return [
     '<form id="kelpie-form" novalidate>',
     fields.map((field) => renderField(field, consentPurposes, listNames, workspaceName)).join(''),
+    spamCheck === undefined ? '' : TRAP_FIELD,
+    spamCheck?.captcha === undefined ? '' : '<div id="kelpie-captcha"></div>',
     '<div><button id="kelpie-submit" type="submit">Submit</button></div>',
     '<p id="kelpie-status" class="note" role="status" aria-live="polite"></p>',
     '</form>',
@@ -604,12 +695,23 @@ function renderFormBody(
 export function renderEmbedPage(options: EmbedPageOptions): string {
   const { form, fields, consentPurposes, listNames, submitUrl, nonce, workspaceName, layout } =
     options
+  const { spamCheck } = options
   const heading = displayTitle(form)
   const config = escapeScriptJson({
     formId: form.id,
     submitUrl,
     thankYou: form.thankYouMessage,
     fieldIds: fields.map((field) => field.id),
+    ...(spamCheck === undefined ? {} : { tokenUrl: spamCheck.tokenUrl }),
+    ...(spamCheck?.captcha === undefined
+      ? {}
+      : {
+          captcha: {
+            scriptUrl: spamCheck.captcha.scriptUrl,
+            globalName: spamCheck.captcha.globalName,
+            siteKey: spamCheck.captcha.siteKey,
+          },
+        }),
   })
   const formBody = renderFormBody(
     form,
@@ -619,6 +721,7 @@ export function renderEmbedPage(options: EmbedPageOptions): string {
     workspaceName,
     config,
     nonce,
+    spamCheck,
   )
 
   const styles = layout === 'page' ? HOSTED_STYLES : IFRAME_STYLES
@@ -659,16 +762,36 @@ export function renderEmbedPage(options: EmbedPageOptions): string {
  * The page's Content-Security-Policy.
  *
  * `default-src 'none'` because the page loads nothing: no fonts, no images, no
- * scripts from anywhere. `connect-src 'self'` allows the one `fetch` back to the
- * submit endpoint. `frame-ancestors *` is the point of the page and is why it
- * must not also send `X-Frame-Options`.
+ * scripts from anywhere. `connect-src 'self'` allows the `fetch` back to the
+ * token and submit endpoints. `frame-ancestors *` is the point of the page and
+ * is why it must not also send `X-Frame-Options`.
+ *
+ * A CAPTCHA widget is the one exception to "loads nothing", and only on a page
+ * that draws one. The policy then adds the origins the provider names and no
+ * others.
+ *
+ * @throws when a provider names a source that could add a directive of its own.
  */
-export function embedContentSecurityPolicy(nonce: string): string {
+export function embedContentSecurityPolicy(nonce: string, captcha?: CaptchaWidget): string {
+  const extra = captcha?.contentSecurityPolicy
+  const sources = (list: readonly string[] | undefined): string => {
+    const unsafe = (list ?? []).find((source) => /[\s;,]/u.test(source))
+
+    if (unsafe !== undefined) {
+      throw new Error(`CAPTCHA provider names an unusable Content-Security-Policy source: ${unsafe}`)
+    }
+
+    return (list ?? []).map((source) => ` ${source}`).join('')
+  }
+
   return [
     "default-src 'none'",
-    `style-src 'nonce-${nonce}'`,
-    `script-src 'nonce-${nonce}'`,
-    "connect-src 'self'",
+    `style-src 'nonce-${nonce}'${sources(extra?.styleSrc)}`,
+    `script-src 'nonce-${nonce}'${sources(extra?.scriptSrc)}`,
+    `connect-src 'self'${sources(extra?.connectSrc)}`,
+    ...(extra === undefined || extra.frameSrc.length === 0
+      ? []
+      : [`frame-src${sources(extra.frameSrc)}`]),
     "form-action 'none'",
     'frame-ancestors *',
   ].join('; ')

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { appUrlConfigSchema } from '../../lib/appUrl.ts'
+import { secretEncryptionConfigSchema } from '../../lib/secrets.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createActivityRecorder } from '../activities/index.ts'
 import { defineSendFormEmailsJob } from './emailJob.ts'
@@ -10,6 +11,7 @@ import { mountFormsRoutes } from './routes.ts'
 import * as repository from './repository.ts'
 import * as schema from './schema.ts'
 import { createFormsService } from './service.ts'
+import { createSpamCheck, createSpamTokens } from './spam.ts'
 import { createFormSubmitService } from './submission.ts'
 import { registerFormsTools } from './tools.ts'
 
@@ -20,9 +22,14 @@ import { registerFormsTools } from './tools.ts'
  * a UTC day. An auto-reply goes to an address an unauthenticated visitor
  * typed, so the cap protects the deployment's sending reputation from a bot
  * that fills in a public form with other people's addresses.
+ *
+ * `FORMS_SPAM_MIN_SECONDS` is the shortest time a person takes to fill a form
+ * in. A submit that arrives sooner after its page loaded is held as spam, on a
+ * form that requires the spam check. Zero turns that one rule off.
  */
 export const formsConfigSchema = z.object({
   FORMS_AUTO_REPLY_DAILY_LIMIT: z.coerce.number().int().min(0).default(500),
+  FORMS_SPAM_MIN_SECONDS: z.coerce.number().min(0).default(2),
 })
 
 /**
@@ -75,6 +82,13 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
         now: context.now,
       })
 
+      // Signed with a key derived from the deployment's secret key, the same
+      // way the webhooks module reads it, so there is no second secret.
+      const spamTokens = createSpamTokens(
+        context.secretEncryption ?? context.config(secretEncryptionConfigSchema),
+        context.now,
+      )
+
       const submissions = createFormSubmitService({
         db: context.db,
         transaction: context.transaction,
@@ -86,23 +100,33 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
         }),
         entitlements: context.entitlements,
         sendEmailsJob,
+        spamCheck: createSpamCheck({
+          tokens: spamTokens,
+          captcha: context.captcha,
+          now: context.now,
+          minimumSeconds: config.FORMS_SPAM_MIN_SECONDS,
+          log: context.log,
+        }),
+        log: context.log,
       })
 
       context.schema(schema, migrationsDirectory)
 
       context.routes((router) => {
-        mountFormsRoutes(router, { db: context.db, now: context.now, service })
+        mountFormsRoutes(router, { db: context.db, now: context.now, service, submissions })
       })
 
       context.publicRoutes((router) => {
         mountPublicFormRoutes(router, {
           db: context.db,
           submissions,
+          spamTokens,
+          captcha: context.captcha,
           entitlements: context.entitlements,
         })
       })
 
-      registerFormsTools(context.mcp, service)
+      registerFormsTools(context.mcp, service, submissions)
 
       // A deleted list leaves the "Add to list" fields that offered it. The
       // form-level `form_lists` rows go by foreign-key cascade; field lists

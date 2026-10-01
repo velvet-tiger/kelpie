@@ -4,6 +4,7 @@ import type {
   FormEmailKind,
   FormEmailRecipient,
   FormSubmissionLinkTarget,
+  FormSubmissionStatus,
   PipelineKind,
 } from '@kelpie/schemas'
 import {
@@ -132,6 +133,7 @@ export interface CreateFormInput {
   readonly autoReplySubject: string
   readonly autoReplyBody: string
   readonly autoReplyReplyTo: FormEmailRecipient | null
+  readonly requireSpamCheck: boolean
 }
 
 /** PATCH semantics: an absent field is left alone, and null clears a nullable one. */
@@ -178,6 +180,7 @@ export interface UpdateFormInput {
   readonly autoReplyBody?: string | undefined
   /** Null clears the Reply-To. */
   readonly autoReplyReplyTo?: FormEmailRecipient | null | undefined
+  readonly requireSpamCheck?: boolean | undefined
 }
 
 export interface FormsService {
@@ -188,9 +191,11 @@ export interface FormsService {
   /** Replaces the slug with a new random one. Every existing embed stops working. */
   regenerateSlug(actor: Actor, id: string): Promise<FormView>
   remove(actor: Actor, id: string): Promise<void>
+  /** One status at a time: what arrived (`accepted`), or what the spam check held (`spam`). */
   listSubmissions(
     actor: Actor,
     formId: string,
+    status: FormSubmissionStatus,
     query: ListQueryParameters,
   ): Promise<Page<FormSubmissionView>>
   listSubmissionsLinkedTo(
@@ -301,6 +306,7 @@ function toStoredColumns(input: UpdateFormInput): Partial<repository.FormColumns
     ...(input.autoReplySubject === undefined ? {} : { autoReplySubject: input.autoReplySubject }),
     ...(input.autoReplyBody === undefined ? {} : { autoReplyBody: input.autoReplyBody }),
     ...(input.autoReplyReplyTo === undefined ? {} : replyToColumns(input.autoReplyReplyTo)),
+    ...(input.requireSpamCheck === undefined ? {} : { requireSpamCheck: input.requireSpamCheck }),
   }
 }
 
@@ -922,6 +928,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           autoReplySubject: input.autoReplySubject,
           autoReplyBody: input.autoReplyBody,
           ...replyToColumns(input.autoReplyReplyTo),
+          requireSpamCheck: input.requireSpamCheck,
           slug: input.slug ?? generateSlug(),
         })
         const fields = await writeFields(tx, workspaceId, id, input.fields)
@@ -1157,7 +1164,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       }, { workspaceId, actor: toEventActor(actor) })
     },
 
-    async listSubmissions(actor, formId, query) {
+    async listSubmissions(actor, formId, status, query) {
       const workspaceId = requireWorkspaceId(actor)
 
       // Checked rather than relying on the filter: a submissions list for a form
@@ -1165,7 +1172,13 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       await require(workspaceId, formId)
 
       const window = readListWindow(query, FORM_SUBMISSION_SORTS, DEFAULT_FORM_SUBMISSION_SORT)
-      const rows = await repository.listSubmissions(dependencies.db, workspaceId, formId, window)
+      const rows = await repository.listSubmissions(
+        dependencies.db,
+        workspaceId,
+        formId,
+        status,
+        window,
+      )
 
       return mapPage(
         toPage(rows, window, (submission) => submission.id),

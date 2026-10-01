@@ -87,6 +87,11 @@ export function buildEmbedPrompts({
 export interface JsonSubmitPromptInput {
   readonly formName: string
   readonly submitUrl: string
+  /**
+   * Where the site gets its spam-check token, when the form requires the check.
+   * Null when it does not, and the prompt then says nothing about the check.
+   */
+  readonly tokenUrl: string | null
   readonly fields: readonly FormField[]
   readonly thankYouMessage: string
   /** Workspace consent purposes by id, for the checkbox text a consent field shows. */
@@ -99,6 +104,7 @@ export interface JsonSubmitPromptInput {
 export function buildJsonSubmitPrompt({
   formName,
   submitUrl,
+  tokenUrl,
   fields,
   thankYouMessage,
   consentPurposes,
@@ -142,6 +148,7 @@ export function buildJsonSubmitPrompt({
     '',
     ...ordered.map(describe),
     '',
+    ...(tokenUrl === null ? [] : spamCheckSection(tokenUrl)),
     '## Responses',
     '',
     '- 201: `{ "id", "form_id", "submitted_at", "thank_you_message" }`. Replace the form with `thank_you_message`.' +
@@ -155,10 +162,32 @@ export function buildJsonSubmitPrompt({
     "2. Build the form with my site's existing components and styles: one input for each field above, in the order given. Use an email input for email fields, a textarea for textarea fields, a select for select fields, and checkboxes for consent and \"Add to list\" fields.",
     "3. Submit with fetch or my framework's usual data layer. Disable the submit button while the request is pending, and show the responses as described above.",
     '4. Keep the endpoint URL exactly as given. If my site sets a Content-Security-Policy, add the origin of the endpoint to connect-src.',
-    '5. Do not add credentials, extra headers or extra keys to the request.',
+    tokenUrl === null
+      ? '5. Do not add credentials, extra headers or extra keys to the request.'
+      : '5. Do not add credentials or extra headers to the request. The only keys in the body are `answers`, `token` and `trap`.',
     '',
     'The endpoint URL contains the form\'s slug. If the slug changes in Kelpie, the URL changes. If fields change in Kelpie, this field list changes. In both cases, copy a new prompt from Kelpie.',
   ].join('\n')
+}
+
+/**
+ * What a site's own form must do for a form that requires the spam check.
+ * Without it Kelpie holds every submission as spam, and the response does not
+ * say so, which is why the prompt says it plainly.
+ */
+function spamCheckSection(tokenUrl: string): readonly string[] {
+  return [
+    '## Spam check',
+    '',
+    'This form requires a spam check. If the request does not pass it, Kelpie still answers 201, but it holds the submission as spam and my team does not see it as a lead. Do all three steps.',
+    '',
+    `1. When the page that shows the form loads, send \`GET ${tokenUrl}\` with no credentials. The response is \`{ "token": "…" }\`. Keep the token. Do not get it at submit time: Kelpie holds a submit that arrives less than a few seconds after its token was issued. A token is good for 24 hours.`,
+    '2. Add `"token": "<the token>"` to the request body, beside `answers`.',
+    '3. Add one extra text input to the form that people cannot see or reach: move it off screen with CSS (do not use `display: none`), and give it `tabindex="-1"`, `autocomplete="off"` and `aria-hidden="true"` on its wrapper. If it has a value at submit time, add `"trap": "<its value>"` to the request body. A person leaves it empty, so leave the key out.',
+    '',
+    'If my Kelpie uses a CAPTCHA provider, my own form cannot pass the check. Tell me to use the Kelpie iframe embed instead.',
+    '',
+  ]
 }
 
 function describeField(

@@ -8,9 +8,16 @@ import {
   FORM_EMAIL_RECIPIENT_KINDS,
   FORM_EMAIL_SEND_STATUSES,
   FORM_FIELD_TYPES,
+  FORM_SPAM_REASONS,
   FORM_STATUSES,
+  FORM_SUBMISSION_STATUSES,
 } from '@kelpie/schemas'
-import type { FormOptionValueType, FormSubmissionActionEntry } from '@kelpie/schemas'
+import type {
+  FormOptionValueType,
+  FormSpamReason,
+  FormSubmissionActionEntry,
+  FormSubmissionStatus,
+} from '@kelpie/schemas'
 import { sql } from 'drizzle-orm'
 import {
   boolean,
@@ -24,7 +31,15 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
-import { checkOneOf, createdAt, moment, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
+import {
+  checkOneOf,
+  createdAt,
+  moment,
+  oneOf,
+  primaryId,
+  searchVector,
+  updatedAt,
+} from '../../lib/columns.ts'
 import type { SearchVectorPart } from '../../lib/columns.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
@@ -164,6 +179,14 @@ export const forms = pgTable(
       { onDelete: 'set null' },
     ),
     autoReplyReplyToAddress: text('auto_reply_reply_to_address'),
+    /**
+     * On: a submit that fails the spam check (`spam.ts`) is stored as `spam`
+     * and writes nothing else. Off: no check runs, which is what a site that
+     * posts JSON from its own form needs. The column default is off so a form
+     * made before the check existed keeps accepting what it accepted; the
+     * builder and the starter forms turn it on.
+     */
+    requireSpamCheck: boolean('require_spam_check').notNull().default(false),
     slug: text('slug').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -366,6 +389,11 @@ export const formFields = pgTable(
  * before the column existed (the migration defaults it). Persisted so the
  * Submissions UI and API readers see what ran, what was skipped, and what
  * rolled back.
+ *
+ * A `spam` row is a submit the spam check caught: answers only, every link
+ * null, an empty log. Releasing it runs the submit rules on those answers and
+ * fills the row in. `spam_reason` stays after a release, as the record of why
+ * the row was once held.
  */
 export const formSubmissions = pgTable(
   'form_submissions',
@@ -378,6 +406,8 @@ export const formSubmissions = pgTable(
       .notNull()
       .references(() => forms.id, { onDelete: 'cascade' }),
     submittedAt: moment('submitted_at').notNull().defaultNow(),
+    status: text('status').$type<FormSubmissionStatus>().notNull().default('accepted'),
+    spamReason: text('spam_reason').$type<FormSpamReason>(),
     answers: jsonb('answers').$type<Readonly<Record<string, string>>>().notNull(),
     personId: text('person_id').references(() => people.id, { onDelete: 'set null' }),
     companyId: text('company_id').references(() => companies.id, { onDelete: 'set null' }),
@@ -396,7 +426,18 @@ export const formSubmissions = pgTable(
       .default([]),
     createdAt: createdAt(),
   },
-  (table) => [index('form_submissions_form_idx').on(table.formId)],
+  (table) => [
+    index('form_submissions_form_idx').on(table.formId),
+    checkOneOf('form_submissions_status_check', table.status, FORM_SUBMISSION_STATUSES),
+    check(
+      'form_submissions_spam_reason_check',
+      sql`${table.spamReason} is null or ${oneOf('form_submissions_spam_reason_check', table.spamReason, FORM_SPAM_REASONS)}`,
+    ),
+    check(
+      'form_submissions_spam_has_reason_check',
+      sql`${table.status} <> 'spam' or ${table.spamReason} is not null`,
+    ),
+  ],
 )
 
 /**

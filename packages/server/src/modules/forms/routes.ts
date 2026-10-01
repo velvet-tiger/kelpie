@@ -11,11 +11,13 @@ import {
   FORM_EMAIL_SUBJECT_MAX_LENGTH,
   FORM_SLUG_PATTERN,
   FORM_SUBMISSION_LINK_TARGETS,
+  FORM_SUBMISSION_STATUSES,
 } from '@kelpie/schemas'
 import type {
   FormAttachTarget,
   FormEmailRecipient,
   FormSubmissionLinkTarget,
+  FormSubmissionStatus,
 } from '@kelpie/schemas'
 
 import { AppError } from '../../lib/errors.ts'
@@ -45,6 +47,7 @@ import type {
   FormsService,
   UpdateFormInput,
 } from './service.ts'
+import type { FormSubmitService } from './submission.ts'
 
 /**
  * Wire shapes for `/v1/forms`. Bodies are strict; an unknown field is a 422.
@@ -138,6 +141,7 @@ const formShape = {
   auto_reply_subject: z.string().max(FORM_EMAIL_SUBJECT_MAX_LENGTH),
   auto_reply_body: z.string().max(FORM_EMAIL_BODY_MAX_LENGTH),
   auto_reply_reply_to: emailRecipientBody.nullable(),
+  require_spam_check: z.boolean(),
 }
 
 /**
@@ -189,6 +193,10 @@ export const createBody = z.strictObject({
   auto_reply_subject: formShape.auto_reply_subject.default(DEFAULT_AUTO_REPLY_SUBJECT),
   auto_reply_body: formShape.auto_reply_body.default(DEFAULT_AUTO_REPLY_BODY),
   auto_reply_reply_to: formShape.auto_reply_reply_to.default(null),
+  // Off unless asked for. A form made over the API is often one a site posts
+  // JSON to from its own markup, and that site has no token until it is taught
+  // to get one; on by default would hold every one of its leads as spam.
+  require_spam_check: formShape.require_spam_check.default(false),
 })
 
 export const updateBody = z.strictObject(formShape).partial()
@@ -197,6 +205,30 @@ const statusFilter = z.enum(FORM_STATUSES)
 
 export interface FormsRoutesDependencies extends CredentialDependencies {
   readonly service: FormsService
+  /** For the release of a submission the spam check held. */
+  readonly submissions: FormSubmitService
+}
+
+/**
+ * `?status=` on a submissions list. Absent means `accepted`, so a reader that
+ * never heard of the spam check keeps reading what arrived and nothing else.
+ */
+function readSubmissionStatus(context: Context): FormSubmissionStatus {
+  const raw = context.req.query('status')
+
+  if (raw === undefined) {
+    return 'accepted'
+  }
+
+  const parsed = z.enum(FORM_SUBMISSION_STATUSES).safeParse(raw)
+
+  if (!parsed.success) {
+    throw AppError.validationFailed('That submission status does not exist', [
+      { field: 'status', message: `Use one of: ${FORM_SUBMISSION_STATUSES.join(', ')}` },
+    ])
+  }
+
+  return parsed.data
 }
 
 function readStatusFilter(context: Context): FormStatus | undefined {
@@ -294,6 +326,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateFormInput
     autoReplyBody: body.auto_reply_body,
     autoReplyReplyTo:
       body.auto_reply_reply_to === null ? null : toEmailRecipient(body.auto_reply_reply_to),
+    requireSpamCheck: body.require_spam_check,
   }
 }
 
@@ -367,6 +400,9 @@ export function toUpdateInput(body: z.infer<typeof updateBody>): UpdateFormInput
           autoReplyReplyTo:
             body.auto_reply_reply_to === null ? null : toEmailRecipient(body.auto_reply_reply_to),
         }),
+    ...(body.require_spam_check === undefined
+      ? {}
+      : { requireSpamCheck: body.require_spam_check }),
   }
 }
 
@@ -431,6 +467,7 @@ export function formResponse(form: FormView): Record<string, unknown> {
     auto_reply_body: form.autoReplyBody,
     auto_reply_reply_to:
       form.autoReplyReplyTo === null ? null : emailRecipientResponse(form.autoReplyReplyTo),
+    require_spam_check: form.requireSpamCheck,
     slug: form.slug,
     created_at: form.createdAt.toISOString(),
     updated_at: form.updatedAt.toISOString(),
@@ -442,6 +479,8 @@ export function formSubmissionResponse(submission: FormSubmissionView): Record<s
     id: submission.id,
     form_id: submission.formId,
     submitted_at: submission.submittedAt.toISOString(),
+    status: submission.status,
+    spam_reason: submission.spamReason,
     answers: submission.answers,
     person_id: submission.personId,
     company_id: submission.companyId,
@@ -474,6 +513,14 @@ function publicFormsBase(context: Context, workspaceId: string): string {
  */
 export function submitUrlFor(context: Context, workspaceId: string, slug: string): string {
   return `${publicFormsBase(context, workspaceId)}/${slug}/submit`
+}
+
+/**
+ * The absolute URL a page gets a spam-check token from, `…/forms/:formId/token`.
+ * Built from the form id, like the embed, so it never moves.
+ */
+export function tokenUrlFor(context: Context, workspaceId: string, formId: string): string {
+  return `${publicFormsBase(context, workspaceId)}/${formId}/token`
 }
 
 /**
@@ -551,6 +598,7 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
     const page = await dependencies.service.listSubmissions(
       await requireActor(context),
       context.req.param('id'),
+      readSubmissionStatus(context),
       readListParameters(context),
     )
 
@@ -605,6 +653,22 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
   })
 
   /**
+   * Takes a submission the spam check held out of quarantine. The submit rules
+   * run on its stored answers, as if it had just arrived, and the answer is the
+   * submission with the records it now links. An action, not a PATCH of
+   * `status`: the write is everything a submit does, not one column.
+   */
+  router.post('/forms/:id/submissions/:submissionId/release', async (context) => {
+    const submission = await dependencies.submissions.release(
+      await requireActor(context),
+      context.req.param('id'),
+      context.req.param('submissionId'),
+    )
+
+    return context.json(formSubmissionResponse(submission))
+  })
+
+  /**
    * What to paste into a website.
    *
    * Its own endpoint rather than a field on the form, so the form's shape is the
@@ -614,6 +678,7 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
    *
    * `submit_url` is the exception: it is built from the slug, for a site that
    * posts JSON to the form from its own markup, and it moves when the slug does.
+   * `token_url` is for the same site, when the form requires the spam check.
    */
   router.get('/forms/:id/embed', async (context) => {
     const actor = await requireActor(context)
@@ -631,6 +696,7 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
       iframe_snippet: snippets.iframe,
       script_snippet: snippets.script,
       submit_url: submitUrlFor(context, workspaceId, form.slug),
+      token_url: tokenUrlFor(context, workspaceId, form.id),
     })
   })
 }

@@ -6,6 +6,7 @@ import type {
   FormInput,
   FormSubmission,
   FormSubmissionLinkTarget,
+  FormSubmissionStatus,
 } from '@kelpie/schemas'
 import {
   useMutation,
@@ -193,15 +194,77 @@ export function useDeleteForm(): MutationResult<string, void> {
  * this package is a top-level collection with a fixed path, and generalising the
  * factory for the one nested list would complicate five modules to shorten one.
  * The result shape is the same, so a page cannot tell the difference.
+ *
+ * `status` picks the list: `accepted` is what arrived, `spam` is what the spam
+ * check held. They are two lists on the server too, never one.
  */
-export function useFormSubmissions(formId: string | undefined): RecordListResult<FormSubmission> {
+export function useFormSubmissions(
+  formId: string | undefined,
+  status: FormSubmissionStatus = 'accepted',
+): RecordListResult<FormSubmission> {
   return usePagedList<FormSubmission>({
-    queryKey: ['forms', 'submissions', formId ?? ''],
+    queryKey: ['forms', 'submissions', formId ?? '', 'status', status],
     path: `/forms/${formId ?? ''}/submissions`,
     decode: formSubmissionSchema.parse,
-    query: {},
+    query: { status },
     enabled: formId !== undefined,
   })
+}
+
+export interface ReleaseSubmissionArguments {
+  readonly formId: string
+  readonly submissionId: string
+}
+
+/** The CRM lists a released submission can add a record to or change one in. */
+const RELEASE_TOUCHES = [
+  'people',
+  'companies',
+  'positions',
+  'deals',
+  'opportunities',
+  'partnerships',
+  'enquiries',
+] as const
+
+/**
+ * Releases a submission the spam check held.
+ *
+ * Not optimistic: the response is the submission with the records the submit
+ * rules made, and none of that is known before the server runs them. A release
+ * is a whole submit, so the CRM lists it can write to go stale with it.
+ */
+export function useReleaseFormSubmission(): MutationResult<
+  ReleaseSubmissionArguments,
+  FormSubmission
+> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: ({ formId, submissionId }: ReleaseSubmissionArguments) =>
+      client.post(
+        `/forms/${formId}/submissions/${submissionId}/release`,
+        {},
+        formSubmissionSchema.parse,
+      ),
+    onSuccess: (submission) => {
+      void queryClient.invalidateQueries({
+        queryKey: ['forms', 'submissions', submission.formId],
+      })
+      for (const name of RELEASE_TOUCHES) {
+        void queryClient.invalidateQueries({ queryKey: [name] })
+      }
+    },
+  })
+
+  return {
+    run: (input) => {
+      mutation.mutate(input)
+    },
+    runAsync: (input) => mutation.mutateAsync(input),
+    isPending: mutation.isPending,
+    error: toError(mutation.error),
+  }
 }
 
 /**
@@ -265,6 +328,8 @@ export interface EmbedSnippets {
   readonly scriptSnippet: string
   /** Where a site's own form posts JSON answers. Built from the slug, so it moves when the slug does. */
   readonly submitUrl: string
+  /** Where a site's own form gets a spam-check token, when the form requires the check. */
+  readonly tokenUrl: string
 }
 
 function decodeSnippets(value: unknown): EmbedSnippets {
@@ -274,7 +339,8 @@ function decodeSnippets(value: unknown): EmbedSnippets {
     typeof value.embed_url !== 'string' ||
     typeof value.iframe_snippet !== 'string' ||
     typeof value.script_snippet !== 'string' ||
-    typeof value.submit_url !== 'string'
+    typeof value.submit_url !== 'string' ||
+    typeof value.token_url !== 'string'
   ) {
     throw new TypeError('Expected an embed snippet response')
   }
@@ -285,6 +351,7 @@ function decodeSnippets(value: unknown): EmbedSnippets {
     iframeSnippet: value.iframe_snippet,
     scriptSnippet: value.script_snippet,
     submitUrl: value.submit_url,
+    tokenUrl: value.token_url,
   }
 }
 

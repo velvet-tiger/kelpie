@@ -127,6 +127,7 @@ export function EmbedPanel({ form }: EmbedPanelProps): React.JSX.Element {
                   prompt: buildJsonSubmitPrompt({
                     formName,
                     submitUrl: snippets.submitUrl,
+                    tokenUrl: form.requireSpamCheck ? snippets.tokenUrl : null,
                     fields: form.fields,
                     thankYouMessage: form.thankYouMessage,
                     ...checkboxText,
@@ -144,6 +145,14 @@ export function EmbedPanel({ form }: EmbedPanelProps): React.JSX.Element {
           For a form you build yourself. Post {'{ "answers": { "<field id>": "…" } }'} with no
           credentials. The URL holds the slug, so it changes when the slug does.
         </p>
+        {form.requireSpamCheck && (
+          <p className="mt-1 text-[11px] text-warning">
+            This form requires the spam check. Your own form must first get a token from{' '}
+            <code className="font-mono">GET {snippets.tokenUrl}</code> and send it as{' '}
+            <code className="font-mono">token</code>, or each submission is held as spam. The AI
+            prompt has the full steps.
+          </p>
+        )}
       </div>
 
       {preview !== null && (

@@ -3,6 +3,7 @@ import type { ZodType } from 'zod'
 
 import type { Actor } from '../lib/actor.ts'
 import type { Database } from '../lib/database.ts'
+import type { CaptchaAccess, CaptchaProvider } from '../lib/captcha.ts'
 import type { EmailSender } from '../lib/email.ts'
 import type { IdFactory } from '../lib/ids.ts'
 import type { JobRegistry } from '../lib/jobs.ts'
@@ -237,6 +238,23 @@ export interface ModuleContext extends ModuleServices {
    * delegates to the provider `email.provider` picked.
    */
   readonly email: EmailSender
+  /**
+   * Registers a named CAPTCHA provider. `name` is what the deployment puts in
+   * `CAPTCHA_PROVIDER`; the runtime resolves it after every module has
+   * registered, and an unknown name fails boot with the registered names.
+   *
+   * The same rules as `provideEmailSender`: `build` runs once and only for the
+   * provider that was picked, so a module can register without demanding its
+   * keys from a deployment that does not use it. Two modules registering one
+   * name fails boot.
+   */
+  provideCaptcha(name: string, build: () => CaptchaProvider): void
+  /**
+   * The CAPTCHA provider the deployment picked. `current()` answers
+   * `undefined` when `CAPTCHA_PROVIDER` is unset, which is the default. Call
+   * it at request time, never inside `register`.
+   */
+  readonly captcha: CaptchaAccess
   /**
    * Installs the one implementation of external sign-in. Core's `auth` module
    * calls this; a second caller fails boot.

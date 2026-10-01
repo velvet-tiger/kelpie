@@ -1,11 +1,17 @@
-import { formFieldDisplayLabel } from '@kelpie/schemas'
-import type { Form, FormSubmission, FormSubmissionActionEntry } from '@kelpie/schemas'
-import { useMemo } from 'react'
+import { FORM_SPAM_REASON_LABELS, formFieldDisplayLabel } from '@kelpie/schemas'
+import type {
+  Form,
+  FormSubmission,
+  FormSubmissionActionEntry,
+  FormSubmissionStatus,
+} from '@kelpie/schemas'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import type { RecordListResult } from '../../api/resource.ts'
 import { useTimezone } from '../../api/resources/account.ts'
 import { useCompanies } from '../../api/resources/companies.ts'
+import { useReleaseFormSubmission } from '../../api/resources/forms.ts'
 import { usePeople } from '../../api/resources/people.ts'
 import { DataTable } from '../../components/DataTable.tsx'
 import type { Column } from '../../components/DataTable.tsx'
@@ -26,6 +32,10 @@ import { formatDateTime } from '../../lib/dates.ts'
  * A row opens `/forms/:id/submissions/:submissionId`. Inline person/company
  * links still navigate, and stop the row click so opening a person does not
  * also open the submission.
+ *
+ * What the spam check held is a second list, behind the Spam button. Those rows
+ * link no records, so they show the reason and a Release button in place of the
+ * person and company.
  */
 
 /** `?limit=` maxes out at 200 (`docs/agents/api-and-webhooks.md`). */
@@ -34,9 +44,17 @@ const MAX_PAGE = 200
 export interface SubmissionsTableProps {
   readonly form: Form
   readonly submissions: RecordListResult<FormSubmission>
+  /** The submissions the spam check held. */
+  readonly spam: RecordListResult<FormSubmission>
 }
 
-export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): React.JSX.Element {
+export function SubmissionsTable({
+  form,
+  submissions,
+  spam,
+}: SubmissionsTableProps): React.JSX.Element {
+  const [view, setView] = useState<FormSubmissionStatus>('accepted')
+  const release = useReleaseFormSubmission()
   const navigate = useNavigate()
   const people = usePeople({ limit: MAX_PAGE })
   const companies = useCompanies({ limit: MAX_PAGE })
@@ -110,11 +128,53 @@ export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): 
     },
   ]
 
-  if (submissions.error !== null) {
-    return <ErrorPanel error={submissions.error} />
+  const spamColumns: readonly Column<FormSubmission>[] = [
+    ...columns.filter((column) => column.key === 'submitted'),
+    {
+      key: 'reason',
+      header: 'Why it was held',
+      render: (submission) => (
+        <span className="text-[12px] text-ink-muted">
+          {submission.spamReason === null ? '—' : FORM_SPAM_REASON_LABELS[submission.spamReason]}
+        </span>
+      ),
+    },
+    {
+      key: 'answers',
+      header: 'Answers',
+      render: (submission) => (
+        <span className="text-[12px] text-ink-muted">
+          {summarise(form, submission, NO_TARGETS)}
+        </span>
+      ),
+    },
+    {
+      key: 'release',
+      header: '',
+      className: 'w-24 text-right',
+      render: (submission) => (
+        <button
+          type="button"
+          disabled={release.isPending}
+          onClick={(event) => {
+            event.stopPropagation()
+            release.run({ formId: form.id, submissionId: submission.id })
+          }}
+          className="rounded-md border border-border bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-ink transition hover:bg-surface disabled:opacity-50"
+        >
+          Release
+        </button>
+      ),
+    },
+  ]
+
+  const list = view === 'spam' ? spam : submissions
+
+  if (list.error !== null) {
+    return <ErrorPanel error={list.error} />
   }
 
-  if (submissions.isLoading) {
+  if (list.isLoading) {
     return <LoadingPanel label="Loading submissions…" />
   }
 
@@ -122,20 +182,60 @@ export function SubmissionsTable({ form, submissions }: SubmissionsTableProps): 
     <div>
       <SectionHeader
         title="Submissions"
-        description="Inbound answers, and the records each one created or matched. Click a row to open it."
+        description={
+          view === 'spam'
+            ? 'Submissions the spam check held. Nothing was written to your CRM. Release one to process it as a normal submission. A held submission is deleted after 30 days.'
+            : 'Inbound answers, and the records each one created or matched. Click a row to open it.'
+        }
       />
-      <Paginator list={submissions} placement="top" />
+      <div className="mb-3 flex gap-1" role="group" aria-label="Which submissions to show">
+        <ViewButton active={view === 'accepted'} onClick={() => setView('accepted')}>
+          Accepted
+        </ViewButton>
+        <ViewButton active={view === 'spam'} onClick={() => setView('spam')}>
+          Spam{spam.records.length > 0 ? ` (${String(spam.records.length)})` : ''}
+        </ViewButton>
+      </div>
+      {release.error !== null && (
+        <div className="mb-3">
+          <ErrorPanel error={release.error} />
+        </div>
+      )}
+      <Paginator list={list} placement="top" />
       <DataTable
-        columns={columns}
-        rows={submissions.records}
+        columns={view === 'spam' ? spamColumns : columns}
+        rows={list.records}
         getRowId={(submission) => submission.id}
-        emptyMessage="No submissions yet"
+        emptyMessage={view === 'spam' ? 'No submissions held as spam' : 'No submissions yet'}
         onRowClick={(submission) => {
           void navigate(`/forms/${form.id}/submissions/${submission.id}`)
         }}
       />
-      <Paginator list={submissions} />
+      <Paginator list={list} />
     </div>
+  )
+}
+
+function ViewButton({
+  active,
+  onClick,
+  children,
+}: {
+  readonly active: boolean
+  readonly onClick: () => void
+  readonly children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`rounded-md px-2.5 py-1 text-[12px] font-medium transition ${
+        active ? 'bg-accent-soft text-accent' : 'text-ink-muted hover:bg-surface hover:text-ink'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -230,16 +330,23 @@ const PERSON_COLUMN_TARGETS: ReadonlySet<string> = new Set([
   'person.email',
 ])
 
+const NO_TARGETS: ReadonlySet<string> = new Set()
+
 /**
  * The first two answers that are not already a column.
  *
  * Name and email are the Person link, so repeating them would spend the row's
  * remaining width saying what it already said. A select shows its label rather
- * than the key that was stored.
+ * than the key that was stored. A held submission has no Person link, so it
+ * passes `NO_TARGETS` and its name and email are the first two answers.
  */
-function summarise(form: Form, submission: FormSubmission): string {
+function summarise(
+  form: Form,
+  submission: FormSubmission,
+  shown: ReadonlySet<string> = PERSON_COLUMN_TARGETS,
+): string {
   const parts = form.fields
-    .filter((field) => !PERSON_COLUMN_TARGETS.has(field.mapTo))
+    .filter((field) => !shown.has(field.mapTo))
     .map((field) => {
       const answer = submission.answers[field.id]
 

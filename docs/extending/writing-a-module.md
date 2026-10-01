@@ -82,6 +82,32 @@ A module is toggleable by default: the runtime declares a `module.<your-id>` cap
 
 `context.provideEmailSender(name, sender)` registers a named transactional-mail sender. The deployment picks one with `EMAIL_PROVIDER=<name>`; only the chosen provider's factory runs. Core ships `log` and `smtp`; a Resend or Postmark module follows the same shape under its own name.
 
+## CAPTCHA provider modules
+
+`context.provideCaptcha(name, build)` registers a named CAPTCHA provider. The deployment picks one with `CAPTCHA_PROVIDER=<name>`; only the chosen provider's factory runs, so read your keys inside `build`. Core ships no provider, and with the variable unset nothing draws a CAPTCHA.
+
+A provider is a `widget` and a `verify` function (`CaptchaProvider` in `@kelpie/server`). The widget names the vendor script, the global it defines, your public site key, and the origins the widget needs in a Content-Security-Policy. The form embed draws it with `window[globalName].render(element, { sitekey, callback })`, which is the shape Turnstile, hCaptcha and reCAPTCHA v2 share. `verify(response)` asks the vendor and answers `true` or `false`; throw when the vendor cannot be reached, and the forms module then lets the submit through.
+
+```ts
+context.provideCaptcha('turnstile', () => {
+  const config = context.config(turnstileConfigSchema)
+
+  return {
+    widget: {
+      scriptUrl: 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
+      globalName: 'turnstile',
+      siteKey: config.TURNSTILE_SITE_KEY,
+      contentSecurityPolicy: {
+        scriptSrc: ['https://challenges.cloudflare.com'],
+        frameSrc: ['https://challenges.cloudflare.com'],
+        connectSrc: ['https://challenges.cloudflare.com'],
+      },
+    },
+    verify: (response) => verifyWithTurnstile(config.TURNSTILE_SECRET_KEY, response),
+  }
+})
+```
+
 ## Sign-in providers
 
 A module can sign a browser in with an identity it verified somewhere else. Core owns the account, the session, and the cookie; the module owns the protocol, and core never learns what OIDC or SAML is.

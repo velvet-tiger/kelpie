@@ -1,16 +1,30 @@
-import type { FormSubmissionActionEntry, PipelineKind } from '@kelpie/schemas'
+import type {
+  FormSpamReason,
+  FormSubmissionActionEntry,
+  FormSubmissionStatus,
+  PipelineKind,
+} from '@kelpie/schemas'
 
+import { toEventActor } from '../../lib/actor.ts'
 import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { JobHandle } from '../../lib/jobs.ts'
+import type { Logger } from '../../lib/logger.ts'
 import { requireCapability } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
-import type { BufferedEvents, Transaction, TransactionScope } from '../../runtime/transaction.ts'
+import type {
+  BufferedEvents,
+  Transaction,
+  TransactionOptions,
+  TransactionScope,
+} from '../../runtime/transaction.ts'
 import type { ActivityRecorder, SystemActor } from '../activities/recorder.ts'
 import { describeCreationVia, describeFormSubmission } from '../activities/wording.ts'
+import type { Actor } from '../auth/actor.ts'
+import { requireWorkspaceId } from '../auth/actor.ts'
 import '../companies/events.ts'
 import * as companyRepository from '../companies/repository.ts'
 import type { CompanyRecord } from '../companies/repository.ts'
@@ -60,7 +74,9 @@ import {
 } from './mapping.ts'
 import type { Answers, ConsentGrant, SubmitIntent } from './mapping.ts'
 import * as repository from './repository.ts'
-import type { FormFieldRecord, FormRecord } from './repository.ts'
+import type { FormFieldRecord, FormRecord, FormSubmissionRecord } from './repository.ts'
+import { SPAM_RETENTION_DAYS } from './spam.ts'
+import type { SpamCheck, SpamCheckInput } from './spam.ts'
 import {
   applyCompanyMappedFields,
   applyDealMappedFields,
@@ -79,9 +95,13 @@ import {
  * upserts, in one transaction, so a submission never records a person that was
  * rolled back.
  *
- * Nothing in this file takes an `Actor`. A submit arrives with no credentials,
- * and the workspace id and form slug in the URL are all it names. Every query
- * below is scoped to the workspace of the form those two resolve to.
+ * A submit takes no `Actor`. It arrives with no credentials, and the workspace
+ * id and form slug in the URL are all it names. Every query below is scoped to
+ * the workspace of the form those two resolve to.
+ *
+ * A submit the spam check catches (`spam.ts`) is stored as `spam` and stops
+ * there. `release` is the one operation here with an `Actor`: a member takes a
+ * submission out of quarantine, and the same rules run on its stored answers.
  */
 
 /** What the timeline calls a row a form wrote. */
@@ -133,13 +153,17 @@ export interface SubmissionDependencies {
   readonly entitlements: EntitlementRegistry
   /** Enqueued inside the submit's transaction when the form sends an email. */
   readonly sendEmailsJob: JobHandle<SendFormEmailsData>
+  readonly spamCheck: SpamCheck
+  readonly log: Logger
 }
 
 /** What the submit created or matched. Each id is null when the rule did not apply. */
 export interface SubmitOutcome {
   readonly submissionId: string
   readonly formId: string
-  readonly personId: string
+  /** `spam` when the spam check held the submit: every record id below is then null. */
+  readonly status: FormSubmissionStatus
+  readonly personId: string | null
   readonly companyId: string | null
   readonly positionId: string | null
   readonly dealId: string | null
@@ -159,8 +183,27 @@ export interface SubmitOutcome {
 }
 
 export interface FormSubmitService {
-  /** @throws AppError 404 unknown form, 409 paused, 422 unusable answers. */
-  submit(workspaceId: string, slug: string, answers: Answers): Promise<SubmitOutcome>
+  /**
+   * A submit the spam check catches resolves like any other, with
+   * `status: 'spam'`.
+   *
+   * @throws AppError 404 unknown form, 409 paused, 422 unusable answers.
+   */
+  submit(
+    workspaceId: string,
+    slug: string,
+    answers: Answers,
+    spam?: SpamCheckInput,
+  ): Promise<SubmitOutcome>
+  /**
+   * Takes a `spam` submission out of quarantine and runs the submit rules on
+   * its stored answers.
+   *
+   * @returns The submission, now `accepted`, with its links and action log.
+   * @throws AppError 404 unknown form or submission, 409 not held as spam, 422
+   *   when the form's fields changed and the stored answers no longer fit.
+   */
+  release(actor: Actor, formId: string, submissionId: string): Promise<FormSubmissionRecord>
 }
 
 /**
@@ -870,109 +913,178 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     }
   }
 
-  return {
-    async submit(urlWorkspaceId, slug, answers) {
-      const form = await requireOpenForm(urlWorkspaceId, slug)
-      const { workspaceId } = form
-      const fields = await repository.listFields(dependencies.db, form.id)
-      const intent = readAnswers(fields, answers)
-      const mapped = mapAnswers(fields, answers)
-      const consentGrants = readConsentGrants(fields, answers)
-      const listChoices = readListChoices(fields, answers)
-      const customFieldDefinitions = (
-        await Promise.all(
-          CUSTOM_FIELD_OBJECT_TYPES.map((objectType) =>
-            customFieldsRepository.definitionsForObject(dependencies.db, workspaceId, objectType),
-          ),
-        )
-      ).flat()
-      const [actionListRows, chosenListRows, attachTargets, consentPurposesForGrants] =
-        await Promise.all([
-          repository.listFormLists(dependencies.db, form.id),
-          listsRepository.listListsById(dependencies.db, workspaceId, listChoices),
-          repository.listAttachTargets(dependencies.db, form.id),
-          loadPurposesForGrants(dependencies.db, workspaceId, consentGrants),
-        ])
-      // The form's own lists, then the ones the visitor ticked in an "Add to
-      // list" field. A list in both is added once. A ticked id that no longer
-      // names a list (deleted since the page loaded) is not here, so it is
-      // skipped rather than failing the submit.
-      const actionListIds = new Set(actionListRows.map((row) => row.listId))
-      const formListRows = [
-        ...actionListRows,
-        ...chosenListRows.flatMap((row) =>
-          !actionListIds.has(row.id) && (row.targetType === 'person' || row.targetType === 'company')
-            ? [{ listId: row.id, targetType: row.targetType }]
-            : [],
+  /**
+   * Runs the submit rules on one set of answers: core capture, then the
+   * post-submit actions, then the submission row, its Activity, its emails and
+   * its events, in one transaction.
+   *
+   * `held` is a `spam` submission a person is releasing. Its row is claimed
+   * first and filled in at the end, where an ordinary submit inserts a new one.
+   *
+   * @throws AppError 422 when the answers are not ones the form accepts, 409
+   *   when `held` was released by somebody else first.
+   */
+  async function capture(
+    form: FormRecord,
+    fields: readonly FormFieldRecord[],
+    answers: Answers,
+    held: FormSubmissionRecord | undefined,
+    options: TransactionOptions,
+  ): Promise<SubmitOutcome> {
+    const { workspaceId } = form
+    const intent = readAnswers(fields, answers)
+    const mapped = mapAnswers(fields, answers)
+    const consentGrants = readConsentGrants(fields, answers)
+    const listChoices = readListChoices(fields, answers)
+    const customFieldDefinitions = (
+      await Promise.all(
+        CUSTOM_FIELD_OBJECT_TYPES.map((objectType) =>
+          customFieldsRepository.definitionsForObject(dependencies.db, workspaceId, objectType),
         ),
-      ]
+      )
+    ).flat()
+    const [actionListRows, chosenListRows, attachTargets, consentPurposesForGrants] =
+      await Promise.all([
+        repository.listFormLists(dependencies.db, form.id),
+        listsRepository.listListsById(dependencies.db, workspaceId, listChoices),
+        repository.listAttachTargets(dependencies.db, form.id),
+        loadPurposesForGrants(dependencies.db, workspaceId, consentGrants),
+      ])
+    // The form's own lists, then the ones the visitor ticked in an "Add to
+    // list" field. A list in both is added once. A ticked id that no longer
+    // names a list (deleted since the page loaded) is not here, so it is
+    // skipped rather than failing the submit.
+    const actionListIds = new Set(actionListRows.map((row) => row.listId))
+    const formListRows = [
+      ...actionListRows,
+      ...chosenListRows.flatMap((row) =>
+        !actionListIds.has(row.id) && (row.targetType === 'person' || row.targetType === 'company')
+          ? [{ listId: row.id, targetType: row.targetType }]
+          : [],
+      ),
+    ]
 
-      return dependencies.transaction(async ({ tx, events, jobs }) => {
-        const now = dependencies.now()
-        // Core capture: atomic. A failure here fails the submit; every
-        // post-action below runs under its own savepoint and logs.
-        const personUpserted = await upsertPerson(tx, workspaceId, intent)
-        const personRecord = await applyPersonMappedFields(
-          tx,
-          workspaceId,
-          personUpserted.record,
-          mapped,
-          customFieldDefinitions,
-          now,
-        )
-        const person = { ...personUpserted, record: personRecord }
+    return dependencies.transaction(async ({ tx, events, jobs }) => {
+      const now = dependencies.now()
 
-        const companyUpserted = await upsertCompany(tx, workspaceId, intent)
-        const companyRecord =
-          companyUpserted === undefined
-            ? undefined
-            : await applyCompanyMappedFields(
-                tx,
+      // First, so a second release of the same submission stops here and
+      // nothing below runs twice.
+      if (
+        held !== undefined &&
+        (await repository.claimSpamSubmission(tx, workspaceId, form.id, held.id)) === undefined
+      ) {
+        throw AppError.conflict('This submission is not held as spam')
+      }
+      // Core capture: atomic. A failure here fails the submit; every
+      // post-action below runs under its own savepoint and logs.
+      const personUpserted = await upsertPerson(tx, workspaceId, intent)
+      const personRecord = await applyPersonMappedFields(
+        tx,
+        workspaceId,
+        personUpserted.record,
+        mapped,
+        customFieldDefinitions,
+        now,
+      )
+      const person = { ...personUpserted, record: personRecord }
+
+      const companyUpserted = await upsertCompany(tx, workspaceId, intent)
+      const companyRecord =
+        companyUpserted === undefined
+          ? undefined
+          : await applyCompanyMappedFields(
+              tx,
+              workspaceId,
+              companyUpserted.record,
+              mapped,
+              customFieldDefinitions,
+              now,
+            )
+      const company =
+        companyUpserted === undefined
+          ? undefined
+          : { ...companyUpserted, record: companyRecord ?? companyUpserted.record }
+      const position =
+        company === undefined || intent.positionTitle === undefined
+          ? undefined
+          : await upsertPosition(
+              tx,
+              workspaceId,
+              person.record.id,
+              company.record.id,
+              intent.positionTitle,
+            )
+
+      // Consent grants (from ticked `consent` fields) are core capture, not
+      // post-actions: they commit with the person, and an Activity records
+      // the exact statement text as it was shown to the visitor.
+      await applyFormConsentGrants(
+        tx,
+        workspaceId,
+        form.id,
+        form.name,
+        person.record.id,
+        consentGrants,
+        consentPurposesForGrants,
+        dependencies,
+      )
+
+      const actionLog: FormSubmissionActionEntry[] = []
+
+      // --- Create triggers ---
+
+      const dealId = form.createDeal
+        ? ((await runAction<string>(tx, events, actionLog, 'create_deal', async (inner, emit) => {
+            if (company === undefined) {
+              return { status: 'skipped', detail: 'no company resolved' }
+            }
+            const id = await createDeal(
+              inner,
+              emit,
+              workspaceId,
+              form,
+              intent,
+              company.record,
+              person.record.id,
+            )
+
+            return { status: 'ok', detail: id, value: id }
+          })) ?? null)
+        : null
+
+      const opportunityId = form.createOpportunity
+        ? ((await runAction<string>(
+            tx,
+            events,
+            actionLog,
+            'create_opportunity',
+            async (inner, emit) => {
+              const id = await createOpportunity(
+                inner,
+                emit,
                 workspaceId,
-                companyUpserted.record,
-                mapped,
-                customFieldDefinitions,
-                now,
-              )
-        const company =
-          companyUpserted === undefined
-            ? undefined
-            : { ...companyUpserted, record: companyRecord ?? companyUpserted.record }
-        const position =
-          company === undefined || intent.positionTitle === undefined
-            ? undefined
-            : await upsertPosition(
-                tx,
-                workspaceId,
+                form,
+                intent,
+                company?.record,
                 person.record.id,
-                company.record.id,
-                intent.positionTitle,
               )
 
-        // Consent grants (from ticked `consent` fields) are core capture, not
-        // post-actions: they commit with the person, and an Activity records
-        // the exact statement text as it was shown to the visitor.
-        await applyFormConsentGrants(
-          tx,
-          workspaceId,
-          form.id,
-          form.name,
-          person.record.id,
-          consentGrants,
-          consentPurposesForGrants,
-          dependencies,
-        )
+              return { status: 'ok', detail: id, value: id }
+            },
+          )) ?? null)
+        : null
 
-        const actionLog: FormSubmissionActionEntry[] = []
-
-        // --- Create triggers ---
-
-        const dealId = form.createDeal
-          ? ((await runAction<string>(tx, events, actionLog, 'create_deal', async (inner, emit) => {
+      const partnershipId = form.createPartnership
+        ? ((await runAction<string>(
+            tx,
+            events,
+            actionLog,
+            'create_partnership',
+            async (inner, emit) => {
               if (company === undefined) {
                 return { status: 'skipped', detail: 'no company resolved' }
               }
-              const id = await createDeal(
+              const id = await createPartnership(
                 inner,
                 emit,
                 workspaceId,
@@ -983,387 +1095,457 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
               )
 
               return { status: 'ok', detail: id, value: id }
-            })) ?? null)
-          : null
-
-        const opportunityId = form.createOpportunity
-          ? ((await runAction<string>(
-              tx,
-              events,
-              actionLog,
-              'create_opportunity',
-              async (inner, emit) => {
-                const id = await createOpportunity(
-                  inner,
-                  emit,
-                  workspaceId,
-                  form,
-                  intent,
-                  company?.record,
-                  person.record.id,
-                )
-
-                return { status: 'ok', detail: id, value: id }
-              },
-            )) ?? null)
-          : null
-
-        const partnershipId = form.createPartnership
-          ? ((await runAction<string>(
-              tx,
-              events,
-              actionLog,
-              'create_partnership',
-              async (inner, emit) => {
-                if (company === undefined) {
-                  return { status: 'skipped', detail: 'no company resolved' }
-                }
-                const id = await createPartnership(
-                  inner,
-                  emit,
-                  workspaceId,
-                  form,
-                  intent,
-                  company.record,
-                  person.record.id,
-                )
-
-                return { status: 'ok', detail: id, value: id }
-              },
-            )) ?? null)
-          : null
-
-        const enquiryId = form.createEnquiry
-          ? ((await runAction<string>(
-              tx,
-              events,
-              actionLog,
-              'create_enquiry',
-              async (inner, emit) => {
-                const id = await createEnquiry(
-                  inner,
-                  emit,
-                  workspaceId,
-                  form,
-                  intent,
-                  company?.record,
-                  person.record.id,
-                )
-
-                return { status: 'ok', detail: id, value: id }
-              },
-            )) ?? null)
-          : null
-
-        if (dealId !== null) {
-          const deal = await dealRepository.findDeal(tx, workspaceId, dealId)
-
-          if (deal !== undefined) {
-            await applyDealMappedFields(
-              tx,
-              workspaceId,
-              deal,
-              mapped,
-              customFieldDefinitions,
-              now,
-            )
-          }
-        }
-
-        if (opportunityId !== null) {
-          const opportunity = await opportunityRepository.findOpportunity(tx, workspaceId, opportunityId)
-
-          if (opportunity !== undefined) {
-            await applyOpportunityMappedFields(
-              tx,
-              workspaceId,
-              opportunity,
-              mapped,
-              customFieldDefinitions,
-              now,
-            )
-          }
-        }
-
-        if (partnershipId !== null) {
-          const partnership = await partnershipRepository.findPartnership(tx, workspaceId, partnershipId)
-
-          if (partnership !== undefined) {
-            await applyPartnershipMappedFields(
-              tx,
-              workspaceId,
-              partnership,
-              mapped,
-              customFieldDefinitions,
-              now,
-            )
-          }
-        }
-
-        if (enquiryId !== null) {
-          const enquiry = await enquiryRepository.findEnquiry(tx, workspaceId, enquiryId)
-
-          if (enquiry !== undefined) {
-            await applyEnquiryMappedFields(
-              tx,
-              workspaceId,
-              enquiry,
-              mapped,
-              customFieldDefinitions,
-              now,
-            )
-          }
-        }
-
-        // --- Tag merges ---
-
-        if (form.personTags.length > 0) {
-          await runAction<void>(tx, events, actionLog, 'tag_person', async (inner, emit) => {
-            const merged = mergeTags(person.record.tags, form.personTags)
-
-            if (!merged.changed) {
-              return { status: 'ok', detail: 'no new tags' }
-            }
-
-            const now = dependencies.now()
-            await peopleRepository.updatePerson(inner, workspaceId, person.record.id, {
-              tags: [...merged.next],
-              updatedAt: now,
-            })
-            emit(
-              'people.person.updated',
-              { type: 'person', id: person.record.id },
-              { changed: ['tags'] },
-            )
-
-            return { status: 'ok', detail: `merged ${String(merged.next.length - person.record.tags.length)}` }
-          })
-        }
-
-        if (form.companyTags.length > 0) {
-          await runAction<void>(tx, events, actionLog, 'tag_company', async (inner, emit) => {
-            if (company === undefined) {
-              return { status: 'skipped', detail: 'no company resolved' }
-            }
-
-            const merged = mergeTags(company.record.tags, form.companyTags)
-
-            if (!merged.changed) {
-              return { status: 'ok', detail: 'no new tags' }
-            }
-
-            const now = dependencies.now()
-            await companyRepository.updateCompany(inner, workspaceId, company.record.id, {
-              tags: [...merged.next],
-              updatedAt: now,
-            })
-            emit(
-              'companies.company.updated',
-              { type: 'company', id: company.record.id },
-              { changed: ['tags'] },
-            )
-
-            return { status: 'ok', detail: `merged ${String(merged.next.length - company.record.tags.length)}` }
-          })
-        }
-
-        // --- List memberships ---
-
-        for (const row of formListRows) {
-          await runAction<boolean>(
-            tx,
-            events,
-            actionLog,
-            `add_list:${row.listId}`,
-            async (inner, emit) => {
-              const targetId =
-                row.targetType === 'person'
-                  ? person.record.id
-                  : row.targetType === 'company' && company !== undefined
-                    ? company.record.id
-                    : undefined
-
-              if (targetId === undefined) {
-                return { status: 'skipped', detail: 'no company resolved', value: false }
-              }
-
-              try {
-                await listsRepository.insertListMember(inner, {
-                  id: dependencies.createId('listMember'),
-                  workspaceId,
-                  listId: row.listId,
-                  targetType: row.targetType,
-                  targetId,
-                  addedAt: dependencies.now(),
-                })
-              } catch (error: unknown) {
-                if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
-                  return { status: 'ok', detail: 'already a member', value: false }
-                }
-
-                throw error
-              }
-
-              emit(
-                'lists.member.added',
-                { type: row.targetType, id: targetId },
-                { listId: row.listId },
-              )
-
-              return { status: 'ok', detail: targetId, value: true }
             },
-          )
-        }
+          )) ?? null)
+        : null
 
-        // --- Attach the submitter to pre-existing pipeline records ---
-
-        for (const target of attachTargets) {
-          await runAction<void>(
+      const enquiryId = form.createEnquiry
+        ? ((await runAction<string>(
             tx,
             events,
             actionLog,
-            `attach:${target.targetType}:${target.targetId}`,
+            'create_enquiry',
             async (inner, emit) => {
-              const targetType = target.targetType
-              const targetId = target.targetId
-
-              // Racing a target delete would fail the FK-less insert with the
-              // same effect as an existence check: log an error, continue.
-              if (!(await targetExists(inner, workspaceId, targetType, targetId))) {
-                throw AppError.notFound(`${targetType} ${targetId} not found`)
-              }
-
-              if (targetType === 'event') {
-                const { record, inserted } = await eventRepository.insertAttendanceIfAbsent(
-                  inner,
-                  {
-                    id: dependencies.createId('attendance'),
-                    workspaceId,
-                    eventId: targetId,
-                    personId: person.record.id,
-                    status: 'registered',
-                    source: 'form',
-                    createdAt: now,
-                    updatedAt: now,
-                  },
-                )
-
-                if (inserted) {
-                  emit('events.attendance.created', { type: 'attendance', id: record.id }, {})
-                }
-
-                return {
-                  status: 'ok',
-                  detail: inserted ? 'registered' : 'already registered',
-                }
-              }
-
-              const inserted = await personLinks.linkPersonIfAbsent(
+              const id = await createEnquiry(
                 inner,
-                dependencies.createId,
+                emit,
                 workspaceId,
-                { targetType, targetId },
+                form,
+                intent,
+                company?.record,
                 person.record.id,
               )
 
-              return {
-                status: 'ok',
-                detail: inserted ? 'linked' : 'already linked',
-              }
+              return { status: 'ok', detail: id, value: id }
             },
+          )) ?? null)
+        : null
+
+      if (dealId !== null) {
+        const deal = await dealRepository.findDeal(tx, workspaceId, dealId)
+
+        if (deal !== undefined) {
+          await applyDealMappedFields(
+            tx,
+            workspaceId,
+            deal,
+            mapped,
+            customFieldDefinitions,
+            now,
           )
         }
+      }
 
-        for (const target of attachTargets) {
-          if (target.targetType !== 'raise') {
-            continue
-          }
+      if (opportunityId !== null) {
+        const opportunity = await opportunityRepository.findOpportunity(tx, workspaceId, opportunityId)
 
-          const raise = await raiseRepository.findRaise(tx, workspaceId, target.targetId)
-
-          if (raise !== undefined) {
-            await applyRaiseMappedFields(
-              tx,
-              workspaceId,
-              raise,
-              mapped,
-              customFieldDefinitions,
-              now,
-            )
-          }
-        }
-
-        // --- Persist submission + core activity + record events ---
-
-        const submission = await repository.insertSubmission(tx, {
-          id: dependencies.createId('formSubmission'),
-          workspaceId,
-          formId: form.id,
-          answers,
-          personId: person.record.id,
-          companyId: company?.record.id ?? null,
-          positionId: position?.record.id ?? null,
-          dealId,
-          opportunityId,
-          partnershipId,
-          enquiryId,
-          submittedAt: dependencies.now(),
-          actionLog,
-        })
-
-        await dependencies.recordActivity(tx, workspaceId, FORM_ACTOR, {
-          targetType: 'person',
-          targetId: person.record.id,
-          kind: 'created',
-          ...describeFormSubmission(form.name, describeAnswers(fields, answers)),
-          subject: { type: 'form', id: form.id },
-        })
-
-        // In this transaction, so a submit that rolls back sends nothing. The
-        // job reads the form again when it runs; this only says which emails
-        // this submission asked for.
-        const emailKinds = [
-          ...(form.notifyEmail ? (['notification'] as const) : []),
-          ...(form.autoReply ? (['auto_reply'] as const) : []),
-        ]
-
-        if (emailKinds.length > 0) {
-          await jobs.enqueue(dependencies.sendEmailsJob, {
+        if (opportunity !== undefined) {
+          await applyOpportunityMappedFields(
+            tx,
             workspaceId,
-            submissionId: submission.id,
-            kinds: emailKinds,
-          })
+            opportunity,
+            mapped,
+            customFieldDefinitions,
+            now,
+          )
         }
+      }
 
-        emitRecordEvents(events, workspaceId, { person, company, position })
-        events.emit(
-          'forms.submission.submitted',
-          { type: 'submission', id: submission.id },
-          {
-            formId: form.id,
-            submissionId: submission.id,
-            opportunityId,
-            partnershipId,
-            enquiryId,
-            actions: actionLog.map((entry) => ({ action: entry.action, status: entry.status })),
+      if (partnershipId !== null) {
+        const partnership = await partnershipRepository.findPartnership(tx, workspaceId, partnershipId)
+
+        if (partnership !== undefined) {
+          await applyPartnershipMappedFields(
+            tx,
+            workspaceId,
+            partnership,
+            mapped,
+            customFieldDefinitions,
+            now,
+          )
+        }
+      }
+
+      if (enquiryId !== null) {
+        const enquiry = await enquiryRepository.findEnquiry(tx, workspaceId, enquiryId)
+
+        if (enquiry !== undefined) {
+          await applyEnquiryMappedFields(
+            tx,
+            workspaceId,
+            enquiry,
+            mapped,
+            customFieldDefinitions,
+            now,
+          )
+        }
+      }
+
+      // --- Tag merges ---
+
+      if (form.personTags.length > 0) {
+        await runAction<void>(tx, events, actionLog, 'tag_person', async (inner, emit) => {
+          const merged = mergeTags(person.record.tags, form.personTags)
+
+          if (!merged.changed) {
+            return { status: 'ok', detail: 'no new tags' }
+          }
+
+          const now = dependencies.now()
+          await peopleRepository.updatePerson(inner, workspaceId, person.record.id, {
+            tags: [...merged.next],
+            updatedAt: now,
+          })
+          emit(
+            'people.person.updated',
+            { type: 'person', id: person.record.id },
+            { changed: ['tags'] },
+          )
+
+          return { status: 'ok', detail: `merged ${String(merged.next.length - person.record.tags.length)}` }
+        })
+      }
+
+      if (form.companyTags.length > 0) {
+        await runAction<void>(tx, events, actionLog, 'tag_company', async (inner, emit) => {
+          if (company === undefined) {
+            return { status: 'skipped', detail: 'no company resolved' }
+          }
+
+          const merged = mergeTags(company.record.tags, form.companyTags)
+
+          if (!merged.changed) {
+            return { status: 'ok', detail: 'no new tags' }
+          }
+
+          const now = dependencies.now()
+          await companyRepository.updateCompany(inner, workspaceId, company.record.id, {
+            tags: [...merged.next],
+            updatedAt: now,
+          })
+          emit(
+            'companies.company.updated',
+            { type: 'company', id: company.record.id },
+            { changed: ['tags'] },
+          )
+
+          return { status: 'ok', detail: `merged ${String(merged.next.length - company.record.tags.length)}` }
+        })
+      }
+
+      // --- List memberships ---
+
+      for (const row of formListRows) {
+        await runAction<boolean>(
+          tx,
+          events,
+          actionLog,
+          `add_list:${row.listId}`,
+          async (inner, emit) => {
+            const targetId =
+              row.targetType === 'person'
+                ? person.record.id
+                : row.targetType === 'company' && company !== undefined
+                  ? company.record.id
+                  : undefined
+
+            if (targetId === undefined) {
+              return { status: 'skipped', detail: 'no company resolved', value: false }
+            }
+
+            try {
+              await listsRepository.insertListMember(inner, {
+                id: dependencies.createId('listMember'),
+                workspaceId,
+                listId: row.listId,
+                targetType: row.targetType,
+                targetId,
+                addedAt: dependencies.now(),
+              })
+            } catch (error: unknown) {
+              if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+                return { status: 'ok', detail: 'already a member', value: false }
+              }
+
+              throw error
+            }
+
+            emit(
+              'lists.member.added',
+              { type: row.targetType, id: targetId },
+              { listId: row.listId },
+            )
+
+            return { status: 'ok', detail: targetId, value: true }
           },
         )
+      }
 
-        return {
+      // --- Attach the submitter to pre-existing pipeline records ---
+
+      for (const target of attachTargets) {
+        await runAction<void>(
+          tx,
+          events,
+          actionLog,
+          `attach:${target.targetType}:${target.targetId}`,
+          async (inner, emit) => {
+            const targetType = target.targetType
+            const targetId = target.targetId
+
+            // Racing a target delete would fail the FK-less insert with the
+            // same effect as an existence check: log an error, continue.
+            if (!(await targetExists(inner, workspaceId, targetType, targetId))) {
+              throw AppError.notFound(`${targetType} ${targetId} not found`)
+            }
+
+            if (targetType === 'event') {
+              const { record, inserted } = await eventRepository.insertAttendanceIfAbsent(
+                inner,
+                {
+                  id: dependencies.createId('attendance'),
+                  workspaceId,
+                  eventId: targetId,
+                  personId: person.record.id,
+                  status: 'registered',
+                  source: 'form',
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              )
+
+              if (inserted) {
+                emit('events.attendance.created', { type: 'attendance', id: record.id }, {})
+              }
+
+              return {
+                status: 'ok',
+                detail: inserted ? 'registered' : 'already registered',
+              }
+            }
+
+            const inserted = await personLinks.linkPersonIfAbsent(
+              inner,
+              dependencies.createId,
+              workspaceId,
+              { targetType, targetId },
+              person.record.id,
+            )
+
+            return {
+              status: 'ok',
+              detail: inserted ? 'linked' : 'already linked',
+            }
+          },
+        )
+      }
+
+      for (const target of attachTargets) {
+        if (target.targetType !== 'raise') {
+          continue
+        }
+
+        const raise = await raiseRepository.findRaise(tx, workspaceId, target.targetId)
+
+        if (raise !== undefined) {
+          await applyRaiseMappedFields(
+            tx,
+            workspaceId,
+            raise,
+            mapped,
+            customFieldDefinitions,
+            now,
+          )
+        }
+      }
+
+      // --- Persist submission + core activity + record events ---
+
+      const outcome = {
+        personId: person.record.id,
+        companyId: company?.record.id ?? null,
+        positionId: position?.record.id ?? null,
+        dealId,
+        opportunityId,
+        partnershipId,
+        enquiryId,
+        actionLog,
+      }
+      // A released submission keeps its row, and so its id and the time it
+      // arrived. Only what the rules produced is new.
+      const submission =
+        held === undefined
+          ? await repository.insertSubmission(tx, {
+              id: dependencies.createId('formSubmission'),
+              workspaceId,
+              formId: form.id,
+              answers,
+              submittedAt: dependencies.now(),
+              ...outcome,
+            })
+          : await repository.updateSubmission(tx, workspaceId, held.id, outcome)
+
+      await dependencies.recordActivity(tx, workspaceId, FORM_ACTOR, {
+        targetType: 'person',
+        targetId: person.record.id,
+        kind: 'created',
+        ...describeFormSubmission(form.name, describeAnswers(fields, answers)),
+        subject: { type: 'form', id: form.id },
+      })
+
+      // In this transaction, so a submit that rolls back sends nothing. The
+      // job reads the form again when it runs; this only says which emails
+      // this submission asked for.
+      const emailKinds = [
+        ...(form.notifyEmail ? (['notification'] as const) : []),
+        ...(form.autoReply ? (['auto_reply'] as const) : []),
+      ]
+
+      if (emailKinds.length > 0) {
+        await jobs.enqueue(dependencies.sendEmailsJob, {
+          workspaceId,
           submissionId: submission.id,
+          kinds: emailKinds,
+        })
+      }
+
+      emitRecordEvents(events, workspaceId, { person, company, position })
+      events.emit(
+        'forms.submission.submitted',
+        { type: 'submission', id: submission.id },
+        {
           formId: form.id,
-          personId: person.record.id,
-          companyId: company?.record.id ?? null,
-          positionId: position?.record.id ?? null,
-          dealId,
+          submissionId: submission.id,
           opportunityId,
           partnershipId,
           enquiryId,
-          submittedAt: submission.submittedAt,
-          thankYouMessage: form.thankYouMessage,
-          actionLog,
-        }
-      }, { workspaceId })
+          actions: actionLog.map((entry) => ({ action: entry.action, status: entry.status })),
+        },
+      )
+
+      return {
+        submissionId: submission.id,
+        formId: form.id,
+        status: 'accepted',
+        personId: person.record.id,
+        companyId: company?.record.id ?? null,
+        positionId: position?.record.id ?? null,
+        dealId,
+        opportunityId,
+        partnershipId,
+        enquiryId,
+        submittedAt: submission.submittedAt,
+        thankYouMessage: form.thankYouMessage,
+        actionLog,
+      }
+    }, options)
+  }
+
+  /**
+   * Stores a submit the spam check caught, and nothing else: no person, no
+   * email, no event. The outcome has the shape of an accepted one, so the
+   * public response tells a bot nothing.
+   */
+  async function quarantine(
+    form: FormRecord,
+    answers: Answers,
+    reason: FormSpamReason,
+  ): Promise<SubmitOutcome> {
+    const now = dependencies.now()
+    const submission = await repository.insertSubmission(dependencies.db, {
+      id: dependencies.createId('formSubmission'),
+      workspaceId: form.workspaceId,
+      formId: form.id,
+      answers,
+      status: 'spam',
+      spamReason: reason,
+      submittedAt: now,
+      actionLog: [],
+    })
+
+    // A form under attack gets a row for each attempt. This keeps the table to
+    // what somebody could still want to release.
+    await repository.deleteSpamSubmissionsBefore(
+      dependencies.db,
+      form.id,
+      new Date(now.getTime() - SPAM_RETENTION_DAYS * 24 * 60 * 60 * 1000),
+    )
+
+    dependencies.log.info('form submission held as spam', {
+      formId: form.id,
+      submissionId: submission.id,
+      reason,
+    })
+
+    return {
+      submissionId: submission.id,
+      formId: form.id,
+      status: 'spam',
+      personId: null,
+      companyId: null,
+      positionId: null,
+      dealId: null,
+      opportunityId: null,
+      partnershipId: null,
+      enquiryId: null,
+      submittedAt: submission.submittedAt,
+      thankYouMessage: form.thankYouMessage,
+      actionLog: [],
+    }
+  }
+
+  return {
+    async submit(urlWorkspaceId, slug, answers, spam = {}) {
+      const form = await requireOpenForm(urlWorkspaceId, slug)
+      const fields = await repository.listFields(dependencies.db, form.id)
+
+      // Before the spam check, so unusable answers are a 422 whatever the check
+      // would say and the response never depends on it.
+      readAnswers(fields, answers)
+
+      const spamReason = await dependencies.spamCheck.check(form, spam)
+
+      if (spamReason !== null) {
+        return quarantine(form, answers, spamReason)
+      }
+
+      return capture(form, fields, answers, undefined, { workspaceId: form.workspaceId })
+    },
+
+    async release(actor, formId, submissionId) {
+      const workspaceId = requireWorkspaceId(actor)
+      const form = await repository.findForm(dependencies.db, workspaceId, formId)
+
+      if (form === undefined) {
+        throw AppError.notFound('Form not found')
+      }
+
+      const held = await repository.findSubmission(dependencies.db, workspaceId, formId, submissionId)
+
+      if (held === undefined) {
+        throw AppError.notFound('Submission not found')
+      }
+
+      if (held.status !== 'spam') {
+        throw AppError.conflict('This submission is not held as spam')
+      }
+
+      // A paused form does not stop a release: pausing closes the form to
+      // visitors, and this is a member acting on what already arrived.
+      const fields = await repository.listFields(dependencies.db, form.id)
+
+      await capture(form, fields, held.answers, held, {
+        workspaceId,
+        actor: toEventActor(actor),
+      })
+
+      const released = await repository.findSubmission(dependencies.db, workspaceId, formId, submissionId)
+
+      if (released === undefined) {
+        throw new Error(`Form submission ${submissionId} disappeared during a release`)
+      }
+
+      return released
     },
   }
 }

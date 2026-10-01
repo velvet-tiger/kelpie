@@ -38,7 +38,7 @@ export function FormSettings({ form }: FormSettingsProps): React.JSX.Element {
     <div className="max-w-xl space-y-4">
       <SectionHeader
         title="Settings"
-        description="Status, the public form title, thank-you copy, and the slug in its submit URL."
+        description="Status, the public form title, thank-you copy, the spam check, and the slug in its submit URL."
       />
 
       {updateForm.error !== null && <ErrorPanel error={updateForm.error} />}
@@ -90,6 +90,25 @@ export function FormSettings({ form }: FormSettingsProps): React.JSX.Element {
         />
         <Hint>Shown in place of the form once a submission lands.</Hint>
       </Labelled>
+
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-ink">
+          <input
+            type="checkbox"
+            checked={form.requireSpamCheck}
+            onChange={(event) => {
+              patch({ requireSpamCheck: event.target.checked })
+            }}
+          />
+          Require the spam check
+        </label>
+        <Hint>
+          A submit that fails the check is held as spam and writes nothing to your CRM. You
+          can release it from the Submissions tab. Your embeds pass the check by themselves.
+          If a site posts JSON to this form from its own markup, it must get a token first:
+          see the Embed tab.
+        </Hint>
+      </div>
 
       <p className="rounded-md border border-border bg-surface px-3 py-2 text-[12px] text-ink-muted">
         Deal, opportunity, partnership, tags, lists, attached records, and emails live on the{' '}
@@ -189,8 +208,8 @@ function SlugSetting({ form }: { readonly form: Form }): React.JSX.Element {
       ) : (
         <Hint>
           The name of this form in its submit URL. It is not a secret: every page that embeds
-          the form shows it. If a bot sends spam to the form, regenerate the slug. Your
-          embeds keep working and use the new slug.
+          the form shows it. If a bot sends spam to the submit URL directly, regenerate the
+          slug. Your embeds keep working and use the new slug.
         </Hint>
       )}
 

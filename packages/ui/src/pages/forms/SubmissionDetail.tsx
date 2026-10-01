@@ -1,11 +1,15 @@
-import { formFieldDisplayLabel } from '@kelpie/schemas'
+import { FORM_SPAM_REASON_LABELS, formFieldDisplayLabel } from '@kelpie/schemas'
 import type { Form, FormField, FormSubmission, FormSubmissionActionEntry } from '@kelpie/schemas'
 import { useMemo } from 'react'
 import { Link, useParams } from 'react-router'
 
 import { useTimezone } from '../../api/resources/account.ts'
 import { useCompanies } from '../../api/resources/companies.ts'
-import { useForm, useFormSubmission } from '../../api/resources/forms.ts'
+import {
+  useForm,
+  useFormSubmission,
+  useReleaseFormSubmission,
+} from '../../api/resources/forms.ts'
 import { usePeople } from '../../api/resources/people.ts'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../../components/QueryState.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
@@ -100,6 +104,8 @@ function SubmissionDetailView({
         title="Submission"
         description={`Received ${formatDateTime(submission.submittedAt, timezone)}.`}
       />
+
+      <SpamNotice form={form} submission={submission} />
 
       <div className="mt-6 space-y-6">
         <section>
@@ -199,6 +205,62 @@ function SubmissionDetailView({
           </section>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * What the spam check said about this submission, and the way out.
+ *
+ * A held submission shows the reason and a Release button. One a person
+ * released keeps its reason, so the page says where it came from.
+ */
+function SpamNotice({
+  form,
+  submission,
+}: {
+  readonly form: Form
+  readonly submission: FormSubmission
+}): React.JSX.Element | null {
+  const release = useReleaseFormSubmission()
+
+  if (submission.spamReason === null) {
+    return null
+  }
+
+  const reason = FORM_SPAM_REASON_LABELS[submission.spamReason]
+
+  if (submission.status !== 'spam') {
+    return (
+      <p className="mt-4 rounded-md border border-border bg-surface px-3 py-2 text-[12px] text-ink-muted">
+        The spam check held this submission, and a person released it. Reason it was held:{' '}
+        {reason}.
+      </p>
+    )
+  }
+
+  return (
+    <div className="mt-4 rounded-md border border-warning/40 bg-warning-soft px-3 py-2.5">
+      <p className="text-[13px] font-medium text-ink">Held as spam</p>
+      <p className="mt-0.5 text-[12px] text-ink-muted">
+        {reason}. Nothing was written to your CRM and no email was sent. If a person sent
+        this, release it: Kelpie then processes it as a normal submission.
+      </p>
+      {release.error !== null && (
+        <div className="mt-2">
+          <ErrorPanel error={release.error} />
+        </div>
+      )}
+      <button
+        type="button"
+        disabled={release.isPending}
+        onClick={() => {
+          release.run({ formId: form.id, submissionId: submission.id })
+        }}
+        className="mt-2 rounded-md bg-accent px-2.5 py-1 text-[12px] font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-50"
+      >
+        {release.isPending ? 'Releasing…' : 'Release'}
+      </button>
     </div>
   )
 }

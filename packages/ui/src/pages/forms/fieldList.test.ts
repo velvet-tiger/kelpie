@@ -105,6 +105,7 @@ function form(fields: readonly EditableField[]): Form {
     autoReplySubject: '',
     autoReplyBody: '',
     autoReplyReplyTo: null,
+    requireSpamCheck: false,
     slug: 'contact',
     createdAt: stamp,
     updatedAt: stamp,

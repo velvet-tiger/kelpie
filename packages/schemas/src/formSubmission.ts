@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import { FORM_ACTION_STATUSES } from './values.ts'
-import type { FormActionStatus } from './values.ts'
+import { FORM_ACTION_STATUSES, FORM_SPAM_REASONS, FORM_SUBMISSION_STATUSES } from './values.ts'
+import type { FormActionStatus, FormSpamReason, FormSubmissionStatus } from './values.ts'
 import { idSchema, timestampSchema } from './wire.ts'
 
 /**
@@ -27,7 +27,8 @@ export type FormSubmissionLinkTarget = (typeof FORM_SUBMISSION_LINK_TARGETS)[num
  *
  * Read-only over the API: a submission is evidence of what arrived, so there is
  * no create body here (the public endpoint takes an answer map, not a
- * submission) and no update at all.
+ * submission) and no update. The one write is the release of a `spam`
+ * submission, which is an action and takes no body.
  */
 
 /**
@@ -47,6 +48,16 @@ export interface FormSubmission {
   readonly id: string
   readonly formId: string
   readonly submittedAt: Date
+  /**
+   * `spam` when the spam check caught the submit. A `spam` submission has its
+   * answers, no linked records and an empty `actionLog`.
+   */
+  readonly status: FormSubmissionStatus
+  /**
+   * Why the spam check caught it. Null when it was never caught. Kept after a
+   * release, so an `accepted` submission with a reason is one a person released.
+   */
+  readonly spamReason: FormSpamReason | null
   /** Field id to the answer given: a select option's `key`, or free text. */
   readonly answers: Readonly<Record<string, string>>
   /**
@@ -89,6 +100,8 @@ export const formSubmissionSchema: z.ZodType<FormSubmission, unknown> = z
     id: idSchema,
     form_id: idSchema,
     submitted_at: timestampSchema,
+    status: z.enum(FORM_SUBMISSION_STATUSES),
+    spam_reason: z.enum(FORM_SPAM_REASONS).nullable(),
     answers: z.record(z.string(), z.string()),
     person_id: idSchema.nullable(),
     company_id: idSchema.nullable(),
@@ -105,6 +118,8 @@ export const formSubmissionSchema: z.ZodType<FormSubmission, unknown> = z
       id: wire.id,
       formId: wire.form_id,
       submittedAt: wire.submitted_at,
+      status: wire.status,
+      spamReason: wire.spam_reason,
       answers: wire.answers,
       personId: wire.person_id,
       companyId: wire.company_id,

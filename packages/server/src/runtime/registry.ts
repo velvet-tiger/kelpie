@@ -3,6 +3,8 @@ import type { Context, Handler, MiddlewareHandler } from 'hono'
 
 import type { Actor } from '../lib/actor.ts'
 import { requireWorkspaceId } from '../lib/actor.ts'
+import { CAPTCHA_PROVIDER_VARIABLE } from '../lib/captcha.ts'
+import type { CaptchaAccess, CaptchaProvider } from '../lib/captcha.ts'
 import type { Environment } from '../lib/config.ts'
 import { createLogEmailSender } from '../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
@@ -366,6 +368,30 @@ interface RegisteredProvider {
 }
 
 /**
+ * The CAPTCHA provider every module reads through. `target` is set once, after
+ * all modules have registered, and stays undefined when the deployment picked
+ * no provider. Unlike `EmailSenderProxy` there is nothing to throw about: no
+ * CAPTCHA is a valid deployment.
+ */
+class CaptchaProxy implements CaptchaAccess {
+  private target: CaptchaProvider | undefined = undefined
+
+  setTarget(provider: CaptchaProvider): void {
+    this.target = provider
+  }
+
+  current(): CaptchaProvider | undefined {
+    return this.target
+  }
+}
+
+/** The CAPTCHA counterpart of `RegisteredProvider`. */
+interface RegisteredCaptcha {
+  readonly build: () => CaptchaProvider
+  readonly registeredBy: string
+}
+
+/**
  * Refuses `define` for a module that reached `context.jobs` when the runtime
  * booted without a jobs registry. Named so a boot log points at the module
  * whose declaration cannot be honoured, rather than a bare stack trace.
@@ -390,10 +416,25 @@ function createModuleContext(
   emailProxy: EmailSenderProxy,
   providers: Map<string, RegisteredProvider>,
   externalSignIn: ExternalSignInProxy,
+  captchaProxy: CaptchaProxy,
+  captchaProviders: Map<string, RegisteredCaptcha>,
 ): ModuleContext {
   return {
     ...options.services,
     email: emailProxy,
+    captcha: captchaProxy,
+
+    provideCaptcha(name, build) {
+      const existing = captchaProviders.get(name)
+
+      if (existing !== undefined) {
+        throw new ModuleBootError([
+          `module "${module.id}" registers CAPTCHA provider "${name}", but module "${existing.registeredBy}" already did`,
+        ])
+      }
+
+      captchaProviders.set(name, { build, registeredBy: module.id })
+    },
     jobs: options.jobs ?? createMissingJobsRegistry(module.id),
 
     provideExternalSignIn(handler) {
@@ -573,6 +614,8 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   const emailProxy = new EmailSenderProxy()
   const emailProviders = new Map<string, RegisteredProvider>()
   const externalSignIn = new ExternalSignInProxy()
+  const captchaProxy = new CaptchaProxy()
+  const captchaProviders = new Map<string, RegisteredCaptcha>()
 
   // The built-in log provider is always available, no module required. Named
   // 'log' in kelpie.config.ts's email.provider picks this one. Built eagerly
@@ -656,6 +699,8 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
       emailProxy,
       emailProviders,
       externalSignIn,
+      captchaProxy,
+      captchaProviders,
     )
 
     try {
@@ -707,10 +752,40 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
 
   emailProxy.setTarget(chosenSender)
 
+  // The CAPTCHA provider resolves the same way, with one difference: no name
+  // is a valid choice, and leaves `context.captcha.current()` undefined.
+  const captchaName = (options.environment[CAPTCHA_PROVIDER_VARIABLE] ?? '').trim()
+
+  if (captchaName.length > 0) {
+    const chosenCaptcha = captchaProviders.get(captchaName)
+
+    if (chosenCaptcha === undefined) {
+      const available = [...captchaProviders.keys()].sort()
+
+      throw new ModuleBootError([
+        `${CAPTCHA_PROVIDER_VARIABLE} is "${captchaName}", which no module registered. Available: ${available.length === 0 ? '(none)' : available.join(', ')}`,
+      ])
+    }
+
+    try {
+      captchaProxy.setTarget(chosenCaptcha.build())
+    } catch (error: unknown) {
+      if (error instanceof ModuleBootError) {
+        throw error
+      }
+
+      throw new ModuleBootError(
+        [`CAPTCHA provider "${captchaName}" (${chosenCaptcha.registeredBy}) failed to build: ${describeThrown(error)}`],
+        { cause: error },
+      )
+    }
+  }
+
   options.logger.info('modules registered', {
     count: ordered.length,
     ids: ordered.map((module) => module.id),
     emailProvider: options.email.provider,
+    captchaProvider: captchaName.length > 0 ? captchaName : null,
   })
 
   return {

@@ -1,7 +1,11 @@
-import { and, arrayContains, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { and, arrayContains, asc, eq, ilike, inArray, lt, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
-import type { FormSubmissionLinkTarget, FormAttachTargetType } from '@kelpie/schemas'
+import type {
+  FormSubmissionLinkTarget,
+  FormAttachTargetType,
+  FormSubmissionStatus,
+} from '@kelpie/schemas'
 
 import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
@@ -223,10 +227,16 @@ export async function deleteFields(db: Queryable, formId: string): Promise<void>
   await db.delete(formFields).where(eq(formFields.formId, formId))
 }
 
+/**
+ * One form's submissions of one status. `accepted` and `spam` are two lists,
+ * never one: a reader of what arrived does not want what the spam check held,
+ * and the quarantine is read on its own.
+ */
 export function listSubmissions(
   db: Queryable,
   workspaceId: string,
   formId: string,
+  status: FormSubmissionStatus,
   window: ListWindow<FormSubmissionRecord>,
 ): Promise<FormSubmissionRecord[]> {
   return db
@@ -236,6 +246,7 @@ export function listSubmissions(
       and(
         eq(formSubmissions.workspaceId, workspaceId),
         eq(formSubmissions.formId, formId),
+        eq(formSubmissions.status, status),
         keysetCondition(window, formSubmissions.id),
       ),
     )
@@ -320,6 +331,78 @@ export async function insertSubmission(
   }
 
   return created
+}
+
+/**
+ * Takes a `spam` submission out of quarantine, for the release that follows.
+ *
+ * The status is the lock. Two releases of one submission race on this update,
+ * and the one that finds the row already `accepted` gets undefined, so the
+ * submit rules run once.
+ */
+export async function claimSpamSubmission(
+  db: Queryable,
+  workspaceId: string,
+  formId: string,
+  id: string,
+): Promise<FormSubmissionRecord | undefined> {
+  const [claimed] = await db
+    .update(formSubmissions)
+    .set({ status: 'accepted' })
+    .where(
+      and(
+        eq(formSubmissions.workspaceId, workspaceId),
+        eq(formSubmissions.formId, formId),
+        eq(formSubmissions.id, id),
+        eq(formSubmissions.status, 'spam'),
+      ),
+    )
+    .returning()
+
+  return claimed
+}
+
+export async function updateSubmission(
+  db: Queryable,
+  workspaceId: string,
+  id: string,
+  changes: Partial<FormSubmissionColumns>,
+): Promise<FormSubmissionRecord> {
+  const [updated] = await db
+    .update(formSubmissions)
+    .set(changes)
+    .where(and(eq(formSubmissions.workspaceId, workspaceId), eq(formSubmissions.id, id)))
+    .returning()
+
+  if (updated === undefined) {
+    throw new Error(`Form submission ${id} disappeared during an update`)
+  }
+
+  return updated
+}
+
+/**
+ * Deletes one form's `spam` submissions that arrived before `before`.
+ *
+ * @returns How many rows went.
+ */
+export async function deleteSpamSubmissionsBefore(
+  db: Queryable,
+  formId: string,
+  before: Date,
+): Promise<number> {
+  const deleted = await db
+    .delete(formSubmissions)
+    .where(
+      and(
+        eq(formSubmissions.formId, formId),
+        eq(formSubmissions.status, 'spam'),
+        lt(formSubmissions.submittedAt, before),
+      ),
+    )
+    .returning({ id: formSubmissions.id })
+
+  return deleted.length
 }
 
 /** One form's configured list memberships, joined to the list for target-type. */

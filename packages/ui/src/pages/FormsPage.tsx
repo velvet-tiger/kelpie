@@ -59,10 +59,14 @@ export function FormsPage(): React.JSX.Element {
    * A new form starts as the contact template rather than empty, because an
    * empty field list is not a form the API will accept: it needs a
    * `person.email` mapping before it can process anything.
+   *
+   * It starts with the spam check on. The API's own default is off, for a
+   * caller that posts JSON; a form made here is used through its embed, which
+   * passes the check by itself.
    */
   function addForm(): void {
     createForm
-      .runAsync({ name: 'New form', fields: CONTACT_FORM_FIELDS })
+      .runAsync({ name: 'New form', fields: CONTACT_FORM_FIELDS, requireSpamCheck: true })
       .then((form) => navigate(`/forms/${form.id}`))
       .catch(() => undefined)
   }

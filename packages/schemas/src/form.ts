@@ -169,6 +169,13 @@ export interface Form extends RecordTimestamps {
   /** Where a reply to the auto-reply goes. Null: no Reply-To header. */
   readonly autoReplyReplyTo: FormEmailRecipient | null
   /**
+   * When true, a submit that does not pass the spam check is stored as `spam`
+   * and writes nothing to the CRM. The check needs the token the Kelpie embed
+   * gets for itself, so a site that posts JSON from its own form must get one
+   * too. When false, no check runs and every submit is accepted.
+   */
+  readonly requireSpamCheck: boolean
+  /**
    * The form's name in its public URLs, `/v1/public/workspaces/:workspace_id/forms/:slug/…`.
    * Unique in its workspace. Not a secret: every page that embeds the form shows it.
    */
@@ -286,6 +293,7 @@ export const formSchema: z.ZodType<Form, unknown> = z
     auto_reply_subject: z.string(),
     auto_reply_body: z.string(),
     auto_reply_reply_to: emailRecipientSchema.nullable(),
+    require_spam_check: z.boolean(),
     slug: z.string(),
     ...recordTimestamps,
   })
@@ -328,6 +336,7 @@ export const formSchema: z.ZodType<Form, unknown> = z
       autoReplySubject: wire.auto_reply_subject,
       autoReplyBody: wire.auto_reply_body,
       autoReplyReplyTo: wire.auto_reply_reply_to,
+      requireSpamCheck: wire.require_spam_check,
       slug: wire.slug,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
@@ -406,6 +415,7 @@ export interface CreateFormInput {
   readonly autoReplySubject?: string
   readonly autoReplyBody?: string
   readonly autoReplyReplyTo?: FormEmailRecipient | null
+  readonly requireSpamCheck?: boolean
 }
 
 /**
@@ -451,6 +461,7 @@ export interface FormInput {
   readonly autoReplySubject?: string
   readonly autoReplyBody?: string
   readonly autoReplyReplyTo?: FormEmailRecipient | null
+  readonly requireSpamCheck?: boolean
 }
 
 function fieldBody(field: FormFieldInput): Record<string, unknown> {
@@ -541,6 +552,7 @@ export function createFormBody(input: CreateFormInput): Record<string, unknown> 
     auto_reply_subject: input.autoReplySubject,
     auto_reply_body: input.autoReplyBody,
     auto_reply_reply_to: replyToBody(input.autoReplyReplyTo),
+    require_spam_check: input.requireSpamCheck,
   })
 }
 
@@ -583,5 +595,6 @@ export function formBody(input: FormInput): Record<string, unknown> {
     auto_reply_subject: input.autoReplySubject,
     auto_reply_body: input.autoReplyBody,
     auto_reply_reply_to: replyToBody(input.autoReplyReplyTo),
+    require_spam_check: input.requireSpamCheck,
   })
 }

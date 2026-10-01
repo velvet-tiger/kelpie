@@ -84,6 +84,7 @@ function form(overrides: Partial<FormRecord> = {}): FormRecord {
     autoReplyBody: '',
     autoReplyReplyToMemberId: null,
     autoReplyReplyToAddress: null,
+    requireSpamCheck: false,
     slug: 'contact',
     createdAt: stamp,
     updatedAt: stamp,

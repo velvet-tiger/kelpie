@@ -46,6 +46,9 @@ export async function seedStarterForms(
       description: form.description,
       status: 'active',
       thankYouMessage: form.thankYouMessage,
+      // A starter form is used through its embed, which passes the spam check
+      // by itself, so there is no reason to start with the check off.
+      requireSpamCheck: true,
       // The starter slug reads well in a URL, and a new workspace has no
       // other form to collide with.
       slug: form.slug,
