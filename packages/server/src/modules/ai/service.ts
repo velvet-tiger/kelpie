@@ -3,6 +3,7 @@ import type { AiKeyMode, AiKeySource, AiProvider, AiService as AiServiceName, Re
 
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
+import type { JobHandle } from '../../lib/jobs.ts'
 import type { Logger } from '../../lib/logger.ts'
 import { readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
@@ -18,7 +19,7 @@ import { targetKey } from '../recordTargets.ts'
 import type { Actor } from '../auth/actor.ts'
 import { roleAllows } from '../workspace/roles.ts'
 import type { AiCredentialResolver, AiCredentials } from './credentials.ts'
-import type { AiExecutor } from './executor.ts'
+import type { AiDrainJobData } from './drainJob.ts'
 import type { IdFactory as AiIdFactory } from './ids.ts'
 import {
   countRunsSince,
@@ -86,7 +87,8 @@ export interface AiServiceDependencies {
   readonly coreCreateId: IdFactory
   readonly createRunId: AiIdFactory
   readonly entitlements: EntitlementRegistry
-  readonly executor: AiExecutor
+  /** Enqueued with each new run; its handler is what executes the run. */
+  readonly drainJob: JobHandle<AiDrainJobData>
   readonly now: () => Date
   readonly runTimeoutMinutes: number
   /** `AI_RUN_LOG_LIMIT`. A workspace's own `run_log_limit` overrides it. */
@@ -485,33 +487,41 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       const now = dependencies.now()
       const { credentials } = await admit(payload.workspaceId, now)
 
-      // Idempotent upsert: the same run_id delivered twice records once.
-      const inserted = await insertRunIfNew(
-        dependencies.db,
-        {
-          id: dependencies.createRunId(),
-          workspaceId: payload.workspaceId,
-          agentRunId: payload.runId,
-          taskId: payload.taskId,
-          targetType: payload.targetType,
-          targetId: payload.targetId,
-          model: credentials.model,
-          prompt: payload.prompt,
-          context: payload.context,
-        },
-        now,
-      )
+      // Idempotent upsert: the same run_id delivered twice records once. The
+      // job commits with the row, so a recorded run always has a job to start
+      // it, and a rolled-back insert leaves no job behind.
+      const inserted = await dependencies.transaction(async ({ tx, jobs }) => {
+        const run = await insertRunIfNew(
+          tx,
+          {
+            id: dependencies.createRunId(),
+            workspaceId: payload.workspaceId,
+            agentRunId: payload.runId,
+            taskId: payload.taskId,
+            targetType: payload.targetType,
+            targetId: payload.targetId,
+            model: credentials.model,
+            prompt: payload.prompt,
+            context: payload.context,
+          },
+          now,
+        )
+
+        if (run !== undefined) {
+          await jobs.enqueue(dependencies.drainJob, { workspaceId: payload.workspaceId })
+        }
+
+        return run
+      })
 
       if (inserted === undefined) {
-        // A redelivery. The first run is already recorded and its executor is
-        // either running or done; nothing to pump.
+        // A redelivery. The first run is already recorded and its job is
+        // either waiting, running or done; nothing to enqueue.
         dependencies.log.info('ai dispatch redelivered', { agentRunId: payload.runId })
-        return
       }
 
-      // Detached — the route answers 202 whether the run started or stayed
-      // queued behind the concurrency cap. The pump loop chains completions.
-      dependencies.executor.pump(payload.workspaceId)
+      // The route answers 202 whether the run starts at once or waits behind
+      // the concurrency cap. The job's worker executes it.
     },
 
     async startSyncRun(workspaceId, taskId, prompt) {

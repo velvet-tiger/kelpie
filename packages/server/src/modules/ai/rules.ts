@@ -29,6 +29,14 @@ export const DEFAULT_MAX_CONCURRENT_RUNS = 2
 export const DEFAULT_RUN_TIMEOUT_MINUTES = 15
 
 /**
+ * How many runs one process executes at once, across every workspace. Each
+ * run holds a context pack and a model reply in memory, so this bounds the
+ * memory a worker needs. `AI_MAX_CONCURRENT_RUNS` is the limit for one
+ * workspace; this is the limit for the process.
+ */
+export const DEFAULT_WORKER_CONCURRENCY = 4
+
+/**
  * How many runs a workspace keeps in its run log when neither
  * `AI_RUN_LOG_LIMIT` nor the workspace's own `run_log_limit` says otherwise.
  */

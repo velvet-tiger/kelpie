@@ -235,7 +235,7 @@ export async function insertRunIfNew(
 /**
  * Records a synchronous run, such as a person-intake call, already `running`.
  *
- * Not queued, so the executor's pump never claims it: the caller makes the
+ * Not queued, so the executor never claims it: the caller makes the
  * model call itself and settles the row. It still counts against the monthly
  * limit and shows in the run log. The row's own id doubles as its
  * `agent_run_id`, because no core agent run stands behind it and the column is
@@ -299,6 +299,17 @@ export async function countRunningRuns(db: Queryable, workspaceId: string): Prom
     .where(and(eq(aiRuns.workspaceId, workspaceId), eq(aiRuns.status, 'running')))
 
   return rows[0]?.value ?? 0
+}
+
+/** True when the workspace has a run waiting for a free slot. */
+export async function hasQueuedRun(db: Queryable, workspaceId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: aiRuns.id })
+    .from(aiRuns)
+    .where(and(eq(aiRuns.workspaceId, workspaceId), eq(aiRuns.status, 'queued')))
+    .limit(1)
+
+  return rows.length > 0
 }
 
 /**
