@@ -33,6 +33,17 @@ While the major version is `0`, a minor bump may break the API.
   pages, and "Tag the person" and "Tag the company" on a form's Actions tab.
   They were comma-separated text boxes.
 
+### Fixed
+
+- **`@kelpie/server`** — **Form embed height.** The embed page reported the
+  height of the document, which is never smaller than the frame, so the
+  snippet's starting `height:720px` became a floor: a short form never shrank
+  to fit. The page now measures its body, so the frame grows for long forms
+  and errors and shrinks when the content gets smaller, for example after
+  submit. The message stays `{ kelpie: 'height', formId, height }`, so pasted
+  snippets need no change. The hosted page drops `body { min-height: 100vh }`
+  and keeps its full-window background on `html`.
+
 ## [0.21.0] - 2026-10-03
 
 ### Added

@@ -301,6 +301,24 @@ describe('renderEmbedPage', () => {
   it('keeps itself out of search results', () => {
     expect(render()).toContain('<meta name="robots" content="noindex">')
   })
+
+  /**
+   * The document is never shorter than the frame, so measuring it made the
+   * snippet's starting 720px a floor: a short form never shrank to fit.
+   */
+  it.each(['page', 'embed'] as const)(
+    'reports the height of its content, not of the frame, on the %s layout',
+    (layout) => {
+      const page = render({}, [field()], layout)
+
+      expect(page).not.toContain('documentElement.scrollHeight')
+      expect(page).not.toContain('observe(document.documentElement)')
+      expect(page).toContain('document.body.getBoundingClientRect().height')
+      expect(page).toContain('observe(document.body)')
+      expect(page).toContain("kelpie: 'height', formId: config.formId, height:")
+      expect(page).not.toMatch(/min-height:\s*100vh/)
+    },
+  )
 })
 
 describe('embedContentSecurityPolicy', () => {

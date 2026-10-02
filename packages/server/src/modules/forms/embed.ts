@@ -246,16 +246,17 @@ const HOSTED_STYLES = `
   }
 }
 * { box-sizing: border-box; }
-html { background: var(--surface); }
-body {
-  margin: 0;
-  min-height: 100vh;
-  font: 14px/1.5 var(--font);
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
+html {
+  min-height: 100%;
   background:
     radial-gradient(ellipse at top, color-mix(in srgb, var(--accent-soft) 85%, transparent), transparent 55%),
     var(--surface);
+}
+body {
+  margin: 0;
+  font: 14px/1.5 var(--font);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
 .shell {
   width: 100%;
@@ -482,11 +483,16 @@ const EMBED_SCRIPT = `
   var status = document.getElementById('kelpie-status');
   var button = document.getElementById('kelpie-submit');
 
+  // Measure the body, not the document: the document is never shorter than the
+  // frame, so the frame's starting height would become a floor it never leaves.
   function postHeight() {
-    parent.postMessage({ kelpie: 'height', formId: config.formId, height: document.documentElement.scrollHeight }, '*');
+    var style = getComputedStyle(document.body);
+    var height = document.body.getBoundingClientRect().height +
+      parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+    parent.postMessage({ kelpie: 'height', formId: config.formId, height: Math.ceil(height) }, '*');
   }
 
-  new ResizeObserver(postHeight).observe(document.documentElement);
+  new ResizeObserver(postHeight).observe(document.body);
 
   var token = null;
   var tokenReady = config.tokenUrl
