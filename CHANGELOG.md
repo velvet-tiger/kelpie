@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-02
+
 ### Added
 
 - **Spam check for forms.** A form can require a spam check on its public
