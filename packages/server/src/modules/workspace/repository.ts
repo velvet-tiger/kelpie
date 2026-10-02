@@ -3,6 +3,7 @@ import { and, asc, count, eq, gt } from 'drizzle-orm'
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
 import { users } from '../auth/schema.ts'
+import { companies } from '../companies/schema.ts'
 import { consentPurposes } from '../consent-purposes/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { decisions } from '../decisions/schema.ts'
@@ -11,6 +12,7 @@ import { handbookPages } from '../handbook/schema.ts'
 import { notes } from '../notes/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
 import { partnerships } from '../partnerships/schema.ts'
+import { people } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { planItems } from '../plans/schema.ts'
 import { raises } from '../raises/schema.ts'
@@ -285,6 +287,21 @@ export async function countSeatsInUse(
   ])
 
   return members.length + pending.length
+}
+
+/**
+ * Records the workspace holds: people plus companies.
+ *
+ * Nothing else is a record for `records.limit`. Deals, notes and the rest grow
+ * with what a team does, not with how many people and organisations it knows.
+ */
+export async function countRecordsInUse(db: Queryable, workspaceId: string): Promise<number> {
+  const [[peopleRow], [companiesRow]] = await Promise.all([
+    db.select({ total: count() }).from(people).where(eq(people.workspaceId, workspaceId)),
+    db.select({ total: count() }).from(companies).where(eq(companies.workspaceId, workspaceId)),
+  ])
+
+  return (peopleRow?.total ?? 0) + (companiesRow?.total ?? 0)
 }
 
 export async function insertInvite(

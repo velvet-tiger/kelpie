@@ -1,7 +1,7 @@
 import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import { parseModuleCapability } from '../../runtime/moduleConfig.ts'
-import { SEATS_LIMIT, WORKSPACE_ACCESS } from './capabilities.ts'
+import { RECORDS_LIMIT, SEATS_LIMIT, WORKSPACE_ACCESS } from './capabilities.ts'
 import { workspaceEvents } from './events.ts'
 import * as repository from './repository.ts'
 import { mountWorkspaceRoutes } from './routes.ts'
@@ -28,6 +28,7 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
       const appBaseUrl = context.appBaseUrl ?? context.config(appUrlConfigSchema).APP_BASE_URL
 
       context.entitlements.declare(SEATS_LIMIT)
+      context.entitlements.declare(RECORDS_LIMIT)
       context.entitlements.declare(WORKSPACE_ACCESS)
 
       // Answers `module.<id>` for whatever a config override left undecided

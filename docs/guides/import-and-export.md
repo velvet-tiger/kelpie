@@ -38,6 +38,14 @@ Over 500 rows, the dry run and the commit finish in the background and the job s
 
 Limits: 10 MB per file, 10,000 rows per job.
 
+## Record limits
+
+A self-hosted Kelpie has no record limit, and nothing in this section applies to it. A hosted deployment can set one for each workspace. A record is a person or a company; deals, positions and the rest are not counted.
+
+Where a limit applies, Kelpie checks it when you commit a People or a Companies import. If the dry run's **create** count is more than the room left, the commit is refused and writes no rows. The message gives both numbers. The job stays ready, so you can delete records or change plan and commit the same file again. An import that only updates records is never refused.
+
+A company that a people file creates for a position is not in the dry run's count, so it is not in this check.
+
 ## Exporting
 
 Each object exports as CSV with Kelpie's own headers, and there is a header-only template per object for building files by hand. A Kelpie export re-imports into any Kelpie with no mapping at all — stages export as slugs, money in major units — which makes export the workspace's portable backup for spreadsheets.

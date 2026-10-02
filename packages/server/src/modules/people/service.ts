@@ -9,6 +9,8 @@ import type { IdFactory } from '../../lib/ids.ts'
 import { normaliseEmail } from '../../lib/normalisation.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
+import { limitFor } from '../../runtime/entitlements.ts'
+import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { describeCreation, describeUpdate } from '../activities/wording.ts'
@@ -26,6 +28,8 @@ import type { CustomFieldValuesValidator } from '../custom-fields/values.ts'
 import * as personLinks from '../personLinks.ts'
 import { referenceViolationTable } from '../../lib/database.ts'
 import { referencedByPipelineRecords, referencedElsewhere } from '../references.ts'
+import { RECORDS_LIMIT } from '../workspace/capabilities.ts'
+import { countRecordsInUse } from '../workspace/repository.ts'
 import * as repository from './repository.ts'
 import { DEFAULT_PERSON_SORT, PERSON_SORTS } from './repository.ts'
 import type { PersonFilters, PersonRecord } from './repository.ts'
@@ -51,6 +55,7 @@ export interface PeopleDependencies {
   readonly now: () => Date
   readonly recordActivity: ActivityRecorder
   readonly customFields: CustomFieldValuesValidator
+  readonly entitlements: EntitlementRegistry
 }
 
 /**
@@ -217,6 +222,20 @@ export function createPeopleService(dependencies: PeopleDependencies): PeopleSer
 
     async create(actor, input) {
       const workspaceId = requireWorkspaceId(actor)
+
+      // Open source has no grant provider, so the limit is null and this never
+      // refuses. People and companies share the one count.
+      const limit = await limitFor(dependencies.entitlements, workspaceId, RECORDS_LIMIT.name)
+      if (limit !== null) {
+        const inUse = await countRecordsInUse(dependencies.db, workspaceId)
+        if (inUse >= limit) {
+          throw new AppError(
+            'entitlement_required',
+            `Your plan allows ${String(limit)} record${limit === 1 ? '' : 's'} (people plus companies)`,
+          )
+        }
+      }
+
       const id = dependencies.createId('person')
 
       return dependencies.transaction(

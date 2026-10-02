@@ -34,6 +34,7 @@ export function createImportExportModule(migrationsDirectory: string): KelpieMod
           now: context.now,
         }),
         log: context.log,
+        entitlements: context.entitlements,
       })
 
       context.schema(schema, migrationsDirectory)

@@ -139,7 +139,7 @@ export type {
   LimitCapability,
 } from './runtime/entitlements.ts'
 
-export { SEATS_LIMIT } from './modules/workspace/capabilities.ts'
+export { RECORDS_LIMIT, SEATS_LIMIT } from './modules/workspace/capabilities.ts'
 
 export {
   RECORD_OBJECT_TYPES,

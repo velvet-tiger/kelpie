@@ -14,6 +14,20 @@ export const SEATS_LIMIT: LimitCapability = {
 }
 
 /**
+ * How many records one workspace may hold. A record is a person or a company;
+ * deals, notes and the rest are not counted. Checked where a member or an
+ * agent adds records by hand: person create, company create, and an import
+ * commit. A form submission and the sample-data install are not checked, so
+ * the count can go over the limit. Above the limit, reads, edits, merges and
+ * deletes still work, and a delete brings the count back down.
+ */
+export const RECORDS_LIMIT: LimitCapability = {
+  name: 'records.limit',
+  kind: 'limit',
+  description: 'How many people plus companies one workspace may hold. Unlimited in open source.',
+}
+
+/**
  * Whether a workspace's own members may use it at all. Checked once per
  * request by a blanket `/v1` and `/mcp` middleware (`app.ts`), not by any
  * service — this is deliberately coarser than every other capability here.

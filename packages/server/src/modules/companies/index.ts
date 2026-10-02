@@ -31,6 +31,7 @@ export function createCompaniesModule(migrationsDirectory: string): KelpieModule
           now: context.now,
         }),
         customFields: createCustomFieldValues({ db: context.db }),
+        entitlements: context.entitlements,
       })
 
       context.schema(schema, migrationsDirectory)

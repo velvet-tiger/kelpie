@@ -10,6 +10,22 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`** — **Record limit.** A new entitlement,
+  `records.limit`, caps how many records one workspace holds. A record is a
+  person or a company; deals, notes and the rest are not counted. No provider
+  answers it in open source, so a self-hosted install stays unlimited and
+  nothing changes there. Where a hosting deployment answers it,
+  `POST /v1/people`, `POST /v1/companies` and the `people_create` and
+  `companies_create` MCP tools answer `403 entitlement_required` at the
+  limit. The commit of a People or Companies import answers the same when the
+  dry run's `create` count is more than the room left; it writes no rows, the
+  message gives both numbers, and the job stays `ready`. A form submission
+  and the sample-data install are not checked, so inbound records are never
+  refused. Above the limit, reads, edits, merges and deletes still work.
+  New export `RECORDS_LIMIT`. No migration.
+
 ## [0.20.0] - 2026-10-02
 
 ### Added

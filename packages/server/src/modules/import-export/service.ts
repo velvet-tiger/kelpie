@@ -29,6 +29,8 @@ import { AppError, describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
+import { limitFor } from '../../runtime/entitlements.ts'
+import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import type { BufferedEvents, Queryable, TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { definitionsForObject } from '../custom-fields/repository.ts'
@@ -45,6 +47,8 @@ import '../people/events.ts'
 import '../positions/events.ts'
 import '../raises/events.ts'
 import '../custom-fields/events.ts'
+import { RECORDS_LIMIT } from '../workspace/capabilities.ts'
+import { countRecordsInUse } from '../workspace/repository.ts'
 import './events.ts'
 
 /**
@@ -188,6 +192,7 @@ export interface ImportExportDependencies {
   readonly now: () => Date
   readonly recordActivity: ActivityRecorder
   readonly log: Logger
+  readonly entitlements: EntitlementRegistry
 }
 
 /** A job as the API returns one: the stored row minus tenancy, with its errors and preview. */
@@ -642,6 +647,53 @@ export function createImportExportService(
     }
   }
 
+  /**
+   * Refuses a commit that would take the workspace past its record limit.
+   *
+   * Only a People or a Companies job is checked, because only there is the dry
+   * run's `create` count a count of records. The count is the forecast the
+   * caller approved, so the answer is all or nothing: a commit that does not
+   * fit writes no rows. A job with nothing to create is never refused, so an
+   * update-only import still works above the limit.
+   *
+   * A company that a People row creates through `on_missing_company: create`
+   * is not in the forecast, so it is not in this check. Such a commit can end
+   * above the limit, and the next create by hand is then refused.
+   *
+   * @throws AppError 403 `entitlement_required` when the forecast is more than
+   *   the room left. The message carries both numbers.
+   */
+  async function requireRecordHeadroom(workspaceId: string, job: ImportJobRecord): Promise<void> {
+    if (job.object !== 'people' && job.object !== 'companies') {
+      return
+    }
+
+    const willCreate = job.counts.create
+
+    if (willCreate === 0) {
+      return
+    }
+
+    const limit = await limitFor(dependencies.entitlements, workspaceId, RECORDS_LIMIT.name)
+
+    if (limit === null) {
+      return
+    }
+
+    const inUse = await countRecordsInUse(dependencies.db, workspaceId)
+    const headroom = Math.max(0, limit - inUse)
+
+    if (willCreate > headroom) {
+      const records = `${String(willCreate)} record${willCreate === 1 ? '' : 's'}`
+      const inUseOfLimit = `${String(inUse)} of ${String(limit)} in use`
+
+      throw new AppError(
+        'entitlement_required',
+        `This import would create ${records} and your plan has room for ${String(headroom)} more (${inUseOfLimit})`,
+      )
+    }
+  }
+
   function toOutcome(planned: PlannedRow): repository.RowOutcome {
     const { plan } = planned
 
@@ -1085,6 +1137,10 @@ export function createImportExportService(
       }
 
       requireForecastFile(job, csv)
+
+      // Before the claim below, so a refused job stays `ready` and the same
+      // file can be committed once the workspace has room.
+      await requireRecordHeadroom(workspaceId, job)
 
       const parsed = parseCsv(csv)
 
