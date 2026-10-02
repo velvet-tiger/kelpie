@@ -92,6 +92,7 @@ export {
   SIZE_BANDS,
   SOCIAL_NETWORK_IDS,
   SOCIAL_NETWORK_LABELS,
+  TAG_TARGET_TYPES,
   THEME_PREFERENCES,
   WEBHOOK_DELIVERY_STATUSES,
   WEBHOOK_EVENTS,
@@ -148,6 +149,7 @@ export type {
   SearchCollection,
   SizeBand,
   SocialNetworkId,
+  TagTargetType,
   ThemePreference,
   WebhookDeliveryStatus,
   WebhookEvent,
@@ -613,6 +615,8 @@ export type {
 
 export { searchResultsSchema } from './search.ts'
 export type { SearchResult, SearchResultGroup, SearchResults } from './search.ts'
+export { tagSuggestionsSchema } from './tag.ts'
+export type { TagSuggestion, TagSuggestions } from './tag.ts'
 
 export { memberSchema, updateMemberRoleBody } from './member.ts'
 export type { Member, UpdateMemberRoleInput } from './member.ts'

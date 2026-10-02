@@ -42,7 +42,7 @@ export const API_KEY_OBJECT_DATA_RESOURCES = [
 ] as const
 
 /** Read-only object-data surfaces. */
-export const API_KEY_OBJECT_READ_ONLY_RESOURCES = ['activities', 'search', 'dashboard'] as const
+export const API_KEY_OBJECT_READ_ONLY_RESOURCES = ['activities', 'search', 'dashboard', 'tags'] as const
 
 /** Object configuration (schema-ish admin). */
 export const API_KEY_OBJECT_CONFIG_RESOURCES = [
@@ -158,6 +158,7 @@ export const API_KEY_SCOPE_LABELS: Readonly<Record<ApiKeyScope, string>> = {
   'activities:read': 'Activities (read)',
   'search:read': 'Search (read)',
   'dashboard:read': 'Dashboard (read)',
+  'tags:read': 'Tags (read)',
   'custom_fields:read': 'Custom fields (read)',
   'custom_fields:write': 'Custom fields (write)',
   'pipeline_stages:read': 'Pipeline stages (read)',

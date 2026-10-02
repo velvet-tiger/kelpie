@@ -83,6 +83,7 @@ const ROUTE_SCOPE_RULES: readonly RouteScopeRule[] = [
   { methods: ['GET'], pattern: /^\/v1\/activities$/u, scope: 'activities:read' },
   { methods: ['GET'], pattern: /^\/v1\/search$/u, scope: 'search:read' },
   { methods: ['GET'], pattern: /^\/v1\/dashboard$/u, scope: 'dashboard:read' },
+  { methods: ['GET'], pattern: /^\/v1\/tags$/u, scope: 'tags:read' },
   { methods: ['GET'], pattern: /^\/v1\/custom_fields(?:\/[^/]+)?$/u, scope: 'custom_fields:read' },
   { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/custom_fields(?:\/[^/]+)?$/u, scope: 'custom_fields:write' },
   { methods: ['GET'], pattern: /^\/v1\/pipeline_stages(?:\/[^/]+)?$/u, scope: 'pipeline_stages:read' },

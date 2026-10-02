@@ -31,6 +31,7 @@ import { createRaisesModule } from './raises/index.ts'
 import { createSampleDataModule } from './sample-data/index.ts'
 import { createSearchModule } from './search/index.ts'
 import { createSmtpEmailModule } from './smtp-email/index.ts'
+import { createTagsModule } from './tags/index.ts'
 import { createWebhooksModule } from './webhooks/index.ts'
 import { createWorkspaceModule } from './workspace/index.ts'
 
@@ -81,6 +82,8 @@ export const coreModules: readonly KelpieModule[] = [
   createSearchModule(),
   createDashboardModule(),
   createFormsModule(coreMigrationsDirectory),
+  // Owns no tables. Reads the `tags` arrays the record modules and Forms own.
+  createTagsModule(),
   createImportExportModule(coreMigrationsDirectory),
   createAgentTasksModule(coreMigrationsDirectory),
   createWebhooksModule(coreMigrationsDirectory),

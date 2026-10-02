@@ -10,6 +10,29 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`**, **`@kelpie/schemas`** — **Tags endpoint.**
+  `GET /v1/tags` lists the tags in use, with how many records carry each,
+  most used first. `?target_type=` narrows it to one or more taggable types,
+  `?q=` filters by a case-insensitive substring, and `?limit=` caps it (default
+  20). Tags that a Form sets count for `person` and `company` at zero. New
+  structural `tags` module, MCP tool `tags_list`, API key scope `tags:read`,
+  and schemas exports `TAG_TARGET_TYPES`, `TagTargetType`,
+  `tagSuggestionsSchema`, `TagSuggestion` and `TagSuggestions`. No migration.
+- **`@kelpie/ui`** — `TagInput`: a search box that finds the tags in use or
+  creates a new one, with the chosen tags as chips below it, each with an ×
+  to remove it. The list opens in the page flow, so it does not cover the
+  chips, and shows the chosen tags first, ticked; a click removes one.
+  `Chip` takes an optional `onRemove`.
+
+### Changed
+
+- **`@kelpie/ui`** — Every tag field uses `TagInput`: the Tags field on
+  Person, Company, Enquiry, Deal, Opportunity, Raise, Partnership and Event
+  pages, and "Tag the person" and "Tag the company" on a form's Actions tab.
+  They were comma-separated text boxes.
+
 ## [0.21.0] - 2026-10-03
 
 ### Added

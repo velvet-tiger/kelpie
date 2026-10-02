@@ -166,6 +166,24 @@ export const SEARCH_COLLECTIONS = [
 
 export type SearchCollection = (typeof SEARCH_COLLECTIONS)[number]
 
+/**
+ * The record types that carry a `tags` array, and what `GET /v1/tags?target_type=`
+ * accepts. A Form's `person_tags` and `company_tags` count toward `person` and
+ * `company`: they are tags the form will set, not tags a form carries.
+ */
+export const TAG_TARGET_TYPES = [
+  'person',
+  'company',
+  'enquiry',
+  'deal',
+  'opportunity',
+  'raise',
+  'partnership',
+  'event',
+] as const
+
+export type TagTargetType = (typeof TAG_TARGET_TYPES)[number]
+
 /** Whether a Role is still being hired for. */
 export const ROLE_STATUSES = ['open', 'closed'] as const
 

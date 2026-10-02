@@ -1,5 +1,11 @@
 import { FORM_ATTACH_TARGET_TYPES, PLAN_ITEM_TARGET_TYPE_LABELS } from '@kelpie/schemas'
-import type { Form, FormAttachTarget, FormAttachTargetType, PipelineKind } from '@kelpie/schemas'
+import type {
+  Form,
+  FormAttachTarget,
+  FormAttachTargetType,
+  PipelineKind,
+  TagTargetType,
+} from '@kelpie/schemas'
 import { useMemo, useState } from 'react'
 
 import { useDeals } from '../../api/resources/deals.ts'
@@ -12,10 +18,9 @@ import { useOpportunities } from '../../api/resources/opportunities.ts'
 import { usePartnerships } from '../../api/resources/partnerships.ts'
 import { usePipelineStages } from '../../api/resources/pipelineStages.ts'
 import { useRaises } from '../../api/resources/raises.ts'
-import { Chip } from '../../components/Chip.tsx'
 import { ErrorPanel } from '../../components/QueryState.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
-import { toTags } from '../fields.ts'
+import { TagInput } from '../../components/TagInput.tsx'
 import { FormEmails } from './FormEmails.tsx'
 
 /**
@@ -119,12 +124,14 @@ export function FormActions({ form }: FormActionsProps): React.JSX.Element {
       <TagsBlock
         title="Tag the person"
         hint="Merged into the submitter's tags. Never removes a tag someone set by hand."
+        targetType="person"
         value={form.personTags}
         onChange={(next) => patch({ personTags: next })}
       />
       <TagsBlock
         title="Tag the company"
         hint="Merged into the resolved company's tags. Skipped when no company is resolved."
+        targetType="company"
         value={form.companyTags}
         onChange={(next) => patch({ companyTags: next })}
       />
@@ -278,35 +285,26 @@ function TriggerBlock(props: TriggerBlockProps): React.JSX.Element {
 function TagsBlock({
   title,
   hint,
+  targetType,
   value,
   onChange,
 }: {
   readonly title: string
   readonly hint: string
+  readonly targetType: TagTargetType
   readonly value: readonly string[]
   readonly onChange: (next: readonly string[]) => void
 }): React.JSX.Element {
   return (
     <div className="space-y-2 rounded-md border border-border p-4">
       <div className="text-[13px] font-medium text-ink">{title}</div>
-      <input
-        className={inputClass}
-        defaultValue={value.join(', ')}
-        onBlur={(event) => {
-          const next = toTags(event.target.value)
-          const changed =
-            next.length !== value.length || next.some((tag, index) => tag !== value[index])
-
-          if (changed) {
-            onChange(next)
-          }
-        }}
+      <TagInput
+        value={value}
+        onChange={onChange}
+        targetType={targetType}
+        size="md"
+        label={title}
       />
-      <div className="flex flex-wrap gap-1">
-        {value.map((tag) => (
-          <Chip key={tag}>{tag}</Chip>
-        ))}
-      </div>
       <p className="text-[11px] text-ink-faint">{hint}</p>
     </div>
   )

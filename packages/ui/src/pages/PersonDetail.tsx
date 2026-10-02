@@ -32,7 +32,6 @@ import {
 import { AddressSidebarLink, AddressesField } from '../components/AddressesField.tsx'
 import { ActivitiesPanel, LatestActivity } from '../components/ActivitiesPanel.tsx'
 import { AgentTasks } from '../components/AgentTasks.tsx'
-import { Chip } from '../components/Chip.tsx'
 import { DecisionsPanel } from '../components/DecisionsPanel.tsx'
 import { FormsPanel } from '../components/FormsPanel.tsx'
 import { DeleteRecord } from '../components/DeleteRecord.tsx'
@@ -49,6 +48,7 @@ import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
 import { SidebarField } from '../components/SidebarField.tsx'
+import { TagInput } from '../components/TagInput.tsx'
 import { SocialProfileIcons, SocialProfilesField } from '../components/SocialProfilesField.tsx'
 import { TimezoneSearch } from '../components/TimezoneSearch.tsx'
 import { PhonesField } from '../components/PhonesField.tsx'
@@ -61,7 +61,7 @@ import {
   CandidateStageField,
   CandidateStatusField,
 } from './candidateFields.tsx'
-import { toOptions, toTags } from './fields.ts'
+import { toOptions } from './fields.ts'
 import { usePersonNames, useRoleTitles } from './hiringDirectory.ts'
 
 /**
@@ -587,24 +587,12 @@ function PersonSidebar({
         />
       </SidebarField>
       <SidebarField label="Tags">
-        <InlineEdit
-          value={person.tags.join(', ')}
-          onChange={(value) => {
-            patch({ tags: toTags(value) })
+        <TagInput
+          value={person.tags}
+          targetType="person"
+          onChange={(tags) => {
+            patch({ tags })
           }}
-          display={
-            person.tags.length > 0 ? (
-              <span className="flex flex-wrap gap-1">
-                {person.tags.map((tag) => (
-                  <Chip key={tag}>
-                    <span className="text-[10px]">{tag}</span>
-                  </Chip>
-                ))}
-              </span>
-            ) : undefined
-          }
-          emptyLabel="Add tags…"
-          displayClassName="not-italic"
         />
       </SidebarField>
     </section>

@@ -61,13 +61,13 @@ import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
 import { SidebarField } from '../components/SidebarField.tsx'
+import { TagInput } from '../components/TagInput.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { TimezoneSearch } from '../components/TimezoneSearch.tsx'
 import { formatDateTime } from '../lib/dates.ts'
 import { useRecordTab } from '../lib/fragmentTarget.ts'
 import { useRecordTabs } from '../registry/context.ts'
 import { inSlotOrder } from '../registry/registry.ts'
-import { toTags } from './fields.ts'
 
 /**
  * One dated gathering. Not a pipeline: no stages, no convert, no kanban.
@@ -396,24 +396,12 @@ function EventSidebar({ event }: { readonly event: CrmEvent }): React.JSX.Elemen
         />
       </SidebarField>
       <SidebarField label="Tags">
-        <InlineEdit
-          value={event.tags.join(', ')}
-          onChange={(value) => {
-            patch({ tags: toTags(value) })
+        <TagInput
+          value={event.tags}
+          targetType="event"
+          onChange={(tags) => {
+            patch({ tags })
           }}
-          display={
-            event.tags.length > 0 ? (
-              <span className="flex flex-wrap gap-1">
-                {event.tags.map((tag) => (
-                  <Chip key={tag}>
-                    <span className="text-[10px]">{tag}</span>
-                  </Chip>
-                ))}
-              </span>
-            ) : undefined
-          }
-          emptyLabel="Add tags…"
-          displayClassName="not-italic"
         />
       </SidebarField>
     </section>

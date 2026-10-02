@@ -43,11 +43,11 @@ import { RecordTabs } from '../components/RecordTabs.tsx'
 import type { RecordTabDescriptor } from '../components/RecordTabs.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
 import { SidebarField } from '../components/SidebarField.tsx'
+import { TagInput } from '../components/TagInput.tsx'
 import { SummaryBlock } from '../components/SummaryBlock.tsx'
 import { useRecordTabs } from '../registry/context.ts'
 import { inSlotOrder } from '../registry/registry.ts'
 import { useRecordTab } from '../lib/fragmentTarget.ts'
-import { toTags } from './fields.ts'
 
 /**
  * One enquiry.
@@ -350,24 +350,12 @@ function EnquirySidebar({ enquiry }: { readonly enquiry: Enquiry }): React.JSX.E
         />
       </SidebarField>
       <SidebarField label="Tags">
-        <InlineEdit
-          value={enquiry.tags.join(', ')}
-          onChange={(value) => {
-            patch({ tags: toTags(value) })
+        <TagInput
+          value={enquiry.tags}
+          targetType="enquiry"
+          onChange={(tags) => {
+            patch({ tags })
           }}
-          display={
-            enquiry.tags.length > 0 ? (
-              <span className="flex flex-wrap gap-1">
-                {enquiry.tags.map((tag) => (
-                  <Chip key={tag}>
-                    <span className="text-[10px]">{tag}</span>
-                  </Chip>
-                ))}
-              </span>
-            ) : undefined
-          }
-          emptyLabel="Add tags…"
-          displayClassName="not-italic"
         />
       </SidebarField>
     </section>
