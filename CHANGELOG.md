@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-03
+
 ### Added
 
 - **`@kelpie/server`** — **Record limit.** A new entitlement,
