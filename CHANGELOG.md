@@ -50,6 +50,9 @@ While the major version is `0`, a minor bump may break the API.
   `formSubmissionsDeletedSchema` and `FormSubmissionsDeleted`. The Submissions
   tab has row checkboxes and a bulk Delete; the submission page has a Delete.
   New UI hook `useDeleteFormSubmissions`. No migration.
+- **`@kelpie/server`** — `AI_WORKER_CONCURRENCY`, default `4`: how many AI
+  runs one worker process executes at once, across every workspace.
+  `AI_MAX_CONCURRENT_RUNS` still limits each workspace.
 
 ### Changed
 
@@ -108,6 +111,14 @@ While the major version is `0`, a minor bump may break the API.
   message under the button. When an edit clears a field's error, the
   "Check the N answers marked above." line counts again, and clears when no
   errors are left.
+- **`@kelpie/server`** — **AI runs execute on the job worker.** A dispatched
+  run is recorded as `queued` with an `ai.drain` job in the same transaction,
+  and the job's handler makes the model calls. Before, the API process ran
+  them itself, detached. Nothing changes for a single-container install,
+  because `npm start` runs the worker inline. An assembly that starts the API
+  with `--no-worker` now needs `npm run worker` running, or dispatched runs
+  stay `queued`. The job is never retried, so a run never applies its
+  operations twice. Person intake is unchanged: it still runs in the request.
 
 ### Fixed
 

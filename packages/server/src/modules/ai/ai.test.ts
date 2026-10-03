@@ -9,6 +9,7 @@ import type { Environment } from '../../lib/config.ts'
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
 import { createSecretCipher } from '../../lib/secrets.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
+import { createJobsRuntime } from '../../runtime/jobs.ts'
 import { runMigrations } from '../../runtime/migrate.ts'
 import type { AgentDispatchOutcome, McpTool } from '../../runtime/module.ts'
 import { createTestApp } from '../../testing/app.ts'
@@ -24,6 +25,7 @@ import { agentRegistrations } from '../agent-tasks/schema.ts'
 import type { SendDispatch } from '../agent-tasks/dispatch.ts'
 import type { Actor } from '../auth/actor.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
+import { AI_DRAIN_JOB_NAME } from './drainJob.ts'
 import { createAiModule } from './index.ts'
 import type { AiModuleOptions } from './index.ts'
 import type { AiRunSettledData } from './events.ts'
@@ -231,6 +233,8 @@ interface Harness {
   readonly behaviors: Map<string, StubToolBehavior>
   /** Answers `ai.runs.limit`; `undefined` leaves it unlimited. */
   limit: number | undefined
+  /** Stops this harness's job worker, so the next suite's worker takes `ai.drain` alone. */
+  close(): Promise<void>
 }
 
 interface HarnessOptions {
@@ -294,17 +298,31 @@ async function buildHarness(database: TestDatabase, options: HarnessOptions): Pr
           aiModule,
         ]
 
+  // A real pg-boss runtime, because a dispatched run only executes when a
+  // worker takes its `ai.drain` job. One per harness: each suite's handler
+  // closes over its own fakes, so two workers on one queue would cross them.
+  const silentLogger = createLogger({ level: 'error', transports: [createCaptureTransport(() => undefined)] })
+  if (connectionString === undefined) {
+    throw new Error('unreachable: the suite is skipped without a connection string')
+  }
+  const jobs = createJobsRuntime({ connectionString, logger: silentLogger, pollingIntervalSeconds: 0.5 })
+
   const app = await createTestApp({
     modules,
     environment: { ...TEST_ENVIRONMENT, ...options.environment },
-    services: createTestServices({ db: database.db }),
+    services: createTestServices({ db: database.db, enqueueOnTx: jobs.enqueueOnTx }),
     entitlements,
+    jobs: jobs.registry,
   })
 
   // Core's tables are migrated by `connectTestDatabase`; this adds the
   // module's own directory, on the `ai` database `connectionString` names.
   // A no-op after the first suite in this worker.
-  await runMigrations(database.db, app.contributions.schemas, createLogger({ level: 'error', transports: [createCaptureTransport(() => undefined)] }))
+  await runMigrations(database.db, app.contributions.schemas, silentLogger)
+
+  await jobs.migrate()
+  await jobs.start()
+  await jobs.startWorking()
 
   return {
     app,
@@ -318,6 +336,7 @@ async function buildHarness(database: TestDatabase, options: HarnessOptions): Pr
     set limit(value) {
       harness.limit = value
     },
+    close: () => jobs.stop(),
   }
 }
 
@@ -424,6 +443,15 @@ async function runIds(h: Harness, workspaceId: string): Promise<readonly string[
     .sort()
 }
 
+/** How many `ai.drain` jobs the queue holds for a workspace, in any state. */
+async function drainJobsFor(h: Harness, workspaceId: string): Promise<number> {
+  const rows = await h.app.services.db.execute<{ count: number }>(
+    sql`select count(*)::int as count from pgboss.job where name = ${AI_DRAIN_JOB_NAME} and data->>'workspaceId' = ${workspaceId}`,
+  )
+
+  return [...rows][0]?.count ?? 0
+}
+
 function settled(h: Harness, agentRunId: string): Promise<RunRow> {
   return until(async () => {
     const found = await fetchRun(h, agentRunId)
@@ -448,6 +476,10 @@ describe.skipIf(connectionString === undefined)('ai', () => {
 
   describe('deployment key mode', () => {
     let h: Harness
+
+    afterAll(async () => {
+      await h.close()
+    })
     const settledEvents: AiRunSettledData[] = []
 
     beforeAll(async () => {
@@ -949,6 +981,21 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       const rows = await h.app.services.db.select({ id: aiRuns.id }).from(aiRuns).where(eq(aiRuns.agentRunId, 'run_dupe'))
       expect(rows).toHaveLength(1)
       expect(h.provider.requests).toHaveLength(1)
+
+      // One job for the one recorded run: the redelivery enqueued nothing.
+      expect(await drainJobsFor(h, workspaceId)).toBe(1)
+    })
+
+    it('records the run and its job in the request, and runs the model on the worker', async () => {
+      const { workspaceId } = await enabledWorkspace(h)
+      h.provider.queue(endTurn(proposal({ summary: 'on the worker' }), { inputTokens: 1, outputTokens: 1 }))
+
+      // The dispatch answers once the row and the job commit, before any model call.
+      expect((await deliver(h, dispatchBody({ runId: 'run_on_worker', workspaceId }))).status).toBe(202)
+      expect(await drainJobsFor(h, workspaceId)).toBe(1)
+
+      expect((await settled(h, 'run_on_worker')).status).toBe('succeeded')
+      expect(h.provider.requests).toHaveLength(1)
     })
 
     it('sweeps a stale running row to failed on the next dispatch', async () => {
@@ -1186,6 +1233,10 @@ describe.skipIf(connectionString === undefined)('ai', () => {
   describe('deployment key mode without a key', () => {
     let h: Harness
 
+    afterAll(async () => {
+      await h.close()
+    })
+
     beforeAll(async () => {
       h = await buildHarness(database, { keyMode: 'deployment' })
     })
@@ -1213,6 +1264,10 @@ describe.skipIf(connectionString === undefined)('ai', () => {
 
   describe('workspace key mode', () => {
     let h: Harness
+
+    afterAll(async () => {
+      await h.close()
+    })
 
     beforeAll(async () => {
       h = await buildHarness(database, { keyMode: 'workspace' })
@@ -1426,6 +1481,10 @@ describe.skipIf(connectionString === undefined)('ai', () => {
   describe('workspace key mode with an environment fallback', () => {
     let h: Harness
 
+    afterAll(async () => {
+      await h.close()
+    })
+
     beforeAll(async () => {
       h = await buildHarness(database, {
         keyMode: 'workspace',
@@ -1471,6 +1530,10 @@ describe.skipIf(connectionString === undefined)('ai', () => {
 
   describe('end to end through core dispatch and the real tools', () => {
     let h: Harness
+
+    afterAll(async () => {
+      await h.close()
+    })
 
     /** Every HTTP dispatch core attempted. The Kelpie AI row must never be one. */
     const httpDispatches: string[] = []

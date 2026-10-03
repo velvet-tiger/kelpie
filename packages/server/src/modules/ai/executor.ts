@@ -26,6 +26,7 @@ import type {
 import {
   claimOldestQueuedRun,
   countRunningRuns,
+  hasQueuedRun,
   touchRun,
 } from './repository.ts'
 import type { AiRunRecord } from './repository.ts'
@@ -33,12 +34,13 @@ import type { AiRunSettler } from './settle.ts'
 import { aiActorFor } from './tools.ts'
 
 /**
- * The detached work-runner.
+ * The work-runner behind the `ai.drain` job.
  *
- * `pump` is fire-and-forget: intake schedules a run and calls `pump`, and
- * `execute` runs after the current stack unwinds. The `void`-`catch` shape is
- * the import-export `detach` pattern crossed with core's post-commit dispatch
- * — a hand-rolled shape because core exports no shared helper for it.
+ * Intake records a run as `queued` and enqueues an `ai.drain` job in the same
+ * transaction. The job handler calls `runNext`, which runs one queued run on
+ * whichever process works the queue: the worker, or the API when it runs its
+ * own worker. The `ai_runs` table stays the queue; the job is only the signal
+ * that there is work.
  *
  * The whole model turn is one shot. Kelpie builds a context pack by reading
  * the target record and its neighbours through core's in-process MCP read
@@ -47,14 +49,15 @@ import { aiActorFor } from './tools.ts'
  * each operation and writes it through the same MCP registry with the
  * synthetic AI actor. The model never touches a tool.
  *
- * Concurrency: while running-count < cap, claim the oldest queued row and
- * execute it. The claim is race-safe (`claimOldestQueuedRun`), and `execute`
- * settles its row itself and never rejects, so the loop cannot leak an
- * unhandled rejection. Completion-chaining falls out of the loop: when a run
- * finishes, its pump call keeps draining.
+ * Concurrency: a run starts only while the workspace's running count is under
+ * the cap. The claim is race-safe (`claimOldestQueuedRun`), and `execute`
+ * settles its row itself and never rejects. A job that finds the workspace at
+ * its cap ends without running anything: a run that is going sees the queued
+ * one when it finishes, and its job enqueues the next.
  *
- * There is no scheduler, no worker pool, and no durable queue. A crash mid-
- * run leaves a row `running`; the next intake's stale sweep marks it failed.
+ * A crash mid-run leaves a row `running`; the next intake's stale sweep marks
+ * it failed. The job is never retried, because a repeated model call would
+ * apply its operations twice.
  */
 
 /** A provider port for a workspace, or the reason there is none. */
@@ -88,13 +91,24 @@ export interface AiExecutorDependencies {
 
 export interface AiExecutor {
   /**
-   * Starts every queued run capacity allows for this workspace, detached.
-   * Never rejects; failures land on the row and are logged.
+   * Runs the oldest queued run for this workspace if the workspace is under
+   * its cap, and waits for it to settle. Never rejects for a failed run; the
+   * failure lands on the row and in the log.
    */
-  pump(workspaceId: string): void
-  /** Awaited pump variant, for tests. */
-  pumpAwait(workspaceId: string): Promise<void>
+  runNext(workspaceId: string): Promise<AiRunNextOutcome>
 }
+
+/**
+ * What one call to `runNext` did.
+ *
+ * - `ran_more_queued`: a run settled and another is waiting. The caller
+ *   enqueues the next job, because nothing else will.
+ * - `ran`: a run settled and nothing is waiting.
+ * - `at_capacity`: the workspace was at its cap. A run that is going picks up
+ *   the waiting one when it finishes.
+ * - `idle`: nothing was queued.
+ */
+export type AiRunNextOutcome = 'ran_more_queued' | 'ran' | 'at_capacity' | 'idle'
 
 /**
  * What the run log says when the provider fails or throws.
@@ -349,27 +363,21 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
     }
   }
 
-  async function drain(workspaceId: string): Promise<void> {
-    while ((await countRunningRuns(dependencies.db, workspaceId)) < dependencies.maxConcurrentRuns) {
+  return {
+    async runNext(workspaceId) {
+      if ((await countRunningRuns(dependencies.db, workspaceId)) >= dependencies.maxConcurrentRuns) {
+        return 'at_capacity'
+      }
+
       const run = await claimOldestQueuedRun(dependencies.db, workspaceId, dependencies.now())
 
-      if (run === undefined) return
+      if (run === undefined) {
+        return 'idle'
+      }
 
       await execute(run)
-    }
-  }
 
-  return {
-    pump(workspaceId) {
-      void drain(workspaceId).catch((error: unknown) => {
-        dependencies.log.error('ai pump loop failed', {
-          workspaceId,
-          error: describeThrown(error),
-        })
-      })
-    },
-    async pumpAwait(workspaceId) {
-      await drain(workspaceId)
+      return (await hasQueuedRun(dependencies.db, workspaceId)) ? 'ran_more_queued' : 'ran'
     },
   }
 }

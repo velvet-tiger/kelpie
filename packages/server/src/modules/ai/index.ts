@@ -5,10 +5,13 @@ import type { AiKeyMode, AiProvider, AiService as AiServiceName } from '@kelpie/
 import { z } from 'zod'
 
 import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secrets.ts'
+import type { JobHandle } from '../../lib/jobs.ts'
 import type { KelpieModule, McpTool } from '../../runtime/module.ts'
 import { createAnthropicPort } from './anthropic.ts'
 import { createAiCredentialResolver } from './credentials.ts'
 import { createAiDispatcher } from './dispatch.ts'
+import { defineAiDrainJob } from './drainJob.ts'
+import type { AiDrainJobData } from './drainJob.ts'
 import { aiEvents } from './events.ts'
 import { createAiExecutor } from './executor.ts'
 import type { AiPortResolution } from './executor.ts'
@@ -26,6 +29,7 @@ import {
   DEFAULT_MAX_OUTPUT_TOKENS,
   DEFAULT_RUN_LOG_LIMIT,
   DEFAULT_RUN_TIMEOUT_MINUTES,
+  DEFAULT_WORKER_CONCURRENCY,
 } from './rules.ts'
 import * as schema from './schema.ts'
 import { createAiService } from './service.ts'
@@ -95,6 +99,7 @@ const configSchema = z.object({
   AI_MAX_TOKENS: z.coerce.number().int().min(1024).max(128_000).default(DEFAULT_MAX_OUTPUT_TOKENS),
   AI_MAX_CONCURRENT_RUNS: z.coerce.number().int().min(1).max(20).default(DEFAULT_MAX_CONCURRENT_RUNS),
   AI_RUN_TIMEOUT_MINUTES: z.coerce.number().int().positive().max(240).default(DEFAULT_RUN_TIMEOUT_MINUTES),
+  AI_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(DEFAULT_WORKER_CONCURRENCY),
   AI_RUN_LOG_LIMIT: z.coerce.number().int().min(1).default(DEFAULT_RUN_LOG_LIMIT),
 })
 
@@ -212,6 +217,20 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         maxConcurrentRuns: config.AI_MAX_CONCURRENT_RUNS,
         log: context.log,
       })
+      // Read by its own handler, which enqueues the next job when a run is
+      // still waiting. The handler runs after boot, so the binding is set.
+      const drainJob: JobHandle<AiDrainJobData> = context.jobs.define(
+        defineAiDrainJob({
+          executor,
+          enqueueNext: async (workspaceId) => {
+            await context.transaction(async ({ jobs }) => {
+              await jobs.enqueue(drainJob, { workspaceId })
+            })
+          },
+          runTimeoutMinutes: config.AI_RUN_TIMEOUT_MINUTES,
+          concurrency: config.AI_WORKER_CONCURRENCY,
+        }),
+      )
       const service = createAiService({
         db: context.db,
         transaction: context.transaction,
@@ -223,7 +242,7 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         coreCreateId: context.createId,
         createRunId,
         entitlements: context.entitlements,
-        executor,
+        drainJob,
         now: context.now,
         runTimeoutMinutes: config.AI_RUN_TIMEOUT_MINUTES,
         runLogLimit: config.AI_RUN_LOG_LIMIT,
