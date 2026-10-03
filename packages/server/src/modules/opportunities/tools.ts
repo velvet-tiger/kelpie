@@ -26,6 +26,7 @@ export function registerOpportunitiesTools(
   registerCrudTools(mcp, {
     resource: 'opportunities',
     subject: 'opportunity',
+    scopes: { read: 'opportunities:read', write: 'opportunities:write' },
     about:
       'A non-sales chance: a grant, accelerator, tender, press or speaking slot. ' +
       'Not another word for a deal.',

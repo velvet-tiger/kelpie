@@ -3,6 +3,7 @@ import type { Context, Handler, MiddlewareHandler } from 'hono'
 
 import type { Actor } from '../lib/actor.ts'
 import { requireWorkspaceId } from '../lib/actor.ts'
+import { requireApiKeyScope } from '../lib/apiKeyScopes.ts'
 import { CAPTCHA_PROVIDER_VARIABLE } from '../lib/captcha.ts'
 import type { CaptchaAccess, CaptchaProvider } from '../lib/captcha.ts'
 import type { Environment } from '../lib/config.ts'
@@ -546,10 +547,16 @@ function createModuleContext(
         accumulator.mcpTools.push({
           name: definition.name,
           description: definition.description,
+          scope: definition.scope,
           inputSchema: definition.inputSchema,
           // Parsing here is what keeps MCP and REST from drifting: both surfaces
           // validate with the module's schema and fail with the same API error.
           invoke: async (rawInput, actor) => {
+            // Here and not only at the MCP endpoint, so a module that calls
+            // tools in-process with the caller's actor (`ai` person intake)
+            // cannot do more than that caller's key allows.
+            requireApiKeyScope(actor, definition.scope)
+
             const parsed = definition.inputSchema.safeParse(rawInput)
 
             if (!parsed.success) {

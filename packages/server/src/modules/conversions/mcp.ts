@@ -1,5 +1,5 @@
 import { convertEnquiryBody, convertPipelineRecordBody, PIPELINE_KINDS } from '@kelpie/schemas'
-import type { PipelineKind } from '@kelpie/schemas'
+import type { ApiKeyGranularScope, PipelineKind } from '@kelpie/schemas'
 import { z } from 'zod'
 
 import type { McpToolRegistry } from '../../runtime/module.ts'
@@ -15,6 +15,15 @@ const CONVERT_TOOL_RESOURCES: Readonly<Record<PipelineKind, string>> = {
   opportunity: 'opportunities',
   raise: 'raises',
   partnership: 'partnerships',
+}
+
+/** A conversion writes the source record, so it needs what `POST /v1/<source>/:id/convert` needs. */
+const CONVERT_TOOL_SCOPES: Readonly<Record<PipelineKind, ApiKeyGranularScope>> = {
+  enquiry: 'enquiries:write',
+  deal: 'deals:write',
+  opportunity: 'opportunities:write',
+  raise: 'raises:write',
+  partnership: 'partnerships:write',
 }
 
 export function registerPipelineConvertTool(
@@ -34,6 +43,7 @@ export function registerPipelineConvertTool(
       'Creates a new record, moves notes/activities/decisions/plans to it, copies ' +
       'linked people, and leaves the source in place with a conversion link. ' +
       `Target types: ${PIPELINE_KINDS.join(', ')}. 409 if already converted.`,
+    scope: CONVERT_TOOL_SCOPES[sourceKind],
     inputSchema: bodySchema.and(z.strictObject({ id: idArg })),
     invoke: async (args, actor) => {
       const { id, ...body } = args
@@ -59,6 +69,7 @@ export function registerEnquiryConvertToDealTool(
     description:
       'Convert an enquiry to a Deal. Same as enquiries_convert with target_type deal. ' +
       'Mirrors POST /v1/enquiries/{id}/convert.',
+    scope: 'enquiries:write',
     inputSchema: z.strictObject({ id: idArg }),
     invoke: async ({ id }, actor) => {
       const { targetKind, target, personIds } = await conversions.convert(actor, 'enquiry', id, {

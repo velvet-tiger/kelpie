@@ -209,6 +209,7 @@ function stubTool(name: string, log: StubToolCall[], behaviors: Map<string, Stub
   return {
     name,
     description: `Stub tool ${name} for the AI executor tests.`,
+    scope: 'people:write',
     inputSchema: z.record(z.string(), z.unknown()),
     invoke(rawInput: unknown, actor: Actor): Promise<unknown> {
       log.push({ toolName: name, input: rawInput, actor })

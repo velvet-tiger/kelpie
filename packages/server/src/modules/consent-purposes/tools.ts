@@ -29,6 +29,7 @@ export function registerConsentPurposesTools(
   registerCrudTools(mcp, {
     resource: 'consent_purposes',
     subject: 'consent purpose',
+    scopes: { read: 'consent_purposes:read', write: 'consent_purposes:write' },
     about:
       'A workspace-defined consent purpose. Read these before writing a person ' +
       'consent or setting a form/import purpose_id.',

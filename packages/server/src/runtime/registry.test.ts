@@ -34,6 +34,7 @@ const greetingModule: KelpieModule = {
     context.mcp.tool({
       name: 'greeting.say',
       description: 'Returns a greeting for a name.',
+      scope: 'search:read',
       inputSchema: z.object({ name: z.string() }),
       invoke: (input, actor) =>
         Promise.resolve({
@@ -410,6 +411,20 @@ describe('module MCP tools', () => {
     })
   })
 
+  it('refuses a key without the tool scope before it reads the arguments', async () => {
+    const { contributions } = await createTestApp({
+      modules: [greetingModule],
+      environment: { GREETING_WORD: 'Hello' },
+    })
+    const tool = contributions.mcpTools[0]
+    const scoped = { ...workspaceKeyActor('ws_greeting'), scopes: ['people:read' as const] }
+
+    await expect(tool?.invoke({ name: 42 }, scoped)).rejects.toMatchObject({ code: 'forbidden' })
+    expect(
+      await tool?.invoke({ name: 'ada' }, { ...scoped, scopes: ['search:read' as const] }),
+    ).toMatchObject({ greeting: 'Hello, ada' })
+  })
+
   it('rejects bad arguments with the same error a REST route would return', async () => {
     const { contributions } = await createTestApp({
       modules: [greetingModule],
@@ -441,6 +456,7 @@ describe('module MCP tools', () => {
         const definition = {
           name: 'thing.do',
           description: 'Does the thing.',
+          scope: 'search:read' as const,
           inputSchema: z.object({}),
           invoke: () => Promise.resolve(null),
         }
@@ -467,6 +483,7 @@ describe('context.mcp.list', () => {
         context.mcp.tool({
           name: 'reader.own',
           description: 'Registered by the reader.',
+          scope: 'search:read',
           inputSchema: z.object({}),
           invoke: () => Promise.resolve(null),
         })
@@ -483,6 +500,7 @@ describe('context.mcp.list', () => {
         context.mcp.tool({
           name: 'later.tool',
           description: 'Registered after the reader.',
+          scope: 'search:read',
           inputSchema: z.object({}),
           invoke: () => Promise.resolve(null),
         })

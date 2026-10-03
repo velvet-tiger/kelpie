@@ -17,6 +17,7 @@ export function registerHandbookTools(mcp: McpToolRegistry, service: HandbookSer
   registerCrudTools(mcp, {
     resource: 'handbook_pages',
     subject: 'handbook page',
+    scopes: { read: 'handbook:read', write: 'handbook:write' },
     about:
       'A markdown page of company knowledge: voice, ICP, how we sell, case studies. ' +
       'Read these before writing anything a customer will see.',

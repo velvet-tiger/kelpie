@@ -1,3 +1,4 @@
+import type { ApiKeyGranularScope } from '@kelpie/schemas'
 import type { Context, Handler, Hono, MiddlewareHandler } from 'hono'
 import type { ZodType } from 'zod'
 
@@ -42,6 +43,12 @@ export interface SchemaContribution {
 export interface McpToolDefinition<Input> {
   readonly name: string
   readonly description: string
+  /**
+   * The scope a bearer caller needs: the same one the matching REST route
+   * needs in `lib/apiKeyScopes.ts`. Checked on every call, over MCP or
+   * in-process, before the arguments are parsed.
+   */
+  readonly scope: ApiKeyGranularScope
   readonly inputSchema: ZodType<Input>
   readonly invoke: (input: Input, actor: Actor) => Promise<unknown>
 }
@@ -53,6 +60,7 @@ export interface McpToolDefinition<Input> {
 export interface McpTool {
   readonly name: string
   readonly description: string
+  readonly scope: ApiKeyGranularScope
   readonly inputSchema: ZodType
   readonly invoke: (rawInput: unknown, actor: Actor) => Promise<unknown>
 }

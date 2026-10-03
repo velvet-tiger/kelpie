@@ -23,6 +23,7 @@ export function registerSampleDataTools(
     name: 'sample_data_install',
     description:
       'Populate this workspace with a small sample of companies, people, and other CRM records. Adds them next to existing records. Skips objects for modules that are switched off. Fails if a sample email or domain already exists.',
+    scope: 'sample_data:write',
     inputSchema: installArgs,
     async invoke(_args, actor) {
       const counts = await service.install(actor, requireWorkspaceId(actor))

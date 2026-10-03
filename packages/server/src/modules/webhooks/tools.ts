@@ -37,6 +37,7 @@ export function registerWebhooksTools(mcp: McpToolRegistry, service: WebhooksSer
   mcp.tool({
     name: 'webhooks_list',
     description: 'List this workspace\'s webhook registrations. Mirrors GET /v1/webhooks.',
+    scope: 'webhooks:read',
     inputSchema: listArgs,
     invoke: async (args, actor) =>
       pageResult(await service.list(actor, { status: args.status }, toListQuery(args)), webhookResponse),
@@ -45,6 +46,7 @@ export function registerWebhooksTools(mcp: McpToolRegistry, service: WebhooksSer
   mcp.tool({
     name: 'webhooks_get',
     description: 'Fetch one webhook registration. Mirrors GET /v1/webhooks/{id}.',
+    scope: 'webhooks:read',
     inputSchema: z.strictObject({ id: idArg }),
     invoke: async ({ id }, actor) => webhookResponse(await service.get(actor, id)),
   })
@@ -55,6 +57,7 @@ export function registerWebhooksTools(mcp: McpToolRegistry, service: WebhooksSer
       'Register an endpoint for record.created, record.updated, record.deleted or ' +
       'form.submitted. The reply carries the signing secret once and never again: hand it ' +
       'to whoever runs the receiver. Admin only. Mirrors POST /v1/webhooks.',
+    scope: 'webhooks:write',
     inputSchema: createBody,
     invoke: async (body, actor) =>
       createdWebhookResponse(await service.create(actor, { url: body.url, events: body.events })),
@@ -66,6 +69,7 @@ export function registerWebhooksTools(mcp: McpToolRegistry, service: WebhooksSer
       'Change a registration\'s url, events, or status. status takes active or paused; ' +
       'failing is what delivery reports, not something to assert. Admin only. ' +
       'Mirrors PATCH /v1/webhooks/{id}.',
+    scope: 'webhooks:write',
     inputSchema: updateBody.extend({ id: idArg }),
     invoke: async ({ id, ...changes }, actor) => webhookResponse(await service.update(actor, id, changes)),
   })
@@ -77,6 +81,7 @@ export function registerWebhooksTools(mcp: McpToolRegistry, service: WebhooksSer
       'at once, which is what a leak calls for; true keeps signing under both for 24 hours ' +
       'so an un-redeployed receiver still verifies. Admin only. ' +
       'Mirrors POST /v1/webhooks/{id}/rotate_secret.',
+    scope: 'webhooks:write',
     inputSchema: rotateBody.extend({ id: idArg }),
     invoke: async ({ id, overlap }, actor) =>
       createdWebhookResponse(await service.rotateSecret(actor, id, { overlap: overlap ?? false })),
@@ -85,6 +90,7 @@ export function registerWebhooksTools(mcp: McpToolRegistry, service: WebhooksSer
   mcp.tool({
     name: 'webhooks_delete',
     description: 'Remove a registration and its delivery log. Admin only. Mirrors DELETE /v1/webhooks/{id}.',
+    scope: 'webhooks:write',
     inputSchema: z.strictObject({ id: idArg }),
     invoke: async ({ id }, actor) => {
       await service.remove(actor, id)
@@ -98,6 +104,7 @@ export function registerWebhooksTools(mcp: McpToolRegistry, service: WebhooksSer
     description:
       'Recent delivery attempts for one registration, for working out why a receiver is not ' +
       'hearing them. Keeps 30 days by default. Mirrors GET /v1/webhooks/{id}/deliveries.',
+    scope: 'webhooks:read',
     inputSchema: deliveryListArgs,
     invoke: async (args, actor) =>
       pageResult(

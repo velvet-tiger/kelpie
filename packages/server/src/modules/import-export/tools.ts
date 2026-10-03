@@ -117,6 +117,7 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
     description:
       'Export every record of one object as CSV text. Refuses an export too large to sit in ' +
       'a tool result, and names the download to use instead. Mirrors GET /v1/export/{object}.csv.',
+    scope: 'import_export:read',
     inputSchema: z.strictObject({ object: exportObjectArg }),
     invoke: async ({ object }, actor) => ({
       object,
@@ -129,6 +130,7 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
     description:
       'The header row Kelpie expects for one object, with no records in it. Start a hand-built ' +
       'import from this. Mirrors GET /v1/export/templates/{object}.csv.',
+    scope: 'import_export:read',
     inputSchema: z.strictObject({ object: exportObjectArg }),
     invoke: async ({ object }, actor) => ({
       object,
@@ -142,6 +144,7 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
       'Dry-run a CSV: creates an import job, reports per-row create, update, skip and error ' +
       'counts, and writes nothing. Commit it afterwards with import_commit and the same file. ' +
       'Mirrors POST /v1/import/jobs.',
+    scope: 'import_export:write',
     inputSchema: previewArgs,
     invoke: async (args, actor) =>
       importJobResponse(
@@ -165,6 +168,7 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
       'Apply a job that was dry-run. Send back the same file: a job keeps only its digest, ' +
       'and a different one is refused. Re-running a commit is safe. Mirrors ' +
       'POST /v1/import/jobs/{id}/commit.',
+    scope: 'import_export:write',
     inputSchema: z.strictObject({ id: idArg, csv: csvArg }),
     invoke: async ({ id, csv }, actor) => importJobResponse(await service.commit(actor, id, csv)),
   })
@@ -174,6 +178,7 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
     description:
       'Read a job: status, counts and per-row errors. Poll this while a job is validating or ' +
       'committing. Mirrors GET /v1/import/jobs/{id}.',
+    scope: 'import_export:read',
     inputSchema: z.strictObject({ id: idArg }),
     invoke: async ({ id }, actor) => importJobResponse(await service.getJob(actor, id)),
   })

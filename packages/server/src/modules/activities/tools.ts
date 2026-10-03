@@ -26,6 +26,7 @@ export function registerActivitiesTools(mcp: McpToolRegistry, service: Activitie
     description:
       'Read one record\'s timeline: what changed, who changed it, and when. Always names ' +
       'a record; there is no workspace-wide feed. Cursor paged. Mirrors GET /v1/activities.',
+    scope: 'activities:read',
     inputSchema: listArgs,
     invoke: async (args, actor) =>
       pageResult(

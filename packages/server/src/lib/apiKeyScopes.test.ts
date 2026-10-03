@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { expandApiKeyScopes, satisfiesApiKeyScope } from '@kelpie/schemas'
 
-import { resolveMcpScope, resolveRestScope } from './apiKeyScopes.ts'
+import { resolveRestScope } from './apiKeyScopes.ts'
 
 describe('expandApiKeyScopes', () => {
   it('expands read:objects to CRM read scopes', () => {
@@ -63,19 +63,15 @@ describe('resolveRestScope', () => {
     expect(resolveRestScope('POST', '/v1/forms/frm_1/regenerate-slug')).toBe('forms:write')
     expect(resolveRestScope('POST', '/v1/forms/frm_1/submissions/sub_1/release')).toBe('forms:write')
   })
-})
 
-describe('resolveMcpScope', () => {
-  it('maps CRUD tool names', () => {
-    expect(resolveMcpScope('people_list')).toBe('people:read')
-    expect(resolveMcpScope('people_create')).toBe('people:write')
-  })
-
-  it('maps the submission delete tool to forms write', () => {
-    expect(resolveMcpScope('form_submissions_delete')).toBe('forms:write')
-  })
-
-  it('maps search_query', () => {
-    expect(resolveMcpScope('search_query')).toBe('search:read')
+  it('needs ai read to see AI settings and runs, and ai write to change settings or run intake', () => {
+    expect(resolveRestScope('GET', '/v1/ai/settings')).toBe('ai:read')
+    expect(resolveRestScope('GET', '/v1/ai/runs')).toBe('ai:read')
+    expect(resolveRestScope('GET', '/v1/ai/runs/airun_1')).toBe('ai:read')
+    expect(resolveRestScope('POST', '/v1/ai/settings')).toBe('ai:write')
+    expect(resolveRestScope('DELETE', '/v1/ai/settings')).toBe('ai:write')
+    expect(resolveRestScope('POST', '/v1/ai/person-intake/identify')).toBe('ai:write')
+    expect(resolveRestScope('POST', '/v1/ai/person-intake/research')).toBe('ai:write')
+    expect(resolveRestScope('POST', '/v1/ai/person-intake/apply')).toBe('ai:write')
   })
 })

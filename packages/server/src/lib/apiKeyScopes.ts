@@ -6,7 +6,7 @@ import type { Actor } from './actor.ts'
 import { AppError } from './errors.ts'
 
 /**
- * REST and MCP scope enforcement for API keys.
+ * REST scope enforcement for API keys. MCP tools declare their own scope.
  *
  * Sessions are never scoped. An empty scope list on a key means full access.
  */
@@ -118,6 +118,11 @@ const ROUTE_SCOPE_RULES: readonly RouteScopeRule[] = [
   { methods: ['POST'], pattern: /^\/v1\/workspaces\/[^/]+\/handbook\/seed$/u, scope: 'handbook:write' },
   { methods: ['POST'], pattern: /^\/v1\/workspaces\/[^/]+\/relink-email-domains$/u, scope: 'workspace:write' },
   { methods: ['GET'], pattern: /^\/v1\/mcp\/tools$/u, scope: 'search:read' },
+  { methods: ['GET'], pattern: /^\/v1\/ai\/(?:settings|runs(?:\/[^/]+)?)$/u, scope: 'ai:read' },
+  { methods: ['POST', 'DELETE'], pattern: /^\/v1\/ai\/settings$/u, scope: 'ai:write' },
+  // Person intake spends the workspace's AI budget. Every record it reads or
+  // writes also needs that record's own scope, which the tools check.
+  { methods: ['POST'], pattern: /^\/v1\/ai\/person-intake\/(?:identify|research|apply)$/u, scope: 'ai:write' },
 ]
 
 function storedScopes(actor: Actor): readonly ApiKeyScope[] {
@@ -168,69 +173,6 @@ export function resolveRestScope(method: string, path: string): ApiKeyGranularSc
     if (rule.methods.includes(method) && rule.pattern.test(path)) {
       return rule.scope
     }
-  }
-
-  return null
-}
-
-const MCP_READ_VERBS = new Set(['list', 'get', 'query'])
-const MCP_WRITE_VERBS = new Set(['create', 'update', 'delete', 'commit', 'resolve', 'run', 'rotate_secret', 'install'])
-
-/** Maps REST resource segments used in MCP tool names to scope resources. */
-const MCP_RESOURCE_ALIASES: Readonly<Record<string, string>> = {
-  handbook_pages: 'handbook',
-  plan_items: 'plan_items',
-  pipeline_stages: 'pipeline_stages',
-  custom_fields: 'custom_fields',
-  consent_purposes: 'consent_purposes',
-  form_submissions: 'forms',
-  list_memberships: 'lists',
-  event_associations: 'events',
-  agent_tasks: 'agent_tasks',
-  agent_runs: 'agent_runs',
-  import_jobs: 'import_export',
-  export: 'import_export',
-}
-
-export function resolveMcpScope(toolName: string): ApiKeyGranularScope | null {
-  if (toolName === 'search_query') {
-    return 'search:read'
-  }
-
-  const match = /^([a-z0-9_]+)_(list|get|create|update|delete|query|commit|resolve|run|rotate_secret|install)$/u.exec(
-    toolName,
-  )
-
-  if (match === null) {
-    const parts = toolName.split('_')
-    const verb = parts.at(-1)
-
-    if (verb === undefined) {
-      return null
-    }
-
-    const resource = MCP_RESOURCE_ALIASES[parts.slice(0, -1).join('_')] ?? parts.slice(0, -1).join('_')
-
-    if (MCP_READ_VERBS.has(verb)) {
-      return `${resource}:read` as ApiKeyGranularScope
-    }
-
-    if (MCP_WRITE_VERBS.has(verb)) {
-      return `${resource}:write` as ApiKeyGranularScope
-    }
-
-    return null
-  }
-
-  const [, rawResource, verb] = match
-  const resource = MCP_RESOURCE_ALIASES[rawResource ?? ''] ?? rawResource ?? ''
-
-  if (MCP_READ_VERBS.has(verb ?? '')) {
-    return `${resource}:read` as ApiKeyGranularScope
-  }
-
-  if (MCP_WRITE_VERBS.has(verb ?? '')) {
-    return `${resource}:write` as ApiKeyGranularScope
   }
 
   return null
