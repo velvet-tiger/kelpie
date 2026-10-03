@@ -38,6 +38,7 @@ export function registerCustomFieldsTools(
   registerCrudTools(mcp, {
     resource: 'custom_fields',
     subject: 'custom field',
+    scopes: { read: 'custom_fields:read', write: 'custom_fields:write' },
     about:
       'A workspace-defined field on a record type. Read these before writing values in a ' +
       'record create or update: a value is only accepted if it matches a definition here.',

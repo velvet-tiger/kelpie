@@ -1,3 +1,4 @@
+import type { ApiKeyGranularScope } from '@kelpie/schemas'
 import { z } from 'zod'
 import type { ZodType } from 'zod'
 
@@ -128,6 +129,8 @@ export interface CrudToolSpec<
   readonly resource: string
   /** Singular, for descriptions: `person`. */
   readonly subject: string
+  /** What `list` and `get` need, and what the three writes need. The REST routes need the same. */
+  readonly scopes: { readonly read: ApiKeyGranularScope; readonly write: ApiKeyGranularScope }
   /** One line an agent reads to know what this object is for. */
   readonly about: string
   readonly service: CrudService<View, CreateInput, UpdateInput, Filters>
@@ -171,11 +174,12 @@ export function registerCrudTools<
   mcp: McpToolRegistry,
   spec: CrudToolSpec<View, CreateInput, UpdateInput, Filters, ListArgs, CreateArgs, UpdateArgs>,
 ): void {
-  const { resource, subject, about, service, render } = spec
+  const { resource, subject, about, service, render, scopes } = spec
 
   mcp.tool({
     name: `${resource}_list`,
     description: `List ${subject} records. ${about} Cursor paged. Mirrors GET /v1/${resource}.`,
+    scope: scopes.read,
     inputSchema: spec.listArgs,
     invoke: async (args, actor) =>
       pageResult(await service.list(actor, spec.toFilters(args), toListQuery(args)), render),
@@ -184,6 +188,7 @@ export function registerCrudTools<
   mcp.tool({
     name: `${resource}_get`,
     description: `Fetch one ${subject} by id. ${about} Mirrors GET /v1/${resource}/{id}.`,
+    scope: scopes.read,
     inputSchema: z.strictObject({ id: idArg }),
     invoke: async ({ id }, actor) => render(await service.get(actor, id)),
   })
@@ -191,6 +196,7 @@ export function registerCrudTools<
   mcp.tool({
     name: `${resource}_create`,
     description: `Create a ${subject}. ${about} Mirrors POST /v1/${resource}.`,
+    scope: scopes.write,
     inputSchema: spec.createArgs,
     invoke: async (args, actor) => render(await service.create(actor, spec.toCreateInput(args))),
   })
@@ -200,6 +206,7 @@ export function registerCrudTools<
     description:
       `Update a ${subject}. Only the fields you send change; null clears a nullable one. ` +
       `Mirrors PATCH /v1/${resource}/{id}.`,
+    scope: scopes.write,
     inputSchema: spec.updateArgs,
     invoke: async (args, actor) =>
       render(await service.update(actor, args.id, spec.toUpdateInput(args))),
@@ -216,6 +223,7 @@ export function registerCrudTools<
     description:
       `Delete a ${subject}. Dependent records go with it; a record something else ` +
       `independently references refuses with a conflict. Mirrors DELETE /v1/${resource}/{id}.`,
+    scope: scopes.write,
     inputSchema: z.strictObject({ id: idArg }),
     invoke: async ({ id }, actor) => {
       await service.remove(actor, id)

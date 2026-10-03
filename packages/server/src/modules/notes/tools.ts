@@ -27,6 +27,7 @@ export function registerNotesTools(mcp: McpToolRegistry, service: NotesService):
   registerCrudTools(mcp, {
     resource: 'notes',
     subject: 'note',
+    scopes: { read: 'notes:read', write: 'notes:write' },
     about:
       'Freeform markdown attached to any record. A pinned one is what somebody wanted read first. ' +
       'A body cites another record by its id, either bare (prt_01J…) or as a link ' +

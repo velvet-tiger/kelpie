@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 
 import type { Actor } from '../../lib/actor.ts'
-import { hasApiKeyScope, resolveMcpScope } from '../../lib/apiKeyScopes.ts'
+import { hasApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import { AppError } from '../../lib/errors.ts'
 import { requestOrigin } from '../../lib/http.ts'
 import type { Logger } from '../../lib/logger.ts'
@@ -121,7 +121,11 @@ function bearerChallenge(
  * An API key gets no such answer: nobody can grant it more from here, so its
  * missing scope stays an in-band tool error, as before.
  */
-function missingOAuthScopes(actor: Actor, messages: readonly (JsonRpcMessage | undefined)[]): string[] {
+function missingOAuthScopes(
+  actor: Actor,
+  tools: readonly McpTool[],
+  messages: readonly (JsonRpcMessage | undefined)[],
+): string[] {
   if (actor.kind !== 'oauth') {
     return []
   }
@@ -134,10 +138,10 @@ function missingOAuthScopes(actor: Actor, messages: readonly (JsonRpcMessage | u
     }
 
     const name = readParamsName(message.params)
-    const required = name === undefined ? null : resolveMcpScope(name)
+    const tool = name === undefined ? undefined : tools.find((candidate) => candidate.name === name)
 
-    if (required !== null && !hasApiKeyScope(actor, required)) {
-      missing.add(required)
+    if (tool !== undefined && !hasApiKeyScope(actor, tool.scope)) {
+      missing.add(tool.scope)
     }
   }
 
@@ -467,7 +471,7 @@ export function createMcpEndpoint(dependencies: McpRouterDependencies): McpEndpo
       )
     }
 
-    const missingScopes = missingOAuthScopes(actor, parsed)
+    const missingScopes = missingOAuthScopes(actor, dependencies.tools, parsed)
 
     if (missingScopes.length > 0) {
       const description = `This OAuth token does not have the ${missingScopes.join(', ')} scope`

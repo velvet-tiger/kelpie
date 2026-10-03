@@ -24,6 +24,7 @@ export function registerPlansTools(mcp: McpToolRegistry, service: PlansService):
   registerCrudTools(mcp, {
     resource: 'plan_items',
     subject: 'plan item',
+    scopes: { read: 'plan_items:read', write: 'plan_items:write' },
     about:
       'A dated, owned next step on a deal, opportunity, partnership or raise. ' +
       'Next steps live here, not in a summary field.',

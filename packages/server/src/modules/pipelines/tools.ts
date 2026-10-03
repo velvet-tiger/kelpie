@@ -17,6 +17,7 @@ export function registerPipelineTools(mcp: McpToolRegistry, service: PipelineSta
   registerCrudTools(mcp, {
     resource: 'pipeline_stages',
     subject: 'pipeline stage',
+    scopes: { read: 'pipeline_stages:read', write: 'pipeline_stages:write' },
     about:
       'A column on one of the four kanban boards. Read these to find the stage_id to ' +
       'move a deal, opportunity, partnership or raise into.',
@@ -37,6 +38,7 @@ export function registerPipelineTools(mcp: McpToolRegistry, service: PipelineSta
         description:
           'Delete a pipeline stage. A stage that still holds records refuses unless ' +
           'move_to names the stage they move to. Mirrors DELETE /v1/pipeline_stages/{id}.',
+        scope: 'pipeline_stages:write',
         inputSchema: z.strictObject({
           id: idArg,
           move_to: idArg.optional().describe('Where the records standing in this stage go.'),

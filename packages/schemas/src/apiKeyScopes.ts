@@ -62,6 +62,7 @@ export const API_KEY_ADMIN_RESOURCES = [
   'agent_runs',
   'modules',
   'sample_data',
+  'ai',
 ] as const
 
 type WritableResource =
@@ -183,6 +184,8 @@ export const API_KEY_SCOPE_LABELS: Readonly<Record<ApiKeyScope, string>> = {
   'modules:write': 'Modules (write)',
   'sample_data:read': 'Sample data (read)',
   'sample_data:write': 'Sample data (write)',
+  'ai:read': 'AI (read)',
+  'ai:write': 'AI (write)',
 }
 
 const PRESET_EXPANSIONS: Readonly<Record<ApiKeyPresetScope, readonly ApiKeyGranularScope[]>> = {

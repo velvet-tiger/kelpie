@@ -50,6 +50,7 @@ export function registerEventsTools(
   registerCrudTools(mcp, {
     resource: 'events',
     subject: 'event',
+    scopes: { read: 'events:read', write: 'events:write' },
     about:
       'A dated gathering (webinar, meetup, dinner). Not a pipeline. People attach as attendances.',
     service: services.events,
@@ -72,6 +73,7 @@ export function registerEventsTools(
   registerCrudTools(mcp, {
     resource: 'attendances',
     subject: 'attendance',
+    scopes: { read: 'attendances:read', write: 'attendances:write' },
     about:
       "One person's registration for one event: registered, attended, no_show, or cancelled.",
     service: services.attendances,
@@ -93,6 +95,7 @@ export function registerEventsTools(
     description:
       'Events associated with another record (a Deal, Company, Role, …). ' +
       'Mirrors GET /v1/event-associations.',
+    scope: 'events:read',
     inputSchema: z.strictObject({
       target_type: z.enum(EVENT_ASSOCIATION_TARGET_TYPES),
       target_id: idArg,

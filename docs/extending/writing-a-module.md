@@ -40,7 +40,7 @@ export const flags: KelpieModule = {
 
 ## MCP tools
 
-`context.mcp.tool({ name, description, inputSchema, invoke })` registers a tool. Share the Zod schema between the tool and its REST route so the two cannot drift; `invoke` receives the parsed arguments and the authorized caller, and a validation failure answers exactly like the REST surface. A resource with the standard list/get/create/update/delete shape can register all five verbs at once with `registerCrudTools` from `@kelpie/server`.
+`context.mcp.tool({ name, description, scope, inputSchema, invoke })` registers a tool. `scope` is the API key scope a bearer caller needs, the same one the matching REST route needs (`'people:read'`, `'forms:write'`). The runtime checks it on every call, over MCP and in-process, before it parses the arguments. Share the Zod schema between the tool and its REST route so the two cannot drift; `invoke` receives the parsed arguments and the authorized caller, and a validation failure answers exactly like the REST surface. A resource with the standard list/get/create/update/delete shape can register all five verbs at once with `registerCrudTools` from `@kelpie/server`; give it `scopes: { read, write }`.
 
 `context.mcp.list()` returns every tool in the assembly, from every module. Call it at run time, not inside `register`: the list is complete only after boot. A module that acts through other modules' tools in-process, as the `ai` module does, reads it there.
 

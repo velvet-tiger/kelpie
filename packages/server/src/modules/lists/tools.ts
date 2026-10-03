@@ -67,6 +67,7 @@ export function registerListsTools(mcp: McpToolRegistry, service: ListsService):
   registerCrudTools(mcp, {
     resource: 'lists',
     subject: 'list',
+    scopes: { read: 'lists:read', write: 'lists:write' },
     about:
       'A named collection of records of one type, chosen when the list is created and fixed for its lifetime.',
     service,
@@ -83,6 +84,7 @@ export function registerListsTools(mcp: McpToolRegistry, service: ListsService):
     name: 'list_members_list',
     description:
       'List the records on one list. Cursor paged. Mirrors GET /v1/lists/{id}/members.',
+    scope: 'lists:read',
     inputSchema: membersListArgs,
     invoke: async (args, actor) =>
       pageResult(
@@ -96,6 +98,7 @@ export function registerListsTools(mcp: McpToolRegistry, service: ListsService):
     description:
       'Add a record to a list. The record\'s type must match the list\'s. ' +
       'Mirrors POST /v1/lists/{id}/members.',
+    scope: 'lists:write',
     inputSchema: addMemberArgs,
     invoke: async (args, actor) =>
       listMemberResponse(await service.addMember(actor, args.list_id, toAddMemberInput(args))),
@@ -105,6 +108,7 @@ export function registerListsTools(mcp: McpToolRegistry, service: ListsService):
     name: 'list_members_remove',
     description:
       'Remove a record from a list. Mirrors DELETE /v1/lists/{id}/members/{memberId}.',
+    scope: 'lists:write',
     inputSchema: removeMemberArgs,
     invoke: async (args, actor) => {
       await service.removeMember(actor, args.list_id, args.id)
@@ -118,6 +122,7 @@ export function registerListsTools(mcp: McpToolRegistry, service: ListsService):
     description:
       'Which lists is this record on? Returns one row per membership, with the ' +
       'list joined in. Mirrors GET /v1/list-memberships.',
+    scope: 'lists:read',
     inputSchema: membershipsForArgs,
     invoke: async (args, actor) => {
       const memberships = await service.membershipsFor(actor, args.target_type, args.target_id)

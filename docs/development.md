@@ -123,7 +123,7 @@ export const featureFlags: KelpieModule = {
     })
 
     context.schema(tables, '/abs/path/to/migrations')
-    context.mcp.tool({ name: 'flags.status', description: '…', inputSchema, invoke })
+    context.mcp.tool({ name: 'flags.status', description: '…', scope: 'workspace:read', inputSchema, invoke })
   },
 }
 ```

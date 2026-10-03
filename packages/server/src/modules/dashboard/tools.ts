@@ -33,6 +33,7 @@ export function registerDashboardTools(mcp: McpToolRegistry, service: DashboardS
       'partnership touchpoints at hand, contacts going cold, and the latest activity, notes and ' +
       'decisions. Each attention signal carries an exact total beside a capped list, and every ' +
       'cross-record row names the record it is about. Mirrors GET /v1/dashboard.',
+    scope: 'dashboard:read',
     inputSchema: getArgs,
     invoke: async (args, actor) =>
       dashboardResponse(await service.snapshot(actor, args.limit)),

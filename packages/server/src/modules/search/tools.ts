@@ -49,6 +49,7 @@ export function registerSearchTools(mcp: McpToolRegistry, service: SearchService
       'each group ranked and carrying an exact total, with a snippet centred on the match. A ' +
       'Decision, Note or Plan item result carries target_type and target_id: the record it is on. ' +
       'Mirrors GET /v1/search.',
+    scope: 'search:read',
     inputSchema: queryArgs,
     invoke: async (args, actor) =>
       searchResponse(

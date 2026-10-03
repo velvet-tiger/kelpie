@@ -39,6 +39,19 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/server`** — **Breaking: MCP tools declare their scope.**
+  `McpToolDefinition` and `McpTool` have a required `scope`, the API key scope
+  a bearer caller needs. The registry checks it on every call, before it
+  parses the arguments, so a module that calls tools in-process with the
+  caller's actor gets the same check. `registerCrudTools` takes
+  `scopes: { read, write }`. `resolveMcpScope`, which guessed the scope from
+  the tool name, is gone. A module that registers its own tools must add
+  `scope`. No migration.
+- **`@kelpie/schemas`** — New `ai` admin resource: `ai:read` and `ai:write`.
+  `read:all`, `write:all`, `read:admin`, `write:admin` and `admin` include
+  them. `GET /v1/ai/settings` and `/v1/ai/runs` need `ai:read`;
+  `POST`/`DELETE /v1/ai/settings` and `/v1/ai/person-intake/*` need
+  `ai:write`. A key with granular scopes and no `ai` scope loses these routes.
 - **`@kelpie/ui`** — Every tag field uses `TagInput`: the Tags field on
   Person, Company, Enquiry, Deal, Opportunity, Raise, Partnership and Event
   pages, and "Tag the person" and "Tag the company" on a form's Actions tab.
@@ -46,6 +59,20 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **Scope gaps.** A bearer key or OAuth token with any
+  scope could call these, because no scope rule matched them:
+  `POST /v1/forms/:id/regenerate-slug`,
+  `POST /v1/forms/:id/submissions/:submissionId/release`, every `/v1/ai/`
+  route, and 14 MCP tools: `workspace_members_set_role`,
+  `workspace_members_remove`, `workspace_invites_resend`,
+  `workspace_invites_revoke`, the six `*_convert` tools, `list_members_add`,
+  `list_members_remove`, `list_memberships_for`, `forms_regenerate_slug`,
+  `form_submissions_release`, `export_csv`, `export_template_csv` and
+  `import_preview`. Person intake `apply` also wrote People, Companies and
+  Positions with no scope check. Eleven other MCP tools needed a scope that no
+  key can hold, so a scoped key could never call them, for example
+  `workspace_members_list` and `webhook_deliveries_list`. Each one now needs
+  the scope of its REST route.
 - **`@kelpie/server`** — **Form embed height.** The embed page reported the
   height of the document, which is never smaller than the frame, so the
   snippet's starting `height:720px` became a floor: a short form never shrank

@@ -618,6 +618,48 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect(results.map((result) => result.status)).toEqual(['failed', 'created', 'skipped'])
     })
 
+    it('writes only what the calling key may write', async () => {
+      const owner = await enabledOwner(h, 'scoped@example.com')
+      const minted = await h.client.send('POST', '/v1/api-keys', {
+        cookie: owner.cookie,
+        body: { name: 'intake', kind: 'workspace', scopes: ['ai:write', 'people:write'] },
+      })
+      const response = await h.client.send('POST', '/v1/ai/person-intake/apply', {
+        bearer: readString(await minted.json(), 'secret'),
+        body: {
+          items: [
+            { key: 'co1', kind: 'company', action: 'create', existing_id: null, fields: { name: 'Brightline Health' } },
+            { key: 'person', kind: 'person', action: 'create', existing_id: null, fields: { name: 'Dana Reyes' } },
+          ],
+        },
+      })
+
+      expect(response.status).toBe(200)
+      const results = (readRecord(await response.json()).results as Record<string, unknown>[])
+      expect(results.map((result) => [result.key, result.status])).toEqual([
+        ['co1', 'failed'],
+        ['person', 'created'],
+      ])
+      expect(results[0]?.detail).toContain('companies:write')
+    })
+
+    it('refuses intake and AI settings to a key without the ai scope', async () => {
+      const owner = await enabledOwner(h, 'noai@example.com')
+      const minted = await h.client.send('POST', '/v1/api-keys', {
+        cookie: owner.cookie,
+        body: { name: 'reader', kind: 'workspace', scopes: ['write:objects'] },
+      })
+      const bearer = readString(await minted.json(), 'secret')
+      const apply = await h.client.send('POST', '/v1/ai/person-intake/apply', {
+        bearer,
+        body: { items: [{ key: 'person', kind: 'person', action: 'create', existing_id: null, fields: { name: 'A' } }] },
+      })
+
+      expect(apply.status).toBe(403)
+      expect((await h.client.send('DELETE', '/v1/ai/settings', { bearer })).status).toBe(403)
+      expect((await h.client.send('GET', '/v1/ai/runs', { bearer })).status).toBe(403)
+    })
+
     it('refuses a second person item', async () => {
       const owner = await enabledOwner(h, 'twice@example.com')
       const response = await h.client.send('POST', '/v1/ai/person-intake/apply', {

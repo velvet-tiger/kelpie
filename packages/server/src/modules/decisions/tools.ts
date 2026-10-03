@@ -19,6 +19,7 @@ export function registerDecisionsTools(mcp: McpToolRegistry, service: DecisionsS
   registerCrudTools(mcp, {
     resource: 'decisions',
     subject: 'decision',
+    scopes: { read: 'decisions:read', write: 'decisions:write' },
     about:
       'A commitment this company has already made. Read the open ones before proposing ' +
       'anything; contradicting one is worse than saying nothing.',

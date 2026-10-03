@@ -43,6 +43,7 @@ export function registerTagsTools(mcp: McpToolRegistry, service: TagsService): v
       'Tags that a Form will set count for person and company at zero. Read this before ' +
       'tagging a record, and reuse an existing tag rather than adding a near-duplicate. ' +
       'Mirrors GET /v1/tags.',
+    scope: 'tags:read',
     inputSchema: listArgs,
     invoke: async (args, actor) =>
       tagsResponse(

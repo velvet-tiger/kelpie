@@ -48,6 +48,7 @@ export function registerFormsTools(
   registerCrudTools(mcp, {
     resource: 'forms',
     subject: 'form',
+    scopes: { read: 'forms:read', write: 'forms:write' },
     about:
       'An embeddable inbound form. A submission upserts a person, a company and a ' +
       'position, and optionally opens a deal.',
@@ -67,6 +68,7 @@ export function registerFormsTools(
       "Replace a form's slug with a new random one. This changes the form's public " +
       'URLs, so every website that embeds the form stops working until it gets the ' +
       'new snippet. Mirrors POST /v1/forms/{id}/regenerate-slug.',
+    scope: 'forms:write',
     inputSchema: z.strictObject({ id: idArg.describe('The form whose slug to replace.') }),
     invoke: async (args, actor) => formResponse(await service.regenerateSlug(actor, args.id)),
   })
@@ -77,6 +79,7 @@ export function registerFormsTools(
       'List what people submitted through one form, newest first. Cursor paged. ' +
       'Submissions the spam check held are a separate list: pass status "spam". ' +
       'Mirrors GET /v1/forms/{id}/submissions.',
+    scope: 'forms:read',
     inputSchema: submissionListArgs,
     invoke: async (args, actor) =>
       pageResult(
@@ -92,6 +95,7 @@ export function registerFormsTools(
       'answers: it upserts the person, the company and the position, runs the form\'s ' +
       'actions and sends its emails, as if the submission had just arrived. ' +
       'Mirrors POST /v1/forms/{id}/submissions/{submission_id}/release.',
+    scope: 'forms:write',
     inputSchema: z.strictObject({
       form_id: idArg.describe('The form the submission belongs to.'),
       submission_id: idArg.describe('The held submission to release.'),
@@ -108,6 +112,7 @@ export function registerFormsTools(
       'are not deleted. An id that is not a submission of the form is skipped; ' +
       'deleted_ids names what went. ' +
       'Mirrors POST /v1/forms/{id}/submissions/delete.',
+    scope: 'forms:write',
     inputSchema: z.strictObject({
       form_id: idArg.describe('The form the submissions belong to.'),
       submission_ids: deleteSubmissionsBody.shape.ids.describe('The submissions to delete.'),

@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 import type { Actor } from '../../lib/actor.ts'
-import { requireApiKeyScope, resolveMcpScope } from '../../lib/apiKeyScopes.ts'
 import { AppError, describeThrown, internalErrorBody, toErrorBody } from '../../lib/errors.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { McpTool } from '../../runtime/module.ts'
@@ -318,23 +317,8 @@ async function callTool(
     return failure(id, INVALID_PARAMS, `Unknown tool "${parsed.data.name}"`)
   }
 
-  const requiredScope = resolveMcpScope(parsed.data.name)
-
-  if (requiredScope !== null) {
-    try {
-      requireApiKeyScope(actor, requiredScope)
-    } catch (error: unknown) {
-      if (error instanceof AppError && error.code === 'forbidden') {
-        return success(
-          id,
-          completeResult(dependencies, era, toolFailure(dependencies.logger, tool.name, error)),
-        )
-      }
-
-      throw error
-    }
-  }
-
+  // The tool checks its own scope before it parses anything, so a missing
+  // scope fails here like any other refusal: an in-band tool error.
   try {
     // `arguments` is optional on the wire and every tool schema is an object, so
     // an absent one is an empty object rather than a validation failure the

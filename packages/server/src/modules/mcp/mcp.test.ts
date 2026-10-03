@@ -1,3 +1,4 @@
+import { API_KEY_GRANULAR_SCOPES } from '@kelpie/schemas'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -51,9 +52,9 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
     await database.close()
   })
 
-  async function mintKey(cookie: string): Promise<string> {
+  async function mintKey(cookie: string, scopes?: readonly string[]): Promise<string> {
     const response = await client.send('POST', '/v1/api-keys', {
-      body: { name: 'agent', kind: 'workspace' },
+      body: { name: 'agent', kind: 'workspace', ...(scopes === undefined ? {} : { scopes }) },
       cookie,
     })
 
@@ -631,6 +632,35 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
 
     it('refuses a caller with no credentials', async () => {
       expect((await client.send('GET', '/v1/mcp/tools')).status).toBe(401)
+    })
+  })
+
+  describe('tool scopes', () => {
+    it('gives every registered tool a scope a key can hold', () => {
+      const granted: readonly string[] = API_KEY_GRANULAR_SCOPES
+
+      expect(harness.contributions.mcpTools.filter((tool) => !granted.includes(tool.scope))).toEqual([])
+    })
+
+    it('refuses a write tool to a key that can only read', async () => {
+      // The scope is checked before the arguments, so the ids need not exist.
+      const reader = await mintKey(acme.cookie, ['forms:read', 'workspace:read'])
+
+      expect((await callToolError('forms_regenerate_slug', { id: 'frm_none' }, reader)).code).toBe('forbidden')
+      expect(
+        (await callToolError('workspace_members_set_role', { member_id: 'mem_none', role: 'member' }, reader)).code,
+      ).toBe('forbidden')
+      expect((await callToolError('export_csv', { object: 'people' }, reader)).code).toBe('forbidden')
+    })
+
+    it('lets a key with the matching scope call a tool whose name is not resource_verb', async () => {
+      const reader = await mintKey(acme.cookie, ['workspace:read', 'lists:read'])
+      const person = readRecord(await callTool('people_create', { name: 'Ada Lovelace' }))
+
+      expect(readList(await callTool('workspace_members_list', {}, reader))).toHaveLength(1)
+      expect(
+        await callTool('list_memberships_for', { target_type: 'person', target_id: readString(person, 'id') }, reader),
+      ).toBeDefined()
     })
   })
 
