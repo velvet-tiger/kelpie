@@ -5,6 +5,7 @@ import type { Logger } from '../../lib/logger.ts'
 import type { AgentDispatchOutcome, AgentDispatcher } from '../../runtime/module.ts'
 import { SecretDecryptionError } from '../../lib/secrets.ts'
 import type { SecretCipher } from '../../lib/secrets.ts'
+import type { TransactionScope } from '../../runtime/transaction.ts'
 import * as repository from './repository.ts'
 import type { AgentRecord, RunRecord } from './repository.ts'
 import { dispatchPayload } from './wire.ts'
@@ -80,6 +81,7 @@ export function createHttpSender(
 
 export interface DispatchDependencies {
   readonly db: Database
+  readonly transaction: TransactionScope
   readonly now: () => Date
   readonly cipher: SecretCipher
   readonly send: SendDispatch
@@ -101,12 +103,39 @@ export interface DispatchEngine {
 }
 
 export function createDispatchEngine(dependencies: DispatchDependencies): DispatchEngine {
-  async function settle(runId: string, outcome: DispatchOutcome): Promise<void> {
-    await repository.updateRun(dependencies.db, runId, {
-      status: outcome.delivered ? 'succeeded' : 'failed',
-      failureReason: outcome.reason,
-      updatedAt: dependencies.now(),
-    })
+  /**
+   * Ends the run and reports it as `agent_tasks.run.settled`. Every path that
+   * ends a run goes through here. The update and the emit share one
+   * transaction: the event fires after the commit, and not at all on a
+   * rollback or for a run that had already ended.
+   */
+  async function settle(run: RunRecord, agent: AgentRecord, outcome: DispatchOutcome): Promise<void> {
+    const status = outcome.delivered ? 'succeeded' : 'failed'
+
+    await dependencies.transaction(
+      async ({ tx, events }) => {
+        const settled = await repository.settleRun(tx, run.id, {
+          status,
+          failureReason: outcome.reason,
+          updatedAt: dependencies.now(),
+        })
+
+        if (settled !== undefined) {
+          events.emit(
+            'agent_tasks.run.settled',
+            { type: 'agent_run', id: settled.id },
+            {
+              runId: settled.id,
+              taskId: settled.taskId,
+              agentId: settled.agentId,
+              managedBy: agent.managedBy,
+              status,
+            },
+          )
+        }
+      },
+      { workspaceId: run.workspaceId },
+    )
   }
 
   /**
@@ -143,7 +172,7 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
       })
     }
 
-    await settle(run.id, outcome)
+    await settle(run, agent, outcome)
   }
 
   return {
@@ -177,7 +206,7 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
               runId: run.id,
               error: describeThrown(error),
             })
-            await settle(run.id, {
+            await settle(run, agent, {
               delivered: false,
               status: null,
               reason:
@@ -207,7 +236,7 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
           })
         }
 
-        await settle(run.id, outcome)
+        await settle(run, agent, outcome)
       } catch (error: unknown) {
         // The engine's own boundary: `dispatch` promises to settle rather than
         // reject, because nothing awaits it. Whatever slipped past the paths
@@ -219,7 +248,7 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
         })
 
         try {
-          await settle(run.id, {
+          await settle(run, agent, {
             delivered: false,
             status: null,
             reason: describeThrown(error),

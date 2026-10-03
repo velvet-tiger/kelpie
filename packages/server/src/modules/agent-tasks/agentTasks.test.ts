@@ -4,22 +4,30 @@ import {
   registeredAgentSchema,
   resolvedAgentTaskSchema,
 } from '@kelpie/schemas'
+import type { KelpieEvent } from '@kelpie/schemas'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
+import { createSecretCipher } from '../../lib/secrets.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestClient, readList, readRecord, readString } from '../../testing/client.ts'
 import type { TestClient, TestOwner } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
-import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
+import { TEST_ENVIRONMENT, TEST_SECRET_ENCRYPTION_KEY } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
-import type { DispatchOutcome, DispatchRequest, SendDispatch } from './dispatch.ts'
+import { createDispatchEngine } from './dispatch.ts'
+import type { DispatchEngine, DispatchOutcome, DispatchRequest, SendDispatch } from './dispatch.ts'
+import type { AgentRunSettledData } from './events.ts'
 import { createAgentTasksModule } from './index.ts'
-import { agentRegistrations } from './schema.ts'
+import { findAgent, insertRun } from './repository.ts'
+import type { AgentRecord, RunRecord } from './repository.ts'
+import { agentRegistrations, agentRuns } from './schema.ts'
+import type { ResolvedTaskView } from './wire.ts'
 
 /**
  * `/v1/agent-tasks`, `/v1/agent-runs` and `/v1/agents`, against real Postgres.
@@ -44,11 +52,13 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
   /** What the fake sender was asked to send, and what it answers with. */
   let sent: DispatchRequest[]
   let outcome: DispatchOutcome
+  /** When set, the sender answers with this instead, so a test can hold a run at `running`. */
+  let pending: Promise<DispatchOutcome> | undefined
 
   const send: SendDispatch = (request) => {
     sent.push(request)
 
-    return Promise.resolve(outcome)
+    return pending ?? Promise.resolve(outcome)
   }
 
   /**
@@ -56,6 +66,10 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
    * in-process, the way the optional `ai` module does.
    */
   let received: Readonly<Record<string, unknown>>[]
+
+  /** Every `agent_tasks.run.settled` the bus published, whole envelope. */
+  let settledEvents: KelpieEvent<'agent_tasks.run.settled', AgentRunSettledData>[]
+
   const probeModule: KelpieModule = {
     id: 'probe',
     register(context) {
@@ -63,6 +77,15 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
         received.push(payload)
         return Promise.resolve({ delivered: true, status: 202, reason: null })
       })
+      return Promise.resolve()
+    },
+  }
+
+  /** A managing module whose dispatcher throws, to reach the engine's own boundary. */
+  const throwerModule: KelpieModule = {
+    id: 'thrower',
+    register(context) {
+      context.agentDispatch.provide(() => Promise.reject(new Error('the dispatcher threw')))
       return Promise.resolve()
     },
   }
@@ -83,7 +106,9 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
     await database.truncateAll()
     sent = []
     received = []
+    settledEvents = []
     outcome = DELIVERED
+    pending = undefined
 
     harness = await createTestApp({
       // The one module swapped for a configured copy. Order is resolved from
@@ -92,9 +117,13 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
         ...coreModules.filter((module) => module.id !== 'agent-tasks'),
         createAgentTasksModule(coreMigrationsDirectory, { send }),
         probeModule,
+        throwerModule,
       ],
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
+    })
+    harness.services.events.subscribe('agent_tasks.run.settled', (event) => {
+      settledEvents.push(event)
     })
     client = createTestClient(harness.app, harness.services.db)
     acme = await client.owner()
@@ -159,6 +188,114 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
     }
 
     throw new Error(`Run ${id} never settled`)
+  }
+
+  /** Starts `company.enrich` on a new company and answers the queued run's id. */
+  async function startRun(agentId: string): Promise<string> {
+    const companyId = await createCompany()
+    const response = await client.send('POST', '/v1/agent-tasks/company.enrich/run', {
+      body: { target_type: 'company', target_id: companyId, agent_id: agentId },
+      cookie: acme.cookie,
+    })
+
+    expect(response.status).toBe(201)
+
+    return readString(readRecord(await response.json()), 'id')
+  }
+
+  /**
+   * The run row is written before the event is published, so a poll that sees
+   * the final status can still be ahead of the bus. Waits for the event, then
+   * drains so that a second, wrong publication would be counted too.
+   */
+  async function settledEventsFor(runId: string): Promise<AgentRunSettledData[]> {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (settledEvents.some((event) => event.data.runId === runId)) {
+        break
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+
+    await harness.services.events.drain()
+
+    return settledEvents.filter((event) => event.data.runId === runId).map((event) => event.data)
+  }
+
+  /**
+   * A dispatch engine of the suite's own, on the harness's database and event
+   * bus, so a test can await a dispatch rather than poll for it.
+   */
+  function directEngine(sendDispatch: SendDispatch): { engine: DispatchEngine; logLines: string[] } {
+    const logLines: string[] = []
+
+    const engine = createDispatchEngine({
+      db: harness.services.db,
+      transaction: harness.services.transaction,
+      now: () => new Date(),
+      cipher: createSecretCipher({ SECRET_ENCRYPTION_KEY: TEST_SECRET_ENCRYPTION_KEY }),
+      send: sendDispatch,
+      findManagedDispatcher: () => undefined,
+      log: createLogger({ level: 'debug', transports: [createCaptureTransport((line) => logLines.push(line))] }),
+    })
+
+    return { engine, logLines }
+  }
+
+  interface DirectDispatch {
+    readonly runId: string
+    readonly run: RunRecord
+    readonly agent: AgentRecord
+    readonly resolved: ResolvedTaskView
+    readonly logLines: string[]
+    readonly dispatch: () => Promise<void>
+  }
+
+  /** A queued run on a new agent, ready for a direct engine to dispatch. */
+  async function directDispatch(sendDispatch: SendDispatch): Promise<DirectDispatch> {
+    const companyId = await createCompany()
+    const agentId = readString(await createAgent(), 'id')
+    const agent = await findAgent(database.db, acme.workspaceId, agentId)
+
+    if (agent === undefined) {
+      throw new Error(`Agent ${agentId} was not stored`)
+    }
+
+    const run = await insertRun(database.db, {
+      id: harness.services.createId('agentRun'),
+      workspaceId: acme.workspaceId,
+      agentId,
+      taskId: 'company.enrich',
+      targetType: 'company',
+      targetId: companyId,
+      status: 'queued',
+    })
+    const resolved: ResolvedTaskView = {
+      taskId: 'company.enrich',
+      targetType: 'company',
+      targetId: companyId,
+      prompt: 'Enrich the company.',
+      basePrompt: 'Enrich the company.',
+      context: {
+        targetLabel: 'Brightline Health',
+        deepLink: `/companies/${companyId}`,
+        handbookSlugs: [],
+        pinnedNoteIds: [],
+        openPlanIds: [],
+        openDecisionIds: [],
+        related: {},
+      },
+    }
+    const { engine, logLines } = directEngine(sendDispatch)
+
+    return {
+      runId: run.id,
+      run,
+      agent,
+      resolved,
+      logLines,
+      dispatch: () => engine.dispatch(run, agent, resolved),
+    }
   }
 
   /** Invites an address as a plain member and accepts as a fresh account. */
@@ -686,6 +823,191 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
       expect(response.status).toBe(404)
       expect(sent).toHaveLength(0)
+    })
+  })
+
+  describe('agent_tasks.run.settled', () => {
+    it('fires once, with ids and the status only, when the endpoint accepts', async () => {
+      const agentId = readString(await createAgent(), 'id')
+      const runId = await startRun(agentId)
+
+      await settledRun(runId)
+
+      expect(await settledEventsFor(runId)).toEqual([
+        { runId, taskId: 'company.enrich', agentId, managedBy: null, status: 'succeeded' },
+      ])
+
+      const envelope = settledEvents[0]
+
+      expect(envelope?.target).toEqual({ type: 'agent_run', id: runId })
+      expect(envelope?.workspaceId).toBe(acme.workspaceId)
+      expect(envelope?.actor).toEqual({ kind: 'system' })
+    })
+
+    it('fires once as failed, without the reason, when the endpoint refuses', async () => {
+      outcome = { delivered: false, status: 500, reason: 'agent endpoint answered 500' }
+
+      const agentId = readString(await createAgent(), 'id')
+      const runId = await startRun(agentId)
+
+      await settledRun(runId)
+
+      const events = await settledEventsFor(runId)
+
+      expect(events).toEqual([{ runId, taskId: 'company.enrich', agentId, managedBy: null, status: 'failed' }])
+      expect(JSON.stringify(events)).not.toContain('agent endpoint answered 500')
+    })
+
+    it('fires once when a module accepts a managed agent’s run in-process', async () => {
+      const agentId = readString(await createAgent(), 'id')
+      await database.db
+        .update(agentRegistrations)
+        .set({ managedBy: 'probe' })
+        .where(eq(agentRegistrations.id, agentId))
+
+      const runId = await startRun(agentId)
+
+      await settledRun(runId)
+
+      expect(await settledEventsFor(runId)).toEqual([
+        { runId, taskId: 'company.enrich', agentId, managedBy: 'probe', status: 'succeeded' },
+      ])
+    })
+
+    it('fires once as failed when the deployment lacks the managing module', async () => {
+      const agentId = readString(await createAgent(), 'id')
+      await database.db
+        .update(agentRegistrations)
+        .set({ managedBy: 'ai' })
+        .where(eq(agentRegistrations.id, agentId))
+
+      const runId = await startRun(agentId)
+
+      await settledRun(runId)
+
+      expect(await settledEventsFor(runId)).toEqual([
+        { runId, taskId: 'company.enrich', agentId, managedBy: 'ai', status: 'failed' },
+      ])
+    })
+
+    it('fires once as failed when the stored auth header cannot be decrypted', async () => {
+      const agentId = readString(await createAgent({ auth_header: 'Bearer dispatch-key' }), 'id')
+      await database.db
+        .update(agentRegistrations)
+        .set({ authHeaderEncrypted: 'not-a-sealed-value' })
+        .where(eq(agentRegistrations.id, agentId))
+
+      const runId = await startRun(agentId)
+      const settled = agentRunSchema.parse(await settledRun(runId))
+
+      expect(settled.failureReason).toContain('could not be decrypted')
+      expect(sent).toHaveLength(0)
+      expect(await settledEventsFor(runId)).toEqual([
+        { runId, taskId: 'company.enrich', agentId, managedBy: null, status: 'failed' },
+      ])
+    })
+
+    it('fires once as failed when the dispatch itself throws', async () => {
+      const agentId = readString(await createAgent(), 'id')
+      await database.db
+        .update(agentRegistrations)
+        .set({ managedBy: 'thrower' })
+        .where(eq(agentRegistrations.id, agentId))
+
+      const runId = await startRun(agentId)
+      const settled = agentRunSchema.parse(await settledRun(runId))
+
+      expect(settled.failureReason).toBe('Error: the dispatcher threw')
+      expect(await settledEventsFor(runId)).toEqual([
+        { runId, taskId: 'company.enrich', agentId, managedBy: 'thrower', status: 'failed' },
+      ])
+    })
+
+    it('does not fire while the run is queued or running', async () => {
+      let release: (answer: DispatchOutcome) => void = () => undefined
+      const held = new Promise<DispatchOutcome>((resolve) => {
+        release = resolve
+      })
+      pending = held
+
+      const agentId = readString(await createAgent(), 'id')
+      const runId = await startRun(agentId)
+
+      // The sender is called only after the `queued → running` write.
+      for (let attempt = 0; attempt < 100 && sent.length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+
+      expect(sent).toHaveLength(1)
+
+      const [row] = await database.db.select().from(agentRuns).where(eq(agentRuns.id, runId))
+
+      expect(row?.status).toBe('running')
+
+      await harness.services.events.drain()
+
+      expect(settledEvents).toHaveLength(0)
+
+      release(DELIVERED)
+      await settledRun(runId)
+
+      expect(await settledEventsFor(runId)).toHaveLength(1)
+    })
+
+    it('does not fire for a run that went with its registration mid-dispatch', async () => {
+      const { runId, agent, logLines, dispatch } = await directDispatch(async () => {
+        // The cascade removes the run while the engine holds it at `running`.
+        await database.db.delete(agentRegistrations).where(eq(agentRegistrations.id, agent.id))
+        return DELIVERED
+      })
+
+      await dispatch()
+      await harness.services.events.drain()
+
+      expect(await database.db.select().from(agentRuns).where(eq(agentRuns.id, runId))).toHaveLength(0)
+      expect(settledEvents).toHaveLength(0)
+      // Nothing to settle is not a failure: the engine logs no error for it.
+      expect(logLines.filter((line) => line.includes('"level":"error"'))).toEqual([])
+    })
+
+    it('fires once when two dispatches settle the same run', async () => {
+      // Both engines reach the send before either settles, so neither one's
+      // `running` write can reopen a run the other has already ended.
+      let arrived = 0
+      let releaseBoth: () => void = () => undefined
+      const bothArrived = new Promise<void>((resolve) => {
+        releaseBoth = resolve
+      })
+      const barrier: SendDispatch = async () => {
+        arrived += 1
+        if (arrived === 2) {
+          releaseBoth()
+        }
+        await bothArrived
+        return DELIVERED
+      }
+
+      const first = await directDispatch(barrier)
+      const second = directEngine(barrier)
+
+      await Promise.all([first.dispatch(), second.engine.dispatch(first.run, first.agent, first.resolved)])
+      await harness.services.events.drain()
+
+      const [row] = await database.db.select().from(agentRuns).where(eq(agentRuns.id, first.runId))
+
+      expect(row?.status).toBe('succeeded')
+      expect(settledEvents.map((event) => event.data)).toEqual([
+        {
+          runId: first.runId,
+          taskId: 'company.enrich',
+          agentId: first.agent.id,
+          managedBy: null,
+          status: 'succeeded',
+        },
+      ])
+      expect(
+        [...first.logLines, ...second.logLines].filter((line) => line.includes('"level":"error"')),
+      ).toEqual([])
     })
   })
 

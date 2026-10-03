@@ -37,5 +37,6 @@ import './decisions/events.ts'
 import './handbook/events.ts'
 import './forms/events.ts'
 import './import-export/events.ts'
+import './agent-tasks/events.ts'
 // The optional ai module is not in `coreModules`, but its catalog ships in the package.
 import './ai/events.ts'

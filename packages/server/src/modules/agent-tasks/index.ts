@@ -3,6 +3,7 @@ import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secr
 import type { KelpieModule } from '../../runtime/module.ts'
 import { createDispatchEngine, createHttpSender } from './dispatch.ts'
 import type { SendDispatch } from './dispatch.ts'
+import { agentTasksEvents } from './events.ts'
 import { mountAgentTasksRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createAgentTasksService } from './service.ts'
@@ -44,6 +45,7 @@ export function createAgentTasksModule(
       'notes',
       'handbook',
     ],
+    events: agentTasksEvents,
 
     register(context) {
       // Validated at boot rather than on the first run: a missing or malformed
@@ -57,6 +59,7 @@ export function createAgentTasksModule(
 
       const engine = createDispatchEngine({
         db: context.db,
+        transaction: context.transaction,
         now: context.now,
         cipher,
         send: options.send ?? createHttpSender(egress),

@@ -767,6 +767,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(settledEvents).toHaveLength(1)
       expect(settledEvents[0]).toEqual({
         runId: expect.stringMatching(/^ai_/) as unknown,
+        agentRunId: 'run_counts',
         taskId: 'person.enrich',
         status: 'succeeded',
         model: 'gpt-5.6-luna',
@@ -983,6 +984,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       await settled(h, 'run_after_stale')
       await h.app.services.events.drain()
       expect(settledEvents.find((event) => event.runId === 'ai_test_stale')).toMatchObject({
+        agentRunId: 'run_stale',
         status: 'failed',
         inputTokens: null,
         modelRequests: null,

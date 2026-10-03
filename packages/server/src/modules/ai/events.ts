@@ -16,11 +16,17 @@ import type { ModuleEventCatalog } from '../../runtime/module.ts'
  *
  * Token and request counts are null when the run settled without them: a run
  * that failed before any model call, or one the stale sweep failed.
+ *
+ * `runId` is this module's own run (`ai_runs.id`). `agentRunId` is the core
+ * agent run that dispatched it (`agent_runs.id`, the `runId` of
+ * `agent_tasks.run.settled`), or null for a run no agent run stands behind,
+ * such as person intake.
  */
 
 export const aiEvents = {
   'ai.run.settled': z.object({
     runId: z.string(),
+    agentRunId: z.string().nullable(),
     taskId: z.string(),
     status: z.enum(['succeeded', 'failed']),
     model: z.string(),
@@ -35,6 +41,8 @@ export const aiEvents = {
 
 export interface AiRunSettledData {
   readonly runId: string
+  /** The core agent run that dispatched this one, or null when none did (person intake). */
+  readonly agentRunId: string | null
   readonly taskId: string
   readonly status: 'succeeded' | 'failed'
   readonly model: string

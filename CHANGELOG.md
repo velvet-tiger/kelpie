@@ -12,6 +12,20 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`** — **Agent run event.** The `agent-tasks` module
+  publishes `agent_tasks.run.settled` once when an agent run ends,
+  `succeeded` or `failed`. A run ends when its dispatch does, so `succeeded`
+  means the agent accepted the task, not that the work is done. The event
+  carries the run, task and agent ids, the agent's `managedBy` module (null
+  for an agent an admin registered) and the status, never the prompt or the
+  failure reason. Its target is the run (`agent_run`). Webhooks do not deliver
+  it. A run that a crash leaves `running` never reports. New type
+  `AgentRunSettledData`. No migration.
+- **`@kelpie/server`** — `ai.run.settled` adds `agentRunId`: the core agent
+  run that dispatched the AI run, which is the `runId` of
+  `agent_tasks.run.settled`. It is null for person intake, which no agent run
+  starts. The event's own `runId` stays the `ai_runs` id. For one piece of
+  work the two events can arrive in either order.
 - **`@kelpie/server`**, **`@kelpie/schemas`** — **Tags endpoint.**
   `GET /v1/tags` lists the tags in use, with how many records carry each,
   most used first. `?target_type=` narrows it to one or more taggable types,

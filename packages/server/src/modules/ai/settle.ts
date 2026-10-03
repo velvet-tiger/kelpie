@@ -58,6 +58,10 @@ function settledData(run: AiRunRecord): AiRunSettledData {
 
   return {
     runId: run.id,
+    // A synchronous run, such as person intake, stores its own id as
+    // `agent_run_id` because the column is a non-null dedupe key. No core
+    // agent run stands behind it, so it reports null.
+    agentRunId: run.agentRunId === run.id ? null : run.agentRunId,
     taskId: run.taskId,
     status: run.status,
     model: run.model,
