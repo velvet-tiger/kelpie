@@ -53,6 +53,11 @@ describe('resolveRestScope', () => {
   it('exempts auth routes', () => {
     expect(resolveRestScope('GET', '/v1/auth/me')).toBeNull()
   })
+
+  it('needs forms write to regenerate a slug or release a held submission', () => {
+    expect(resolveRestScope('POST', '/v1/forms/frm_1/regenerate-slug')).toBe('forms:write')
+    expect(resolveRestScope('POST', '/v1/forms/frm_1/submissions/sub_1/release')).toBe('forms:write')
+  })
 })
 
 describe('resolveMcpScope', () => {

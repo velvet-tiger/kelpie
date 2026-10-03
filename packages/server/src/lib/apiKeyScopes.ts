@@ -80,6 +80,8 @@ const ROUTE_SCOPE_RULES: readonly RouteScopeRule[] = [
   { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/handbook_pages(?:\/[^/]+)?$/u, scope: 'handbook:write' },
   { methods: ['GET'], pattern: /^\/v1\/(?:forms(?:\/[^/]+(?:\/(?:submissions(?:\/[^/]+)?|embed))?)?|form-submissions)$/u, scope: 'forms:read' },
   { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/forms(?:\/[^/]+)?$/u, scope: 'forms:write' },
+  { methods: ['POST'], pattern: /^\/v1\/forms\/[^/]+\/regenerate-slug$/u, scope: 'forms:write' },
+  { methods: ['POST'], pattern: /^\/v1\/forms\/[^/]+\/submissions\/[^/]+\/release$/u, scope: 'forms:write' },
   { methods: ['GET'], pattern: /^\/v1\/activities$/u, scope: 'activities:read' },
   { methods: ['GET'], pattern: /^\/v1\/search$/u, scope: 'search:read' },
   { methods: ['GET'], pattern: /^\/v1\/dashboard$/u, scope: 'dashboard:read' },
