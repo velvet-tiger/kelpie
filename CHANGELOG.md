@@ -25,6 +25,17 @@ While the major version is `0`, a minor bump may break the API.
   to remove it. The list opens in the page flow, so it does not cover the
   chips, and shows the chosen tags first, ticked; a click removes one.
   `Chip` takes an optional `onRemove`.
+- **`@kelpie/server`**, **`@kelpie/schemas`**, **`@kelpie/ui`** — **Delete
+  form submissions.** `DELETE /v1/forms/:id/submissions/:submissionId`
+  deletes one. `POST /v1/forms/:id/submissions/delete` with `{ ids }` (up to
+  200) deletes several in one transaction and answers `{ deleted_ids }`; an id
+  that is not the form's is skipped. Both need `forms:write`. The records a
+  submission created or matched stay. New MCP tool `form_submissions_delete`,
+  event `forms.submission.deleted` (type `FormSubmissionDeletedData`, no
+  webhook), and schemas exports `FORM_SUBMISSION_DELETE_MAX_IDS`,
+  `formSubmissionsDeletedSchema` and `FormSubmissionsDeleted`. The Submissions
+  tab has row checkboxes and a bulk Delete; the submission page has a Delete.
+  New UI hook `useDeleteFormSubmissions`. No migration.
 
 ### Changed
 

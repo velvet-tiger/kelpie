@@ -486,6 +486,124 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     })
   })
 
+  describe('deleting submissions', () => {
+    /** Two accepted submissions on one form, from two different people. */
+    async function twoSubmissions(): Promise<{
+      readonly formId: string
+      readonly submissionIds: readonly string[]
+    }> {
+      const form = await createForm()
+      const ids = fieldIds(form)
+      const first = await submit(formPath(form), filledIn(ids))
+      const second = await submit(formPath(form), {
+        [ids.Name ?? '']: 'Sam Lee',
+        [ids.Email ?? '']: 'sam@example.com',
+      })
+
+      expect(first.status).toBe(201)
+      expect(second.status).toBe(201)
+
+      return {
+        formId: readString(form, 'id'),
+        submissionIds: [
+          readString(readRecord(await first.json()), 'id'),
+          readString(readRecord(await second.json()), 'id'),
+        ],
+      }
+    }
+
+    async function submissionCount(formId: string): Promise<number> {
+      const response = await client.send('GET', `/v1/forms/${formId}/submissions`, {
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(200)
+
+      return readList(await response.json()).length
+    }
+
+    it('deletes one submission and leaves the people it created', async () => {
+      const { formId, submissionIds } = await twoSubmissions()
+      const response = await client.send(
+        'DELETE',
+        `/v1/forms/${formId}/submissions/${submissionIds[0] ?? ''}`,
+        { cookie: acme.cookie },
+      )
+
+      expect(response.status).toBe(204)
+      expect(await submissionCount(formId)).toBe(1)
+
+      const survivors = await database.db
+        .select()
+        .from(people)
+        .where(eq(people.workspaceId, acme.workspaceId))
+
+      expect(survivors).toHaveLength(2)
+    })
+
+    it('answers 404 for a submission that is not there', async () => {
+      const { formId, submissionIds } = await twoSubmissions()
+      const path = `/v1/forms/${formId}/submissions/${submissionIds[0] ?? ''}`
+
+      expect((await client.send('DELETE', path, { cookie: acme.cookie })).status).toBe(204)
+      expect((await client.send('DELETE', path, { cookie: acme.cookie })).status).toBe(404)
+    })
+
+    it('deletes several in one request and names the ids that went', async () => {
+      const { formId, submissionIds } = await twoSubmissions()
+      const response = await client.send('POST', `/v1/forms/${formId}/submissions/delete`, {
+        body: { ids: [...submissionIds, 'sub_missing'] },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(200)
+
+      const body = readRecord(await response.json())
+
+      expect(body.deleted_ids).toHaveLength(submissionIds.length)
+      expect(body.deleted_ids).toEqual(expect.arrayContaining([...submissionIds]))
+      expect(await submissionCount(formId)).toBe(0)
+    })
+
+    it('skips a submission of another form', async () => {
+      const { submissionIds } = await twoSubmissions()
+      const other = await createForm({ name: 'Other' })
+      const response = await client.send(
+        'POST',
+        `/v1/forms/${readString(other, 'id')}/submissions/delete`,
+        { body: { ids: submissionIds }, cookie: acme.cookie },
+      )
+
+      expect(response.status).toBe(200)
+      expect(readRecord(await response.json()).deleted_ids).toEqual([])
+    })
+
+    it('refuses an empty id list', async () => {
+      const { formId } = await twoSubmissions()
+      const response = await client.send('POST', `/v1/forms/${formId}/submissions/delete`, {
+        body: { ids: [] },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(422)
+    })
+
+    it('refuses a delete from another workspace, and one with no credentials', async () => {
+      const { formId, submissionIds } = await twoSubmissions()
+      const other = await client.owner('other@example.com')
+      const single = `/v1/forms/${formId}/submissions/${submissionIds[0] ?? ''}`
+      const bulk = `/v1/forms/${formId}/submissions/delete`
+
+      expect((await client.send('DELETE', single, { cookie: other.cookie })).status).toBe(404)
+      expect(
+        (await client.send('POST', bulk, { body: { ids: submissionIds }, cookie: other.cookie }))
+          .status,
+      ).toBe(404)
+      expect((await client.send('DELETE', single)).status).toBe(401)
+      expect(await submissionCount(formId)).toBe(2)
+    })
+  })
+
   describe('the embed endpoint', () => {
     it('hands back a hosted URL and iframe snippets pointed at the bare embed', async () => {
       const form = await createForm()

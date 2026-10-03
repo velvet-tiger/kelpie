@@ -382,6 +382,39 @@ export async function updateSubmission(
 }
 
 /**
+ * Deletes the named submissions of one form, of either status.
+ *
+ * An id that is not a submission of this form in this workspace is skipped, so
+ * the answer names only the rows that went. The records a submission linked
+ * stay: the links are columns on this row, not rows of their own.
+ *
+ * @returns The ids of the rows that went.
+ */
+export async function deleteSubmissions(
+  db: Queryable,
+  workspaceId: string,
+  formId: string,
+  ids: readonly string[],
+): Promise<string[]> {
+  if (ids.length === 0) {
+    return []
+  }
+
+  const deleted = await db
+    .delete(formSubmissions)
+    .where(
+      and(
+        eq(formSubmissions.workspaceId, workspaceId),
+        eq(formSubmissions.formId, formId),
+        inArray(formSubmissions.id, [...ids]),
+      ),
+    )
+    .returning({ id: formSubmissions.id })
+
+  return deleted.map((row) => row.id)
+}
+
+/**
  * Deletes one form's `spam` submissions that arrived before `before`.
  *
  * @returns How many rows went.

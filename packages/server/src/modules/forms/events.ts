@@ -10,6 +10,8 @@ import type { ModuleEventCatalog } from '../../runtime/module.ts'
  * `forms.form.*` cover the form definition CRUD. `forms.submission.submitted`
  * fires once per submission; the webhooks bridge translates it to the wire
  * `form.submitted` event (the ids and per-action statuses live in `data`).
+ * `forms.submission.deleted` fires once per deleted submission. A submission is
+ * not a record type, so no webhook carries it.
  *
  * The action summary carries statuses only, no detail strings: the webhook
  * receiver learns whether each action ran; the authenticated Submissions
@@ -35,6 +37,7 @@ export const formsEvents = {
     enquiryId: z.string().nullable(),
     actions: z.array(actionSummarySchema).readonly(),
   }),
+  'forms.submission.deleted': z.object({ formId: z.string() }).strict(),
 } satisfies ModuleEventCatalog
 
 export type FormCreatedData = Record<string, never>
@@ -54,6 +57,9 @@ export interface FormSubmissionData {
   readonly enquiryId: string | null
   readonly actions: readonly FormSubmissionActionSummary[]
 }
+export interface FormSubmissionDeletedData {
+  readonly formId: string
+}
 
 declare module '../../runtime/events.ts' {
   interface KelpieEventMap {
@@ -61,5 +67,6 @@ declare module '../../runtime/events.ts' {
     'forms.form.updated': FormUpdatedData
     'forms.form.deleted': FormDeletedData
     'forms.submission.submitted': FormSubmissionData
+    'forms.submission.deleted': FormSubmissionDeletedData
   }
 }

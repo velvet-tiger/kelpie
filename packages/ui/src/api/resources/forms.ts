@@ -1,4 +1,10 @@
-import { createFormBody, formBody, formSchema, formSubmissionSchema } from '@kelpie/schemas'
+import {
+  createFormBody,
+  formBody,
+  formSchema,
+  formSubmissionSchema,
+  formSubmissionsDeletedSchema,
+} from '@kelpie/schemas'
 import type {
   CreateFormInput,
   Form,
@@ -6,6 +12,7 @@ import type {
   FormInput,
   FormSubmission,
   FormSubmissionLinkTarget,
+  FormSubmissionsDeleted,
   FormSubmissionStatus,
 } from '@kelpie/schemas'
 import {
@@ -254,6 +261,60 @@ export function useReleaseFormSubmission(): MutationResult<
       for (const name of RELEASE_TOUCHES) {
         void queryClient.invalidateQueries({ queryKey: [name] })
       }
+    },
+  })
+
+  return {
+    run: (input) => {
+      mutation.mutate(input)
+    },
+    runAsync: (input) => mutation.mutateAsync(input),
+    isPending: mutation.isPending,
+    error: toError(mutation.error),
+  }
+}
+
+export interface DeleteSubmissionsArguments {
+  readonly formId: string
+  readonly submissionIds: readonly string[]
+}
+
+/**
+ * Deletes one or more of a form's submissions, with
+ * `POST /v1/forms/:id/submissions/delete`. One route for one row and for many,
+ * so the table and the detail page share a hook.
+ *
+ * Not optimistic: a submission list is paged, and a page with rows taken out
+ * would show a short page until the refetch. The records a submission linked
+ * stay, so only the submission lists go stale, the per-record ones included.
+ */
+export function useDeleteFormSubmissions(): MutationResult<
+  DeleteSubmissionsArguments,
+  FormSubmissionsDeleted
+> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: ({ formId, submissionIds }: DeleteSubmissionsArguments) =>
+      client.post(
+        `/forms/${formId}/submissions/delete`,
+        { ids: submissionIds },
+        formSubmissionsDeletedSchema.parse,
+      ),
+    onSuccess: ({ deletedIds }, { formId }) => {
+      // A deleted submission's own read is dropped, not refetched: a refetch
+      // answers 404, and the detail page would show "not found" before it
+      // navigates away.
+      const gone = new Set(deletedIds)
+
+      for (const id of deletedIds) {
+        queryClient.removeQueries({ queryKey: ['forms', 'submissions', formId, id], exact: true })
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ['forms', 'submissions', formId],
+        predicate: (query) => !gone.has(String(query.queryKey[3])),
+      })
+      void queryClient.invalidateQueries({ queryKey: ['form-submissions'] })
     },
   })
 

@@ -22,13 +22,20 @@ export const FORM_SUBMISSION_LINK_TARGETS = [
 export type FormSubmissionLinkTarget = (typeof FORM_SUBMISSION_LINK_TARGETS)[number]
 
 /**
+ * The most ids one `POST /v1/forms/:id/submissions/delete` takes. The same as
+ * the largest page, so a client can delete every row it has on screen at once.
+ */
+export const FORM_SUBMISSION_DELETE_MAX_IDS = 200
+
+/**
  * Wire shape for `/v1/forms/:id/submissions`, and for what the public submit
  * endpoint answers with.
  *
  * Read-only over the API: a submission is evidence of what arrived, so there is
  * no create body here (the public endpoint takes an answer map, not a
- * submission) and no update. The one write is the release of a `spam`
- * submission, which is an action and takes no body.
+ * submission) and no update. The writes are the release of a `spam`
+ * submission, which is an action and takes no body, and the delete of one
+ * submission or of several.
  */
 
 /**
@@ -164,3 +171,16 @@ export const formSubmitResultSchema: z.ZodType<FormSubmitResult, unknown> = z
       thankYouMessage: wire.thank_you_message,
     }),
   )
+
+/**
+ * What `POST /v1/forms/:id/submissions/delete` answers with: the ids that were
+ * deleted. An id the request named that is not here was not one of the form's
+ * submissions.
+ */
+export interface FormSubmissionsDeleted {
+  readonly deletedIds: readonly string[]
+}
+
+export const formSubmissionsDeletedSchema: z.ZodType<FormSubmissionsDeleted, unknown> = z
+  .object({ deleted_ids: z.array(idSchema) })
+  .transform((wire): FormSubmissionsDeleted => ({ deletedIds: wire.deleted_ids }))

@@ -54,6 +54,11 @@ describe('resolveRestScope', () => {
     expect(resolveRestScope('GET', '/v1/auth/me')).toBeNull()
   })
 
+  it('needs forms write to delete submissions, one or several', () => {
+    expect(resolveRestScope('DELETE', '/v1/forms/frm_1/submissions/sub_1')).toBe('forms:write')
+    expect(resolveRestScope('POST', '/v1/forms/frm_1/submissions/delete')).toBe('forms:write')
+  })
+
   it('needs forms write to regenerate a slug or release a held submission', () => {
     expect(resolveRestScope('POST', '/v1/forms/frm_1/regenerate-slug')).toBe('forms:write')
     expect(resolveRestScope('POST', '/v1/forms/frm_1/submissions/sub_1/release')).toBe('forms:write')
@@ -64,6 +69,10 @@ describe('resolveMcpScope', () => {
   it('maps CRUD tool names', () => {
     expect(resolveMcpScope('people_list')).toBe('people:read')
     expect(resolveMcpScope('people_create')).toBe('people:write')
+  })
+
+  it('maps the submission delete tool to forms write', () => {
+    expect(resolveMcpScope('form_submissions_delete')).toBe('forms:write')
   })
 
   it('maps search_query', () => {

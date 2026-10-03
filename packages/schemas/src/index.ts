@@ -386,14 +386,17 @@ export type {
 } from './formMapTargets.ts'
 
 export {
+  FORM_SUBMISSION_DELETE_MAX_IDS,
   FORM_SUBMISSION_LINK_TARGETS,
   formSubmissionSchema,
+  formSubmissionsDeletedSchema,
   formSubmitResultSchema,
 } from './formSubmission.ts'
 export type {
   FormSubmission,
   FormSubmissionActionEntry,
   FormSubmissionLinkTarget,
+  FormSubmissionsDeleted,
   FormSubmitResult,
 } from './formSubmission.ts'
 

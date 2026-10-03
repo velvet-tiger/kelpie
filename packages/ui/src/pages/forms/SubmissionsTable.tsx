@@ -11,7 +11,10 @@ import { Link, useNavigate } from 'react-router'
 import type { RecordListResult } from '../../api/resource.ts'
 import { useTimezone } from '../../api/resources/account.ts'
 import { useCompanies } from '../../api/resources/companies.ts'
-import { useReleaseFormSubmission } from '../../api/resources/forms.ts'
+import {
+  useDeleteFormSubmissions,
+  useReleaseFormSubmission,
+} from '../../api/resources/forms.ts'
 import { usePeople } from '../../api/resources/people.ts'
 import { DataTable } from '../../components/DataTable.tsx'
 import type { Column } from '../../components/DataTable.tsx'
@@ -36,6 +39,11 @@ import { formatDateTime } from '../../lib/dates.ts'
  * What the spam check held is a second list, behind the Spam button. Those rows
  * link no records, so they show the reason and a Release button in place of the
  * person and company.
+ *
+ * Each row has a checkbox, and the ticked rows can be deleted together. A
+ * selection is of the rows on screen only: it is cleared when the list, the
+ * page or the page size changes, so a delete never takes a row the reader can
+ * no longer see. The records a submission linked are not deleted.
  */
 
 /** `?limit=` maxes out at 200 (`docs/agents/api-and-webhooks.md`). */
@@ -54,7 +62,9 @@ export function SubmissionsTable({
   spam,
 }: SubmissionsTableProps): React.JSX.Element {
   const [view, setView] = useState<FormSubmissionStatus>('accepted')
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
   const release = useReleaseFormSubmission()
+  const remove = useDeleteFormSubmissions()
   const navigate = useNavigate()
   const people = usePeople({ limit: MAX_PAGE })
   const companies = useCompanies({ limit: MAX_PAGE })
@@ -65,7 +75,56 @@ export function SubmissionsTable({
     [people.records, companies.records],
   )
 
+  const list = view === 'spam' ? spam : submissions
+  const pageIds = list.records.map((submission) => submission.id)
+  const pageKey = pageIds.join(',')
+  const [selectionPage, setSelectionPage] = useState(pageKey)
+
+  // A new page, a new list, or a refetch after a delete: the ticks belonged to
+  // rows that are no longer the ones on screen.
+  if (selectionPage !== pageKey) {
+    setSelectionPage(pageKey)
+    setSelected(new Set())
+  }
+
+  const selectedOnPage = pageIds.filter((id) => selected.has(id))
+
+  function toggle(id: string): void {
+    setSelected((current) => {
+      const next = new Set(current)
+
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+
+      return next
+    })
+  }
+
+  const selectColumn: Column<FormSubmission> = {
+    key: 'select',
+    header: '',
+    className: 'w-8',
+    render: (submission) => (
+      <input
+        type="checkbox"
+        aria-label="Select submission"
+        checked={selected.has(submission.id)}
+        onClick={(event) => {
+          event.stopPropagation()
+        }}
+        onChange={() => {
+          toggle(submission.id)
+        }}
+        className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent"
+      />
+    ),
+  }
+
   const columns: readonly Column<FormSubmission>[] = [
+    selectColumn,
     {
       key: 'submitted',
       header: 'Submitted',
@@ -129,7 +188,7 @@ export function SubmissionsTable({
   ]
 
   const spamColumns: readonly Column<FormSubmission>[] = [
-    ...columns.filter((column) => column.key === 'submitted'),
+    ...columns.filter((column) => column.key === 'select' || column.key === 'submitted'),
     {
       key: 'reason',
       header: 'Why it was held',
@@ -168,8 +227,6 @@ export function SubmissionsTable({
     },
   ]
 
-  const list = view === 'spam' ? spam : submissions
-
   if (list.error !== null) {
     return <ErrorPanel error={list.error} />
   }
@@ -201,6 +258,20 @@ export function SubmissionsTable({
           <ErrorPanel error={release.error} />
         </div>
       )}
+      {list.records.length > 0 && (
+        <SelectionBar
+          pageCount={pageIds.length}
+          selectedCount={selectedOnPage.length}
+          isPending={remove.isPending}
+          error={remove.error}
+          onSelectAll={(all) => {
+            setSelected(all ? new Set(pageIds) : new Set())
+          }}
+          onDelete={() => {
+            remove.run({ formId: form.id, submissionIds: selectedOnPage })
+          }}
+        />
+      )}
       <Paginator list={list} placement="top" />
       <DataTable
         columns={view === 'spam' ? spamColumns : columns}
@@ -212,6 +283,102 @@ export function SubmissionsTable({
         }}
       />
       <Paginator list={list} />
+    </div>
+  )
+}
+
+/**
+ * "Select all on this page", and, while rows are ticked, a Delete behind one
+ * confirmation. The confirmation says that the linked records stay, because
+ * that is the question a reader has before deleting what created them.
+ */
+function SelectionBar({
+  pageCount,
+  selectedCount,
+  isPending,
+  error,
+  onSelectAll,
+  onDelete,
+}: {
+  readonly pageCount: number
+  readonly selectedCount: number
+  readonly isPending: boolean
+  readonly error: Error | null
+  readonly onSelectAll: (all: boolean) => void
+  readonly onDelete: () => void
+}): React.JSX.Element {
+  const [confirming, setConfirming] = useState(false)
+  const allSelected = selectedCount === pageCount
+  const noun = selectedCount === 1 ? 'submission' : 'submissions'
+
+  if (confirming && selectedCount === 0) {
+    setConfirming(false)
+  }
+
+  return (
+    <div className="mb-3">
+      <div className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-2">
+        <label className="inline-flex items-center gap-2 text-[12px] text-ink-muted">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            ref={(input) => {
+              if (input !== null) {
+                input.indeterminate = selectedCount > 0 && !allSelected
+              }
+            }}
+            onChange={() => {
+              onSelectAll(!allSelected)
+            }}
+            className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent"
+          />
+          {selectedCount > 0 ? `${String(selectedCount)} selected` : 'Select all on this page'}
+        </label>
+        {selectedCount > 0 &&
+          (confirming ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[12px] text-ink-muted">
+                Delete {selectedCount} {noun}? The people and records they created stay.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirming(false)
+                }}
+                className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-muted hover:text-ink"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => {
+                  setConfirming(false)
+                  onDelete()
+                }}
+                className="rounded-md bg-danger px-2.5 py-1 text-[12px] font-semibold text-danger-fg transition hover:opacity-90 disabled:opacity-50"
+              >
+                {isPending ? 'Deleting…' : `Delete ${noun}`}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => {
+                setConfirming(true)
+              }}
+              className="rounded-md border border-border px-2.5 py-1 text-[12px] font-medium text-ink-muted transition hover:border-danger hover:text-danger disabled:opacity-50"
+            >
+              {isPending ? 'Deleting…' : 'Delete'}
+            </button>
+          ))}
+      </div>
+      {error !== null && (
+        <div className="mt-2">
+          <ErrorPanel error={error} />
+        </div>
+      )}
     </div>
   )
 }

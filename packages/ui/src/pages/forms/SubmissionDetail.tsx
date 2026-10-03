@@ -1,16 +1,18 @@
 import { FORM_SPAM_REASON_LABELS, formFieldDisplayLabel } from '@kelpie/schemas'
 import type { Form, FormField, FormSubmission, FormSubmissionActionEntry } from '@kelpie/schemas'
 import { useMemo } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 
 import { useTimezone } from '../../api/resources/account.ts'
 import { useCompanies } from '../../api/resources/companies.ts'
 import {
+  useDeleteFormSubmissions,
   useForm,
   useFormSubmission,
   useReleaseFormSubmission,
 } from '../../api/resources/forms.ts'
 import { usePeople } from '../../api/resources/people.ts'
+import { DeleteRecord } from '../../components/DeleteRecord.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../../components/QueryState.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
 import { formatDateTime } from '../../lib/dates.ts'
@@ -90,6 +92,8 @@ function SubmissionDetailView({
     field,
     value: displayAnswer(field, submission.answers[field.id]),
   }))
+  const remove = useDeleteFormSubmissions()
+  const navigate = useNavigate()
 
   return (
     <div className="animate-fade-in mx-auto max-w-2xl">
@@ -100,10 +104,25 @@ function SubmissionDetailView({
         ← {form.name}
       </Link>
 
-      <SectionHeader
-        title="Submission"
-        description={`Received ${formatDateTime(submission.submittedAt, timezone)}.`}
-      />
+      {/* The records this submission linked are not deleted with it. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <SectionHeader
+          title="Submission"
+          description={`Received ${formatDateTime(submission.submittedAt, timezone)}.`}
+        />
+        <DeleteRecord
+          recordLabel="Submission"
+          recordName="this submission"
+          isPending={remove.isPending}
+          error={remove.error}
+          onConfirm={() => {
+            remove
+              .runAsync({ formId: form.id, submissionIds: [submission.id] })
+              .then(() => navigate(`/forms/${form.id}`))
+              .catch(() => undefined)
+          }}
+        />
+      </div>
 
       <SpamNotice form={form} submission={submission} />
 

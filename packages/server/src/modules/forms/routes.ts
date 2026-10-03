@@ -10,6 +10,7 @@ import {
   FORM_EMAIL_MAX_RECIPIENTS,
   FORM_EMAIL_SUBJECT_MAX_LENGTH,
   FORM_SLUG_PATTERN,
+  FORM_SUBMISSION_DELETE_MAX_IDS,
   FORM_SUBMISSION_LINK_TARGETS,
   FORM_SUBMISSION_STATUSES,
 } from '@kelpie/schemas'
@@ -200,6 +201,11 @@ export const createBody = z.strictObject({
 })
 
 export const updateBody = z.strictObject(formShape).partial()
+
+/** `POST /v1/forms/:id/submissions/delete`. Duplicate ids are allowed and count once. */
+export const deleteSubmissionsBody = z.strictObject({
+  ids: z.array(z.string().min(1)).min(1).max(FORM_SUBMISSION_DELETE_MAX_IDS),
+})
 
 const statusFilter = z.enum(FORM_STATUSES)
 
@@ -650,6 +656,38 @@ export function mountFormsRoutes(router: Hono, dependencies: FormsRoutesDependen
     )
 
     return context.json(formSubmissionResponse(submission))
+  })
+
+  /**
+   * Deletes one submission, accepted or held. The records it created or
+   * matched stay. A 404 when the form or the submission is not there.
+   */
+  router.delete('/forms/:id/submissions/:submissionId', async (context) => {
+    await dependencies.service.removeSubmission(
+      await requireActor(context),
+      context.req.param('id'),
+      context.req.param('submissionId'),
+    )
+
+    return context.body(null, 204)
+  })
+
+  /**
+   * Deletes several of one form's submissions in one transaction. An action
+   * with a body rather than a DELETE, because a DELETE body is not reliably
+   * passed on by proxies. An id that is not one of the form's submissions is
+   * skipped, so a retry after a partial failure is safe; `deleted_ids` names
+   * what went.
+   */
+  router.post('/forms/:id/submissions/delete', async (context) => {
+    const body = await readJsonBody(context, deleteSubmissionsBody)
+    const deletedIds = await dependencies.service.removeSubmissions(
+      await requireActor(context),
+      context.req.param('id'),
+      body.ids,
+    )
+
+    return context.json({ deleted_ids: deletedIds })
   })
 
   /**

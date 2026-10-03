@@ -5,6 +5,7 @@ import type { McpToolRegistry } from '../../runtime/module.ts'
 import { idArg, listWindowShape, pageResult, registerCrudTools, termArg, toListQuery } from '../crudTools.ts'
 import {
   createBody,
+  deleteSubmissionsBody,
   formResponse,
   formSubmissionResponse,
   toCreateInput,
@@ -97,5 +98,22 @@ export function registerFormsTools(
     }),
     invoke: async (args, actor) =>
       formSubmissionResponse(await submissions.release(actor, args.form_id, args.submission_id)),
+  })
+
+  mcp.tool({
+    name: 'form_submissions_delete',
+    description:
+      'Delete one or more submissions of one form, accepted or held as spam. The ' +
+      'people, companies, deals and other records a submission created or matched ' +
+      'are not deleted. An id that is not a submission of the form is skipped; ' +
+      'deleted_ids names what went. ' +
+      'Mirrors POST /v1/forms/{id}/submissions/delete.',
+    inputSchema: z.strictObject({
+      form_id: idArg.describe('The form the submissions belong to.'),
+      submission_ids: deleteSubmissionsBody.shape.ids.describe('The submissions to delete.'),
+    }),
+    invoke: async (args, actor) => ({
+      deleted_ids: await service.removeSubmissions(actor, args.form_id, args.submission_ids),
+    }),
   })
 }

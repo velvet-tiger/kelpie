@@ -205,6 +205,19 @@ export interface FormsService {
     query: ListQueryParameters,
   ): Promise<Page<FormSubmissionView>>
   getSubmission(actor: Actor, formId: string, submissionId: string): Promise<FormSubmissionView>
+  /** Deletes one submission of either status. The records it linked stay. */
+  removeSubmission(actor: Actor, formId: string, submissionId: string): Promise<void>
+  /**
+   * Deletes several submissions of one form. An id that is not one of the
+   * form's submissions is skipped.
+   *
+   * @returns The ids that were deleted.
+   */
+  removeSubmissions(
+    actor: Actor,
+    formId: string,
+    submissionIds: readonly string[],
+  ): Promise<readonly string[]>
 }
 
 function toFieldView(record: FormFieldRecord): FormFieldView {
@@ -1226,5 +1239,45 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
 
       return toSubmissionView(row)
     },
+
+    async removeSubmission(actor, formId, submissionId) {
+      const removed = await removeSubmissionsOf(actor, formId, [submissionId])
+
+      if (removed.length === 0) {
+        throw AppError.notFound('Submission not found')
+      }
+    },
+
+    removeSubmissions(actor, formId, submissionIds) {
+      return removeSubmissionsOf(actor, formId, submissionIds)
+    },
+  }
+
+  /**
+   * The delete under both submission removes.
+   *
+   * Only the submission rows go, with their email send log by cascade. The
+   * records a submission created or matched are independent of it and stay,
+   * as they do when the whole form is deleted.
+   */
+  async function removeSubmissionsOf(
+    actor: Actor,
+    formId: string,
+    submissionIds: readonly string[],
+  ): Promise<string[]> {
+    const workspaceId = requireWorkspaceId(actor)
+
+    // A form in another workspace reads as missing, not as a delete of nothing.
+    await require(workspaceId, formId)
+
+    return dependencies.transaction(async ({ tx, events }) => {
+      const removed = await repository.deleteSubmissions(tx, workspaceId, formId, submissionIds)
+
+      for (const id of removed) {
+        events.emit('forms.submission.deleted', { type: 'submission', id }, { formId })
+      }
+
+      return removed
+    }, { workspaceId, actor: toEventActor(actor) })
   }
 }
