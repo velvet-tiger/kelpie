@@ -1,4 +1,5 @@
-import { importJobSchema } from '@kelpie/schemas'
+import { IMPORT_OBJECTS, importJobSchema } from '@kelpie/schemas'
+import type { ImportObject } from '@kelpie/schemas'
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -36,6 +37,25 @@ const COMPANIES_CSV = [
   'Acme,acme.com,Software,customer',
   'Harbour Lane,harbour.io,Logistics,prospect',
 ].join('\n')
+
+/**
+ * One importable row per object, as a Kelpie-native file.
+ *
+ * The type is the point: a new entry in `IMPORT_OBJECTS` does not compile until
+ * it has a file here, and the suite below then runs it through the database.
+ * Each file reads against `COMPANIES_CSV` and one person, `ada@acme.com`.
+ */
+const ONE_ROW_CSV: Readonly<Record<ImportObject, string>> = {
+  companies: 'name,domain\nNorthwind,northwind.test',
+  people: 'name,email\nGrace Hopper,grace@acme.com',
+  positions: 'person_email,company_domain,title\nada@acme.com,acme.com,CTO',
+  deals: 'name,company_domain,stage,value,external_id\nAcme renewal,acme.com,qualifying,10,hs-1',
+  opportunities: 'name,kind,company_domain,stage\nSeed grant,grant,acme.com,identified',
+  enquiries: 'name,source,company_domain,stage\nPricing question,website,acme.com,new',
+  partnerships: 'name,company_domain,stage,kind\nAcme resale,acme.com,exploring,reseller',
+  raises: 'name,company_domain,stage,check_size\nAcme seed,acme.com,researching,250000',
+  custom_fields: 'object_type,key,label,type,sort_order\ndeal,region,Region,text,0',
+}
 
 interface JobFields {
   readonly source?: string
@@ -1069,6 +1089,46 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       const [row] = await database.db.select().from(deals).where(eq(deals.externalId, 'hs-5'))
 
       expect(row?.ownerId).not.toBeNull()
+    })
+  })
+
+  /**
+   * `IMPORT_OBJECTS` is what the request validation accepts, and
+   * `import_jobs_object_check` is what the database accepts. The two lists once
+   * disagreed, and a job for an object only the first one named answered 500.
+   * Every object goes through both here, so they cannot drift apart again.
+   */
+  describe('every object in IMPORT_OBJECTS', () => {
+    beforeEach(async () => {
+      await importCsv(COMPANIES_CSV)
+      await importCsv('name,email\nAda Lovelace,ada@acme.com', { object: 'people' })
+    })
+
+    it.each(IMPORT_OBJECTS)('dry-runs and commits a %s file', async (object) => {
+      const csv = ONE_ROW_CSV[object]
+      const dryRun = await createJob(csv, { object })
+
+      expect(dryRun).toMatchObject({
+        object,
+        status: 'ready',
+        errors: [],
+        counts: { total: 1, create: 1, update: 0, skip: 0, error: 0 },
+      })
+
+      const committed = await commit(readString(dryRun, 'id'), csv)
+
+      expect(committed).toMatchObject({
+        object,
+        status: 'completed',
+        errors: [],
+        counts: { total: 1, create: 1, update: 0, skip: 0, error: 0 },
+      })
+
+      // The record is really there: the same file now matches it on the
+      // object's default key instead of creating a second one.
+      expect(await importCsv(csv, { object })).toMatchObject({
+        counts: { total: 1, create: 0, skip: 1, error: 0 },
+      })
     })
   })
 

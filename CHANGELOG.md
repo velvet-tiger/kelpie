@@ -117,6 +117,14 @@ While the major version is `0`, a minor bump may break the API.
   submit. The message stays `{ kelpie: 'height', formId, height }`, so pasted
   snippets need no change. The hosted page drops `body { min-height: 100vh }`
   and keeps its full-window background on `html`.
+- **`@kelpie/server`** — **Import for every object.** `POST /v1/import/jobs`
+  and the `import_preview` MCP tool answered `500` for `opportunities`,
+  `enquiries`, `partnerships`, `raises` and `custom_fields`. The request
+  validation accepted all nine objects in `IMPORT_OBJECTS`, but the database
+  constraint `import_jobs_object_check` still allowed only `companies`,
+  `people`, `positions` and `deals`. Migration `0058_import_jobs_all_objects`
+  widens the constraint to the nine. A test now imports one file for each
+  object in `IMPORT_OBJECTS`, so the two lists cannot go out of step.
 
 ## [0.21.0] - 2026-10-03
 
