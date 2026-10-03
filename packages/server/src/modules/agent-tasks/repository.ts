@@ -1,5 +1,5 @@
 import type { AgentRunStatus } from '@kelpie/schemas'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
@@ -149,6 +149,26 @@ export async function updateRun(
   changes: Partial<RunColumns>,
 ): Promise<void> {
   await db.update(agentRuns).set(changes).where(eq(agentRuns.id, id))
+}
+
+/**
+ * Ends a run that is still in flight and answers the row as it now stands.
+ * `undefined` means there was nothing to end: the run already has a final
+ * status, or it went with its registration. The caller reports a run as
+ * settled only for a row it gets back, so a run is reported once.
+ */
+export async function settleRun(
+  db: Queryable,
+  id: string,
+  changes: Pick<RunColumns, 'status' | 'failureReason' | 'updatedAt'>,
+): Promise<RunRecord | undefined> {
+  const [settled] = await db
+    .update(agentRuns)
+    .set(changes)
+    .where(and(eq(agentRuns.id, id), inArray(agentRuns.status, ['queued', 'running'])))
+    .returning()
+
+  return settled
 }
 
 /** Moves every agent run from one target to another inside a conversion transaction. */

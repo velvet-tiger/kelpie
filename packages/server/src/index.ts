@@ -177,6 +177,7 @@ export { planMigrations, runMigrations } from './runtime/migrate.ts'
 export type { MigrationPlanStep } from './runtime/migrate.ts'
 
 export { coreMigrationsDirectory, coreModules } from './modules/core.ts'
+export type { AgentRunSettledData } from './modules/agent-tasks/events.ts'
 
 // The optional `ai` module. Not in `coreModules`: an assembly lists it, and
 // passes `resealAiSecrets` to `runReseal`'s `extraPasses`.

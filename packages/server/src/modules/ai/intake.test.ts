@@ -354,6 +354,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect(settledEvents).toEqual([
         expect.objectContaining({
           runId: run?.id,
+          agentRunId: null,
           taskId: 'person_intake.identify',
           status: 'succeeded',
           inputTokens: 100,
