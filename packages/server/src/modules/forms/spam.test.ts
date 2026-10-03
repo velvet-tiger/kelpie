@@ -349,9 +349,17 @@ describe.skipIf(connectionString === undefined)('forms spam check', () => {
 
   it('still answers 422 for unusable answers, whatever the check would say', async () => {
     const form = await createForm()
-    const response = await submit(form, { answers: { unknown_field: 'x' } })
+    const response = await submit(form, { answers: {} })
 
     expect(response.status).toBe(422)
+    expect(await listSubmissions(form, '?status=spam')).toHaveLength(0)
+  })
+
+  it('still answers 409 for answers from a stale page, whatever the check would say', async () => {
+    const form = await createForm()
+    const response = await submit(form, { answers: { unknown_field: 'x' } })
+
+    expect(response.status).toBe(409)
     expect(await listSubmissions(form, '?status=spam')).toHaveLength(0)
   })
 
@@ -404,6 +412,51 @@ describe.skipIf(connectionString === undefined)('forms spam check', () => {
     expect((await client.send('POST', path, { cookie: other.cookie })).status).toBe(404)
     expect((await client.send('POST', path)).status).toBe(401)
     expect(await harness.services.db.select().from(people)).toHaveLength(0)
+  })
+
+  /**
+   * A field list change gives every field a new id, so a submission held
+   * before it names fields the form no longer has. The member releasing it
+   * gets a message about the submission, not the visitor's "reload the page".
+   */
+  it('refuses a release whose answers name fields the form no longer has, and keeps it held', async () => {
+    const form = await createForm()
+    const answers = answersFor(form)
+    const submitted = readRecord(await (await submit(form, { answers })).json())
+    const path = `/v1/forms/${readString(form, 'id')}/submissions/${readString(submitted, 'id')}/release`
+    const changed = await client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {
+      body: {
+        fields: [
+          { label: 'Work email', type: 'email', map_to: 'person.email', required: true },
+          { label: 'Message', type: 'textarea', map_to: 'submission' },
+        ],
+      },
+      cookie: acme.cookie,
+    })
+
+    expect(changed.status).toBe(200)
+
+    const response = await client.send('POST', path, { cookie: acme.cookie })
+    const error = readRecord(readRecord(await response.json()).error)
+    // The stored answers are jsonb, which does not keep key order.
+    const details = (Array.isArray(error.details) ? error.details : [])
+      .map((detail) => readRecord(detail))
+      .sort((a, b) => readString(a, 'field').localeCompare(readString(b, 'field')))
+
+    expect(response.status).toBe(409)
+    expect(error.code).toBe('conflict')
+    expect(error.message).toBe('This submission has answers for fields the form no longer has')
+    expect(details).toEqual(
+      Object.keys(answers)
+        .sort()
+        .map((id) => ({ field: `answers.${id}`, message: 'This form no longer has this field' })),
+    )
+
+    expect(await harness.services.db.select().from(people)).toHaveLength(0)
+    expect(await listSubmissions(form)).toHaveLength(0)
+    expect(await listSubmissions(form, '?status=spam')).toMatchObject([
+      { id: submitted.id, status: 'spam', person_id: null },
+    ])
   })
 
   it('deletes held submissions older than the retention when the next one arrives', async () => {

@@ -1,6 +1,7 @@
 import { consentCheckboxText } from '@kelpie/schemas'
 
 import type { CaptchaWidget } from '../../lib/captcha.ts'
+import { visitorName } from './mapping.ts'
 import type { FormFieldRecord, FormRecord } from './repository.ts'
 
 /**
@@ -63,6 +64,19 @@ function renderHeading(field: FormFieldRecord, required: string): string {
     : `<div class="field-label">${escapeHtml(field.label)}${required}</div>`
 }
 
+/** The id of a field's error slot. Checkbox ids end in a number, so this cannot collide. */
+function errorSlotId(field: FormFieldRecord): string {
+  return `${field.id}__error`
+}
+
+/**
+ * The empty element a field's validation message goes in. The script fills it
+ * and shows it, and points the field's control at it with `aria-describedby`.
+ */
+function renderErrorSlot(field: FormFieldRecord): string {
+  return `<p class="field-error" id="${escapeHtml(errorSlotId(field))}" hidden></p>`
+}
+
 function renderOptions(field: FormFieldRecord): string {
   const blank = field.required ? '' : '<option value="">—</option>'
   const choices = field.options
@@ -97,6 +111,23 @@ function renderControl(field: FormFieldRecord): string {
   return `<input ${shared} type="${field.type === 'email' ? 'email' : 'text'}">`
 }
 
+/** The lists a list field draws a box for: those that still exist. */
+function drawnListIds(field: FormFieldRecord, listNames: ReadonlyMap<string, string>): string[] {
+  return field.listIds.filter((listId) => listNames.has(listId))
+}
+
+/**
+ * Whether the page draws the field with something to answer. A notice takes no
+ * answer, and a list field whose lists are all gone is not drawn at all.
+ */
+function isAnswerable(field: FormFieldRecord, listNames: ReadonlyMap<string, string>): boolean {
+  if (field.type === 'notice') {
+    return false
+  }
+
+  return field.type !== 'list' || drawnListIds(field, listNames).length > 0
+}
+
 /**
  * An "Add to list" field: the heading, the statement, then one checkbox per
  * list. The box text is the field's override, else the list's name. A list
@@ -107,20 +138,18 @@ function renderListField(
   listNames: ReadonlyMap<string, string>,
   required: string,
 ): string {
-  const rows = field.listIds
-    .filter((listId) => listNames.has(listId))
-    .map((listId, index) => {
-      const boxId = `${field.id}__${String(index)}`
-      const override = field.listLabels[listId]
-      const label =
-        override !== undefined && override.length > 0 ? override : (listNames.get(listId) ?? listId)
-      return [
-        '<div class="list-row">',
-        `<input type="checkbox" id="${escapeHtml(boxId)}" data-list-field="${escapeHtml(field.id)}" value="${escapeHtml(listId)}">`,
-        `<label for="${escapeHtml(boxId)}">${escapeHtml(label)}</label>`,
-        '</div>',
-      ].join('')
-    })
+  const rows = drawnListIds(field, listNames).map((listId, index) => {
+    const boxId = `${field.id}__${String(index)}`
+    const override = field.listLabels[listId]
+    const label =
+      override !== undefined && override.length > 0 ? override : (listNames.get(listId) ?? listId)
+    return [
+      '<div class="list-row">',
+      `<input type="checkbox" id="${escapeHtml(boxId)}" data-list-field="${escapeHtml(field.id)}" value="${escapeHtml(listId)}">`,
+      `<label for="${escapeHtml(boxId)}">${escapeHtml(label)}</label>`,
+      '</div>',
+    ].join('')
+  })
 
   if (rows.length === 0) {
     return ''
@@ -133,6 +162,7 @@ function renderListField(
     renderHeading(field, required),
     statement.length === 0 ? '' : `<p class="list-statement">${escapeHtml(statement)}</p>`,
     rows.join(''),
+    renderErrorSlot(field),
     '</div>',
   ].join('')
 }
@@ -196,6 +226,7 @@ function renderField(
       renderHeading(field, required),
       `<p class="consent-statement">${escapeHtml(statement)}</p>`,
       rows,
+      renderErrorSlot(field),
       '</div>',
     ].join('')
   }
@@ -206,6 +237,7 @@ function renderField(
       ? ''
       : `<label for="${escapeHtml(field.id)}">${escapeHtml(field.label)}${required}</label>`,
     renderControl(field),
+    renderErrorSlot(field),
     '</div>',
   ].join('')
 }
@@ -379,6 +411,13 @@ button[type="submit"]:hover:not([disabled]) { background: var(--accent-hover); }
 button[type="submit"][disabled] { opacity: 0.55; cursor: progress; }
 .note { margin: 0; font-size: 12px; color: var(--ink-muted); }
 .error { color: var(--danger); font-weight: 500; }
+.field-error { margin: 0; font-size: 12px; font-weight: 500; color: var(--danger); }
+input[aria-invalid="true"], textarea[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--danger); }
+input[aria-invalid="true"]:focus-visible, textarea[aria-invalid="true"]:focus-visible, select[aria-invalid="true"]:focus-visible {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent);
+}
+.field input[type="checkbox"][aria-invalid="true"] { outline: 2px solid var(--danger); outline-offset: 1px; }
 .done {
   margin: 0;
   text-align: center;
@@ -455,6 +494,10 @@ button[type="submit"] {
 button[type="submit"][disabled] { opacity: 0.6; cursor: progress; }
 .note { margin: 0; font-size: 0.875rem; color: #5c6570; }
 .error { color: #b4232c; font-weight: 500; }
+.field-error { margin: 0; font-size: 0.8125rem; font-weight: 500; color: #b4232c; }
+input[aria-invalid="true"], textarea[aria-invalid="true"], select[aria-invalid="true"] { border-color: #b4232c; }
+input[aria-invalid="true"]:focus-visible, textarea[aria-invalid="true"]:focus-visible, select[aria-invalid="true"]:focus-visible { outline-color: #b4232c; }
+.field input[type="checkbox"][aria-invalid="true"] { outline: 2px solid #b4232c; outline-offset: 1px; }
 .done { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.45; }
 .paused { margin: 0; font-size: 13px; color: #5c6570; }
 .trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
@@ -528,10 +571,201 @@ const EMBED_SCRIPT = `
     document.head.appendChild(vendor);
   }
 
+  // Field errors. Each field the page draws (not a notice) has an empty
+  // element with the id <field id>__error. A message for a field goes there,
+  // and the field's control (or each of its checkboxes) is marked invalid and
+  // described by it. A message for no drawn field goes in the status line.
+  var fieldsById = {};
+  (config.fields || []).forEach(function (field) { fieldsById[field.id] = field; });
+
+  function errorSlot(id) {
+    var slot = document.getElementById(id + '__error');
+    return slot && form.contains(slot) && slot.className === 'field-error' ? slot : null;
+  }
+
+  // The checkboxes of a consent or list field, else the field's one control.
+  function controlsFor(id) {
+    var found = [];
+    var boxes = form.querySelectorAll('input[type="checkbox"][data-consent-field], input[type="checkbox"][data-list-field]');
+    for (var i = 0; i < boxes.length; i += 1) {
+      var owner = boxes[i].getAttribute('data-consent-field') || boxes[i].getAttribute('data-list-field');
+      if (owner === id) { found.push(boxes[i]); }
+    }
+    if (found.length > 0) { return found; }
+    var element = document.getElementById(id);
+    return element && form.contains(element) ? [element] : [];
+  }
+
+  // The messages the last showProblems put in the status line because no
+  // drawn field matched them. null when the status line is not showing a
+  // problem summary, so an edit leaves any other status message alone.
+  var looseMessages = null;
+
+  // "Check the N answers marked above." then the unmatched messages.
+  function summary(markedCount, loose) {
+    var parts = [];
+    if (markedCount > 0) {
+      parts.push(markedCount === 1
+        ? 'Check the 1 answer marked above.'
+        : 'Check the ' + markedCount + ' answers marked above.');
+    }
+    return parts.concat(loose).join(' ');
+  }
+
+  // Keeps the summary true after an edit clears a field's error: the count
+  // is the field errors still showing.
+  function refreshSummary() {
+    if (looseMessages === null) { return; }
+    var markedCount = 0;
+    for (var id in fieldsById) {
+      var slot = errorSlot(id);
+      if (slot && !slot.hidden) { markedCount += 1; }
+    }
+    if (markedCount === 0 && looseMessages.length === 0) {
+      looseMessages = null;
+      status.textContent = '';
+      status.className = 'note';
+    } else {
+      status.textContent = summary(markedCount, looseMessages);
+    }
+  }
+
+  // Returns true when the field was showing an error.
+  function clearFieldError(id) {
+    var slot = errorSlot(id);
+    if (!slot || slot.hidden) { return false; }
+    slot.textContent = '';
+    slot.hidden = true;
+    controlsFor(id).forEach(function (control) {
+      control.removeAttribute('aria-invalid');
+      control.removeAttribute('aria-describedby');
+    });
+    return true;
+  }
+
+  // Before a submit. The caller resets the status line, so this does not
+  // rewrite the summary.
+  function clearFieldErrors() {
+    looseMessages = null;
+    for (var id in fieldsById) { clearFieldError(id); }
+  }
+
+  // Returns false when the page draws no such field.
+  function showFieldError(id, message) {
+    var slot = fieldsById[id] ? errorSlot(id) : null;
+    if (!slot) { return false; }
+    slot.textContent = message;
+    slot.hidden = false;
+    controlsFor(id).forEach(function (control) {
+      control.setAttribute('aria-invalid', 'true');
+      control.setAttribute('aria-describedby', slot.id);
+    });
+    return true;
+  }
+
+  // details: [{ field: 'answers.<field id>', message }], as the server sends
+  // them. fallback: what the status line says when there are no details.
+  function showProblems(details, fallback) {
+    var marked = {};
+    var markedCount = 0;
+    var loose = [];
+    details.forEach(function (detail) {
+      if (!detail || typeof detail.message !== 'string') { return; }
+      var field = typeof detail.field === 'string' ? detail.field : '';
+      var id = field.indexOf('answers.') === 0 ? field.slice(8) : null;
+      if (id !== null && marked[id]) { return; }
+      if (id !== null && showFieldError(id, detail.message)) {
+        marked[id] = true;
+        markedCount += 1;
+        return;
+      }
+      if (loose.indexOf(detail.message) === -1) { loose.push(detail.message); }
+    });
+
+    var text = summary(markedCount, loose);
+    looseMessages = text.length > 0 ? loose : null;
+    status.textContent = text.length > 0 ? text : fallback;
+    status.className = 'note error';
+
+    // Focus the first marked field in the order the page draws them.
+    var ids = config.fieldIds || [];
+    for (var i = 0; i < ids.length; i += 1) {
+      if (marked[ids[i]]) {
+        var first = controlsFor(ids[i])[0];
+        if (first && typeof first.focus === 'function') { first.focus(); }
+        break;
+      }
+    }
+    postHeight();
+  }
+
+  // Deliberately loose: the server has the last word. This only catches an
+  // answer that cannot be an address before the round trip.
+  function plausibleEmail(value) {
+    if (/\\s/.test(value)) { return false; }
+    var parts = value.split('@');
+    if (parts.length !== 2 || parts[0].length === 0) { return false; }
+    var domain = parts[1];
+    return domain.indexOf('.') > 0 && domain.charAt(domain.length - 1) !== '.';
+  }
+
+  // The checks the server makes that need nothing but the page. The messages
+  // are the server's, word for word.
+  function browserProblems() {
+    var problems = [];
+    (config.fields || []).forEach(function (field) {
+      var key = 'answers.' + field.id;
+      if (field.type === 'consent' || field.type === 'list') {
+        var boxes = controlsFor(field.id);
+        if (!field.required || boxes.length === 0) { return; }
+        for (var i = 0; i < boxes.length; i += 1) {
+          if (boxes[i].checked) { return; }
+        }
+        problems.push({
+          field: key,
+          message: boxes.length === 1 ? 'Tick the box to continue' : 'Tick at least one box to continue'
+        });
+        return;
+      }
+      var control = controlsFor(field.id)[0];
+      if (!control) { return; }
+      var value = (control.value || '').trim();
+      if (!value) {
+        if (field.required) { problems.push({ field: key, message: field.name + ' is required' }); }
+        return;
+      }
+      if (field.type === 'email' && !plausibleEmail(value)) {
+        problems.push({ field: key, message: 'Use a valid email address' });
+      }
+    });
+    return problems;
+  }
+
+  // Editing a field clears that field's error, and only that one, and the
+  // summary follows.
+  function onEdit(event) {
+    var target = event.target;
+    if (!target || typeof target.getAttribute !== 'function') { return; }
+    var id = target.getAttribute('data-consent-field') || target.getAttribute('data-list-field') || target.id;
+    if (id && fieldsById[id] && clearFieldError(id)) {
+      refreshSummary();
+      postHeight();
+    }
+  }
+  form.addEventListener('input', onEdit);
+  form.addEventListener('change', onEdit);
+
   form.addEventListener('submit', function (event) {
     event.preventDefault();
     status.textContent = '';
     status.className = 'note';
+    clearFieldErrors();
+
+    var problems = browserProblems();
+    if (problems.length > 0) {
+      showProblems(problems, '');
+      return;
+    }
 
     if (captcha && !captchaResponse) {
       status.textContent = 'Complete the check above the button first.';
@@ -587,7 +821,11 @@ const EMBED_SCRIPT = `
       return response.json().then(function (body) { return { ok: response.ok, body: body }; });
     }).then(function (result) {
       if (!result.ok) {
-        throw new Error((result.body && result.body.error && result.body.error.message) || 'Something went wrong.');
+        var problem = (result.body && result.body.error) || {};
+        var failure = new Error(problem.message || 'Something went wrong.');
+        failure.code = typeof problem.code === 'string' ? problem.code : null;
+        failure.details = Array.isArray(problem.details) ? problem.details : [];
+        throw failure;
       }
       var done = document.createElement('div');
       done.className = 'done';
@@ -596,9 +834,19 @@ const EMBED_SCRIPT = `
       parent.postMessage({ kelpie: 'submitted', formId: config.formId }, '*');
       postHeight();
     }).catch(function (error) {
-      status.textContent = error.message;
-      status.className = 'note error';
       button.disabled = false;
+      var message = (error && error.message) || 'Something went wrong.';
+      // Only a validation failure is about the answers on the page. Anything
+      // else (a changed form, a rate limit, a network failure) goes in the
+      // status line alone: its details, if any, name no field the visitor
+      // can fix.
+      if (error && error.code === 'validation_failed') {
+        showProblems(error.details || [], message);
+      } else {
+        status.textContent = message;
+        status.className = 'note error';
+        postHeight();
+      }
       // A CAPTCHA answer is good for one try.
       var api = captchaApi();
       if (api && typeof api.reset === 'function') { captchaResponse = null; api.reset(); }
@@ -708,6 +956,16 @@ export function renderEmbedPage(options: EmbedPageOptions): string {
     submitUrl,
     thankYou: form.thankYouMessage,
     fieldIds: fields.map((field) => field.id),
+    // What the browser check needs to say what the server would say, for the
+    // fields the page draws with something to answer.
+    fields: fields
+      .filter((field) => isAnswerable(field, listNames))
+      .map((field) => ({
+        id: field.id,
+        type: field.type,
+        required: field.required,
+        name: visitorName(field),
+      })),
     ...(spamCheck === undefined ? {} : { tokenUrl: spamCheck.tokenUrl }),
     ...(spamCheck?.captcha === undefined
       ? {}

@@ -16,6 +16,7 @@ import { coreModules } from '../core.ts'
 import { deals } from '../deals/schema.ts'
 import { people } from '../people/schema.ts'
 import { positions } from '../positions/schema.ts'
+import { formSubmissions } from './schema.ts'
 
 /**
  * `/v1/forms` and `/v1/public/workspaces/…/forms/…` against real Postgres.
@@ -1110,7 +1111,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(response.status).toBe(422)
     })
 
-    it('refuses an answer for a field the form does not have', async () => {
+    it('refuses an answer for a field the form does not have with a 409', async () => {
       const form = await createForm()
       const ids = fieldIds(form)
       const response = await submit(
@@ -1118,7 +1119,56 @@ describe.skipIf(connectionString === undefined)('forms', () => {
         filledIn(ids, { ff_ghost: 'x' }),
       )
 
-      expect(response.status).toBe(422)
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({
+        error: {
+          code: 'conflict',
+          message: 'This form has changed. Reload the page and try again.',
+          details: [{ field: 'answers.ff_ghost', message: 'This form no longer has this field' }],
+        },
+      })
+
+      const rows = await database.db
+        .select()
+        .from(formSubmissions)
+        .where(eq(formSubmissions.workspaceId, acme.workspaceId))
+
+      expect(rows).toHaveLength(0)
+    })
+
+    /**
+     * The defect this guards: a page loaded before the field list changed
+     * sends only the old ids. Checked as answers, that read as a 422 with an
+     * "is required" error for every new field, which the page does not show.
+     */
+    it('refuses a page loaded before the field list changed with a 409 and nothing else', async () => {
+      const form = await createForm()
+      const stale = fieldIds(form)
+      const changed = await client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {
+        body: {
+          fields: [
+            { label: 'Work email', type: 'email', map_to: 'person.email', required: true },
+            { label: 'Message', type: 'textarea', map_to: 'submission' },
+          ],
+        },
+        cookie: acme.cookie,
+      })
+
+      expect(changed.status).toBe(200)
+
+      const response = await submit(formPath(form), {
+        [stale.Name ?? '']: 'Alex Rivera',
+        [stale.Email ?? '']: 'alex@example.com',
+      })
+      const body = readRecord(await response.json())
+      const error = readRecord(body.error)
+
+      expect(response.status).toBe(409)
+      expect(error.code).toBe('conflict')
+      expect(error.details).toEqual([
+        { field: `answers.${stale.Name ?? ''}`, message: 'This form no longer has this field' },
+        { field: `answers.${stale.Email ?? ''}`, message: 'This form no longer has this field' },
+      ])
     })
 
     it('answers 404 for a key no form carries', async () => {

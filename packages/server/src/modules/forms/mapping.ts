@@ -194,6 +194,51 @@ export function parseConsentAnswer(raw: string | undefined): readonly string[] {
 }
 
 /**
+ * What a visitor's error message calls a field: its label, or "This field"
+ * when it has none. Not the map target's name, which is the CRM's wording and
+ * means nothing to a visitor.
+ */
+export function visitorName(field: FormFieldRecord): string {
+  const label = field.label.trim()
+
+  return label.length > 0 ? label : 'This field'
+}
+
+/**
+ * What a visitor is told when a required consent or list field has nothing
+ * ticked. One box reads as "the box"; several read as "at least one box".
+ *
+ * The count is the field's configured purposes or lists, not the ones the
+ * embed renders. The embed skips a list that no longer exists, so a field
+ * configured with two lists where one was deleted shows one box and still
+ * says "at least one box". That wording is still true, and checking which
+ * lists exist would put a database read in this pure check.
+ */
+function tickMessage(boxCount: number): string {
+  return boxCount === 1 ? 'Tick the box to continue' : 'Tick at least one box to continue'
+}
+
+/**
+ * The answers for fields the form does not have, one detail per unknown id.
+ *
+ * Saving a form's fields with a change to the field list gives every field a
+ * new id (a save that leaves the list as it was keeps them). So a page left
+ * open across such a save sends ids the form no longer has. That is a stale
+ * page, not a wrong answer: the caller refuses it as a conflict before it
+ * checks any answer, and reloading is the only thing the visitor can do.
+ */
+export function findUnknownAnswers(
+  fields: readonly FormFieldRecord[],
+  answers: Answers,
+): readonly ErrorDetail[] {
+  const known = new Set(fields.map((field) => field.id))
+
+  return Object.keys(answers)
+    .filter((id) => !known.has(id))
+    .map((id) => ({ field: `answers.${id}`, message: 'This form no longer has this field' }))
+}
+
+/**
  * Everything wrong with an answer map, as `422` field details.
  *
  * All of it at once rather than the first problem: a form is filled in by a
@@ -202,31 +247,15 @@ export function parseConsentAnswer(raw: string | undefined): readonly string[] {
  *
  * A missing `person.email` is deliberately not reported here. It is the one
  * failure that is about the form rather than the answers, it has its own
- * status, and the caller raises it before reaching this.
+ * status, and the caller raises it before reaching this. Neither is an answer
+ * for a field the form does not have: `findUnknownAnswers` reports that, and
+ * the caller refuses it first, so it is ignored here.
  */
-/**
- * What a visitor's error message calls a field: its label, or "This field"
- * when it has none. Not the map target's name, which is the CRM's wording and
- * means nothing to a visitor.
- */
-function visitorName(field: FormFieldRecord): string {
-  const label = field.label.trim()
-
-  return label.length > 0 ? label : 'This field'
-}
-
 export function findAnswerProblems(
   fields: readonly FormFieldRecord[],
   answers: Answers,
 ): readonly ErrorDetail[] {
-  const known = new Set(fields.map((field) => field.id))
   const problems: ErrorDetail[] = []
-
-  for (const id of Object.keys(answers)) {
-    if (!known.has(id)) {
-      problems.push({ field: `answers.${id}`, message: 'Unknown field' })
-    }
-  }
 
   for (const field of fields) {
     // A consent field's answer is a comma-separated list of ticked purpose
@@ -238,7 +267,7 @@ export function findAnswerProblems(
       if (field.required && ticked.length === 0) {
         problems.push({
           field: `answers.${field.id}`,
-          message: `${visitorName(field)} needs at least one choice`,
+          message: tickMessage(field.consentPurposeIds.length),
         })
       }
       continue
@@ -252,7 +281,7 @@ export function findAnswerProblems(
       if (field.required && ticked.length === 0) {
         problems.push({
           field: `answers.${field.id}`,
-          message: `${visitorName(field)} needs at least one choice`,
+          message: tickMessage(field.listIds.length),
         })
       }
       continue

@@ -66,6 +66,7 @@ import {
   fillBlank,
   fillPhonesBlank,
   findAnswerProblems,
+  findUnknownAnswers,
   mapAnswers,
   mergeTags,
   readConsentGrants,
@@ -200,8 +201,10 @@ export interface FormSubmitService {
    * its stored answers.
    *
    * @returns The submission, now `accepted`, with its links and action log.
-   * @throws AppError 404 unknown form or submission, 409 not held as spam, 422
-   *   when the form's fields changed and the stored answers no longer fit.
+   * @throws AppError 404 unknown form or submission, 409 not held as spam
+   *   (released by somebody else first), 409 when the stored answers name a
+   *   field the form no longer has, with one detail per unknown id, 422 when
+   *   the form's fields changed and the stored answers no longer fit.
    */
   release(actor: Actor, formId: string, submissionId: string): Promise<FormSubmissionRecord>
 }
@@ -830,12 +833,25 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     return form
   }
 
-  /** @throws AppError 422 listing everything wrong with the answers at once. */
+  /**
+   * @throws AppError 409 when an answer names a field the form does not have
+   *   (the page is stale), with one detail per unknown id; else 422 listing
+   *   everything wrong with the answers at once.
+   */
   function readAnswers(fields: readonly FormFieldRecord[], answers: Answers): SubmitIntent {
+    // A stale page is checked first and alone. Its answers are for the old
+    // fields, so checking them against the new ones would only add "is
+    // required" errors for fields the visitor's page does not show.
+    const unknown = findUnknownAnswers(fields, answers)
+
+    if (unknown.length > 0) {
+      throw AppError.conflict('This form has changed. Reload the page and try again.', unknown)
+    }
+
     const problems = findAnswerProblems(fields, answers)
 
     if (problems.length > 0) {
-      throw AppError.validationFailed('Those answers are not ones this form accepts', problems)
+      throw AppError.validationFailed('Some answers need attention', problems)
     }
 
     const intent = readIntent(mapAnswers(fields, answers))
@@ -921,8 +937,9 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
    * `held` is a `spam` submission a person is releasing. Its row is claimed
    * first and filled in at the end, where an ordinary submit inserts a new one.
    *
-   * @throws AppError 422 when the answers are not ones the form accepts, 409
-   *   when `held` was released by somebody else first.
+   * @throws AppError 409 when an answer names a field the form does not have,
+   *   422 when the answers are not ones the form accepts, 409 when `held` was
+   *   released by somebody else first.
    */
   async function capture(
     form: FormRecord,
@@ -1499,8 +1516,9 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       const form = await requireOpenForm(urlWorkspaceId, slug)
       const fields = await repository.listFields(dependencies.db, form.id)
 
-      // Before the spam check, so unusable answers are a 422 whatever the check
-      // would say and the response never depends on it.
+      // Before the spam check, so unusable answers are a 409 (a stale page) or
+      // a 422 whatever the check would say, and the response never depends on
+      // it.
       readAnswers(fields, answers)
 
       const spamReason = await dependencies.spamCheck.check(form, spam)
@@ -1533,6 +1551,18 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       // A paused form does not stop a release: pausing closes the form to
       // visitors, and this is a member acting on what already arrived.
       const fields = await repository.listFields(dependencies.db, form.id)
+
+      // Before capture, which would refuse the same answers with the visitor's
+      // "reload the page". A member cannot fix this by reloading: the answers
+      // were stored for fields the form has since lost.
+      const unknown = findUnknownAnswers(fields, held.answers)
+
+      if (unknown.length > 0) {
+        throw AppError.conflict(
+          'This submission has answers for fields the form no longer has',
+          unknown,
+        )
+      }
 
       await capture(form, fields, held.answers, held, {
         workspaceId,

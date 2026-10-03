@@ -546,3 +546,161 @@ describe('a field with no label', () => {
     expect(html).toContain('>Tick here to get our monthly newsletter</label>')
   })
 })
+
+describe('field errors', () => {
+  function consentField(purposeIds: string[]): FormFieldRecord {
+    return {
+      ...field({ id: 'ff_consent', label: 'Consent', type: 'consent', required: true }),
+      mapTo: 'consent',
+      consentPurposeIds: purposeIds,
+    }
+  }
+
+  function renderAll(): string {
+    return renderEmbedPage({
+      form: form(),
+      fields: [
+        field({ id: 'ff_name', label: 'Your name', type: 'text', mapTo: 'person.name' }),
+        field(),
+        field({ id: 'ff_message', label: '', type: 'textarea', mapTo: 'note' }),
+        field({ id: 'ff_size', label: 'Size', type: 'select', options: [{ key: 's', value: 'Small', valueType: 'string' }] }),
+        { ...field({ id: 'ff_notice', label: 'Privacy', type: 'notice', required: false }), statement: 'We keep it.' },
+        consentField(['purpose_mail']),
+        {
+          ...field({ id: 'ff_lists', label: 'Lists', type: 'list', required: true }),
+          mapTo: 'lists',
+          listIds: ['list_news'],
+        },
+      ],
+      consentPurposes: new Map([['purpose_mail', { label: 'Mail', statement: 'Mail me' }]]),
+      listNames: new Map([['list_news', 'Newsletter']]),
+      submitUrl,
+      nonce: 'n0nce',
+      workspaceName: 'Acme Ventures',
+      layout: 'embed',
+    })
+  }
+
+  it('gives every answerable field an empty, hidden error slot', () => {
+    const html = renderAll()
+
+    for (const id of ['ff_name', 'ff_email', 'ff_message', 'ff_size', 'ff_consent', 'ff_lists']) {
+      expect(html).toContain(`<p class="field-error" id="${id}__error" hidden></p>`)
+    }
+  })
+
+  it('gives a notice field no error slot', () => {
+    expect(renderAll()).not.toContain('ff_notice__error')
+  })
+
+  it('puts the slot inside its field, after the control', () => {
+    expect(renderAll()).toContain(
+      '<input id="ff_email" name="ff_email" required type="email"><p class="field-error" id="ff_email__error" hidden></p></div>',
+    )
+  })
+
+  it('tells the script each field by the name the server uses, and leaves out notices', () => {
+    const html = renderAll()
+
+    expect(html).toContain('{"id":"ff_name","type":"text","required":true,"name":"Your name"}')
+    expect(html).toContain('{"id":"ff_message","type":"textarea","required":true,"name":"This field"}')
+    expect(html).toContain('{"id":"ff_consent","type":"consent","required":true,"name":"Consent"}')
+    expect(html).not.toContain('"id":"ff_notice"')
+  })
+
+  it('keeps a field name from closing the config script', () => {
+    const html = render({}, [field({ label: '</script><script>alert(1)</script>' })])
+
+    expect(html).not.toContain('"name":"</script>')
+    expect(html).toContain('"name":"\\u003c/script>\\u003cscript>alert(1)\\u003c/script>"')
+  })
+
+  it('renders one box per consent purpose, which the script counts for its message', () => {
+    const html = renderEmbedPage({
+      form: form(),
+      fields: [field(), consentField(['purpose_a', 'purpose_b'])],
+      consentPurposes: new Map(),
+      listNames: new Map(),
+      submitUrl,
+      nonce: 'n0nce',
+      workspaceName: 'Acme Ventures',
+      layout: 'embed',
+    })
+
+    expect(html).toContain('id="ff_consent__0" data-consent-field="ff_consent"')
+    expect(html).toContain('id="ff_consent__1" data-consent-field="ff_consent"')
+  })
+
+  it("checks in the browser with the server's own messages", () => {
+    const html = render()
+
+    expect(html).toContain("' is required'")
+    expect(html).toContain('Use a valid email address')
+    expect(html).toContain('Tick the box to continue')
+    expect(html).toContain('Tick at least one box to continue')
+  })
+
+  it('places server details on their fields and sums them up under the button', () => {
+    const html = render()
+
+    expect(html).toContain("field.indexOf('answers.') === 0")
+    expect(html).toContain("'Check the 1 answer marked above.'")
+    expect(html).toContain("'Check the ' + markedCount + ' answers marked above.'")
+    expect(html).toContain("setAttribute('aria-invalid', 'true')")
+    expect(html).toContain("setAttribute('aria-describedby', slot.id)")
+  })
+
+  it('places details on fields only for a validation failure', () => {
+    const html = render()
+
+    // The code travels with the thrown error, and only validation_failed
+    // reaches showProblems. A 409 for a changed form, a 429 or a network
+    // failure shows its message in the status line and marks no field.
+    expect(html).toContain("failure.code = typeof problem.code === 'string' ? problem.code : null;")
+    expect(html).toContain(
+      "if (error && error.code === 'validation_failed') {\n        showProblems(error.details || [], message);\n      } else {\n        status.textContent = message;",
+    )
+    expect(html).not.toContain("showProblems(error.details || [], error.message || 'Something went wrong.')")
+  })
+
+  it('rewrites the summary as edits clear field errors', () => {
+    const html = render()
+
+    // Only an edit that cleared a showing error recomputes, and the count is
+    // the error slots still showing.
+    expect(html).toContain('if (id && fieldsById[id] && clearFieldError(id)) {\n      refreshSummary();\n      postHeight();')
+    expect(html).toContain('if (slot && !slot.hidden) { markedCount += 1; }')
+    // With nothing left to report, the status line goes back to empty.
+    expect(html).toContain(
+      "if (markedCount === 0 && looseMessages.length === 0) {\n      looseMessages = null;\n      status.textContent = '';\n      status.className = 'note';",
+    )
+    // The unmatched messages from the last showProblems stay in the summary.
+    expect(html).toContain('status.textContent = summary(markedCount, looseMessages);')
+  })
+
+  it('leaves the status line alone on an edit when it is not showing a summary', () => {
+    const html = render()
+
+    expect(html).toContain('if (looseMessages === null) { return; }')
+    // The clear before a submit forgets the summary rather than rewriting it.
+    expect(html).toContain('function clearFieldErrors() {\n    looseMessages = null;')
+  })
+
+  it('ships a script that parses', () => {
+    const html = render()
+    const match = /<script nonce="n0nce">([\s\S]*?)<\/script>/.exec(html)
+
+    expect(match?.[1]).toBeDefined()
+    // Parses without running: the body is compiled, never called.
+    expect(() => new Function(match?.[1] ?? '')).not.toThrow()
+  })
+
+  it('styles the error slot and the invalid controls in both layouts', () => {
+    for (const layout of ['page', 'embed'] as const) {
+      const html = render({}, [field()], layout)
+
+      expect(html).toContain('.field-error {')
+      expect(html).toContain('input[aria-invalid="true"]')
+    }
+  })
+})

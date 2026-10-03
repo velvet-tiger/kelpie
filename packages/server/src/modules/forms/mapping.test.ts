@@ -8,6 +8,7 @@ import {
   fillBlank,
   fillPhonesBlank,
   findAnswerProblems,
+  findUnknownAnswers,
   mapAnswers,
   readIntent,
   readListChoices,
@@ -31,6 +32,7 @@ interface FieldOverrides {
   readonly mapTo?: FormFieldMapTarget
   readonly options?: readonly StoredFormFieldOption[]
   readonly listIds?: readonly string[]
+  readonly consentPurposeIds?: readonly string[]
 }
 
 function field(overrides: FieldOverrides = {}): FormFieldRecord {
@@ -47,7 +49,7 @@ function field(overrides: FieldOverrides = {}): FormFieldRecord {
     options: overrides.options ?? [],
     placeholder: null,
     statement: null,
-    consentPurposeIds: [],
+    consentPurposeIds: [...(overrides.consentPurposeIds ?? [])],
     consentPurposeLabels: {},
     listIds: [...(overrides.listIds ?? [])],
     listLabels: {},
@@ -115,10 +117,54 @@ describe('an Add to list field', () => {
     const required = { ...newsField, required: true }
 
     expect(findAnswerProblems([required], { ff_lists: 'list_unknown' })).toEqual([
-      { field: 'answers.ff_lists', message: 'Add me to the mailing list needs at least one choice' },
+      { field: 'answers.ff_lists', message: 'Tick at least one box to continue' },
     ])
     expect(findAnswerProblems([required], { ff_lists: 'list_news' })).toEqual([])
     expect(findAnswerProblems([newsField], {})).toEqual([])
+  })
+
+  it('asks for "the box" when a required field offers one list', () => {
+    const single = field({
+      id: 'ff_lists',
+      label: 'Add me to the mailing list',
+      type: 'list',
+      mapTo: 'lists',
+      required: true,
+      listIds: ['list_news'],
+    })
+
+    expect(findAnswerProblems([single], {})).toEqual([
+      { field: 'answers.ff_lists', message: 'Tick the box to continue' },
+    ])
+  })
+})
+
+describe('a required consent field', () => {
+  function consentField(consentPurposeIds: readonly string[]): FormFieldRecord {
+    return field({
+      id: 'ff_consent',
+      label: 'Keep in touch',
+      type: 'consent',
+      mapTo: 'person.consent',
+      required: true,
+      consentPurposeIds,
+    })
+  }
+
+  it('asks for "the box" when it offers one purpose', () => {
+    expect(findAnswerProblems([consentField(['cp_news'])], {})).toEqual([
+      { field: 'answers.ff_consent', message: 'Tick the box to continue' },
+    ])
+  })
+
+  it('asks for "at least one box" when it offers several purposes', () => {
+    expect(findAnswerProblems([consentField(['cp_news', 'cp_events'])], { ff_consent: '' })).toEqual([
+      { field: 'answers.ff_consent', message: 'Tick at least one box to continue' },
+    ])
+  })
+
+  it('accepts one ticked purpose', () => {
+    expect(findAnswerProblems([consentField(['cp_news', 'cp_events'])], { ff_consent: 'cp_events' })).toEqual([])
   })
 })
 
@@ -137,10 +183,14 @@ describe('findAnswerProblems', () => {
     expect(findAnswerProblems([emailField, nameField], { ff_email: 'a@b.com' })).toEqual([])
   })
 
-  it('reports a field the form does not have', () => {
-    const problems = findAnswerProblems([emailField], { ff_email: 'a@b.com', ff_nope: 'x' })
+  it('does not report an answer for a field the form does not have', () => {
+    // findUnknownAnswers reports that, and the submit refuses it as a 409
+    // before this runs. Reporting it here too would turn a stale page into a
+    // 422 with "is required" errors for fields the page never showed.
+    const required = field({ id: 'ff_name', label: 'Name', type: 'text', mapTo: 'person.name', required: true })
+    const problems = findAnswerProblems([emailField, required], { ff_email: 'a@b.com', ff_nope: 'x' })
 
-    expect(problems).toEqual([{ field: 'answers.ff_nope', message: 'Unknown field' }])
+    expect(problems).toEqual([{ field: 'answers.ff_name', message: 'Name is required' }])
   })
 
   it('treats a blank answer to a required field as missing', () => {
@@ -179,10 +229,28 @@ describe('findAnswerProblems', () => {
   })
 
   it('reports every problem at once rather than the first', () => {
+    const requiredEmail = field({ required: true })
     const required = field({ id: 'ff_name', label: 'Name', type: 'text', mapTo: 'person.name', required: true })
-    const problems = findAnswerProblems([emailField, required], { ff_ghost: 'x' })
+    const problems = findAnswerProblems([requiredEmail, required], {})
 
     expect(problems).toHaveLength(2)
+  })
+})
+
+describe('findUnknownAnswers', () => {
+  it('names each answer for a field the form does not have', () => {
+    // A page left open while the form's field list was changed and saved
+    // sends the old field ids, like these.
+    const problems = findUnknownAnswers([emailField], { ff_email: 'a@b.com', ff_nope: 'x', ff_gone: '' })
+
+    expect(problems).toEqual([
+      { field: 'answers.ff_nope', message: 'This form no longer has this field' },
+      { field: 'answers.ff_gone', message: 'This form no longer has this field' },
+    ])
+  })
+
+  it('finds nothing when every answer is for a field the form has', () => {
+    expect(findUnknownAnswers([emailField, nameField], { ff_email: 'a@b.com' })).toEqual([])
   })
 })
 

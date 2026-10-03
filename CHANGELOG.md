@@ -43,6 +43,28 @@ While the major version is `0`, a minor bump may break the API.
   Person, Company, Enquiry, Deal, Opportunity, Raise, Partnership and Event
   pages, and "Tag the person" and "Tag the company" on a form's Actions tab.
   They were comma-separated text boxes.
+- **`@kelpie/server`** — **Form answer errors are written for the visitor.**
+  A refused submission's `422` says "Some answers need attention". A
+  required consent or list field with nothing ticked says "Tick the box to
+  continue" when it offers one box, and "Tick at least one box to continue"
+  otherwise. The code stays `validation_failed`, and each problem keeps its
+  `answers.<fieldId>` path.
+- **`@kelpie/server`** — **An answer for a field the form does not have is
+  now `409 conflict`, not `422`.** This is a page loaded before the form's
+  field list changed (a save that changes the list gives every field a new
+  id). The message is "This form has changed. Reload the page and try
+  again.", with one detail per unknown id on `answers.<fieldId>` saying "This
+  form no longer has this field". It is checked first and alone, so a stale
+  page no longer also gets "is required" errors for fields it does not show.
+  Releasing a held submission whose answers name removed fields gets the same
+  `409` and details, with the message "This submission has answers for fields
+  the form no longer has", because reloading does nothing for the member.
+- **`@kelpie/server`** — **The form embed marks fields only for a `422`.**
+  The embed shows each `validation_failed` detail under its field. Any other
+  refusal (a changed form, a rate limit, a network failure) shows only its
+  message under the button. When an edit clears a field's error, the
+  "Check the N answers marked above." line counts again, and clears when no
+  errors are left.
 
 ### Fixed
 
