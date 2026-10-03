@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-04
+
 ### Added
 
 - **`@kelpie/server`** — **Agent run event.** The `agent-tasks` module
