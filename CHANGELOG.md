@@ -95,6 +95,15 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **Jobs on a dead worker.** A job that a worker held
+  when it died (out of memory, SIGKILL, a lost machine) stayed `active` and
+  was never retried, because nothing ran pg-boss's supervision. A process
+  that works jobs now runs a supervision pass each 60 seconds: it fails an
+  `active` job that is past its `expireInSeconds`, so the job is retried or
+  goes to its dead-letter queue, and it deletes old finished jobs, which also
+  stayed in `pgboss.job`. An API started with `--no-worker` does not run the
+  pass. More than one worker can run it. An assembly needs no change. New
+  option `superviseIntervalSeconds` on `createJobsRuntime`. No migration.
 - **`@kelpie/server`** — **Scope gaps.** A bearer key or OAuth token with any
   scope could call these, because no scope rule matched them:
   `POST /v1/forms/:id/regenerate-slug`,

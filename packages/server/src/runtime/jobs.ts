@@ -30,7 +30,30 @@ import type { Transaction } from './transaction.ts'
  *
  * The API and the worker both call `start()`: the API needs a boss instance
  * to insert jobs on request-scoped transactions; the worker adds a
- * `startWorking()` step that runs `work()` per handle.
+ * `startWorking()` step that runs `work()` per handle and starts
+ * supervision.
+ *
+ * Supervision is pg-boss's `supervise()` pass. It fails an `active` job that
+ * is past its `expireInSeconds`, which puts the job back to `retry` (or to
+ * the dead-letter queue when no retry remains), and it deletes old finished
+ * jobs. A live worker fails its own slow handler, so the pass matters for
+ * the job a worker held when it died (out of memory, SIGKILL, a lost
+ * machine): nothing else ever releases that row.
+ *
+ * It runs in the process that works jobs, not in every process that opens a
+ * boss instance, so an API started with `--no-worker` adds no maintenance
+ * load and the open-source container (worker inline) still gets it. pg-boss
+ * only starts its own supervisor from a constructor option, and the instance
+ * is built in `start()` before the runtime knows if it will work jobs.
+ * Thus the instance keeps `supervise: false` and `startWorking()` calls the
+ * public `supervise()` on a timer, which pg-boss supports for that case.
+ *
+ * More than one worker can run it. Each pass claims a queue with one
+ * `UPDATE pgboss.queue SET monitor_claim_on = now() WHERE ... > interval`
+ * (`maintain_on` for deletion), so only one process per interval gets the
+ * queue, and the expiry statement takes `pg_advisory_xact_lock` and moves
+ * rows with one `DELETE ... RETURNING`, so two passes cannot retry the same
+ * job twice.
  */
 
 /**
@@ -41,6 +64,9 @@ import type { Transaction } from './transaction.ts'
 const PGBOSS_SCHEMA = 'pgboss'
 
 const DEFAULT_LOCAL_CONCURRENCY = 5
+
+/** pg-boss's own default for `superviseIntervalSeconds` and `monitorIntervalSeconds`. */
+const DEFAULT_SUPERVISE_INTERVAL_SECONDS = 60
 
 interface RegisteredJob<Data> {
   readonly definition: JobDefinition<Data>
@@ -65,6 +91,14 @@ export interface JobsRuntimeOptions {
    * not override `defaults.localConcurrency`. Matches pg-boss's default.
    */
   readonly defaultLocalConcurrency?: number
+  /**
+   * How often a working process runs a supervision pass, and the shortest
+   * time between two expiry checks of one queue across all processes
+   * (pg-boss's `monitorIntervalSeconds`). A job on a dead worker is retried
+   * at most about two intervals after its `expireInSeconds` ends. Default
+   * 60s, pg-boss's own; pg-boss refuses less than 1. Tests pass 1.
+   */
+  readonly superviseIntervalSeconds?: number
 }
 
 export interface JobsRuntime {
@@ -86,10 +120,11 @@ export interface JobsRuntime {
    */
   start(): Promise<void>
   /**
-   * Starts the `work()` loop for every registered handle. The worker entry
-   * point calls this; the API calls it too unless `--no-worker` is set.
-   * Handler errors are logged and rethrown so pg-boss retries or
-   * dead-letters the job.
+   * Starts the `work()` loop for every registered handle, and the
+   * supervision timer that retries a job left `active` by a dead worker.
+   * The worker entry point calls this; the API calls it too unless
+   * `--no-worker` is set. Handler errors are logged and rethrown so pg-boss
+   * retries or dead-letters the job.
    */
   startWorking(): Promise<void>
   /**
@@ -105,9 +140,10 @@ export interface JobsRuntime {
     options?: EnqueueOptions,
   ): Promise<string | null>
   /**
-   * Drains in-flight work and closes the pg-boss instance. `offWork({wait:
-   * true})` awaits every handler mid-flight; `boss.stop` then tears down
-   * the connection pool.
+   * Drains in-flight work and closes the pg-boss instance. Supervision
+   * stops first and a pass in flight is awaited; `offWork({wait: true})`
+   * awaits every handler mid-flight; `boss.stop` then tears down the
+   * connection pool.
    */
   stop(): Promise<void>
 }
@@ -121,6 +157,12 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
   const queuesCreated = new Set<string>()
   const workersStarted = new Set<string>()
   let boss: PgBoss | undefined
+  const superviseIntervalSeconds =
+    options.superviseIntervalSeconds ?? DEFAULT_SUPERVISE_INTERVAL_SECONDS
+  let superviseTimer: ReturnType<typeof setInterval> | undefined
+  // The pass in flight, if any. `stop()` awaits it so the pool never closes
+  // under a running statement, and the timer skips a tick while it is set.
+  let supervising: Promise<void> | undefined
 
   function requireBoss(): PgBoss {
     if (boss === undefined) {
@@ -213,8 +255,11 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
         schema: PGBOSS_SCHEMA,
         migrate: false,
         createSchema: false,
+        // Not pg-boss's own supervisor: `startWorking()` runs the pass, so
+        // only a process that works jobs supervises. See the note at the top.
         supervise: false,
         schedule: false,
+        monitorIntervalSeconds: superviseIntervalSeconds,
         useListenNotify: true,
       })
 
@@ -227,6 +272,30 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
     }
 
     await ensureQueuesFor(boss)
+  }
+
+  async function supervise(instance: PgBoss): Promise<void> {
+    try {
+      await instance.supervise()
+    } catch (error: unknown) {
+      options.logger.error('job supervision failed', { error: describeThrown(error) })
+    }
+  }
+
+  function startSupervising(instance: PgBoss): void {
+    if (superviseTimer !== undefined) {
+      return
+    }
+
+    superviseTimer = setInterval(() => {
+      if (supervising !== undefined) {
+        return
+      }
+
+      supervising = supervise(instance).finally(() => {
+        supervising = undefined
+      })
+    }, superviseIntervalSeconds * 1000)
   }
 
   async function startWorking(): Promise<void> {
@@ -289,6 +358,8 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
 
       workersStarted.add(definition.name)
     }
+
+    startSupervising(instance)
   }
 
   async function enqueueOnTx<Data>(
@@ -326,6 +397,12 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
     if (instance === undefined) {
       return
     }
+
+    if (superviseTimer !== undefined) {
+      clearInterval(superviseTimer)
+      superviseTimer = undefined
+    }
+    await supervising
 
     for (const name of workersStarted) {
       try {

@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { PgBoss } from 'pg-boss'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -71,6 +72,7 @@ describe.skipIf(connectionString === undefined)('jobs runtime (pg-boss)', () => 
       connectionString,
       logger: silentLogger,
       pollingIntervalSeconds: 0.5,
+      superviseIntervalSeconds: 1,
     })
   }
 
@@ -231,6 +233,67 @@ describe.skipIf(connectionString === undefined)('jobs runtime (pg-boss)', () => 
       await runtime.stop()
     }
   })
+
+  it('retries a job that a dead worker left active past expireInSeconds', async () => {
+    if (connectionString === undefined) {
+      throw new Error('unreachable: suite skips when no connection string')
+    }
+
+    const runtime = buildRuntime()
+    const seen: unknown[] = []
+    const handle = runtime.registry.define({
+      name: 'jobs.expire',
+      schema: z.object({ note: z.string() }).strict(),
+      handler: async ({ data }) => {
+        seen.push(data)
+      },
+      defaults: { retryLimit: 1, retryDelay: 0, expireInSeconds: 1 },
+    })
+
+    await runtime.start()
+
+    // The dead worker: a second instance takes the job, which makes it
+    // `active`, and never completes it. A handler that hangs on a live
+    // worker would not do: that worker fails its own job at
+    // `expireInSeconds`, with no supervision.
+    const deadWorker = new PgBoss({
+      connectionString,
+      schema: 'pgboss',
+      migrate: false,
+      createSchema: false,
+      supervise: false,
+      schedule: false,
+    })
+    deadWorker.on('error', () => undefined)
+    await deadWorker.start()
+
+    try {
+      const scope = scopeFor(runtime)
+
+      await scope(
+        async ({ jobs }) => {
+          await jobs.enqueue(handle, { note: 'held' })
+        },
+        { workspaceId: fixture.workspaceId },
+      )
+
+      const taken = await deadWorker.fetch('jobs.expire')
+      expect(taken).toHaveLength(1)
+
+      await runtime.startWorking()
+
+      await waitFor(() => seen.length === 1, { budgetMs: 15_000 })
+      expect(seen).toEqual([{ note: 'held' }])
+
+      const rows = await database.db.execute<{ retry_count: number }>(
+        sql`select retry_count from pgboss.job where name = 'jobs.expire'`,
+      )
+      expect(rows.map((row) => row.retry_count)).toEqual([1])
+    } finally {
+      await deadWorker.stop({ graceful: false, close: true, timeout: 5_000 })
+      await runtime.stop()
+    }
+  }, 20_000)
 
   it('drains in-flight work when stop() is called', async () => {
     const runtime = buildRuntime()
