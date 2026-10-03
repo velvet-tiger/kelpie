@@ -113,8 +113,19 @@ function form(fields: readonly EditableField[]): Form {
 }
 
 describe('toFieldInputs', () => {
-  it('drops the ids, because the server assigns them on every write', () => {
-    expect(toFieldInputs([email])[0]).not.toHaveProperty('id')
+  it('sends the id of a saved field, so the field keeps it through an edit', () => {
+    const edited = editField(toEditableFields(form([email])), 'ff_email', { label: 'Work email' })
+
+    expect(toFieldInputs(form([email]), edited)[0]).toMatchObject({
+      id: 'ff_email',
+      label: 'Work email',
+    })
+  })
+
+  it('drops the local id of a field not yet saved, because the server assigns it', () => {
+    const added = [email, { ...name, id: 'new-1' }]
+
+    expect(toFieldInputs(form([email]), added)[1]).not.toHaveProperty('id')
   })
 })
 

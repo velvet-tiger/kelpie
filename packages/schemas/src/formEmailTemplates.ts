@@ -44,10 +44,9 @@ export const FORM_EMAIL_PLACEHOLDERS: readonly FormEmailPlaceholder[] = [
 ]
 
 /*
- * There is no placeholder for one answer. A field's id is the only stable
- * handle a label-free field has, and the server gives every field a new id
- * whenever the field list is saved with a change, so `{{field.<id>}}` would
- * break on the next edit. `{{answers}}` lists them all instead.
+ * There is no placeholder for one answer. `{{answers}}` lists them all
+ * instead. A field keeps its id for as long as it is on the form, so a
+ * `{{field.<id>}}` placeholder would now hold across edits; none exists yet.
  */
 
 export const DEFAULT_NOTIFY_SUBJECT = 'New submission: {{form.name}}'

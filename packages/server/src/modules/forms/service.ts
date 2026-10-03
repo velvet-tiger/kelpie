@@ -32,8 +32,8 @@ import * as listsRepository from '../lists/repository.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
 import * as workspaceRepository from '../workspace/repository.ts'
 import { missingTargets } from '../recordTargets.ts'
-import { fieldsDiffer, findFieldProblems, storedOptions } from './fields.ts'
-import type { FieldDraft, FieldShape } from './fields.ts'
+import { fieldDiffers, findFieldProblems, reconcileFields, storedOptions } from './fields.ts'
+import type { FieldDraft, FieldReconciliation, FieldShape } from './fields.ts'
 import * as emailRepository from './emailRepository.ts'
 import { replyToFrom } from './emailMessages.ts'
 import * as repository from './repository.ts'
@@ -744,7 +744,28 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
     await requireEmailSettings(workspaceId, state.email)
   }
 
-  /** Writes a field list as positions 0..n-1, which is the order it arrived in. */
+  /** A field's own columns at one position, which is its place in the list it arrived in. */
+  function fieldColumns(field: FieldDraft, sortOrder: number): repository.FormFieldChanges {
+    return {
+      label: field.label,
+      type: field.type,
+      required: field.required,
+      mapTo: field.mapTo,
+      options: storedOptions(field.options),
+      placeholder: field.placeholder,
+      statement: field.statement,
+      consentPurposeIds: [...field.consentPurposeIds],
+      // Prune the override map to just the purposes the field lists, so
+      // deselecting one clears its custom text rather than keeping it
+      // stored against a purpose the field no longer offers.
+      consentPurposeLabels: pruneLabels(field.consentPurposeIds, field.consentPurposeLabels),
+      listIds: [...field.listIds],
+      listLabels: pruneLabels(field.listIds, field.listLabels),
+      sortOrder,
+    }
+  }
+
+  /** Writes a new form's field list as positions 0..n-1, each field under a new id. */
   function writeFields(
     tx: Transaction,
     workspaceId: string,
@@ -754,26 +775,58 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
     return repository.insertFields(
       tx,
       fields.map((field, index) => ({
+        ...fieldColumns(field, index),
         id: dependencies.createId('formField'),
         workspaceId,
         formId,
-        label: field.label,
-        type: field.type,
-        required: field.required,
-        mapTo: field.mapTo,
-        options: storedOptions(field.options),
-        placeholder: field.placeholder,
-        statement: field.statement,
-        consentPurposeIds: [...field.consentPurposeIds],
-        // Prune the override map to just the purposes the field lists, so
-        // deselecting one clears its custom text rather than keeping it
-        // stored against a purpose the field no longer offers.
-        consentPurposeLabels: pruneLabels(field.consentPurposeIds, field.consentPurposeLabels),
-        listIds: [...field.listIds],
-        listLabels: pruneLabels(field.listIds, field.listLabels),
-        sortOrder: index,
       })),
     )
+  }
+
+  /**
+   * Brings a form's stored fields in line with a written list.
+   *
+   * A field that is still in the list is rewritten in place and keeps its id,
+   * because that id is the key of every stored answer and the input name on any
+   * page built by hand. Only a field the list dropped is deleted, and only a
+   * field the list added gets a new id. A field that did not change and did not
+   * move is not written at all.
+   */
+  async function rewriteFields(
+    tx: Transaction,
+    workspaceId: string,
+    formId: string,
+    stored: readonly FormFieldRecord[],
+    fields: readonly FieldDraft[],
+    reconciliation: FieldReconciliation,
+  ): Promise<FormFieldRecord[]> {
+    const storedById = new Map(stored.map((field) => [field.id, field]))
+    const added: repository.FormFieldColumns[] = []
+
+    await repository.deleteFieldsById(tx, formId, reconciliation.removedIds)
+
+    for (const [index, field] of fields.entries()) {
+      const keptId = reconciliation.keptIds[index] ?? null
+      const existing = keptId === null ? undefined : storedById.get(keptId)
+
+      if (keptId === null || existing === undefined) {
+        added.push({
+          ...fieldColumns(field, index),
+          id: dependencies.createId('formField'),
+          workspaceId,
+          formId,
+        })
+      } else if (existing.sortOrder !== index || fieldDiffers(existing, field)) {
+        await repository.updateField(tx, formId, keptId, {
+          ...fieldColumns(field, index),
+          updatedAt: dependencies.now(),
+        })
+      }
+    }
+
+    await repository.insertFields(tx, added)
+
+    return repository.listFields(tx, formId)
   }
 
   function pruneLabels(
@@ -965,6 +1018,18 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       const workspaceId = requireWorkspaceId(actor)
       const existing = await require(workspaceId, id)
       const stored = await repository.listFields(dependencies.db, id)
+      const fieldReconciliation =
+        changes.fields === undefined ? undefined : reconcileFields(stored, changes.fields)
+
+      // Refused before the list itself is checked: an id this form does not have
+      // means the client is editing some other list than the one stored.
+      if (fieldReconciliation !== undefined && fieldReconciliation.problems.length > 0) {
+        throw AppError.validationFailed(
+          'That field list names fields this form does not have',
+          fieldReconciliation.problems,
+        )
+      }
+
       const storedListRows = await repository.listFormLists(dependencies.db, id)
       const storedListIds = storedListRows.map((row) => row.listId)
       const storedAttachTargets = await repository.listAttachTargets(dependencies.db, id)
@@ -1047,10 +1112,10 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
       const columns = toStoredColumns(changes)
       const written = changedKeys(existing, columns)
 
-      // A resent field list that matches what is stored is not a write. Rewriting
-      // it would move every field id and publish a `record.updated` no consumer
-      // can act on, which is the same reason `changedKeys` guards the columns.
-      const rewritesFields = changes.fields !== undefined && fieldsDiffer(stored, changes.fields)
+      // A resent field list that matches what is stored is not a write. It would
+      // publish a `record.updated` no consumer can act on, which is the same
+      // reason `changedKeys` guards the columns.
+      const rewritesFields = fieldReconciliation?.changed ?? false
       const rewritesLists =
         changes.listIds !== undefined && !sameStringSet(storedListIds, changes.listIds)
       const rewritesAttachTargets =
@@ -1084,13 +1149,11 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
         }
 
         const fields = await (async (): Promise<FormFieldRecord[]> => {
-          if (changes.fields === undefined || !rewritesFields) {
+          if (changes.fields === undefined || fieldReconciliation === undefined || !rewritesFields) {
             return repository.listFields(tx, id)
           }
 
-          await repository.deleteFields(tx, id)
-
-          return writeFields(tx, workspaceId, id, changes.fields)
+          return rewriteFields(tx, workspaceId, id, stored, changes.fields, fieldReconciliation)
         })()
 
         if (rewritesLists) {

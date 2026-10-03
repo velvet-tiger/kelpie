@@ -373,6 +373,166 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(fieldIds(readRecord(await response.json()))).toEqual(before)
     })
 
+    /**
+     * A field id is the key of a stored answer and the input name on a page
+     * somebody built by hand. A field that is still on the form keeps its id
+     * through every edit; only a removed field loses one.
+     */
+    describe('field ids', () => {
+      /** The stored fields as a builder sends them back: each one with its id. */
+      function storedFields(form: Record<string, unknown>): Record<string, unknown>[] {
+        const fields = Array.isArray(form.fields) ? form.fields : []
+
+        return fields.filter(isRecord).map((field) => ({
+          id: field.id,
+          label: field.label,
+          type: field.type,
+          required: field.required,
+          map_to: field.map_to,
+        }))
+      }
+
+      async function saveFields(
+        form: Record<string, unknown>,
+        fields: readonly Record<string, unknown>[],
+      ): Promise<Response> {
+        return client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {
+          body: { fields },
+          cookie: acme.cookie,
+        })
+      }
+
+      it('keeps every id through a label edit, so a page loaded before it still submits', async () => {
+        const form = await createForm()
+        const before = fieldIds(form)
+        const response = await saveFields(
+          form,
+          storedFields(form).map((field) =>
+            field.label === 'Name' ? { ...field, label: 'Full name' } : field,
+          ),
+        )
+
+        expect(response.status).toBe(200)
+
+        const after = fieldIds(readRecord(await response.json()))
+
+        expect(after['Full name']).toBe(before.Name)
+        expect(after.Email).toBe(before.Email)
+        expect(Object.values(after).toSorted()).toEqual(Object.values(before).toSorted())
+        expect((await submit(formPath(form), filledIn(before))).status).toBe(201)
+      })
+
+      it('keeps the old ids when a field is added, and gives only the new field a new one', async () => {
+        const form = await createForm()
+        const before = fieldIds(form)
+        const response = await saveFields(form, [
+          ...storedFields(form),
+          { label: 'Phone', type: 'text', map_to: 'submission' },
+        ])
+
+        expect(response.status).toBe(200)
+
+        const { Phone: phone, ...rest } = fieldIds(readRecord(await response.json()))
+
+        expect(rest).toEqual(before)
+        expect(Object.values(before)).not.toContain(phone)
+      })
+
+      it('keeps the other ids when a field is deleted', async () => {
+        const form = await createForm()
+        const { Message: _message, ...kept } = fieldIds(form)
+        const response = await saveFields(
+          form,
+          storedFields(form).filter((field) => field.label !== 'Message'),
+        )
+
+        expect(response.status).toBe(200)
+        expect(fieldIds(readRecord(await response.json()))).toEqual(kept)
+      })
+
+      it('keeps every id through a reorder, and stores the new order', async () => {
+        const form = await createForm()
+        const response = await saveFields(form, storedFields(form).toReversed())
+
+        expect(response.status).toBe(200)
+
+        const saved = readRecord(await response.json())
+
+        expect(fieldIds(saved)).toEqual(fieldIds(form))
+        expect(formSchema.parse(saved).fields.map((field) => field.label)).toEqual([
+          'Message',
+          'Job title',
+          'Company',
+          'Email',
+          'Name',
+        ])
+      })
+
+      /** A client that never read the ids still keeps those of the fields it did not edit. */
+      it('keeps the id of an unchanged field that was sent without one', async () => {
+        const form = await createForm()
+        const { Name: _name, ...kept } = fieldIds(form)
+        const response = await saveFields(
+          form,
+          CONTACT_FIELDS.map((field) =>
+            field.label === 'Name' ? { ...field, label: 'Full name' } : field,
+          ),
+        )
+
+        expect(response.status).toBe(200)
+
+        const { 'Full name': renamed, ...rest } = fieldIds(readRecord(await response.json()))
+
+        expect(rest).toEqual(kept)
+        expect(Object.values(fieldIds(form))).not.toContain(renamed)
+      })
+
+      it('refuses the id of a field on another form, and leaves the form as it was', async () => {
+        const form = await createForm()
+        const other = await createForm({ name: 'Newsletter' })
+        const response = await saveFields(
+          form,
+          storedFields(form).map((field) =>
+            field.label === 'Message' ? { ...field, id: fieldIds(other).Message } : field,
+          ),
+        )
+
+        expect(response.status).toBe(422)
+        expect(readRecord(readRecord(await response.json()).error).details).toEqual([
+          { field: 'fields.4.id', message: `This form has no field ${fieldIds(other).Message ?? ''}` },
+        ])
+
+        const read = await client.send('GET', `/v1/forms/${readString(form, 'id')}`, {
+          cookie: acme.cookie,
+        })
+
+        expect(fieldIds(readRecord(await read.json()))).toEqual(fieldIds(form))
+      })
+
+      it('refuses an id that two fields name', async () => {
+        const form = await createForm()
+        const name = fieldIds(form).Name
+        const response = await saveFields(
+          form,
+          storedFields(form).map((field) => ({ ...field, id: name })),
+        )
+
+        expect(response.status).toBe(422)
+      })
+
+      it('refuses a field id on a create', async () => {
+        const response = await client.send('POST', '/v1/forms', {
+          body: {
+            name: 'Website contact',
+            fields: CONTACT_FIELDS.map((field) => ({ ...field, id: 'ff_made_up' })),
+          },
+          cookie: acme.cookie,
+        })
+
+        expect(response.status).toBe(422)
+      })
+    })
+
     it('keeps the slug through other edits, so an embedded form keeps working', async () => {
       const form = await createForm()
       const response = await client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {
@@ -1137,11 +1297,11 @@ describe.skipIf(connectionString === undefined)('forms', () => {
     })
 
     /**
-     * The defect this guards: a page loaded before the field list changed
-     * sends only the old ids. Checked as answers, that read as a 422 with an
+     * The defect this guards: a page loaded before fields were removed still
+     * sends their ids. Checked as answers, that read as a 422 with an
      * "is required" error for every new field, which the page does not show.
      */
-    it('refuses a page loaded before the field list changed with a 409 and nothing else', async () => {
+    it('refuses a page loaded before its fields were removed with a 409 and nothing else', async () => {
       const form = await createForm()
       const stale = fieldIds(form)
       const changed = await client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {

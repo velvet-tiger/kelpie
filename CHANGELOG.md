@@ -53,6 +53,22 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **A form field keeps
+  its id across saves.** Until now, a save that changed anything in a form's
+  field list deleted every field and inserted new ones, so every field id
+  changed. Field ids are the keys of a submission's `answers` and the input
+  names of a hand-built form, so one label edit broke such a form, every open
+  embed page, and the release of every held submission. Now `PATCH
+  /v1/forms/:id` accepts an optional `id` on each field. A field with the id
+  of a stored field is updated in place. A field with no id keeps the id of a
+  stored field it is identical to; if there is none, it is inserted with a new
+  id. A stored field that is not in the list is deleted, and only its id is
+  lost. An id that is not a field of the form, or that two fields name, is
+  `422` on `fields.<n>.id`. `POST /v1/forms` refuses a field `id`. The
+  `forms_update` MCP tool takes the same body. The form builder sends the ids.
+  `FormFieldInput` gains an optional `id`. A client that sends no ids keeps
+  the ids of the fields it did not change. No migration.
+
 - **`@kelpie/server`** — **Breaking: MCP tools declare their scope.**
   `McpToolDefinition` and `McpTool` have a required `scope`, the API key scope
   a bearer caller needs. The registry checks it on every call, before it

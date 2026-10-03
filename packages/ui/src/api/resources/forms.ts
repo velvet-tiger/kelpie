@@ -39,8 +39,8 @@ import type {
  *
  * A form carries its fields, so there is no separate field resource and no
  * per-field write. The whole list goes back on every save, which is what a drag
- * reorder sends as well; the server treats a list identical to the stored one as
- * no write at all, so field ids survive a save that changed nothing.
+ * reorder sends as well. Each saved field goes with its id and keeps it; the
+ * server treats a list identical to the stored one as no write at all.
  *
  * A submit writes People, Companies, Positions and Deals, so those lists go
  * stale whenever a form changes — not because editing a form touches them, but
@@ -51,10 +51,10 @@ import type {
  * Everything about a form except its fields.
  *
  * The field list is excluded because the shared update hook merges the request
- * into the cached record optimistically, and a request carries *drafts*: no ids,
- * no positions, both assigned server-side. Merging those in would put a field
- * list with no ids on screen for as long as the PATCH takes, and the builder
- * addresses fields by id. `useUpdateFormFields` handles that half.
+ * into the cached record optimistically, and a request carries *drafts*: no
+ * positions, and no id for a field just added, both assigned server-side.
+ * Merging those in would put a field with no id on screen for as long as the
+ * PATCH takes, and the builder addresses fields by id. `useUpdateFormFields` handles that half.
  */
 export type FormSettingsInput = Omit<FormInput, 'fields'>
 

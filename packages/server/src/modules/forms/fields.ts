@@ -23,8 +23,13 @@ const PERSON_CONSENT_TARGET = 'person.consent'
  * process a submission are testable without one.
  */
 
-/** A field as a write request carries it: no id, no position, both derived. */
+/** A field as a write request carries it. Its position is its place in the list. */
 export interface FieldDraft {
+  /**
+   * The stored field this one is, on an update. Absent on a create, and for a
+   * field the client did not read an id for.
+   */
+  readonly id?: string | undefined
   readonly label: string
   readonly type: FormFieldType
   readonly required: boolean
@@ -295,42 +300,121 @@ export interface FieldShape {
   readonly listLabels: Readonly<Record<string, string>>
 }
 
+/** A stored field as the reconciliation reads it: its shape, and the id it keeps. */
+export interface StoredField extends FieldShape {
+  readonly id: string
+}
+
+/** What a write does with a field list, one decision per field. */
+export interface FieldReconciliation {
+  /**
+   * One entry per draft, in the order sent: the stored id the field keeps, or
+   * `null` for a field to insert under a new id.
+   */
+  readonly keptIds: readonly (string | null)[]
+  /** The stored fields the list no longer has. */
+  readonly removedIds: readonly string[]
+  /**
+   * Whether the write changes anything. A resent list that matches what is
+   * stored is not a write: it would publish a `record.updated` that no consumer
+   * can act on. Order counts: it is the order the embed renders, and reordering
+   * is the one edit that changes nothing else.
+   */
+  readonly changed: boolean
+  /** `422` details for ids the form cannot honour. Empty when the list is usable. */
+  readonly problems: readonly ErrorDetail[]
+}
+
 /**
- * Whether a submitted field list differs from the stored one.
+ * Decides which stored field each submitted field is.
  *
- * A write replaces the whole list, so without this a client resending what it
- * already had would delete and reinsert every row, move every id, and publish a
- * `record.updated` that no consumer can act on. Order counts: it is the order
- * the embed renders, and reordering is the one edit that changes nothing else.
+ * A field id is the key of a stored answer and the `name` of an input on a page
+ * somebody built by hand, so a field that still exists keeps its id. Only a
+ * field that was removed loses one.
+ *
+ * A draft that carries an id is that stored field, whatever else about it
+ * changed. A draft without an id keeps the id of a stored field it matches
+ * exactly, which is what lets a client that never read the ids resend a list
+ * without moving them; one that matches nothing is a new field.
  *
  * @param stored In `sort_order`, which is the order the repository returns.
  */
-export function fieldsDiffer(
-  stored: readonly FieldShape[],
+export function reconcileFields(
+  stored: readonly StoredField[],
   drafts: readonly FieldDraft[],
-): boolean {
-  if (stored.length !== drafts.length) {
-    return true
+): FieldReconciliation {
+  const storedById = new Map(stored.map((field) => [field.id, field]))
+  const claimed = new Set<string>()
+  const problems: ErrorDetail[] = []
+
+  for (const [index, draft] of drafts.entries()) {
+    if (draft.id === undefined) {
+      continue
+    }
+
+    const at = `fields.${String(index)}.id`
+
+    if (!storedById.has(draft.id)) {
+      problems.push({ field: at, message: `This form has no field ${draft.id}` })
+    } else if (claimed.has(draft.id)) {
+      problems.push({ field: at, message: `Another field already uses the id ${draft.id}` })
+    } else {
+      claimed.add(draft.id)
+    }
   }
 
-  return stored.some((field, index) => {
-    const draft = drafts[index]
+  // Named ids claim first, so an id-less draft never takes a field that another
+  // draft names further down the list.
+  const keptIds = drafts.map((draft): string | null => {
+    if (draft.id !== undefined) {
+      return draft.id
+    }
 
-    return (
-      draft === undefined ||
-      field.label !== draft.label ||
-      field.type !== draft.type ||
-      field.required !== draft.required ||
-      field.mapTo !== draft.mapTo ||
-      field.placeholder !== draft.placeholder ||
-      field.statement !== draft.statement ||
-      stringListDiffer(field.consentPurposeIds, draft.consentPurposeIds) ||
-      labelMapDiffer(field.consentPurposeLabels, draft.consentPurposeLabels) ||
-      stringListDiffer(field.listIds, draft.listIds) ||
-      labelMapDiffer(field.listLabels, draft.listLabels) ||
-      optionsDiffer(field.options, draft.options)
-    )
+    const match = stored.find((field) => !claimed.has(field.id) && !fieldDiffers(field, draft))
+
+    if (match === undefined) {
+      return null
+    }
+
+    claimed.add(match.id)
+
+    return match.id
   })
+
+  const removedIds = stored.filter((field) => !claimed.has(field.id)).map((field) => field.id)
+
+  const changed =
+    removedIds.length > 0 ||
+    keptIds.some((id, index) => {
+      const field = id === null ? undefined : storedById.get(id)
+      const draft = drafts[index]
+
+      return (
+        field === undefined ||
+        draft === undefined ||
+        stored[index]?.id !== id ||
+        fieldDiffers(field, draft)
+      )
+    })
+
+  return { keptIds, removedIds, changed, problems }
+}
+
+/** Whether a submitted field differs from a stored one in anything a write can change. */
+export function fieldDiffers(field: FieldShape, draft: FieldDraft): boolean {
+  return (
+    field.label !== draft.label ||
+    field.type !== draft.type ||
+    field.required !== draft.required ||
+    field.mapTo !== draft.mapTo ||
+    field.placeholder !== draft.placeholder ||
+    field.statement !== draft.statement ||
+    stringListDiffer(field.consentPurposeIds, draft.consentPurposeIds) ||
+    labelMapDiffer(field.consentPurposeLabels, draft.consentPurposeLabels) ||
+    stringListDiffer(field.listIds, draft.listIds) ||
+    labelMapDiffer(field.listLabels, draft.listLabels) ||
+    optionsDiffer(field.options, draft.options)
+  )
 }
 
 function labelMapDiffer(

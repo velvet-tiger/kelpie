@@ -215,16 +215,40 @@ export async function removeListFromFields(
   return updated.length
 }
 
+/** What an update of one field can change: everything but its id and its tenancy. */
+export type FormFieldChanges = Omit<FormFieldColumns, 'id' | 'workspaceId' | 'formId' | 'createdAt'>
+
 /**
- * Drops every field of a form, so the caller can write the list it was given.
+ * Rewrites one field in place, which is what keeps its id.
  *
- * A write replaces the whole list rather than diffing it. Field ids are not
- * addressable on the wire, positions are derived from the array's order, and a
- * drag-reorder changes every position after the one that moved: a diff would be
- * more code for the same rows.
+ * Scoped to the form as well as the id, so a field id from another form
+ * updates nothing even if a caller's own check were ever skipped.
  */
-export async function deleteFields(db: Queryable, formId: string): Promise<void> {
-  await db.delete(formFields).where(eq(formFields.formId, formId))
+export async function updateField(
+  db: Queryable,
+  formId: string,
+  id: string,
+  changes: FormFieldChanges,
+): Promise<void> {
+  await db
+    .update(formFields)
+    .set(changes)
+    .where(and(eq(formFields.formId, formId), eq(formFields.id, id)))
+}
+
+/** Drops the fields a written list no longer has. The other fields keep their ids. */
+export async function deleteFieldsById(
+  db: Queryable,
+  formId: string,
+  ids: readonly string[],
+): Promise<void> {
+  if (ids.length === 0) {
+    return
+  }
+
+  await db
+    .delete(formFields)
+    .where(and(eq(formFields.formId, formId), inArray(formFields.id, [...ids])))
 }
 
 /**

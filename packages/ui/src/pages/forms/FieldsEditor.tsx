@@ -51,14 +51,13 @@ import type { EditableField } from './fieldList.ts'
  * drags it up and down; "Add field" offers ready-made fields to append.
  *
  * Explicitly saved rather than saved per keystroke, unlike the inline editing
- * everywhere else in the app. A write replaces the whole list, so an
- * auto-committing builder would send one full rewrite per character typed into a
- * label, and every one of them would reissue every field id. The draft lives
- * here until somebody presses Save.
+ * everywhere else in the app. A write carries the whole list, so an
+ * auto-committing builder would send one full list per character typed into a
+ * label. The draft lives here until somebody presses Save.
  *
  * A field id is a stored id for a saved field and a local one for a field just
- * added; neither is sent. The server assigns ids and positions from the array's
- * order on every write.
+ * added. A save sends the stored ids, so a saved field keeps its id through any
+ * edit; a local id is not sent, and the server gives that field its id.
  */
 
 let localFieldCount = 0
@@ -137,7 +136,7 @@ export function FieldsEditor({ form }: FieldsEditorProps): React.JSX.Element {
   }
 
   function save(): void {
-    updateFields.run({ id: form.id, fields: toFieldInputs(fields) })
+    updateFields.run({ id: form.id, fields: toFieldInputs(form, fields) })
   }
 
   return (

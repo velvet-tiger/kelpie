@@ -221,9 +221,9 @@ function tickMessage(boxCount: number): string {
 /**
  * The answers for fields the form does not have, one detail per unknown id.
  *
- * Saving a form's fields with a change to the field list gives every field a
- * new id (a save that leaves the list as it was keeps them). So a page left
- * open across such a save sends ids the form no longer has. That is a stale
+ * A field keeps its id for as long as it is on the form, and loses it only
+ * when it is removed. So a page left open across a save that removed a field
+ * it shows sends an id the form no longer has. That is a stale
  * page, not a wrong answer: the caller refuses it as a conflict before it
  * checks any answer, and reloading is the only thing the visitor can do.
  */

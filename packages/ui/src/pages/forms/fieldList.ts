@@ -21,7 +21,7 @@ import { CRM_FIELD_PRESETS, NEW_SELECT_OPTIONS } from './template.ts'
 /**
  * Editing a form's field list, as pure functions over an array.
  *
- * A write replaces the whole list, so the builder holds one and hands it back;
+ * A write carries the whole list, so the builder holds one and hands it back;
  * these are the transformations it applies. No React and no fetching here, which
  * is what makes the rules that keep a list valid testable on their own.
  *
@@ -30,8 +30,11 @@ import { CRM_FIELD_PRESETS, NEW_SELECT_OPTIONS } from './template.ts'
  * keep the builder from constructing a list it already knows will be refused.
  */
 
+/** What the builder edits on a field: everything a write carries except the id. */
+export type FieldSettings = Omit<FormFieldInput, 'id'>
+
 /** A field being edited, with the identity the list uses to address it. */
-export interface EditableField extends FormFieldInput {
+export interface EditableField extends FieldSettings {
   /** The stored field id, or a local one for a field not yet saved. */
   readonly id: string
 }
@@ -66,9 +69,17 @@ export function toEditableFields(form: Form): EditableField[] {
   }))
 }
 
-/** Strips the local ids back off. Ids are assigned server-side on every write. */
-export function toFieldInputs(fields: readonly EditableField[]): FormFieldInput[] {
-  return fields.map(({ id: _id, ...field }) => field)
+/**
+ * The list as a write sends it.
+ *
+ * A saved field goes with its stored id, which is what lets it keep that id
+ * through the edit. A field added since the last save has only a local id, and
+ * goes without one: the server gives it its id.
+ */
+export function toFieldInputs(form: Form, fields: readonly EditableField[]): FormFieldInput[] {
+  const storedIds = new Set(form.fields.map((field) => field.id))
+
+  return fields.map(({ id, ...field }) => (storedIds.has(id) ? { id, ...field } : field))
 }
 
 /**
@@ -79,7 +90,10 @@ export function toFieldInputs(fields: readonly EditableField[]): FormFieldInput[
  * renders.
  */
 export function fieldsChanged(form: Form, fields: readonly EditableField[]): boolean {
-  return JSON.stringify(toFieldInputs(toEditableFields(form))) !== JSON.stringify(toFieldInputs(fields))
+  return (
+    JSON.stringify(toFieldInputs(form, toEditableFields(form))) !==
+    JSON.stringify(toFieldInputs(form, fields))
+  )
 }
 
 function withoutOptions(field: EditableField): EditableField {
@@ -100,7 +114,7 @@ function withoutOptions(field: EditableField): EditableField {
 export function editField(
   fields: readonly EditableField[],
   id: string,
-  change: Partial<FormFieldInput>,
+  change: Partial<FieldSettings>,
 ): EditableField[] {
   return fields.map((field) => {
     if (field.id !== id) {

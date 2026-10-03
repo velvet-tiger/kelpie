@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { fieldsDiffer, findFieldProblems, storedOptions } from './fields.ts'
-import type { FieldDraft, FieldShape, OptionDraft } from './fields.ts'
+import { findFieldProblems, reconcileFields, storedOptions } from './fields.ts'
+import type { FieldDraft, OptionDraft, StoredField } from './fields.ts'
 import type { FormFieldMapTarget, FormFieldType } from './schema.ts'
 
 /**
@@ -255,33 +255,92 @@ describe('findFieldProblems', () => {
   })
 })
 
-describe('fieldsDiffer', () => {
+describe('reconcileFields', () => {
   /** The stored shape is the draft's, so a round trip compares equal. */
-  function stored(fields: readonly FieldDraft[]): FieldShape[] {
-    return fields.map((field) => ({ ...field, options: storedOptions(field.options) }))
+  function stored(fields: readonly FieldDraft[]): StoredField[] {
+    return fields.map((field, index) => ({
+      ...field,
+      id: `ff_${String(index)}`,
+      options: storedOptions(field.options),
+    }))
   }
 
   const list = [name, email]
+  const message = draft({ label: 'Message', type: 'textarea', mapTo: 'submission' })
 
-  it('sees no change in a list that was sent back unaltered', () => {
-    expect(fieldsDiffer(stored(list), list)).toBe(false)
+  it('sees no change in a list that was sent back unaltered, with or without its ids', () => {
+    expect(reconcileFields(stored(list), list)).toEqual({
+      keptIds: ['ff_0', 'ff_1'],
+      removedIds: [],
+      changed: false,
+      problems: [],
+    })
+    expect(
+      reconcileFields(stored(list), [{ ...name, id: 'ff_0' }, { ...email, id: 'ff_1' }]).changed,
+    ).toBe(false)
   })
 
-  it('sees a field added', () => {
-    expect(fieldsDiffer(stored(list), [...list, draft({ label: 'Message', type: 'textarea', mapTo: 'submission' })])).toBe(true)
+  it('gives only an added field a new id', () => {
+    const result = reconcileFields(stored(list), [...list, message])
+
+    expect(result.keptIds).toEqual(['ff_0', 'ff_1', null])
+    expect(result.removedIds).toEqual([])
+    expect(result.changed).toBe(true)
   })
 
-  it('sees a field removed', () => {
-    expect(fieldsDiffer(stored(list), [email])).toBe(true)
+  it('removes only the field the list dropped', () => {
+    const result = reconcileFields(stored(list), [email])
+
+    expect(result.keptIds).toEqual(['ff_1'])
+    expect(result.removedIds).toEqual(['ff_0'])
+    expect(result.changed).toBe(true)
   })
 
-  it('sees a label edited', () => {
-    expect(fieldsDiffer(stored(list), [draft({ label: 'Full name', type: 'text', mapTo: 'person.name' }), email])).toBe(true)
+  it('keeps the id of an edited field that names it', () => {
+    const renamed = { ...name, id: 'ff_0', label: 'Full name' }
+    const result = reconcileFields(stored(list), [renamed, email])
+
+    expect(result.keptIds).toEqual(['ff_0', 'ff_1'])
+    expect(result.removedIds).toEqual([])
+    expect(result.changed).toBe(true)
+  })
+
+  /** Without an id there is nothing to say an edited field is the stored one. */
+  it('treats an edited field with no id as a new field', () => {
+    const result = reconcileFields(stored(list), [{ ...name, label: 'Full name' }, email])
+
+    expect(result.keptIds).toEqual([null, 'ff_1'])
+    expect(result.removedIds).toEqual(['ff_0'])
   })
 
   /** Order is what the embed renders, so reordering is a change even though nothing else moved. */
-  it('sees a reorder', () => {
-    expect(fieldsDiffer(stored(list), [email, name])).toBe(true)
+  it('sees a reorder, and keeps every id through it', () => {
+    const result = reconcileFields(stored(list), [email, name])
+
+    expect(result.keptIds).toEqual(['ff_1', 'ff_0'])
+    expect(result.removedIds).toEqual([])
+    expect(result.changed).toBe(true)
+  })
+
+  it('does not give a field with no id the stored field another one names', () => {
+    const twins = stored([email, message, message])
+    const result = reconcileFields(twins, [email, message, { ...message, id: 'ff_1' }])
+
+    expect(result.keptIds).toEqual(['ff_0', 'ff_2', 'ff_1'])
+    expect(result.changed).toBe(true)
+  })
+
+  it('refuses an id the form does not have, and an id used twice', () => {
+    const result = reconcileFields(stored(list), [
+      { ...name, id: 'ff_0' },
+      { ...email, id: 'ff_0' },
+      { ...message, id: 'ff_other' },
+    ])
+
+    expect(result.problems).toEqual([
+      { field: 'fields.1.id', message: 'Another field already uses the id ff_0' },
+      { field: 'fields.2.id', message: 'This form has no field ff_other' },
+    ])
   })
 
   it('sees an option label edited', () => {
@@ -292,18 +351,26 @@ describe('fieldsDiffer', () => {
         mapTo: 'submission',
         options: [{ key: 'small', value, valueType: 'string' }],
       })
+    const before = stored([email, select('1-10')])
 
-    expect(fieldsDiffer(stored([email, select('1-10')]), [email, select('1 to 10')])).toBe(true)
+    expect(reconcileFields(before, [email, { ...select('1 to 10'), id: 'ff_1' }])).toEqual({
+      keptIds: ['ff_0', 'ff_1'],
+      removedIds: [],
+      changed: true,
+      problems: [],
+    })
   })
 
   it('sees a list added to a list field, and a checkbox label edited', () => {
     const lists = (listIds: readonly string[], listLabels: Readonly<Record<string, string>>): FieldDraft =>
       draft({ label: 'Lists', type: 'list', mapTo: 'lists', listIds, listLabels })
     const before = stored([email, lists(['list_news'], {})])
+    const changed = (field: FieldDraft): boolean =>
+      reconcileFields(before, [email, { ...field, id: 'ff_1' }]).changed
 
-    expect(fieldsDiffer(before, [email, lists(['list_news'], {})])).toBe(false)
-    expect(fieldsDiffer(before, [email, lists(['list_news', 'list_events'], {})])).toBe(true)
-    expect(fieldsDiffer(before, [email, lists(['list_news'], { list_news: 'Yes!' })])).toBe(true)
+    expect(changed(lists(['list_news'], {}))).toBe(false)
+    expect(changed(lists(['list_news', 'list_events'], {}))).toBe(true)
+    expect(changed(lists(['list_news'], { list_news: 'Yes!' }))).toBe(true)
   })
 })
 

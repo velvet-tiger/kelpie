@@ -459,6 +459,39 @@ describe.skipIf(connectionString === undefined)('forms spam check', () => {
     ])
   })
 
+  /** An edited field keeps its id, so the stored answers still name fields the form has. */
+  it('releases a held submission after its fields were edited', async () => {
+    const form = await createForm()
+    const submitted = readRecord(await (await submit(form, { answers: answersFor(form) })).json())
+    const fields = (Array.isArray(form.fields) ? form.fields : []).map((field) => readRecord(field))
+    const changed = await client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {
+      body: {
+        fields: [
+          ...fields.map((field) => ({
+            id: field.id,
+            label: `Your ${readString(field, 'label').toLowerCase()}`,
+            type: field.type,
+            required: field.required,
+            map_to: field.map_to,
+          })),
+          { label: 'Message', type: 'textarea', map_to: 'submission' },
+        ],
+      },
+      cookie: acme.cookie,
+    })
+
+    expect(changed.status).toBe(200)
+
+    const response = await client.send(
+      'POST',
+      `/v1/forms/${readString(form, 'id')}/submissions/${readString(submitted, 'id')}/release`,
+      { cookie: acme.cookie },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await listSubmissions(form)).toMatchObject([{ id: submitted.id, status: 'accepted' }])
+  })
+
   it('deletes held submissions older than the retention when the next one arrives', async () => {
     const form = await createForm()
 

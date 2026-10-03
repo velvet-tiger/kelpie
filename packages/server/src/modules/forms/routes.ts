@@ -54,9 +54,10 @@ import type { FormSubmitService } from './submission.ts'
  * Wire shapes for `/v1/forms`. Bodies are strict; an unknown field is a 422.
  *
  * Fields are nested rather than their own resource, and a write carries the
- * whole list. Field ids therefore never appear in a request: they are assigned
- * on write, and a client that wants to change one field sends the list back with
- * that field changed. That is also exactly what a drag-reorder sends.
+ * whole list. A client that wants to change one field sends the list back with
+ * that field changed, which is also exactly what a drag-reorder sends. On an
+ * update each field may carry its `id`, and a field that does keeps it. A
+ * create takes no ids: there is no stored field for one to name.
  */
 
 const optionBody = z.strictObject({
@@ -80,6 +81,9 @@ const fieldBody = z.strictObject({
   list_ids: z.array(z.string().min(1)).default([]),
   list_labels: z.record(z.string().min(1), z.string()).default({}),
 })
+
+/** A field on an update, which may name the stored field it is. */
+const updateFieldBody = fieldBody.extend({ id: z.string().min(1).optional() })
 
 const attachTargetBody = z.strictObject({
   target_type: z.enum(FORM_ATTACH_TARGET_TYPES),
@@ -200,7 +204,9 @@ export const createBody = z.strictObject({
   require_spam_check: formShape.require_spam_check.default(false),
 })
 
-export const updateBody = z.strictObject(formShape).partial()
+export const updateBody = z
+  .strictObject({ ...formShape, fields: z.array(updateFieldBody) })
+  .partial()
 
 /** `POST /v1/forms/:id/submissions/delete`. Duplicate ids are allowed and count once. */
 export const deleteSubmissionsBody = z.strictObject({
@@ -256,8 +262,9 @@ function readStatusFilter(context: Context): FormStatus | undefined {
   return parsed.data
 }
 
-function toFieldDraft(field: z.infer<typeof fieldBody>): FieldDraft {
+function toFieldDraft(field: z.infer<typeof updateFieldBody>): FieldDraft {
   return {
+    ...(field.id === undefined ? {} : { id: field.id }),
     label: field.label,
     type: field.type,
     required: field.required,

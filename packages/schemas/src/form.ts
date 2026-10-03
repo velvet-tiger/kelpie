@@ -352,11 +352,16 @@ export interface FormFieldOptionInput {
 /**
  * A field as it is written.
  *
- * There is no id: a write replaces the whole field list, so the server assigns
- * ids and positions from the array's order. Editing one field means sending the
- * list back with that field changed, which is also what a drag-reorder sends.
+ * A write carries the whole field list, and positions come from the array's
+ * order. Editing one field means sending the list back with that field changed,
+ * which is also what a drag-reorder sends.
  */
 export interface FormFieldInput {
+  /**
+   * The stored field this one is, on an update. A field that names its id keeps
+   * it through any edit. Leave it out for a new field, and on a create.
+   */
+  readonly id?: string | undefined
   readonly label: string
   readonly type: FormFieldType
   readonly required?: boolean
@@ -466,6 +471,7 @@ export interface FormInput {
 
 function fieldBody(field: FormFieldInput): Record<string, unknown> {
   return definedFields({
+    id: field.id,
     label: field.label,
     type: field.type,
     required: field.required,
