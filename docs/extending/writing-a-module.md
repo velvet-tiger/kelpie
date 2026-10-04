@@ -84,6 +84,20 @@ A module is toggleable by default: the runtime declares a `module.<your-id>` cap
 
 A sender gets an `EmailMessage`. `to`, `subject` and `body` (the plaintext part) are always there. `html`, `replyTo`, `fromName` and `headers` are optional; send each one that is set. `headers` is a record of header name to value, for example `Auto-Submitted`. Core checks it before your sender gets the message: no line break or control character in a name or a value, and none of the headers the port owns (`From`, `To`, `Reply-To`, `Subject` and the like). Pass the record to your vendor's custom-headers option as it is. `EMAIL_FROM` is checked at boot: it is one address, or `Name <address>`.
 
+When a send fails, throw. The emails are background jobs, and a job whose sender throws is retried three times in about four minutes. Some failures get the same answer on every try: the mailbox does not exist, the recipient's domain takes no mail, the vendor refuses the message for its content. For those, throw `PermanentEmailError` from `@kelpie/server`:
+
+```ts
+import { PermanentEmailError } from '@kelpie/server'
+
+if (response.status === 422) {
+  throw new PermanentEmailError(`Vendor refused ${message.to}: ${reason}`, { cause })
+}
+
+throw new Error(`Vendor send failed with ${response.status}`)
+```
+
+A job does not retry a `PermanentEmailError`. The form email job records the message as `refused`, with your error text, on the submission; the account and invitation jobs write it to the log, and the invitation job also puts your error text on the invitation, where the Team page shows it. Keep the text short and free of secrets: an admin reads it. Throw any other error for a failure a later try can clear: a timeout, a lost connection, a rate limit, a `5xx` from the vendor's API. If you are not sure, throw a plain `Error`: a retry that was not necessary costs little, and a message that is dropped is lost. Core recognises the error by its name, with `isPermanentEmailError`, so it also works when your module resolves its own copy of `@kelpie/server`. The built-in `smtp` provider throws it for a `5xx` SMTP answer to the sender, a recipient or the message, and for an address nodemailer refuses; a `4xx` answer, a timeout, and a connection, DNS, TLS or sign-in failure are plain errors.
+
 ## CAPTCHA provider modules
 
 `context.provideCaptcha(name, build)` registers a named CAPTCHA provider. The deployment picks one with `CAPTCHA_PROVIDER=<name>`; only the chosen provider's factory runs, so read your keys inside `build`. Core ships no provider, and with the variable unset nothing draws a CAPTCHA.

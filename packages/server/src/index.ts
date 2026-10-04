@@ -62,7 +62,7 @@ export type { Database, DatabaseConnection, DatabaseProbe } from './lib/database
 
 export * as schema from './schema/index.ts'
 
-export { createLogEmailSender, emailConfigSchema } from './lib/email.ts'
+export { PermanentEmailError, createLogEmailSender, emailConfigSchema, isPermanentEmailError } from './lib/email.ts'
 export type { EmailConfig, EmailMessage, EmailSender } from './lib/email.ts'
 export { CAPTCHA_PROVIDER_VARIABLE } from './lib/captcha.ts'
 export type { CaptchaAccess, CaptchaProvider, CaptchaWidget } from './lib/captcha.ts'

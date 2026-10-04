@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { parseSenderAddress } from './emailAddress.ts'
+import { describeThrown } from './errors.ts'
 import type { Logger } from './logger.ts'
 
 /**
@@ -140,7 +141,78 @@ export const AUTO_REPLIED_EMAIL_HEADERS: Readonly<Record<string, string>> = {
 }
 
 export interface EmailSender {
+  /**
+   * @throws PermanentEmailError when the same message can never be delivered,
+   * and any other error when a later try can work.
+   */
   send(message: EmailMessage): Promise<void>
+}
+
+/** The `name` of every `PermanentEmailError`. `isPermanentEmailError` reads it. */
+const PERMANENT_EMAIL_ERROR_NAME = 'PermanentEmailError'
+
+/**
+ * What a provider throws from `send` when the failure is permanent: the mail
+ * system refused the message, and the same message gets the same refusal on
+ * every later try. An address that does not exist, a recipient domain that
+ * accepts no mail, and a message the server refuses for its content are
+ * permanent. A timeout, a lost connection, a rate limit, and a "try again
+ * later" answer are not: for those a provider throws any other error.
+ *
+ * A job that sends an email does not retry a permanent failure. An error that
+ * is not a `PermanentEmailError` is retried, so a provider that makes no
+ * distinction keeps the behaviour it had before this class existed.
+ */
+export class PermanentEmailError extends Error {
+  constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message, options)
+    this.name = PERMANENT_EMAIL_ERROR_NAME
+  }
+}
+
+/**
+ * Whether a thrown value is a permanent email failure. Use this, not
+ * `instanceof`, to decide: an assembly can hold two copies of this package
+ * (a provider module with its own install), and the class of one copy is not
+ * the class of the other. The name is the same in both.
+ */
+export function isPermanentEmailError(error: unknown): boolean {
+  return error instanceof Error && error.name === PERMANENT_EMAIL_ERROR_NAME
+}
+
+/** The most characters of a failure that a job stores for people to read. */
+const EMAIL_FAILURE_DETAIL_MAX_LENGTH = 300
+
+/**
+ * Why a send failed, as a job stores it for a person to read: the thrown
+ * value's own description on one line, cut to
+ * `EMAIL_FAILURE_DETAIL_MAX_LENGTH` characters. The form email job stores it
+ * on a `form_email_sends` row, and the invitation email job on the
+ * invitation.
+ */
+export function emailFailureDetail(error: unknown): string {
+  const flat = describeThrown(error).replace(/\s+/gu, ' ').trim()
+
+  return flat.length > EMAIL_FAILURE_DETAIL_MAX_LENGTH
+    ? `${flat.slice(0, EMAIL_FAILURE_DETAIL_MAX_LENGTH - 1)}…`
+    : flat
+}
+
+/**
+ * Runs the part of a job that sends one email. A permanent failure is written
+ * to the log and the call returns, so the job completes and the queue does
+ * not retry it. Every other error goes to the caller, so the queue does.
+ */
+export async function completeOnPermanentEmailFailure(log: Logger, send: () => Promise<void>): Promise<void> {
+  try {
+    await send()
+  } catch (error: unknown) {
+    if (!isPermanentEmailError(error)) {
+      throw error
+    }
+
+    log.warn('email not retried: the failure is permanent', { error: describeThrown(error) })
+  }
 }
 
 /** What boot says when `EMAIL_FROM` is not a sender. Names both permitted forms. */

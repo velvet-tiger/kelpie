@@ -3,6 +3,7 @@ import type {
   FormActionStatus,
   FormEmailKind,
   FormEmailRecipient,
+  FormEmailSendStatus,
   FormSubmissionActionEntry,
 } from '@kelpie/schemas'
 import { z } from 'zod'
@@ -11,11 +12,12 @@ import type { Database } from '../../lib/database.ts'
 import {
   AUTO_GENERATED_EMAIL_HEADERS,
   AUTO_REPLIED_EMAIL_HEADERS,
+  emailFailureDetail,
+  isPermanentEmailError,
 } from '../../lib/email.ts'
 import type { EmailSender } from '../../lib/email.ts'
 import { isSingleEmailAddress } from '../../lib/emailAddress.ts'
 import { renderTextEmail } from '../../lib/emailContent.ts'
-import { describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { JobDefinition } from '../../lib/jobs.ts'
 import { normaliseEmail } from '../../lib/normalisation.ts'
@@ -56,6 +58,16 @@ import { PERSON_EMAIL_TARGET } from './schema.ts'
  * retry never sends one message twice. When a message fails, the job writes
  * its `action_log` entries first and then throws, so pg-boss retries it and
  * the Submissions tab shows the error in the meantime.
+ *
+ * A permanent failure (`PermanentEmailError`: the mail system refused the
+ * message for good) is not retried. Its row is `refused` with the reason,
+ * and the job does not throw for it. The other messages of the job are sent
+ * as usual. When one of those fails with an error a later try can clear, its
+ * row is `error`, the job throws for that one, and the retry does not send
+ * the refused message again: it reads the `refused` status.
+ *
+ * An `action_log` entry is `error` while a message of that email waits for a
+ * retry, and `refused` when the only messages not sent are refused ones.
  */
 
 export const SEND_FORM_EMAILS_JOB = 'forms.send-emails'
@@ -95,6 +107,7 @@ export interface FormEmailDependencies {
 /** What one email came to, as its `action_log` entry reports it. */
 interface EmailOutcome {
   readonly kind: FormEmailKind
+  /** `error` when a later try can clear the failure, `refused` when none can. */
   readonly status: FormActionStatus
   readonly detail: string
 }
@@ -125,8 +138,9 @@ export function defineSendFormEmailsJob(
  * Runs one job. Exported so a test can run the handler directly, without a
  * worker polling the queue.
  *
- * @throws Error when one or more messages failed, after the outcome is
- *   recorded, so the queue retries the job.
+ * @throws Error when one or more messages failed with an error a later try
+ *   can clear, after the outcome is recorded, so the queue retries the job.
+ *   A job whose only failures are permanent records them and returns.
  */
 export async function sendFormEmails(
   dependencies: FormEmailDependencies,
@@ -307,11 +321,21 @@ function alreadySent(context: SendContext, kind: FormEmailKind, recipient: strin
   )
 }
 
+/**
+ * The reason an earlier try of the job recorded when the mail system refused
+ * this message for good, or undefined when it did not.
+ */
+function refusalOf(context: SendContext, kind: FormEmailKind, recipient: string): string | undefined {
+  return context.previous.find(
+    (send) => send.kind === kind && send.recipient === recipient && send.status === 'refused',
+  )?.detail
+}
+
 async function record(
   context: SendContext,
   kind: FormEmailKind,
   recipient: string,
-  status: 'sent' | 'skipped' | 'error',
+  status: FormEmailSendStatus,
   detail: string,
 ): Promise<void> {
   await emailRepository.recordEmailSend(context.dependencies.db, {
@@ -336,19 +360,32 @@ function fromNameOf(workspaceName: string): string {
   return `${workspaceName} via Kelpie`
 }
 
+/** What one message came to. `retry` is false when the failure is permanent. */
+type SendResult =
+  | { readonly sent: true }
+  | { readonly sent: false; readonly error: string; readonly retry: boolean }
+
 /**
- * Sends one message unless a `sent` row says an earlier try already did.
+ * Sends one message unless a `sent` row says an earlier try already did, or
+ * a `refused` row says the mail system refused it for good.
  *
- * @returns Whether the message is now sent.
+ * @returns Whether the message is now sent, and when it is not, the reason
+ *   and whether a later try can change that.
  */
 async function sendOnce(
   context: SendContext,
   kind: FormEmailKind,
   message: { readonly to: string; readonly subject: string; readonly body: string; readonly replyTo?: string | undefined },
   withSubmissionLink: boolean,
-): Promise<{ readonly sent: boolean; readonly error?: string }> {
+): Promise<SendResult> {
   if (alreadySent(context, kind, message.to)) {
     return { sent: true }
+  }
+
+  const refused = refusalOf(context, kind, message.to)
+
+  if (refused !== undefined) {
+    return { sent: false, error: refused, retry: false }
   }
 
   const { dependencies, form, submission } = context
@@ -385,11 +422,12 @@ async function sendOnce(
       headers: kind === 'auto_reply' ? AUTO_REPLIED_EMAIL_HEADERS : AUTO_GENERATED_EMAIL_HEADERS,
     })
   } catch (error: unknown) {
-    const detail = shortDetail(describeThrown(error))
+    const permanent = isPermanentEmailError(error)
+    const detail = emailFailureDetail(error)
 
-    await record(context, kind, message.to, 'error', detail)
+    await record(context, kind, message.to, permanent ? 'refused' : 'error', detail)
 
-    return { sent: false, error: detail }
+    return { sent: false, error: detail, retry: !permanent }
   }
 
   await record(context, kind, message.to, 'sent', '')
@@ -424,14 +462,16 @@ async function sendNotification(
   const body = fillTemplate(form.notifyBody, context.values)
   const errors: string[] = []
   let sent = 0
+  let retry = false
 
   for (const to of addresses) {
     const result = await sendOnce(context, 'notification', { to, subject, body, replyTo: submitterEmail }, true)
 
     if (result.sent) {
       sent += 1
-    } else if (result.error !== undefined) {
+    } else {
       errors.push(`${to}: ${result.error}`)
+      retry = retry || result.retry
     }
   }
 
@@ -439,7 +479,11 @@ async function sendNotification(
 
   return errors.length === 0
     ? { kind: 'notification', status: 'ok', detail: count }
-    : { kind: 'notification', status: 'error', detail: shortDetail(`${count}. ${errors.join('; ')}`) }
+    : {
+        kind: 'notification',
+        status: retry ? 'error' : 'refused',
+        detail: shortDetail(`${count}. ${errors.join('; ')}`),
+      }
 }
 
 async function sendAutoReply(
@@ -456,7 +500,13 @@ async function sendAutoReply(
     return { kind: 'auto_reply', status: 'skipped', detail: 'No submitter email' }
   }
 
-  if (!alreadySent(context, 'auto_reply', submitterEmail)) {
+  // The two limits are for a message that is about to go. One that is sent,
+  // or that the mail system refused on an earlier try, is not.
+  const settled =
+    alreadySent(context, 'auto_reply', submitterEmail) ||
+    refusalOf(context, 'auto_reply', submitterEmail) !== undefined
+
+  if (!settled) {
     const now = dependencies.now()
     const repeat = await emailRepository.autoReplySentSince(
       dependencies.db,
@@ -506,5 +556,5 @@ async function sendAutoReply(
 
   return result.sent
     ? { kind: 'auto_reply', status: 'ok', detail: 'Sent to the submitter' }
-    : { kind: 'auto_reply', status: 'error', detail: result.error ?? 'Not sent' }
+    : { kind: 'auto_reply', status: result.retry ? 'error' : 'refused', detail: result.error }
 }

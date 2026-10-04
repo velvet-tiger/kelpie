@@ -570,9 +570,13 @@ export type FormOptionValueType = (typeof FORM_OPTION_VALUE_TYPES)[number]
  * Each post-submit action lands one of these on the submission's `action_log`.
  * `ok` = the action ran; `skipped` = its precondition was absent (a company
  * list on a submit that never resolved one); `error` = the savepoint rolled
- * back so the rest of the submit could continue.
+ * back so the rest of the submit could continue. For an email, `error` is a
+ * failure that the email job tries again.
+ *
+ * `refused` is for the two email actions only: the mail system refused the
+ * message for good, and the email job does not send it again.
  */
-export const FORM_ACTION_STATUSES = ['ok', 'skipped', 'error'] as const
+export const FORM_ACTION_STATUSES = ['ok', 'skipped', 'error', 'refused'] as const
 
 export type FormActionStatus = (typeof FORM_ACTION_STATUSES)[number]
 
@@ -633,8 +637,13 @@ export const FORM_EMAIL_RECIPIENT_KINDS = ['member', 'address'] as const
 
 export type FormEmailRecipientKind = (typeof FORM_EMAIL_RECIPIENT_KINDS)[number]
 
-/** What happened to one message a form's email job tried to send. */
-export const FORM_EMAIL_SEND_STATUSES = ['sent', 'skipped', 'error'] as const
+/**
+ * What happened to one message a form's email job tried to send. `error` is a
+ * failure a later try can clear, so the job tries the message again.
+ * `refused` is a failure no later try can clear (the mail system refused the
+ * message for good), so the job does not send the message again.
+ */
+export const FORM_EMAIL_SEND_STATUSES = ['sent', 'skipped', 'error', 'refused'] as const
 
 export type FormEmailSendStatus = (typeof FORM_EMAIL_SEND_STATUSES)[number]
 

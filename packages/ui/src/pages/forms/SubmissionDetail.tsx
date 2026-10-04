@@ -218,6 +218,9 @@ function SubmissionDetailView({
                   {entry.detail.length > 0 && (
                     <p className="mt-1 text-[12px] text-ink-muted">{entry.detail}</p>
                   )}
+                  {entry.status === 'refused' && (
+                    <p className="mt-1 text-[12px] text-danger">{REFUSED_EMAIL_NOTE}</p>
+                  )}
                 </li>
               ))}
             </ul>
@@ -307,15 +310,31 @@ function RecordRow({
   )
 }
 
+/** Under a `refused` entry: the mail server's answer is final. */
+const REFUSED_EMAIL_NOTE = 'The mail server refused this email. Kelpie does not send it again.'
+
+/**
+ * An `error` and a `refused` are both failures, so both are red. A `refused`
+ * also has a solid background: no retry follows it, and it must not look like
+ * an error that can clear.
+ */
+const ACTION_STATUS_CLASSES: Readonly<Record<FormSubmissionActionEntry['status'], string>> = {
+  ok: 'text-success',
+  skipped: 'text-ink-faint',
+  error: 'text-danger',
+  refused: 'rounded bg-danger px-1.5 py-0.5 text-danger-fg',
+}
+
 function ActionStatus({
   status,
 }: {
   readonly status: FormSubmissionActionEntry['status']
 }): React.JSX.Element {
-  const className =
-    status === 'ok' ? 'text-success' : status === 'error' ? 'text-danger' : 'text-ink-faint'
-
-  return <span className={`text-[11px] font-medium uppercase ${className}`}>{status}</span>
+  return (
+    <span className={`text-[11px] font-medium uppercase ${ACTION_STATUS_CLASSES[status]}`}>
+      {status}
+    </span>
+  )
 }
 
 function displayAnswer(field: FormField, answer: string | undefined): string | null {

@@ -442,8 +442,11 @@ function ActionLogChip({
   }
 
   const errors = entries.filter((entry) => entry.status === 'error').length
+  // An email the mail server refused for good. Counted apart from the errors:
+  // an error on an email can clear on a retry, and a refusal cannot.
+  const refused = entries.filter((entry) => entry.status === 'refused').length
   const skipped = entries.filter((entry) => entry.status === 'skipped').length
-  const ok = entries.length - errors - skipped
+  const ok = entries.length - errors - refused - skipped
   const detail = entries
     .map((entry) => `${entry.action}: ${entry.status}${entry.detail.length > 0 ? ` — ${entry.detail}` : ''}`)
     .join('\n')
@@ -453,6 +456,11 @@ function ActionLogChip({
       {ok > 0 && <span className="text-success">✓{ok}</span>}
       {skipped > 0 && <span className="text-ink-faint">−{skipped}</span>}
       {errors > 0 && <span className="text-danger">!{errors}</span>}
+      {refused > 0 && (
+        <span className="rounded bg-danger px-1 text-danger-fg" aria-label={`${String(refused)} refused`}>
+          ✕{refused}
+        </span>
+      )}
     </span>
   )
 }

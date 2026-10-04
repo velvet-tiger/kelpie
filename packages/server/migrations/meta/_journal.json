@@ -414,6 +414,13 @@
       "when": 1790200000000,
       "tag": "0058_import_jobs_all_objects",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790300000000,
+      "tag": "0059_email_refused_and_invite_email_failure",
+      "breakpoints": true
     }
   ]
 }

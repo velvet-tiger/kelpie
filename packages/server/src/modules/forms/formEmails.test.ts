@@ -3,6 +3,7 @@ import type { Form, FormSubmission } from '@kelpie/schemas'
 import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { PermanentEmailError } from '../../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../../lib/email.ts'
 import { createLogger } from '../../lib/logger.ts'
 import { createTestApp } from '../../testing/app.ts'
@@ -43,14 +44,40 @@ const CONTACT_FIELDS = [
   },
 ]
 
-/** A sender that records what it was asked to send and refuses the addresses in `failing`. */
-function controlledSender(failing: ReadonlySet<string>): { sender: EmailSender; sent: EmailMessage[] } {
+/** The message of a thrown error and of each error in its `cause` chain. */
+function messagesOf(thrown: unknown): string {
+  const messages: string[] = []
+
+  for (let error = thrown; error instanceof Error; error = error.cause) {
+    messages.push(error.message)
+  }
+
+  return messages.join('\n')
+}
+
+/**
+ * A sender that records what it was asked to send and refuses the addresses
+ * in `failing`. An address in `refusing` is refused permanently. `tried` is
+ * every address the sender was called for, sent or not.
+ */
+function controlledSender(
+  failing: ReadonlySet<string>,
+  refusing: ReadonlySet<string> = new Set(),
+): { sender: EmailSender; sent: EmailMessage[]; tried: string[] } {
   const sent: EmailMessage[] = []
+  const tried: string[] = []
 
   return {
     sent,
+    tried,
     sender: {
       send(message) {
+        tried.push(message.to)
+
+        if (refusing.has(message.to)) {
+          return Promise.reject(new PermanentEmailError(`550 no mailbox ${message.to}`))
+        }
+
         if (failing.has(message.to)) {
           return Promise.reject(new Error(`mailbox ${message.to} refused the message`))
         }
@@ -554,6 +581,225 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
         ['broken@example.com', 'sent'],
         ['works@example.com', 'sent'],
       ])
+    })
+
+    it('does not retry a permanent failure, and still sends the other email', async () => {
+      const form = await createForm({
+        notify_email: true,
+        notify_recipients: [{ kind: 'address', address: 'sales@example.com' }],
+        auto_reply: true,
+      })
+      const submissionId = await submit(form, contactAnswers(form))
+      const data: SendFormEmailsData = {
+        workspaceId: acme.workspaceId,
+        submissionId,
+        kinds: ['notification', 'auto_reply'],
+      }
+      // The notification is refused for good. It goes first, so the auto-reply
+      // shows that a refusal does not stop the message after it.
+      const sender = controlledSender(new Set(), new Set(['sales@example.com']))
+
+      // No throw: the job completes, so the queue does not run it again.
+      await sendFormEmails(directDependencies(sender.sender), data)
+
+      expect(sender.sent.map((message) => message.to)).toEqual(['alex@example.com'])
+
+      const stored = await readSubmission(form, submissionId)
+      const notification = stored.actionLog.find((entry) => entry.action === 'email_notification')
+
+      // `refused`, not `error`: no retry follows. The detail is the reason
+      // alone, with no words in front of it that tell the job what to do.
+      expect(notification?.status).toBe('refused')
+      expect(notification?.detail).toBe(
+        'Sent to 0 of 1 recipients. sales@example.com: PermanentEmailError: 550 no mailbox sales@example.com',
+      )
+      expect(stored.actionLog).toContainEqual({
+        action: 'email_auto_reply',
+        status: 'ok',
+        detail: 'Sent to the submitter',
+      })
+
+      const sends = await database.db
+        .select()
+        .from(formEmailSends)
+        .where(eq(formEmailSends.submissionId, submissionId))
+
+      expect(sends.map((row) => [row.recipient, row.status, row.detail]).sort()).toEqual([
+        ['alex@example.com', 'sent', ''],
+        ['sales@example.com', 'refused', 'PermanentEmailError: 550 no mailbox sales@example.com'],
+      ])
+
+      // A second run, as a redelivery of the job would be: neither message is
+      // sent again, and the recorded outcome stays.
+      await sendFormEmails(directDependencies(sender.sender), data)
+
+      expect(sender.tried).toEqual(['sales@example.com', 'alex@example.com'])
+      expect((await readSubmission(form, submissionId)).actionLog).toEqual(stored.actionLog)
+    })
+
+    it('does not retry a permanent failure of the auto-reply, and still sends the notification', async () => {
+      const form = await createForm({
+        notify_email: true,
+        notify_recipients: [{ kind: 'address', address: 'sales@example.com' }],
+        auto_reply: true,
+      })
+      const submissionId = await submit(form, contactAnswers(form))
+      const sender = controlledSender(new Set(), new Set(['alex@example.com']))
+
+      await sendFormEmails(directDependencies(sender.sender), {
+        workspaceId: acme.workspaceId,
+        submissionId,
+        kinds: ['notification', 'auto_reply'],
+      })
+
+      expect(sender.sent.map((message) => message.to)).toEqual(['sales@example.com'])
+      expect((await readSubmission(form, submissionId)).actionLog.filter((entry) => entry.action.startsWith('email_'))).toEqual([
+        { action: 'email_notification', status: 'ok', detail: 'Sent to 1 of 1 recipients' },
+        {
+          action: 'email_auto_reply',
+          status: 'refused',
+          detail: 'PermanentEmailError: 550 no mailbox alex@example.com',
+        },
+      ])
+    })
+
+    it('retries for a failure a later try can clear, and does not send a refused message again', async () => {
+      const form = await createForm({
+        notify_email: true,
+        notify_recipients: [
+          { kind: 'address', address: 'gone@example.com' },
+          { kind: 'address', address: 'busy@example.com' },
+        ],
+      })
+      const submissionId = await submit(form, contactAnswers(form))
+      const data: SendFormEmailsData = {
+        workspaceId: acme.workspaceId,
+        submissionId,
+        kinds: ['notification'],
+      }
+      const first = controlledSender(new Set(['busy@example.com']), new Set(['gone@example.com']))
+
+      // The throw names only the message a retry can help.
+      const thrown: unknown = await sendFormEmails(directDependencies(first.sender), data).catch(
+        (error: unknown) => error,
+      )
+
+      expect(thrown).toBeInstanceOf(Error)
+      expect((thrown as Error).message).toContain('busy@example.com')
+
+      const readSends = async (): Promise<string[][]> =>
+        (await database.db.select().from(formEmailSends).where(eq(formEmailSends.submissionId, submissionId)))
+          .map((row) => [row.recipient, row.status])
+          .sort()
+
+      // One message waits for a retry, so the entry is an `error`. The rows
+      // tell the two failures apart by status.
+      expect(await readSends()).toEqual([
+        ['busy@example.com', 'error'],
+        ['gone@example.com', 'refused'],
+      ])
+      expect(
+        (await readSubmission(form, submissionId)).actionLog.find(
+          (candidate) => candidate.action === 'email_notification',
+        )?.status,
+      ).toBe('error')
+
+      const retry = controlledSender(new Set(), new Set(['gone@example.com']))
+
+      await sendFormEmails(directDependencies(retry.sender), data)
+
+      expect(retry.tried).toEqual(['busy@example.com'])
+      expect(await readSends()).toEqual([
+        ['busy@example.com', 'sent'],
+        ['gone@example.com', 'refused'],
+      ])
+
+      const entry = (await readSubmission(form, submissionId)).actionLog.find(
+        (candidate) => candidate.action === 'email_notification',
+      )
+
+      // Nothing waits for a retry now. The only message not sent is refused.
+      expect(entry?.status).toBe('refused')
+      expect(entry?.detail).toBe(
+        'Sent to 1 of 2 recipients. gone@example.com: PermanentEmailError: 550 no mailbox gone@example.com',
+      )
+    })
+
+    it('decides from the status, not from the text of the detail', async () => {
+      const form = await createForm({
+        notify_email: true,
+        notify_recipients: [{ kind: 'address', address: 'sales@example.com' }],
+      })
+      const submissionId = await submit(form, contactAnswers(form))
+      const data: SendFormEmailsData = {
+        workspaceId: acme.workspaceId,
+        submissionId,
+        kinds: ['notification'],
+      }
+      const row = {
+        workspaceId: acme.workspaceId,
+        formId: form.id,
+        submissionId,
+        kind: 'notification',
+        recipient: 'sales@example.com',
+      }
+
+      // An `error` whose detail starts with words that say "not retried" is
+      // still an error: the job sends the message again.
+      await database.db
+        .insert(formEmailSends)
+        .values({ ...row, id: 'fes_text', status: 'error', detail: 'Not retried: 550 no mailbox' })
+
+      const working = controlledSender(new Set())
+
+      await sendFormEmails(directDependencies(working.sender), data)
+
+      expect(working.tried).toEqual(['sales@example.com'])
+
+      // A `refused` row with an empty detail stops the message.
+      await database.db
+        .update(formEmailSends)
+        .set({ status: 'refused', detail: '' })
+        .where(eq(formEmailSends.submissionId, submissionId))
+
+      const idle = controlledSender(new Set())
+
+      await sendFormEmails(directDependencies(idle.sender), data)
+
+      expect(idle.tried).toEqual([])
+    })
+
+    it('has a status check that accepts `refused` and refuses a value it does not list', async () => {
+      const form = await createForm({
+        notify_email: true,
+        notify_recipients: [{ kind: 'address', address: 'sales@example.com' }],
+      })
+      const submissionId = await submit(form, contactAnswers(form))
+      const row = {
+        workspaceId: acme.workspaceId,
+        formId: form.id,
+        submissionId,
+        kind: 'notification',
+        detail: '',
+      }
+
+      await database.db
+        .insert(formEmailSends)
+        .values({ ...row, id: 'fes_refused', recipient: 'one@example.com', status: 'refused' })
+
+      const stored = await database.db
+        .select()
+        .from(formEmailSends)
+        .where(eq(formEmailSends.id, 'fes_refused'))
+
+      expect(stored.map((send) => send.status)).toEqual(['refused'])
+
+      const thrown: unknown = await database.db
+        .insert(formEmailSends)
+        .values({ ...row, id: 'fes_bounced', recipient: 'two@example.com', status: 'bounced' })
+        .catch((error: unknown) => error)
+
+      expect(messagesOf(thrown)).toContain('form_email_sends_status_check')
     })
 
     it('sends nothing for a form paused or an email turned off before the job ran', async () => {

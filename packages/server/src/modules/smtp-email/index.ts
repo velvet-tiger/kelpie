@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer'
 import { z } from 'zod'
 
 import { describeThrown } from '../../lib/errors.ts'
-import { EMAIL_FROM_PROBLEM, emailFromSchema, emailHeadersProblem } from '../../lib/email.ts'
+import { EMAIL_FROM_PROBLEM, PermanentEmailError, emailFromSchema, emailHeadersProblem } from '../../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../../lib/email.ts'
 import { parseSenderAddress } from '../../lib/emailAddress.ts'
 import type { Logger } from '../../lib/logger.ts'
@@ -132,7 +132,58 @@ export function createNodemailerTransport(
   })
 }
 
-/** Sends over SMTP. `transport` defaults to a real connection built from `config`. */
+/**
+ * The nodemailer error codes for a failure of the message itself: `EENVELOPE`
+ * for the sender, a recipient or the `DATA` command, `EMESSAGE` for the
+ * message after its body went to the server. Every other code is about the
+ * connection, TLS or the sign-in to the relay.
+ */
+const MESSAGE_ERROR_CODES: ReadonlySet<string> = new Set(['EENVELOPE', 'EMESSAGE'])
+
+/**
+ * Whether an error from the transport is a permanent refusal of the message.
+ *
+ * nodemailer puts `code` on its errors, and `responseCode` when the server
+ * gave an SMTP answer. A `5xx` answer to the sender, a recipient or the
+ * message is permanent: the server says not to send it again. So is an
+ * envelope error with no answer at all, which is nodemailer refusing an
+ * address before it sends a command. A `4xx` answer asks for a later try.
+ * A timeout, a DNS failure, a lost connection and a TLS failure say nothing
+ * about the message. Neither does a `5xx` answer to the greeting or the
+ * sign-in: that is a fault of the relay or of the SMTP settings, and the
+ * message can go when it is repaired.
+ */
+export function isPermanentSmtpFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : undefined
+
+  if (code === undefined || !MESSAGE_ERROR_CODES.has(code)) {
+    return false
+  }
+
+  const responseCode =
+    'responseCode' in error && typeof error.responseCode === 'number' ? error.responseCode : undefined
+
+  if (responseCode === undefined) {
+    return code === 'EENVELOPE'
+  }
+
+  return responseCode >= 500 && responseCode <= 599
+}
+
+/**
+ * Sends over SMTP. `transport` defaults to a real connection built from `config`.
+ *
+ * `send` throws `PermanentEmailError` when the server refused the message for
+ * good (`isPermanentSmtpFailure`), and a plain `Error` for every other failure.
+ *
+ * @throws Error when `config.EMAIL_FROM` is not a sender. The config schema
+ * refuses such a value first; this covers a caller that builds the config by
+ * hand.
+ */
 export function createSmtpEmailSender(
   config: SmtpEmailConfig,
   logger: Logger,
@@ -170,8 +221,12 @@ export function createSmtpEmailSender(
         })
       } catch (cause) {
         const reason = describeThrown(cause)
-        logger.error('smtp send failed', { to: message.to, reason })
-        throw new Error(`Failed to send email to ${message.to} over SMTP: ${reason}`, { cause })
+        const permanent = isPermanentSmtpFailure(cause)
+        const text = `Failed to send email to ${message.to} over SMTP: ${reason}`
+
+        logger.error('smtp send failed', { to: message.to, reason, permanent })
+
+        throw permanent ? new PermanentEmailError(text, { cause }) : new Error(text, { cause })
       }
     },
   }

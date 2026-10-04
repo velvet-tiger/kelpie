@@ -5,9 +5,12 @@ import {
   AUTO_GENERATED_EMAIL_HEADERS,
   AUTO_REPLIED_EMAIL_HEADERS,
   EMAIL_FROM_PROBLEM,
+  PermanentEmailError,
+  completeOnPermanentEmailFailure,
   createLogEmailSender,
   emailConfigSchema,
   emailHeadersProblem,
+  isPermanentEmailError,
 } from './email.ts'
 import { createCaptureTransport, createLogger } from './logger.ts'
 
@@ -178,5 +181,65 @@ describe('emailConfigSchema', () => {
       expect(result.success).toBe(false)
       expect(result.error?.issues).toMatchObject([{ path: ['EMAIL_FROM'], message: EMAIL_FROM_PROBLEM }])
     }
+  })
+})
+
+describe('PermanentEmailError', () => {
+  it('is an Error with its own name, and keeps the cause', () => {
+    const cause = new Error('550 No such user')
+    const error = new PermanentEmailError('refused', { cause })
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.name).toBe('PermanentEmailError')
+    expect(error.message).toBe('refused')
+    expect(error.cause).toBe(cause)
+  })
+
+  it('is recognised by name, so the class of a second copy of the package is recognised too', () => {
+    class PermanentEmailErrorOfAnotherCopy extends Error {
+      override readonly name = 'PermanentEmailError'
+    }
+
+    expect(isPermanentEmailError(new PermanentEmailError('refused'))).toBe(true)
+    expect(isPermanentEmailError(new PermanentEmailErrorOfAnotherCopy('refused'))).toBe(true)
+  })
+
+  it('is not recognised in any other thrown value', () => {
+    expect(isPermanentEmailError(new Error('connection refused'))).toBe(false)
+    expect(isPermanentEmailError({ name: 'PermanentEmailError' })).toBe(false)
+    expect(isPermanentEmailError('PermanentEmailError')).toBe(false)
+    expect(isPermanentEmailError(undefined)).toBe(false)
+  })
+})
+
+describe('completeOnPermanentEmailFailure', () => {
+  it('returns after a permanent failure, and writes it to the log', async () => {
+    const { logger, lines } = capture()
+
+    await completeOnPermanentEmailFailure(logger, () => Promise.reject(new PermanentEmailError('550 No such user')))
+
+    expect(lines.map((line) => JSON.parse(line) as Record<string, unknown>)).toMatchObject([
+      {
+        level: 'warn',
+        message: 'email not retried: the failure is permanent',
+        error: 'PermanentEmailError: 550 No such user',
+      },
+    ])
+  })
+
+  it('lets every other error through, so the queue retries the job', async () => {
+    const { logger, lines } = capture()
+    const error = new Error('connection refused')
+
+    await expect(completeOnPermanentEmailFailure(logger, () => Promise.reject(error))).rejects.toBe(error)
+    expect(lines).toEqual([])
+  })
+
+  it('returns when the send works', async () => {
+    const { logger, lines } = capture()
+
+    await completeOnPermanentEmailFailure(logger, () => Promise.resolve())
+
+    expect(lines).toEqual([])
   })
 })

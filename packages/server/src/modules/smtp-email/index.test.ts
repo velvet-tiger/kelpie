@@ -4,6 +4,7 @@ import { createServer } from 'node:net'
 import nodemailer from 'nodemailer'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { isPermanentEmailError } from '../../lib/email.ts'
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
 
 import type { EmailMessage, SmtpEmailConfig, SmtpTimeouts, SmtpTransport } from './index.ts'
@@ -13,6 +14,7 @@ import {
   createNodemailerTransport,
   createSmtpEmailModule,
   createSmtpEmailSender,
+  isPermanentSmtpFailure,
   smtpEmailConfigSchema,
 } from './index.ts'
 
@@ -352,8 +354,107 @@ describe('createNodemailerTransport', () => {
     expect(elapsed).toBeLessThan(2_000)
   })
 
+  /**
+   * A server that speaks enough SMTP to refuse a message. It accepts the
+   * greeting, `EHLO` and `MAIL FROM`, and gives `recipientAnswer` to `RCPT TO`.
+   */
+  function listenAndAnswerRecipient(recipientAnswer: string): Promise<number> {
+    return listen((socket) => {
+      socket.write('220 localhost ESMTP\r\n')
+      socket.on('data', (chunk) => {
+        for (const line of chunk.toString('utf8').split('\r\n')) {
+          if (/^(?:EHLO|HELO)/iu.test(line)) {
+            socket.write('250 localhost\r\n')
+          } else if (/^MAIL FROM/iu.test(line)) {
+            socket.write('250 OK\r\n')
+          } else if (/^RCPT TO/iu.test(line)) {
+            socket.write(`${recipientAnswer}\r\n`)
+          } else if (/^QUIT/iu.test(line)) {
+            socket.write('221 Bye\r\n')
+          }
+        }
+      })
+    })
+  }
+
+  const longTimeouts: SmtpTimeouts = { dns: 5_000, connection: 5_000, greeting: 5_000, socket: 5_000 }
+
+  it('reports a 5xx refusal of the recipient as a permanent failure', async () => {
+    const port = await listenAndAnswerRecipient('550 5.1.1 No such user here')
+
+    const { thrown } = await failedSend(port, longTimeouts)
+
+    expect(isPermanentEmailError(thrown)).toBe(true)
+    expect((thrown as Error).message).toContain('550 5.1.1 No such user here')
+    expect(isPermanentSmtpFailure((thrown as Error).cause)).toBe(true)
+  })
+
+  it('reports a 4xx answer to the recipient as a failure to try again', async () => {
+    const port = await listenAndAnswerRecipient('450 4.2.0 Greylisted, try again later')
+
+    const { thrown } = await failedSend(port, longTimeouts)
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect((thrown as Error).message).toContain('450 4.2.0 Greylisted')
+    expect(isPermanentEmailError(thrown)).toBe(false)
+  })
+
+  it('reports a timeout as a failure to try again', async () => {
+    const port = await listen(() => undefined)
+
+    const { thrown } = await failedSend(port, { dns: 5_000, connection: 5_000, greeting: 150, socket: 5_000 })
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect(isPermanentEmailError(thrown)).toBe(false)
+  })
+
+  it('reports a refused connection as a failure to try again', async () => {
+    // A port nothing listens on: the server is opened to get a free port, then closed.
+    const port = await listen(() => undefined)
+    await Promise.all(
+      servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+    )
+
+    const { thrown } = await failedSend(port, longTimeouts)
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect(isPermanentEmailError(thrown)).toBe(false)
+  })
+
   it('sends with limits short enough for a send inside an HTTP request', () => {
     expect(SMTP_TIMEOUTS).toEqual({ dns: 10_000, connection: 10_000, greeting: 10_000, socket: 30_000 })
+  })
+})
+
+describe('isPermanentSmtpFailure', () => {
+  /** An error with the fields nodemailer puts on its own. */
+  function smtpError(code: string, responseCode?: number): Error {
+    return Object.assign(new Error('send failed'), { code }, responseCode === undefined ? {} : { responseCode })
+  }
+
+  it.each([
+    ['a 550 answer to a recipient', smtpError('EENVELOPE', 550)],
+    ['a 553 answer to the sender', smtpError('EENVELOPE', 553)],
+    ['a 554 answer to the message', smtpError('EMESSAGE', 554)],
+    ['an address nodemailer refuses before it sends a command', smtpError('EENVELOPE')],
+  ])('is true for %s', (_name, error) => {
+    expect(isPermanentSmtpFailure(error)).toBe(true)
+  })
+
+  it.each([
+    ['a 450 answer to a recipient', smtpError('EENVELOPE', 450)],
+    ['a 451 answer to the message', smtpError('EMESSAGE', 451)],
+    ['a timeout', smtpError('ETIMEDOUT')],
+    ['a lost connection', smtpError('ECONNECTION')],
+    ['a socket error', smtpError('ESOCKET')],
+    ['a DNS failure', smtpError('EDNS')],
+    ['a TLS failure', smtpError('ETLS')],
+    ['a 535 answer to the sign-in', smtpError('EAUTH', 535)],
+    ['a 554 answer in place of the greeting', smtpError('EPROTOCOL', 554)],
+    ['an error with no code', new Error('unknown')],
+    ['a value that is not an error', '550 No such user'],
+  ])('is false for %s', (_name, error) => {
+    expect(isPermanentSmtpFailure(error)).toBe(false)
   })
 })
 

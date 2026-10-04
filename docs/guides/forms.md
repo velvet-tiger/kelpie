@@ -44,7 +44,7 @@ The **Actions** tab is where you say what the form does with a submission beyond
 
 **Attach the submitter to a record** links every submitter into a pre-existing enquiry, deal, opportunity, raise, or partnership through `person_links` — "everyone who fills this form joins the Q4 accelerator opportunity". Deleting the record drops the mapping.
 
-Each configured action lands one entry on the submission's `action_log` — `ok`, `skipped` (the precondition was absent — a company tag on a submit that resolved no company), or `error` (something went wrong; the rest of the submit still ran). The Submissions tab shows the counts and the detail on hover.
+Each configured action lands one entry on the submission's `action_log` — `ok`, `skipped` (the precondition was absent — a company tag on a submit that resolved no company), or `error` (something went wrong; the rest of the submit still ran). An email entry can also be `refused`: the mail server refused the email for good, for example because the mailbox does not exist, and Kelpie does not send it again. An email entry that is an `error` is tried again. The Submissions tab shows the counts and the detail on hover.
 
 ## Embedding on your site
 

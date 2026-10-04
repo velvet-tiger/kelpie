@@ -55,6 +55,35 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **A permanent email failure is not retried.** A
+  mail server that refused a message for good, for example `550` for a
+  mailbox that does not exist, got the same message three more times. The
+  email port has a new error class, `PermanentEmailError`, and a guard,
+  `isPermanentEmailError`; both are exported from `@kelpie/server`. A
+  provider throws the class from `send` when the same message can never be
+  delivered. The `smtp-email` module throws it for a `5xx` answer to the
+  sender, a recipient or the message, and for an address nodemailer refuses
+  before it sends a command. A `4xx` answer, a timeout, and a connection,
+  DNS, TLS or sign-in failure stay plain errors and are retried as before.
+  The form email job records a permanent failure with a status of its own,
+  `refused`: on the `form_email_sends` row, whose `detail` is the reason, and
+  on the submission's `action_log` entry (`email_notification` or
+  `email_auto_reply`) when no message of that email waits for a retry. An
+  entry stays `error` while a retry is still to come. The job sends the
+  other email as usual, and does not send the refused message again when it
+  is retried for a different message: it reads the status of the row, not
+  the text of the detail. `FORM_EMAIL_SEND_STATUSES` and
+  `FORM_ACTION_STATUSES` in `@kelpie/schemas` each have the new value, so a
+  client that reads `action_log` must accept `refused`. The Submissions tab
+  shows a refused email apart from an error: its own count in the list, and
+  a solid red label with "The mail server refused this email. Kelpie does
+  not send it again." on the submission. The verification, password reset
+  and "sign-in email changed" jobs write a `warn` line to the log and
+  complete. The invitation job does that too, and records the failure on the
+  invitation (see the next entry). A provider module that does not throw the
+  new class is retried as before. Migration
+  `0059_email_refused_and_invite_email_failure` adds `refused` to
+  `form_email_sends_status_check`; it runs on start.
 - **`@kelpie/server`** — **The SMTP sender has time limits.** The
   `smtp-email` module now stops a send after 10 seconds with no connection,
   10 seconds with no greeting, 10 seconds with no DNS answer, or 30 seconds
