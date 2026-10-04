@@ -64,6 +64,8 @@ export * as schema from './schema/index.ts'
 
 export { PermanentEmailError, createLogEmailSender, emailConfigSchema, isPermanentEmailError } from './lib/email.ts'
 export type { EmailConfig, EmailMessage, EmailSender } from './lib/email.ts'
+export { renderEmail, renderTextEmail } from './lib/emailContent.ts'
+export type { EmailAction, EmailContent, EmailHeaderLink, RenderedEmail } from './lib/emailContent.ts'
 export { CAPTCHA_PROVIDER_VARIABLE } from './lib/captcha.ts'
 export type { CaptchaAccess, CaptchaProvider, CaptchaWidget } from './lib/captcha.ts'
 

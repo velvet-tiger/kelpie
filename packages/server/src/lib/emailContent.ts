@@ -14,17 +14,26 @@ import Mailgen from 'mailgen'
 
 /** A link the message asks the reader to follow, rendered as a button in HTML. */
 export interface EmailAction {
+  /** The sentence above the button. In the plaintext part, the line above the link. */
   readonly instructions: string
+  /** The words on the button. The plaintext part does not show them. */
   readonly buttonText: string
+  /** An absolute URL. The plaintext part shows it on a line of its own. */
   readonly link: string
 }
 
+/**
+ * One message, in the order it is shown: `intro`, then `action`, then
+ * `outro`. Each part is optional. A line break in `intro` or `outro` starts
+ * a new line in the plaintext part.
+ */
 export interface EmailContent {
   readonly intro?: string
   readonly action?: EmailAction
   readonly outro?: string
 }
 
+/** The two parts of one message: `text` is `EmailMessage.body`, `html` is `EmailMessage.html`. */
 export interface RenderedEmail {
   readonly text: string
   readonly html: string
@@ -82,10 +91,19 @@ function withoutHeaderLink(html: string): string {
 }
 
 /**
- * Renders one transactional message. `appBaseUrl` becomes the link on the
- * name in the header and footer, so every part of the mail points at the
- * deployment that sent it. `headerName` is the name in the header: Kelpie's,
- * unless the mail speaks for a workspace. It goes into the HTML unescaped.
+ * Renders one transactional message whose words the caller wrote. The
+ * strings go into the HTML part unescaped, so use `renderTextEmail` when a
+ * string holds text that a user typed. The footer is fixed text with no link.
+ *
+ * @param content The parts of the message.
+ * @param appBaseUrl The base URL of the deployment that sends the mail. The
+ *   name in the header links to it, unless `headerLink` is `'none'`.
+ * @param headerName The name in the header: Kelpie's, unless the mail speaks
+ *   for a workspace. It goes into the HTML unescaped.
+ * @param headerLink `'deployment'` (the default) or `'none'`.
+ * @returns The plaintext part and the HTML part.
+ * @throws Error when `headerLink` is `'none'` and the header link is not in
+ *   the HTML in the expected form.
  */
 export function renderEmail(
   content: EmailContent,
@@ -167,7 +185,8 @@ function htmlFromText(text: string): string {
  * and wrong for anything else: an answer holding markup would become markup.
  * Here every string is escaped for the HTML part and its line breaks kept.
  * The plaintext part is the text exactly as given. `headerName` is escaped the
- * same way: a workspace name is also text an admin typed.
+ * same way: a workspace name is also text an admin typed. The parameters,
+ * the result and the error are as for `renderEmail`.
  */
 export function renderTextEmail(
   content: EmailContent,

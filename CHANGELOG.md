@@ -10,6 +10,16 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`** — **The email renderer is public.** `renderEmail` and
+  `renderTextEmail` are now exports of the package, with the types
+  `EmailContent`, `EmailAction`, `EmailHeaderLink` and `RenderedEmail`. An
+  assembly or a module can build the plaintext and HTML parts of its own
+  email with them, so the email looks like the ones core sends.
+  `renderTextEmail` escapes every string for the HTML part; use it when a
+  string holds text that a user typed. No migration.
+
 ### Changed
 
 - **`@kelpie/server`** — **Form emails show the workspace.** The notification

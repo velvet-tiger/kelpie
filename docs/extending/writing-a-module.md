@@ -98,6 +98,36 @@ throw new Error(`Vendor send failed with ${response.status}`)
 
 A job does not retry a `PermanentEmailError`. The form email job records the message as `refused`, with your error text, on the submission; the account and invitation jobs write it to the log, and the invitation job also puts your error text on the invitation, where the Team page shows it. Keep the text short and free of secrets: an admin reads it. Throw any other error for a failure a later try can clear: a timeout, a lost connection, a rate limit, a `5xx` from the vendor's API. If you are not sure, throw a plain `Error`: a retry that was not necessary costs little, and a message that is dropped is lost. Core recognises the error by its name, with `isPermanentEmailError`, so it also works when your module resolves its own copy of `@kelpie/server`. The built-in `smtp` provider throws it for a `5xx` SMTP answer to the sender, a recipient or the message, and for an address nodemailer refuses; a `4xx` answer, a timeout, and a connection, DNS, TLS or sign-in failure are plain errors.
 
+## Email content
+
+To send an email that looks like the emails core sends, build its two parts with the renderer that core uses. `renderEmail` and `renderTextEmail` are exports of `@kelpie/server`. Each takes an `EmailContent` (an optional `intro`, an optional `action` that becomes a button, and an optional `outro`) and the base URL of the deployment. Each gives back `text`, the plaintext part, and `html`. Give the two to `context.email.send` as `body` and `html`.
+
+```ts
+import { renderTextEmail } from '@kelpie/server'
+import type { EmailSender } from '@kelpie/server'
+
+async function sendReport(email: EmailSender, appBaseUrl: string, workspaceName: string, to: string): Promise<void> {
+  const { text, html } = renderTextEmail(
+    {
+      intro: `The weekly report for ${workspaceName} is ready.`,
+      action: {
+        instructions: 'Read the report in Kelpie:',
+        buttonText: 'Open report',
+        link: new URL('/reports/weekly', appBaseUrl).toString(),
+      },
+      outro: 'You get this email because you are an admin of the workspace.',
+    },
+    appBaseUrl,
+  )
+
+  await email.send({ to, subject: `Weekly report for ${workspaceName}`, body: text, html })
+}
+```
+
+Use `renderTextEmail` when a string holds text that a user typed, such as a workspace name or a person's name: it escapes every string for the HTML part. `renderEmail` puts its strings into the HTML as they are, so use it only for words you wrote. Neither function changes the subject. A subject is one line, so remove line breaks from user text before you put it there.
+
+The optional third argument is the name in the header, "Kelpie" by default. The optional fourth argument is `'deployment'` (the default: the name in the header links to the deployment) or `'none'` (the name is text). Use `'none'` for a reader who cannot sign in. In the plaintext part, the link of the `action` is on a line of its own.
+
 ## CAPTCHA provider modules
 
 `context.provideCaptcha(name, build)` registers a named CAPTCHA provider. The deployment picks one with `CAPTCHA_PROVIDER=<name>`; only the chosen provider's factory runs, so read your keys inside `build`. Core ships no provider, and with the variable unset nothing draws a CAPTCHA.

@@ -156,3 +156,12 @@ describe('renderTextEmail', () => {
     expect(html).not.toContain('href="https://kelpie.test"')
   })
 })
+
+describe('the package index', () => {
+  it('exports the renderer, so an assembly can build mail that looks like core mail', async () => {
+    const index = await import('../index.ts')
+
+    expect(index.renderEmail).toBe(renderEmail)
+    expect(index.renderTextEmail).toBe(renderTextEmail)
+  })
+})
