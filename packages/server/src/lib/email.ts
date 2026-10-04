@@ -44,6 +44,99 @@ export interface EmailMessage {
    * under the deployment's own name.
    */
   readonly fromName?: string
+  /**
+   * More headers for the message, by name: `{ 'Auto-Submitted': 'auto-replied' }`.
+   * For headers that tell a mail system how to handle the message. The port
+   * owns the headers its other fields write (`PORT_OWNED_EMAIL_HEADERS`), and
+   * those are refused here. Core checks the names and the values before a
+   * provider gets the message (`emailHeadersProblem`), so a provider can pass
+   * them to its transport as they are. Optional, and a provider module
+   * written before it existed ignores it: the message still arrives, without
+   * the headers.
+   */
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+/**
+ * Headers the port writes from its own fields, or that the transport writes.
+ * A message cannot set them through `headers`. Lower case; a header name has
+ * no case.
+ */
+export const PORT_OWNED_EMAIL_HEADERS: ReadonlySet<string> = new Set([
+  'from',
+  'sender',
+  'reply-to',
+  'to',
+  'cc',
+  'bcc',
+  'subject',
+  'date',
+  'message-id',
+  'return-path',
+  'mime-version',
+  'content-type',
+  'content-transfer-encoding',
+])
+
+/** A header name: printable ASCII with no space and no colon. */
+const HEADER_NAME = /^[!-9;-~]+$/u
+
+/**
+ * Characters a header value cannot hold: every line break and control
+ * character. A line break in a value starts a new header.
+ */
+const REFUSED_HEADER_VALUE_CHARACTERS = /[\p{Cc}\p{Zl}\p{Zp}]/u
+
+/**
+ * Checks the `headers` of a message. The runtime calls this before each send,
+ * for every provider.
+ *
+ * @returns What is wrong with the first bad header, or `undefined` when all
+ * are safe to write.
+ */
+export function emailHeadersProblem(headers: Readonly<Record<string, string>> | undefined): string | undefined {
+  const seen = new Set<string>()
+
+  for (const [name, value] of Object.entries(headers ?? {})) {
+    const key = name.toLowerCase()
+
+    if (!HEADER_NAME.test(name)) {
+      return `email header name ${JSON.stringify(name)} is not a valid header name`
+    }
+
+    if (PORT_OWNED_EMAIL_HEADERS.has(key)) {
+      return `email header "${name}" is set by the email port and cannot be in headers`
+    }
+
+    if (seen.has(key)) {
+      return `email header "${name}" is in headers more than once`
+    }
+
+    if (typeof value !== 'string' || value.trim().length === 0 || REFUSED_HEADER_VALUE_CHARACTERS.test(value)) {
+      return `email header "${name}" has an empty value, or a value with a line break or control character`
+    }
+
+    seen.add(key)
+  }
+
+  return undefined
+}
+
+/**
+ * Headers for a message Kelpie makes with no person writing it: an account
+ * email, an invitation, a form notification. `Auto-Submitted` (RFC 3834) tells
+ * an out-of-office system not to answer. Microsoft Exchange reads
+ * `X-Auto-Response-Suppress` for the same purpose.
+ */
+export const AUTO_GENERATED_EMAIL_HEADERS: Readonly<Record<string, string>> = {
+  'Auto-Submitted': 'auto-generated',
+  'X-Auto-Response-Suppress': 'OOF, AutoReply',
+}
+
+/** The same, for a message that answers one a person sent: a form auto-reply. */
+export const AUTO_REPLIED_EMAIL_HEADERS: Readonly<Record<string, string>> = {
+  'Auto-Submitted': 'auto-replied',
+  'X-Auto-Response-Suppress': 'OOF, AutoReply',
 }
 
 export interface EmailSender {

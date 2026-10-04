@@ -7,7 +7,7 @@ import { requireApiKeyScope } from '../lib/apiKeyScopes.ts'
 import { CAPTCHA_PROVIDER_VARIABLE } from '../lib/captcha.ts'
 import type { CaptchaAccess, CaptchaProvider } from '../lib/captcha.ts'
 import type { Environment } from '../lib/config.ts'
-import { createLogEmailSender } from '../lib/email.ts'
+import { createLogEmailSender, emailHeadersProblem } from '../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import { AppError, describeThrown, describeValidationIssue, toErrorDetails } from '../lib/errors.ts'
 import type { JobRegistry } from '../lib/jobs.ts'
@@ -307,6 +307,14 @@ class EmailSenderProxy implements EmailSender {
       return Promise.reject(
         new Error('email sender used before boot resolved a provider. Set email.provider in kelpie.config.ts.'),
       )
+    }
+
+    // Checked here, so every provider gets headers that are safe to write,
+    // and a provider that does no check of its own cannot be used to inject.
+    const problem = emailHeadersProblem(message.headers)
+
+    if (problem !== undefined) {
+      return Promise.reject(new Error(problem))
     }
 
     return this.target.send(message)

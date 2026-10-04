@@ -8,6 +8,10 @@ import type {
 import { z } from 'zod'
 
 import type { Database } from '../../lib/database.ts'
+import {
+  AUTO_GENERATED_EMAIL_HEADERS,
+  AUTO_REPLIED_EMAIL_HEADERS,
+} from '../../lib/email.ts'
 import type { EmailSender } from '../../lib/email.ts'
 import { isSingleEmailAddress } from '../../lib/emailAddress.ts'
 import { renderTextEmail } from '../../lib/emailContent.ts'
@@ -375,6 +379,10 @@ async function sendOnce(
       html: rendered.html,
       fromName: fromNameOf(workspaceName),
       ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
+      // An out-of-office system that answers either message sends its answer
+      // to the Reply-To: a member for the auto-reply, the submitter for the
+      // notification. These headers tell it not to answer.
+      headers: kind === 'auto_reply' ? AUTO_REPLIED_EMAIL_HEADERS : AUTO_GENERATED_EMAIL_HEADERS,
     })
   } catch (error: unknown) {
     const detail = shortDetail(describeThrown(error))

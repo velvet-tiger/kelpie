@@ -394,6 +394,9 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
       expect(message?.subject).toBe('Lead from Example Co Bcc: x@example.com')
       expect(message?.replyTo).toBe('alex@example.com')
       expect(message?.fromName).toBe('Acme via Kelpie')
+      // Automatic mail, and not an answer: a member's out-of-office system
+      // must not answer it, because the answer goes to the submitter.
+      expect(message?.headers).toMatchObject({ 'Auto-Submitted': 'auto-generated' })
       expect(message?.body).toContain(
         'Alex Rivera <alex@example.com> wrote:\n' +
           'Name: Alex Rivera\nEmail: Alex@Example.com\nCompany: Example Co\n' +
@@ -436,6 +439,8 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
         body: 'We received your Website contact message.',
         replyTo: 'ada@example.com',
         fromName: 'Acme via Kelpie',
+        // An out-of-office answer to this goes to the Reply-To member.
+        headers: { 'Auto-Submitted': 'auto-replied', 'X-Auto-Response-Suppress': 'OOF, AutoReply' },
       })
       // The header names the workspace, not Kelpie.
       expect(sent[0]?.html).toMatch(/<a [^>]*>\s*Acme\s*<\/a>/u)

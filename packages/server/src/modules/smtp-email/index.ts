@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer'
 import { z } from 'zod'
 
 import { describeThrown } from '../../lib/errors.ts'
-import { EMAIL_FROM_PROBLEM, emailFromSchema } from '../../lib/email.ts'
+import { EMAIL_FROM_PROBLEM, emailFromSchema, emailHeadersProblem } from '../../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../../lib/email.ts'
 import { parseSenderAddress } from '../../lib/emailAddress.ts'
 import type { Logger } from '../../lib/logger.ts'
@@ -71,6 +71,7 @@ export interface SmtpTransport {
     text: string
     html?: string
     replyTo?: string
+    headers?: Record<string, string>
   }): Promise<unknown>
 }
 
@@ -149,6 +150,14 @@ export function createSmtpEmailSender(
       // comma in a name cannot be read as a second address.
       const name = message.fromName ?? sender.name
 
+      // The runtime does this check for a sender it resolved. It is done
+      // again here for a caller that uses this sender directly.
+      const headersProblem = emailHeadersProblem(message.headers)
+
+      if (headersProblem !== undefined) {
+        throw new Error(headersProblem)
+      }
+
       try {
         await transport.sendMail({
           from: name === undefined ? sender.address : { name, address: sender.address },
@@ -157,6 +166,7 @@ export function createSmtpEmailSender(
           text: message.body,
           ...(message.html === undefined ? {} : { html: message.html }),
           ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
+          ...(message.headers === undefined ? {} : { headers: { ...message.headers } }),
         })
       } catch (cause) {
         const reason = describeThrown(cause)

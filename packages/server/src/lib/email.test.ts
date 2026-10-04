@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import type { EmailMessage } from './email.ts'
 import {
+  AUTO_GENERATED_EMAIL_HEADERS,
+  AUTO_REPLIED_EMAIL_HEADERS,
   EMAIL_FROM_PROBLEM,
   createLogEmailSender,
   emailConfigSchema,
+  emailHeadersProblem,
 } from './email.ts'
 import { createCaptureTransport, createLogger } from './logger.ts'
 
@@ -43,6 +46,56 @@ describe('createLogEmailSender', () => {
       to: message.to,
       subject: message.subject,
     })
+  })
+})
+
+describe('emailHeadersProblem', () => {
+  it('accepts no headers, and the headers Kelpie sets', () => {
+    expect(emailHeadersProblem(undefined)).toBeUndefined()
+    expect(emailHeadersProblem({})).toBeUndefined()
+    expect(emailHeadersProblem(AUTO_GENERATED_EMAIL_HEADERS)).toBeUndefined()
+    expect(emailHeadersProblem(AUTO_REPLIED_EMAIL_HEADERS)).toBeUndefined()
+    expect(emailHeadersProblem({ 'X-Entity-Ref-ID': 'sub_123', 'List-Id': 'Updates <updates.example.com>' })).toBeUndefined()
+  })
+
+  it('marks an auto-reply and other automatic mail differently', () => {
+    expect(AUTO_REPLIED_EMAIL_HEADERS['Auto-Submitted']).toBe('auto-replied')
+    expect(AUTO_GENERATED_EMAIL_HEADERS['Auto-Submitted']).toBe('auto-generated')
+  })
+
+  it.each([
+    ['a line feed', 'auto-replied\nBcc: b@example.com'],
+    ['a carriage return and line feed', 'auto-replied\r\nBcc: b@example.com'],
+    ['a carriage return', 'auto-replied\rBcc: b@example.com'],
+    ['a null character', 'auto\u0000replied'],
+    ['a Unicode line separator', 'auto\u2028replied'],
+    ['no text', ''],
+    ['only spaces', '   '],
+  ])('refuses a value with %s', (_label, value) => {
+    expect(emailHeadersProblem({ 'Auto-Submitted': value })).toContain('email header "Auto-Submitted" has an empty value')
+  })
+
+  it.each([
+    ['a line break', 'X-One\r\nBcc'],
+    ['a colon', 'X-One: b'],
+    ['a space', 'X One'],
+    ['a character outside ASCII', 'X-Caf\u00e9'],
+    ['no text', ''],
+  ])('refuses a name with %s', (_label, name) => {
+    expect(emailHeadersProblem({ [name]: 'value' })).toContain('is not a valid header name')
+  })
+
+  it.each(['From', 'to', 'Reply-To', 'SUBJECT', 'Cc', 'Bcc', 'Sender', 'Date', 'Message-ID', 'Content-Type'])(
+    'refuses %s, which the port owns',
+    (name) => {
+      expect(emailHeadersProblem({ [name]: 'value' })).toContain('is set by the email port')
+    },
+  )
+
+  it('refuses one header given twice in different case', () => {
+    expect(emailHeadersProblem({ 'Auto-Submitted': 'auto-replied', 'auto-submitted': 'no' })).toContain(
+      'more than once',
+    )
   })
 })
 

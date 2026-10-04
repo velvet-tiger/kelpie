@@ -1,6 +1,7 @@
 import type { AddressInfo, Server, Socket } from 'node:net'
 import { createServer } from 'node:net'
 
+import nodemailer from 'nodemailer'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
@@ -166,6 +167,63 @@ describe('createSmtpEmailSender', () => {
     expect(() => createSmtpEmailSender({ ...smtpConfig, EMAIL_FROM: 'the sales team' }, logger, transport)).toThrow(
       'EMAIL_FROM must be an email address',
     )
+  })
+
+  it('passes the headers through when the message carries them', async () => {
+    const { transport, calls } = fakeTransport()
+    const { logger } = capture()
+    const sender = createSmtpEmailSender(smtpConfig, logger, transport)
+
+    await sender.send({ ...message, headers: { 'Auto-Submitted': 'auto-replied' } })
+
+    expect(calls).toEqual([
+      {
+        from: smtpConfig.EMAIL_FROM,
+        to: message.to,
+        subject: message.subject,
+        text: message.body,
+        headers: { 'Auto-Submitted': 'auto-replied' },
+      },
+    ])
+  })
+
+  it('writes the headers into the message nodemailer builds', async () => {
+    const { logger } = capture()
+    let raw = ''
+    // nodemailer builds the full message and gives it back, with no connection.
+    const builder = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: 'unix' })
+    const transport: SmtpTransport = {
+      async sendMail(mail) {
+        const info = await builder.sendMail(mail)
+        raw = info.message.toString()
+      },
+    }
+    const sender = createSmtpEmailSender(smtpConfig, logger, transport)
+
+    await sender.send({
+      ...message,
+      replyTo: 'ada@example.com',
+      headers: { 'Auto-Submitted': 'auto-replied', 'X-Auto-Response-Suppress': 'OOF, AutoReply' },
+    })
+
+    const [head] = raw.split('\n\n')
+
+    expect(head).toMatch(/^Auto-Submitted: auto-replied$/mu)
+    expect(head).toMatch(/^X-Auto-Response-Suppress: OOF, AutoReply$/mu)
+    expect(head).toMatch(/^Reply-To: ada@example.com$/mu)
+  })
+
+  it.each([
+    ['a line break in a value', { 'Auto-Submitted': 'auto-replied\r\nBcc: b@example.com' }],
+    ['a line break in a name', { 'X-One\r\nBcc': 'b@example.com' }],
+    ['a header the port owns', { 'Reply-To': 'b@example.com' }],
+  ])('refuses %s, and sends nothing', async (_label, headers) => {
+    const { transport, calls } = fakeTransport()
+    const { logger } = capture()
+    const sender = createSmtpEmailSender(smtpConfig, logger, transport)
+
+    await expect(sender.send({ ...message, headers })).rejects.toThrow(/^email header/u)
+    expect(calls).toEqual([])
   })
 
   it('wraps a transport failure with context and logs it, rather than leaking it raw', async () => {

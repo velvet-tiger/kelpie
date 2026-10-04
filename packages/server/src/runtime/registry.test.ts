@@ -7,7 +7,7 @@ import { createLogger } from '../lib/logger.ts'
 import { TEST_EMAIL_FROM, TEST_EMAIL_PROVIDER, createTestServices } from '../testing/services.ts'
 import { createTestApp } from '../testing/app.ts'
 import { workspaceKeyActor } from '../testing/fixtures.ts'
-import type { EmailSender } from '../lib/email.ts'
+import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import type { KelpieModule } from './module.ts'
 import { ModuleBootError } from './order.ts'
 import { registerModules } from './registry.ts'
@@ -714,6 +714,47 @@ describe('registration failures', () => {
       // provider the config picked, not the log fallback.
       expect(providerSent).toEqual(['a@example.com'])
       expect(services.sentEmails).toHaveLength(0)
+    })
+
+    it('checks the headers of a message before the chosen provider gets it', async () => {
+      const providerSent: EmailMessage[] = []
+      let capturedProxy: EmailSender | undefined
+
+      const provider: KelpieModule = {
+        id: 'resend-like',
+        register(context) {
+          capturedProxy = context.email
+          context.provideEmailSender('resend', () => ({
+            send(message) {
+              providerSent.push(message)
+              return Promise.resolve()
+            },
+          }))
+          return Promise.resolve()
+        },
+      }
+
+      await registerModules({
+        modules: [provider],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+        email: { provider: 'resend', from: TEST_EMAIL_FROM },
+      })
+
+      const message: EmailMessage = { to: 'a@example.com', subject: 's', body: 'b' }
+
+      await expect(
+        capturedProxy?.send({ ...message, headers: { 'Auto-Submitted': 'auto-replied\r\nBcc: b@example.com' } }),
+      ).rejects.toThrow('email header "Auto-Submitted" has an empty value, or a value with a line break')
+      await expect(capturedProxy?.send({ ...message, headers: { Bcc: 'b@example.com' } })).rejects.toThrow(
+        'email header "Bcc" is set by the email port',
+      )
+      expect(providerSent).toEqual([])
+
+      await capturedProxy?.send({ ...message, headers: { 'Auto-Submitted': 'auto-replied' } })
+
+      expect(providerSent).toEqual([{ ...message, headers: { 'Auto-Submitted': 'auto-replied' } }])
     })
 
     it('lets several provider modules register different names side by side', async () => {

@@ -32,6 +32,21 @@ While the major version is `0`, a minor bump may break the API.
   `EMAIL_FROM` to nodemailer apart from the address. A deployment with a
   value that is not one of the two forms must correct it before it upgrades.
   No migration.
+- **`@kelpie/server`** — **Kelpie's emails say that they are automatic.**
+  `EmailMessage` gets an optional `headers`, a record of header name to
+  value. The form auto-reply has `Auto-Submitted: auto-replied`. The form
+  notification, the verification email, the password reset email, the
+  "sign-in email changed" notice and the workspace invitation have
+  `Auto-Submitted: auto-generated`. All of them have
+  `X-Auto-Response-Suppress: OOF, AutoReply`, which Microsoft Exchange reads.
+  Before, an out-of-office system could answer a form auto-reply, and the
+  answer went to the Reply-To member. The runtime refuses a message whose
+  header name or value has a line break or a control character, or that
+  names a header the port writes (`From`, `To`, `Reply-To`, `Subject` and
+  the like), before a provider gets it. The `smtp-email` module passes the
+  headers to nodemailer, and `SmtpTransport.sendMail` gets an optional
+  `headers`. A provider module that does not read `headers` sends the
+  message without them. No migration.
 
 ### Fixed
 

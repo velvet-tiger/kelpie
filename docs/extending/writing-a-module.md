@@ -82,6 +82,8 @@ A module is toggleable by default: the runtime declares a `module.<your-id>` cap
 
 `context.provideEmailSender(name, sender)` registers a named transactional-mail sender. The deployment picks one with `EMAIL_PROVIDER=<name>`; only the chosen provider's factory runs. Core ships `log` and `smtp`; a Resend or Postmark module follows the same shape under its own name.
 
+A sender gets an `EmailMessage`. `to`, `subject` and `body` (the plaintext part) are always there. `html`, `replyTo`, `fromName` and `headers` are optional; send each one that is set. `headers` is a record of header name to value, for example `Auto-Submitted`. Core checks it before your sender gets the message: no line break or control character in a name or a value, and none of the headers the port owns (`From`, `To`, `Reply-To`, `Subject` and the like). Pass the record to your vendor's custom-headers option as it is. `EMAIL_FROM` is checked at boot: it is one address, or `Name <address>`.
+
 ## CAPTCHA provider modules
 
 `context.provideCaptcha(name, build)` registers a named CAPTCHA provider. The deployment picks one with `CAPTCHA_PROVIDER=<name>`; only the chosen provider's factory runs, so read your keys inside `build`. Core ships no provider, and with the variable unset nothing draws a CAPTCHA.
