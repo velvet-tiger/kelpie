@@ -138,6 +138,8 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
       cookie: account.cookie,
     })
     expect(invited.status).toBe(201)
+    // The invitation email is a job; run it as the worker would.
+    await harness.runQueuedJobs()
 
     const body = harness.services.sentEmails.at(-1)?.body ?? ''
     const token = /token=(?<token>[\w-]+)/u.exec(body)?.groups?.token
@@ -309,6 +311,7 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
         },
         cookie: ownerAccount.cookie,
       })
+      await harness.runQueuedJobs()
       const token = /token=([^\s]+)/u.exec(harness.services.sentEmails.at(-1)?.body ?? '')?.[1] ?? ''
       await send('POST', '/v1/invites/accept', { body: { token }, cookie: joinerCookie })
 
@@ -351,6 +354,7 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
         },
         cookie: ownerAccount.cookie,
       })
+      await harness.runQueuedJobs()
       const token = /token=([^\s]+)/u.exec(harness.services.sentEmails.at(-1)?.body ?? '')?.[1] ?? ''
       await send('POST', '/v1/invites/accept', { body: { token }, cookie: joinerCookie })
 

@@ -100,7 +100,8 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
   mcp.tool({
     name: 'workspace_invites_list',
     description:
-      'Outstanding and spent invitations. Mirrors GET /v1/workspaces/{id}/invites.',
+      'Outstanding and spent invitations. email_failed_at and email_failure are set when the ' +
+      'invitation email was not delivered. Mirrors GET /v1/workspaces/{id}/invites.',
     scope: 'workspace:read',
     inputSchema: noArgs,
     invoke: async (_args, actor) => ({

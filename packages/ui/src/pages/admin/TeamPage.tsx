@@ -11,6 +11,7 @@ import {
   useSendInvite,
 } from '../../api/resources/invites.ts'
 import { useSession } from '../../api/resources/session.ts'
+import { Chip } from '../../components/Chip.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { initialsOf } from '../../lib/names.ts'
@@ -194,6 +195,9 @@ function InviteRow({
         >
           {invite.status === 'pending' ? `Pending until ${formatDate(invite.expiresAt)}` : 'Expired'}
         </span>
+        {invite.emailFailedAt !== null && (
+          <EmailNotDelivered failedAt={invite.emailFailedAt} reason={invite.emailFailure} />
+        )}
       </td>
       <td className="px-4 py-3 text-right">
         <div className="flex flex-wrap justify-end gap-3">
@@ -217,6 +221,35 @@ function InviteRow({
         </div>
       </td>
     </tr>
+  )
+}
+
+/**
+ * Says that the invitation email did not arrive, and why. The person who was
+ * invited has no link, so the invitation stays pending until an admin sends
+ * it again or revokes it. The Resend button is in the same row.
+ *
+ * The reason is the mail server's own answer. It is shown as text, not only
+ * as a tooltip, so a touch screen shows it too. `break-words` and the
+ * maximum width keep a long answer from making the table wider.
+ */
+function EmailNotDelivered({
+  failedAt,
+  reason,
+}: {
+  readonly failedAt: Date
+  readonly reason: string | null
+}): React.JSX.Element {
+  return (
+    <div className="mt-1.5 max-w-[320px] min-w-[160px]">
+      <Chip tone="danger">Email not delivered</Chip>
+      <p className="mt-1 text-[11px] break-words text-ink-muted">
+        {reason === null || reason === '' ? 'The mail server gave no reason.' : reason}
+      </p>
+      <p className="mt-0.5 text-[11px] text-ink-faint">
+        Failed {formatDate(failedAt)}. Resend it, or revoke it and invite the correct address.
+      </p>
+    </div>
   )
 }
 

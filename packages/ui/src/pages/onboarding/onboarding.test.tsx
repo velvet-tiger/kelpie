@@ -38,6 +38,8 @@ function invite(email: string, role: string): Record<string, unknown> {
     role,
     status: 'pending',
     expires_at: '2026-08-12T00:00:00.000Z',
+    email_failed_at: null,
+    email_failure: null,
     created_at: '2026-08-05T00:00:00.000Z',
   }
 }

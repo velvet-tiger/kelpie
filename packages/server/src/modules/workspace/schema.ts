@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, index, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import { boolean, check, index, integer, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
 
 import { citext, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { users } from '../auth/schema.ts'
@@ -52,6 +52,21 @@ export const invites = pgTable(
     status: text('status').notNull(),
     tokenHash: text('token_hash').notNull(),
     expiresAt: moment('expires_at').notNull(),
+    /**
+     * When the invitation email failed for the last time, and why: the mail
+     * system refused it for good, or the last retry failed. Both are null
+     * while no failure is recorded. A later successful send and a resend set
+     * them back to null.
+     */
+    emailFailedAt: moment('email_failed_at'),
+    emailFailure: text('email_failure'),
+    /**
+     * The number of the newest request to send the invitation email: 0 when
+     * the invitation is made, and one more for each resend. Each email job
+     * carries the number of its own request. A job whose number is not this
+     * one is for an older request: it sends nothing and records nothing.
+     */
+    emailRequest: integer('email_request').notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -59,6 +74,10 @@ export const invites = pgTable(
     index('invites_workspace_idx').on(table.workspaceId),
     check('invites_role_check', sql`${table.role} in ('admin', 'member')`),
     check('invites_status_check', sql`${table.status} in ('pending', 'expired')`),
+    check(
+      'invites_email_failure_check',
+      sql`(${table.emailFailedAt} is null) = (${table.emailFailure} is null)`,
+    ),
   ],
 )
 

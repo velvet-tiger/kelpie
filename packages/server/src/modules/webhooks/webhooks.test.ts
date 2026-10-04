@@ -140,6 +140,8 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       cookie: acme.cookie,
     })
     expect(invited.status).toBe(201)
+    // The invitation email is a job; run it as the worker would.
+    await harness.runQueuedJobs()
 
     const body = harness.services.sentEmails.at(-1)?.body ?? ''
     const token = /token=(?<token>[\w-]+)/u.exec(body)?.groups?.token

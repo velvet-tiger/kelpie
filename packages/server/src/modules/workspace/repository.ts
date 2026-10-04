@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt } from 'drizzle-orm'
+import { and, asc, count, eq, gt, isNull, sql } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -335,12 +335,73 @@ export async function findInvite(
   return found
 }
 
-export async function updateInvite(
+/**
+ * Starts a new request to send the invitation email: `email_request` goes up
+ * by one in the statement that writes `changes`. Each job of an older request
+ * then finds a number that is not its own, and stops.
+ */
+export async function beginInviteEmailRequest(
   db: Queryable,
   id: string,
   changes: Partial<typeof invites.$inferInsert>,
 ): Promise<InviteRecord | undefined> {
-  const [updated] = await db.update(invites).set(changes).where(eq(invites.id, id)).returning()
+  const [updated] = await db
+    .update(invites)
+    .set({ ...changes, emailRequest: sql`${invites.emailRequest} + 1` })
+    .where(eq(invites.id, id))
+    .returning()
+
+  return updated
+}
+
+/**
+ * Changes an invitation only while `request` is its newest email request.
+ * The check is part of the statement, so a resend that arrives between a
+ * job's read and its write wins.
+ *
+ * @returns undefined when the invitation is gone or has a newer request.
+ */
+export async function updateInviteForEmailRequest(
+  db: Queryable,
+  id: string,
+  request: number,
+  changes: Partial<typeof invites.$inferInsert>,
+): Promise<InviteRecord | undefined> {
+  const [updated] = await db
+    .update(invites)
+    .set(changes)
+    .where(and(eq(invites.id, id), eq(invites.emailRequest, request)))
+    .returning()
+
+  return updated
+}
+
+/**
+ * Records an email failure on an invitation that has none, and only while
+ * `request` is its newest email request. A failure that is already recorded
+ * stays: it has the sender's own reason.
+ *
+ * @returns undefined when nothing was recorded.
+ */
+export async function recordInviteEmailFailureIfNone(
+  db: Queryable,
+  workspaceId: string,
+  id: string,
+  request: number,
+  failure: { readonly emailFailedAt: Date; readonly emailFailure: string },
+): Promise<InviteRecord | undefined> {
+  const [updated] = await db
+    .update(invites)
+    .set(failure)
+    .where(
+      and(
+        eq(invites.workspaceId, workspaceId),
+        eq(invites.id, id),
+        eq(invites.emailRequest, request),
+        isNull(invites.emailFailedAt),
+      ),
+    )
+    .returning()
 
   return updated
 }

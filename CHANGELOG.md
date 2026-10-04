@@ -22,6 +22,19 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/server`** — **The invitation email names the workspace and the
+  inviter.** The subject was "You have been invited to a Kelpie workspace".
+  It is now "Ada Lovelace invited you to Acme on Kelpie". The body gives the
+  inviter's name and address, the workspace, the role, and how long the link
+  works, and says that the reader can ignore an invitation that was not
+  expected. The header of the HTML part shows the workspace name. A resend
+  names the member who made the invitation, not the member who resent it.
+  An inviter with no name is shown by address. When the inviter is no longer
+  a member, the subject is "You are invited to Acme on Kelpie". A name has
+  its line breaks and control characters replaced with spaces and is cut at
+  60 characters, and the HTML part escapes it. The accept link is on a line
+  of its own in the plaintext part, as before. A test or a tool that finds
+  the email by its old subject must change. No migration.
 - **`@kelpie/server`** — **Form emails show the workspace.** The notification
   and the auto-reply have the From name `<workspace name> via Kelpie`, and
   the header of the HTML part shows the workspace name in place of "Kelpie".
@@ -94,6 +107,45 @@ While the major version is `0`, a minor bump may break the API.
   new class is retried as before. Migration
   `0059_email_refused_and_invite_email_failure` adds `refused` to
   `form_email_sends_status_check`; it runs on start.
+- **`@kelpie/server`**, **`@kelpie/schemas`**, **`@kelpie/ui`** — **An
+  invitation shows that its email was not delivered.** When the invitation
+  email failed for good, only a log line said so, and the admin saw a
+  pending invitation like any other. An invitation now has two new fields,
+  `email_failed_at` and `email_failure`, on `POST` and
+  `GET /v1/workspaces/:id/invites`, on `.../resend`, and on the
+  `workspace_invites_*` MCP tools. Both are `null` while the email is on its
+  way or was sent. The job sets them when the mail system refuses the email
+  permanently, and when a different failure occurs on the last run of the
+  job, after which the queue has no retry left. A failure on an earlier run
+  sets nothing. `email_failure` is the sender's error text on one line, cut
+  to 300 characters, the same text a form email stores. A send that works
+  and a resend set both fields back to `null`. When the worker dies during
+  the last run, no handler can set them; the job goes to its dead-letter
+  queue, and the fields are then set with a general reason. A reason that
+  the last run recorded is not replaced. The fields describe the newest
+  email request only. A resend starts a new request, and a job of an earlier
+  request that is still in the queue does nothing: it sends no email, does
+  not change the link, and records no failure. Thus an old job that fails
+  late does not mark an invitation whose new email arrived, and one
+  request sends one email. If a resend arrives while an old job is in the
+  middle of its send, that old email can still arrive; its link does not
+  work, and the link in the new email does. The Team page shows "Email
+  not delivered" with the reason in the row of the invitation, beside
+  Resend and Revoke. A job handler can now read `lastAttempt` from its
+  `JobContext`: true on the run after which the queue does not retry. The
+  field is optional in the type, so a test that calls a handler with its own
+  context still compiles. A `JobDefinition` can have `onDeadLetter`, an
+  optional function that a worker runs for each job that arrives in the
+  dead-letter queue of that definition, with the parsed payload; the
+  dead-letter job completes when the function returns. A definition without
+  it is not changed: its dead-letter jobs stay untouched. The types are
+  `DeadLetterContext` and `DeadLetterHandler`. `runJobs` and
+  `TestApp.runQueuedJobs` in `@kelpie/server/testing` take
+  `{ lastAttempt }`. `Invite` in `@kelpie/schemas` has `emailFailedAt` and
+  `emailFailure`. Migration `0059_email_refused_and_invite_email_failure`
+  adds the two columns to `invites`, with the check
+  `invites_email_failure_check`, and the column `email_request`, the number
+  of the newest email request; it runs on start.
 - **`@kelpie/server`** — **The form auto-reply has no link to the
   deployment.** The workspace name in the header of the HTML part was a
   link to the Kelpie deployment, which gave the person who submitted the

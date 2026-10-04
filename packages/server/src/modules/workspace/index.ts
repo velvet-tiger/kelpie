@@ -3,6 +3,7 @@ import type { KelpieModule } from '../../runtime/module.ts'
 import { parseModuleCapability } from '../../runtime/moduleConfig.ts'
 import { RECORDS_LIMIT, SEATS_LIMIT, WORKSPACE_ACCESS } from './capabilities.ts'
 import { workspaceEvents } from './events.ts'
+import { defineSendInviteEmailJob } from './inviteEmailJob.ts'
 import * as repository from './repository.ts'
 import { mountWorkspaceRoutes } from './routes.ts'
 import * as schema from './schema.ts'
@@ -49,11 +50,17 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
       const service = createWorkspaceService({
         db: context.db,
         transaction: context.transaction,
-        email: context.email,
         createId: context.createId,
         now: context.now,
         entitlements: context.entitlements,
-        appBaseUrl,
+        sendInviteEmailJob: context.jobs.define(
+          defineSendInviteEmailJob({
+            db: context.db,
+            email: context.email,
+            now: context.now,
+            appBaseUrl,
+          }),
+        ),
         toggleableModuleIds: context.moduleCatalog
           .filter((entry) => !entry.structural)
           .map((entry) => entry.id),

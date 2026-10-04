@@ -19,6 +19,7 @@ Two edges worth knowing: **webhooks are admin-only even to read**, because a web
 **Admin → Team** invites by email (admin or member), changes roles, and removes people.
 
 - Resending an invitation issues a new link and retires the old one; revoking deletes the invitation, which is what actually kills the link already in somebody's inbox. Stale invitations read as expired on their own.
+- An invitation whose email did not arrive shows **Email not delivered** with the mail server's reason. The person has no link. Resend the invitation, or revoke it and invite the correct address.
 - Inviting an address that already belongs to a member, or already holds a live invitation, is refused rather than doubled.
 - Removing somebody who still owns records — deals, plans, decisions, notes, and the like — is refused with a list of what and how many. Reassign their records first.
 - Ownership moves only by being given away, and the outgoing owner becomes an admin in the same step. The owner cannot be demoted or removed by anyone else.

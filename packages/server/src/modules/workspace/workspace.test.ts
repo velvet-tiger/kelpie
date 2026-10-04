@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
@@ -6,7 +6,11 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_APP_BASE_URL, TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
+import type { QueuedJob } from '../../testing/jobs.ts'
 import { createTestServices } from '../../testing/services.ts'
+import { PermanentEmailError } from '../../lib/email.ts'
+import type { EmailMessage, EmailSender } from '../../lib/email.ts'
+import { createLogger } from '../../lib/logger.ts'
 import { hashToken } from '../../lib/tokens.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
@@ -14,7 +18,13 @@ import { users } from '../auth/schema.ts'
 import { coreModules } from '../core.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
-import { invites, workspaceMembers } from './schema.ts'
+import {
+  DEAD_INVITE_EMAIL_FAILURE,
+  SEND_INVITE_EMAIL_JOB,
+  displayName,
+  inviteEmailWording,
+} from './inviteEmailJob.ts'
+import { invites, workspaceMembers, workspaces } from './schema.ts'
 import { STARTER_CONSENT_PURPOSES } from '../consent-purposes/starters.ts'
 import { STARTER_FORMS } from '../forms/starters.ts'
 import { STARTER_LISTS } from '../lists/starters.ts'
@@ -28,6 +38,9 @@ import {
 const connectionString = testDatabaseUrl(process.env)
 
 const WORKSPACE = { name: 'Acme', timezone: 'Australia/Melbourne' }
+
+/** The subject of an invitation email, with or without the inviter's name. */
+const INVITE_SUBJECT = /invited( you)? to .+ on Kelpie$/u
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -197,16 +210,19 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
   }
 
   /**
-   * The token out of the most recent invitation email.
+   * The token out of the most recent invitation email, after running the
+   * email jobs the requests so far have queued, as the worker would.
    *
    * Filtered by subject rather than just the last message sent: `signUp` also
    * sends a verification email, and `addMember` signs the invitee up after
    * inviting them, so the last message overall is not always the invite.
    */
-  function lastInviteToken(): string {
+  async function lastInviteToken(): Promise<string> {
+    await harness.runQueuedJobs()
+
     const body =
       harness.services.sentEmails
-        .filter((message) => message.subject === 'You have been invited to a Kelpie workspace')
+        .filter((message) => INVITE_SUBJECT.test(message.subject))
         .at(-1)?.body ?? ''
     const match = /token=([^\s]+)/u.exec(body)
 
@@ -238,7 +254,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
     expect(invited.status).toBe(201)
 
     const cookie = await signUp(email)
-    const accepted = await send('POST', '/v1/invites/accept', { token: lastInviteToken() }, cookie)
+    const accepted = await send('POST', '/v1/invites/accept', { token: await lastInviteToken() }, cookie)
     expect(accepted.status).toBe(200)
 
     const members = readList(await (await send('GET', `/v1/workspaces/${workspaceId}/members`, undefined, cookie)).json())
@@ -860,7 +876,11 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       expect(created.status).toBe(201)
       expect(readString(await created.json(), 'email')).toBe('grace@example.com')
+      // The request itself sends nothing: the email is a job.
+      expect(harness.services.sentEmails).toHaveLength(0)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails.at(-1)?.to).toBe('grace@example.com')
+      expect(harness.services.sentEmails.at(-1)?.headers).toMatchObject({ 'Auto-Submitted': 'auto-generated' })
       // The link is built server-side from APP_BASE_URL, not from a caller value.
       expect(harness.services.sentEmails.at(-1)?.body).toContain(`${TEST_APP_BASE_URL}/join?token=`)
 
@@ -903,6 +923,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       // Nothing was written and nothing was sent: the refusal is the whole of it.
       const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)
       expect(readList(await listed.json())).toHaveLength(0)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(sentBeforeInviting)
     })
 
@@ -924,6 +945,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)
       expect(readList(await listed.json())).toHaveLength(0)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(sentBeforeInviting)
     })
 
@@ -940,6 +962,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       expect(repeated.status).toBe(409)
       expect(readErrorFields(await repeated.json())).toEqual(['email'])
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(sentBeforeInviting + 1)
     })
 
@@ -948,7 +971,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const workspaceId = await createWorkspace(cookie)
       const body = { email: 'grace@example.com', role: 'member' }
       const first = await send('POST', `/v1/workspaces/${workspaceId}/invites`, body, cookie)
-      const staleToken = lastInviteToken()
+      const staleToken = await lastInviteToken()
 
       // Aged in place: no endpoint makes an invitation old.
       await database.db
@@ -1003,7 +1026,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       )
 
       const { cookie } = await rawSignUp('grace@example.com')
-      const accepted = await send('POST', '/v1/invites/accept', { token: lastInviteToken() }, cookie)
+      const accepted = await send('POST', '/v1/invites/accept', { token: await lastInviteToken() }, cookie)
       expect(accepted.status).toBe(200)
 
       const account = await send('GET', '/v1/account', undefined, cookie)
@@ -1055,10 +1078,11 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         body: JSON.stringify({ email: 'grace-precedence@example.com', role: 'member' }),
       })
       expect(inviteResponse.status).toBe(201)
+      await overridden.runQueuedJobs()
 
       const body =
         overridden.services.sentEmails
-          .filter((message) => message.subject === 'You have been invited to a Kelpie workspace')
+          .filter((message) => INVITE_SUBJECT.test(message.subject))
           .at(-1)?.body ?? ''
       expect(body).toContain(`${SERVICES_URL}/join?token=`)
       expect(body).not.toContain('env-loses.example')
@@ -1082,7 +1106,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
       const inviteId = await invite(cookie, workspaceId)
-      const first = lastInviteToken()
+      const first = await lastInviteToken()
 
       const response = await send(
         'POST',
@@ -1092,7 +1116,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       )
 
       expect(response.status).toBe(200)
-      const second = lastInviteToken()
+      const second = await lastInviteToken()
       expect(second).not.toBe(first)
       expect(harness.services.sentEmails.at(-1)?.to).toBe('grace@example.com')
 
@@ -1107,7 +1131,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)
       const inviteId = await invite(cookie, workspaceId)
-      const token = lastInviteToken()
+      const token = await lastInviteToken()
 
       const response = await send(
         'DELETE',
@@ -1243,7 +1267,770 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       expect(response.status).toBe(409)
       expect(readErrorFields(await response.json())).toEqual(['email'])
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(sentBefore)
+    })
+  })
+
+  /**
+   * The invitation email is a job. A mail server that refuses it must not
+   * change what the admin sees, because the invitation is already saved.
+   */
+  describe('the invitation email job', () => {
+    function tokenIn(message: EmailMessage | undefined): string {
+      return /token=([^\s]+)/u.exec(message?.body ?? '')?.[1] ?? ''
+    }
+
+    /** What a test sets on the controlled sender, and what the sender recorded. */
+    interface ControlledMail {
+      sent: EmailMessage[]
+      down: boolean
+      /** Addresses the sender refuses permanently. */
+      refusing: Set<string>
+      /** Every call, sent or not. */
+      tried: number
+    }
+
+    /** Swaps in an app whose sender refuses every message while `mail.down` is true. */
+    async function useControlledSender(): Promise<ControlledMail> {
+      const mail: ControlledMail = { sent: [], down: true, refusing: new Set<string>(), tried: 0 }
+      const sender: EmailSender = {
+        send(message) {
+          mail.tried += 1
+
+          if (mail.refusing.has(message.to)) {
+            return Promise.reject(new PermanentEmailError(`550 no mailbox ${message.to}`))
+          }
+
+          if (mail.down) {
+            return Promise.reject(new Error(`mailbox ${message.to} refused the message`))
+          }
+
+          mail.sent.push(message)
+
+          return Promise.resolve()
+        },
+      }
+
+      harness = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: { ...createTestServices({ db: database.db }), emailSender: sender },
+      })
+
+      return mail
+    }
+
+    it('still creates the invitation when the mail server refuses it, and sends a working link on a retry', async () => {
+      const mail = await useControlledSender()
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const created = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member' },
+        cookie,
+      )
+
+      expect(created.status).toBe(201)
+      const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)
+      expect(readList(await listed.json())).toHaveLength(1)
+
+      // The job fails and stays queued, as the real queue keeps it for a retry.
+      await expect(harness.runQueuedJobs()).rejects.toThrow()
+      expect(harness.services.queuedJobs.map((job) => job.name)).toEqual([SEND_INVITE_EMAIL_JOB])
+      expect(mail.sent).toHaveLength(0)
+
+      mail.down = false
+      await harness.runQueuedJobs()
+
+      expect(mail.sent.map((message) => message.to)).toEqual(['grace@example.com'])
+      const accepted = await send(
+        'POST',
+        '/v1/invites/accept',
+        { token: tokenIn(mail.sent[0]) },
+        await signUp('grace@example.com'),
+      )
+      expect(accepted.status).toBe(200)
+    })
+
+    it('still answers a resend when the mail server refuses it, and the old link stops at once', async () => {
+      const mail = await useControlledSender()
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const created = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member' },
+        cookie,
+      )
+      const inviteId = readString(await created.json(), 'id')
+
+      mail.down = false
+      await harness.runQueuedJobs()
+      const first = tokenIn(mail.sent.at(-1))
+      mail.down = true
+
+      const response = await send('POST', `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`, {}, cookie)
+
+      expect(response.status).toBe(200)
+      await expect(harness.runQueuedJobs()).rejects.toThrow()
+
+      // Retired by the request, not by the job: no email went out, and the
+      // first link is dead all the same.
+      const stale = await send('POST', '/v1/invites/accept', { token: first }, await signUp('grace@example.com'))
+      expect(stale.status).toBe(401)
+    })
+
+    it('does not retry an invitation email the mail server refused permanently', async () => {
+      const mail = await useControlledSender()
+      mail.down = false
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await harness.runQueuedJobs()
+      mail.tried = 0
+      mail.refusing.add('grace@example.com')
+
+      const created = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member' },
+        cookie,
+      )
+
+      expect(created.status).toBe(201)
+
+      // The job completes: no throw, and nothing stays queued for a retry.
+      await harness.runQueuedJobs()
+
+      expect(mail.tried).toBe(1)
+      expect(harness.services.queuedJobs).toEqual([])
+
+      // The invitation stays, so the admin can revoke it.
+      const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)
+      expect(readList(await listed.json())).toHaveLength(1)
+    })
+
+    /** The one invitation of the workspace, as the list endpoint returns it. */
+    async function listedInvite(cookie: string, workspaceId: string): Promise<Record<string, unknown>> {
+      const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)
+      const [only, ...rest] = readList(await listed.json())
+
+      if (!isRecord(only) || rest.length > 0) {
+        throw new Error('Expected exactly one invitation')
+      }
+
+      return only
+    }
+
+    /** An owner, a workspace, and one invitation whose email job is queued. */
+    async function inviteGrace(mail: ControlledMail): Promise<{ cookie: string; workspaceId: string; created: unknown }> {
+      mail.down = false
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await harness.runQueuedJobs()
+
+      const response = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member' },
+        cookie,
+      )
+
+      expect(response.status).toBe(201)
+
+      return { cookie, workspaceId, created: await response.json() }
+    }
+
+    it('returns no email failure for an invitation whose email is on its way or sent', async () => {
+      const mail = await useControlledSender()
+      const { cookie, workspaceId, created } = await inviteGrace(mail)
+
+      expect(created).toMatchObject({ email_failed_at: null, email_failure: null })
+
+      await harness.runQueuedJobs()
+
+      expect(mail.sent.map((message) => message.to)).toContain('grace@example.com')
+      expect(await listedInvite(cookie, workspaceId)).toMatchObject({
+        status: 'pending',
+        email_failed_at: null,
+        email_failure: null,
+      })
+    })
+
+    it('records on the invitation that the mail server refused the email permanently', async () => {
+      const mail = await useControlledSender()
+      const { cookie, workspaceId } = await inviteGrace(mail)
+      mail.refusing.add('grace@example.com')
+      const before = Date.now()
+
+      // The first run, with retries left. A permanent failure is recorded all the same.
+      await harness.runQueuedJobs()
+
+      const invite = await listedInvite(cookie, workspaceId)
+
+      expect(invite.status).toBe('pending')
+      expect(invite.email_failure).toBe('PermanentEmailError: 550 no mailbox grace@example.com')
+      expect(Date.parse(readString(invite, 'email_failed_at'))).toBeGreaterThanOrEqual(before - 1000)
+    })
+
+    it('records a failure a retry can clear only on the last run of the job', async () => {
+      const mail = await useControlledSender()
+      const { cookie, workspaceId } = await inviteGrace(mail)
+      mail.down = true
+
+      // A run with a retry left: the queue runs the job again, so nothing is recorded.
+      await expect(harness.runQueuedJobs()).rejects.toThrow()
+      await expect(harness.runQueuedJobs({ lastAttempt: false })).rejects.toThrow()
+
+      expect(await listedInvite(cookie, workspaceId)).toMatchObject({
+        email_failed_at: null,
+        email_failure: null,
+      })
+
+      // The last run: no retry follows. The job still fails, as the queue expects.
+      await expect(harness.runQueuedJobs({ lastAttempt: true })).rejects.toThrow()
+
+      const invite = await listedInvite(cookie, workspaceId)
+
+      expect(invite.email_failure).toBe('Error: mailbox grace@example.com refused the message')
+      expect(typeof invite.email_failed_at).toBe('string')
+      expect(mail.sent.map((message) => message.to)).not.toContain('grace@example.com')
+    })
+
+    it('stores a long failure as one short line', async () => {
+      const transcript = `connect to mail-7.internal.example failed\n${'x'.repeat(600)}`
+
+      harness = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: {
+          ...createTestServices({ db: database.db }),
+          emailSender: {
+            send: (message) =>
+              INVITE_SUBJECT.test(message.subject)
+                ? Promise.reject(new PermanentEmailError(transcript))
+                : Promise.resolve(),
+          },
+        },
+      })
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      await send('POST', `/v1/workspaces/${workspaceId}/invites`, { email: 'grace@example.com', role: 'member' }, cookie)
+      await harness.runQueuedJobs()
+
+      const failure = readString(await listedInvite(cookie, workspaceId), 'email_failure')
+
+      expect(failure).toHaveLength(300)
+      expect(failure).not.toContain('\n')
+      expect(failure.endsWith('…')).toBe(true)
+    })
+
+    it('removes the recorded failure when a later send works', async () => {
+      const mail = await useControlledSender()
+      const { cookie, workspaceId } = await inviteGrace(mail)
+      mail.down = true
+
+      await expect(harness.runQueuedJobs({ lastAttempt: true })).rejects.toThrow()
+      expect((await listedInvite(cookie, workspaceId)).email_failed_at).not.toBeNull()
+
+      // The harness keeps a failed job queued. This run is one that works.
+      mail.down = false
+      await harness.runQueuedJobs()
+
+      expect(mail.sent.map((message) => message.to)).toContain('grace@example.com')
+      expect(await listedInvite(cookie, workspaceId)).toMatchObject({
+        email_failed_at: null,
+        email_failure: null,
+      })
+    })
+
+    it('removes the recorded failure when a resend is requested, before the new email is sent', async () => {
+      const mail = await useControlledSender()
+      const { cookie, workspaceId } = await inviteGrace(mail)
+      mail.refusing.add('grace@example.com')
+      await harness.runQueuedJobs()
+
+      const failed = await listedInvite(cookie, workspaceId)
+
+      expect(failed.email_failed_at).not.toBeNull()
+
+      const resent = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites/${readString(failed, 'id')}/resend`,
+        {},
+        cookie,
+      )
+
+      expect(resent.status).toBe(200)
+      expect(await resent.json()).toMatchObject({ email_failed_at: null, email_failure: null })
+      // The new job is queued and has not run.
+      expect(harness.services.queuedJobs.map((job) => job.name)).toEqual([SEND_INVITE_EMAIL_JOB])
+      expect(await listedInvite(cookie, workspaceId)).toMatchObject({
+        email_failed_at: null,
+        email_failure: null,
+      })
+
+      // The address is still refused, so the new job records its own failure.
+      await harness.runQueuedJobs()
+
+      expect((await listedInvite(cookie, workspaceId)).email_failure).toBe(
+        'PermanentEmailError: 550 no mailbox grace@example.com',
+      )
+    })
+
+    it('refuses a failure time with no reason, and a reason with no time', async () => {
+      const mail = await useControlledSender()
+      const { cookie, workspaceId } = await inviteGrace(mail)
+      const inviteId = readString(await listedInvite(cookie, workspaceId), 'id')
+
+      await expect(
+        database.db.update(invites).set({ emailFailedAt: new Date() }).where(eq(invites.id, inviteId)),
+      ).rejects.toThrow()
+      await expect(
+        database.db.update(invites).set({ emailFailure: 'no time' }).where(eq(invites.id, inviteId)),
+      ).rejects.toThrow()
+    })
+
+    it('sends nothing for an invitation revoked before the job ran', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const created = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member' },
+        cookie,
+      )
+      const inviteId = readString(await created.json(), 'id')
+
+      await send('DELETE', `/v1/workspaces/${workspaceId}/invites/${inviteId}`, undefined, cookie)
+      await harness.runQueuedJobs()
+
+      expect(harness.services.sentEmails.filter((message) => INVITE_SUBJECT.test(message.subject))).toHaveLength(0)
+    })
+
+    /** The invitation emails the controlled sender let through. */
+    function emailsToGrace(mail: ControlledMail): EmailMessage[] {
+      return mail.sent.filter((message) => message.to === 'grace@example.com')
+    }
+
+    /** Asks for a resend, which queues a job for a new email request. */
+    async function resend(cookie: string, workspaceId: string, inviteId: string): Promise<void> {
+      const response = await send('POST', `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`, {}, cookie)
+
+      expect(response.status).toBe(200)
+    }
+
+    /** Takes the oldest job out of the queue. A test puts it back to run it late, or not at all. */
+    function takeOldestJob(): QueuedJob {
+      const job = harness.services.queuedJobs.shift()
+
+      if (job === undefined) {
+        throw new Error('Expected a queued job')
+      }
+
+      return job
+    }
+
+    /** Runs the job's `onDeadLetter`, as the worker does for a job in the dead-letter queue. */
+    async function arriveInDeadLetterQueue(job: QueuedJob): Promise<void> {
+      const definition = harness.jobs?.definitions.get(job.name)
+
+      if (definition?.onDeadLetter === undefined) {
+        throw new Error(`Job "${job.name}" has no onDeadLetter`)
+      }
+
+      await definition.onDeadLetter({
+        id: 'job_dead',
+        data: definition.schema.parse(job.data),
+        log: createLogger({ level: 'error', transports: [] }),
+      })
+    }
+
+    describe('with more than one email request', () => {
+      it('gives each job the number of its request', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId, created } = await inviteGrace(mail)
+        const inviteId = readString(created, 'id')
+
+        await resend(cookie, workspaceId, inviteId)
+        await resend(cookie, workspaceId, inviteId)
+
+        expect(harness.services.queuedJobs).toEqual([
+          { name: SEND_INVITE_EMAIL_JOB, data: { workspaceId, inviteId, request: 0 } },
+          { name: SEND_INVITE_EMAIL_JOB, data: { workspaceId, inviteId, request: 1 } },
+          { name: SEND_INVITE_EMAIL_JOB, data: { workspaceId, inviteId, request: 2 } },
+        ])
+      })
+
+      it('does not mark the invitation when an older job fails for the last time after the new email arrived', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId, created } = await inviteGrace(mail)
+        const inviteId = readString(created, 'id')
+
+        // The first job fails with a retry left, so it stays in the queue.
+        mail.down = true
+        await expect(harness.runQueuedJobs()).rejects.toThrow()
+        await resend(cookie, workspaceId, inviteId)
+
+        // The job of the resend runs first, and its email arrives.
+        const older = takeOldestJob()
+        mail.down = false
+        await harness.runQueuedJobs()
+
+        expect(emailsToGrace(mail)).toHaveLength(1)
+
+        // The last run of the older job, with the mail server down again. It
+        // does not try the send, so it does not fail and records nothing.
+        mail.down = true
+        const tried = mail.tried
+        harness.services.queuedJobs.push(older)
+        await harness.runQueuedJobs({ lastAttempt: true })
+
+        expect(mail.tried).toBe(tried)
+        expect(harness.services.queuedJobs).toEqual([])
+        expect(await listedInvite(cookie, workspaceId)).toMatchObject({
+          status: 'pending',
+          email_failed_at: null,
+          email_failure: null,
+        })
+      })
+
+      it('sends one email, from the newest job, when an older job is still queued', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId, created } = await inviteGrace(mail)
+
+        await resend(cookie, workspaceId, readString(created, 'id'))
+        // The older job runs first, then the job of the resend.
+        await harness.runQueuedJobs()
+
+        expect(emailsToGrace(mail)).toHaveLength(1)
+        const accepted = await send(
+          'POST',
+          '/v1/invites/accept',
+          { token: tokenIn(emailsToGrace(mail)[0]) },
+          await signUp('grace@example.com'),
+        )
+        expect(accepted.status).toBe(200)
+      })
+
+      it('keeps the link of the new email when an older job runs after it', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId, created } = await inviteGrace(mail)
+
+        await resend(cookie, workspaceId, readString(created, 'id'))
+        const older = takeOldestJob()
+        await harness.runQueuedJobs()
+
+        // The mail server works, so the older job could send. It sends
+        // nothing and puts no token of its own on the invitation.
+        harness.services.queuedJobs.push(older)
+        await harness.runQueuedJobs()
+
+        expect(emailsToGrace(mail)).toHaveLength(1)
+        const accepted = await send(
+          'POST',
+          '/v1/invites/accept',
+          { token: tokenIn(emailsToGrace(mail)[0]) },
+          await signUp('grace@example.com'),
+        )
+        expect(accepted.status).toBe(200)
+      })
+
+      it('records the failure of the newest job, and only that job tries the send', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId, created } = await inviteGrace(mail)
+        const inviteId = readString(created, 'id')
+
+        await resend(cookie, workspaceId, inviteId)
+        mail.down = true
+        const tried = mail.tried
+
+        await expect(harness.runQueuedJobs({ lastAttempt: true })).rejects.toThrow()
+
+        // The older job completed with nothing done. The newer job failed.
+        expect(mail.tried).toBe(tried + 1)
+        expect(harness.services.queuedJobs).toEqual([
+          { name: SEND_INVITE_EMAIL_JOB, data: { workspaceId, inviteId, request: 1 } },
+        ])
+        expect((await listedInvite(cookie, workspaceId)).email_failure).toBe(
+          'Error: mailbox grace@example.com refused the message',
+        )
+      })
+    })
+
+    describe('when the job ends in the dead-letter queue', () => {
+      it('marks an invitation that has no failure on record, and does it one time only', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId } = await inviteGrace(mail)
+        // The worker died during the last run: no handler ran to the end.
+        const job = takeOldestJob()
+
+        await arriveInDeadLetterQueue(job)
+
+        const marked = await listedInvite(cookie, workspaceId)
+
+        expect(marked).toMatchObject({ status: 'pending', email_failure: DEAD_INVITE_EMAIL_FAILURE })
+        expect(typeof marked.email_failed_at).toBe('string')
+
+        // The queue can run the function again. The record does not change.
+        await arriveInDeadLetterQueue(job)
+
+        expect(await listedInvite(cookie, workspaceId)).toEqual(marked)
+      })
+
+      it('keeps the reason that the last run of the job recorded', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId } = await inviteGrace(mail)
+        mail.down = true
+        await expect(harness.runQueuedJobs({ lastAttempt: true })).rejects.toThrow()
+        const recorded = await listedInvite(cookie, workspaceId)
+
+        expect(recorded.email_failure).toBe('Error: mailbox grace@example.com refused the message')
+
+        await arriveInDeadLetterQueue(takeOldestJob())
+
+        expect(await listedInvite(cookie, workspaceId)).toEqual(recorded)
+      })
+
+      it('does not mark an invitation that has a newer email request', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId, created } = await inviteGrace(mail)
+        const inviteId = readString(created, 'id')
+        const older = takeOldestJob()
+
+        // The resend is requested, and its job has not run.
+        await resend(cookie, workspaceId, inviteId)
+        await arriveInDeadLetterQueue(older)
+
+        expect(await listedInvite(cookie, workspaceId)).toMatchObject({
+          email_failed_at: null,
+          email_failure: null,
+        })
+
+        // The email of the resend arrived.
+        await harness.runQueuedJobs()
+        await arriveInDeadLetterQueue(older)
+
+        expect(emailsToGrace(mail)).toHaveLength(1)
+        expect(await listedInvite(cookie, workspaceId)).toMatchObject({
+          email_failed_at: null,
+          email_failure: null,
+        })
+      })
+
+      it('marks the newest request when its own job ends there', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId, created } = await inviteGrace(mail)
+
+        await resend(cookie, workspaceId, readString(created, 'id'))
+        takeOldestJob()
+        await arriveInDeadLetterQueue(takeOldestJob())
+
+        expect((await listedInvite(cookie, workspaceId)).email_failure).toBe(DEAD_INVITE_EMAIL_FAILURE)
+      })
+
+      it('does nothing for an invitation that was revoked', async () => {
+        const mail = await useControlledSender()
+        const { cookie, workspaceId, created } = await inviteGrace(mail)
+        const job = takeOldestJob()
+
+        await send('DELETE', `/v1/workspaces/${workspaceId}/invites/${readString(created, 'id')}`, undefined, cookie)
+
+        await expect(arriveInDeadLetterQueue(job)).resolves.toBeUndefined()
+      })
+    })
+
+    it('adds the job with the invitation on the real queue, and its payload holds no token', async () => {
+      await database.jobs.start()
+      harness = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db, enqueueOnTx: database.jobs.enqueueOnTx }),
+      })
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+
+      const created = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member' },
+        cookie,
+      )
+      const refused = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member' },
+        cookie,
+      )
+
+      expect(created.status).toBe(201)
+      expect(refused.status).toBe(409)
+
+      const rows = await database.db.execute<{ data: unknown }>(
+        sql`select data from pgboss.job where name = ${SEND_INVITE_EMAIL_JOB}`,
+      )
+
+      expect([...rows].map((row) => row.data)).toEqual([
+        { workspaceId, inviteId: readString(await created.json(), 'id'), request: 0 },
+      ])
+    })
+  })
+
+  /** The invitation says which workspace it is for and who made it. */
+  describe('the wording of the invitation email', () => {
+    /** Invites grace@example.com, runs the job, and gives the email and the invitation id. */
+    async function inviteGrace(
+      cookie: string,
+      workspaceId: string,
+      role: 'admin' | 'member' = 'member',
+    ): Promise<{ readonly message: EmailMessage; readonly inviteId: string }> {
+      const created = await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role },
+        cookie,
+      )
+      expect(created.status).toBe(201)
+
+      return { message: await lastInviteEmail(), inviteId: readString(await created.json(), 'id') }
+    }
+
+    async function lastInviteEmail(): Promise<EmailMessage> {
+      await harness.runQueuedJobs()
+      const message = harness.services.sentEmails.filter((sent) => INVITE_SUBJECT.test(sent.subject)).at(-1)
+
+      if (message === undefined) {
+        throw new Error('No invitation email was sent')
+      }
+
+      return message
+    }
+
+    async function setAccountName(email: string, name: string): Promise<void> {
+      await database.db.update(users).set({ name }).where(eq(users.email, email))
+    }
+
+    function tokenOf(message: EmailMessage): string {
+      return /token=([^\s]+)/u.exec(message.body)?.[1] ?? ''
+    }
+
+    it('names the workspace, the inviter, the role and the lifetime', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await setAccountName('ada@example.com', 'Ada Lovelace')
+
+      const { message } = await inviteGrace(cookie, workspaceId, 'admin')
+      const token = tokenOf(message)
+
+      expect(message.subject).toBe('Ada Lovelace invited you to Acme on Kelpie')
+      expect(token).not.toBe('')
+      expect(message.body).toBe(
+        [
+          'Ada Lovelace (ada@example.com) invited you to join the workspace Acme on Kelpie as an admin.',
+          'Accept the invitation within 7 days:',
+          `${TEST_APP_BASE_URL}/join?token=${token}`,
+          'If you did not expect this invitation, you can ignore this email.',
+        ].join('\n\n'),
+      )
+      expect(message.html).toContain('Ada Lovelace (ada@example.com) invited you to join the workspace Acme')
+      // The header of the HTML part shows the workspace, as the form emails do.
+      expect(/<a [^>]*class="email-masthead_name"[^>]*>\s*([^<]*?)\s*<\/a>/u.exec(message.html ?? '')?.[1]).toBe('Acme')
+
+      const accepted = await send('POST', '/v1/invites/accept', { token }, await signUp('grace@example.com'))
+      expect(accepted.status).toBe(200)
+    })
+
+    it('names the member who made the invitation when a different admin resends it', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await setAccountName('ada@example.com', 'Ada Lovelace')
+      const second = await addMember(cookie, workspaceId, 'hedy@example.com', 'admin')
+      await setAccountName('hedy@example.com', 'Hedy Lamarr')
+      const { inviteId } = await inviteGrace(cookie, workspaceId)
+
+      const resent = await send('POST', `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`, {}, second.cookie)
+      expect(resent.status).toBe(200)
+
+      expect((await lastInviteEmail()).subject).toBe('Ada Lovelace invited you to Acme on Kelpie')
+    })
+
+    it('uses the address of an inviter who has no name', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await setAccountName('ada@example.com', '  ')
+
+      const { message } = await inviteGrace(cookie, workspaceId)
+
+      expect(message.subject).toBe('ada@example.com invited you to Acme on Kelpie')
+      expect(message.body).toContain(
+        'ada@example.com invited you to join the workspace Acme on Kelpie as a member.',
+      )
+    })
+
+    it('names only the workspace when the inviter is no longer a member', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const { inviteId } = await inviteGrace(cookie, workspaceId)
+
+      // What removing the member does to the row: `invited_by` is ON DELETE SET NULL.
+      await database.db.update(invites).set({ invitedBy: null }).where(eq(invites.id, inviteId))
+      const resent = await send('POST', `/v1/workspaces/${workspaceId}/invites/${inviteId}/resend`, {}, cookie)
+      expect(resent.status).toBe(200)
+      const message = await lastInviteEmail()
+
+      expect(message.subject).toBe('You are invited to Acme on Kelpie')
+      expect(message.body).toContain('You are invited to join the workspace Acme on Kelpie as a member.')
+      expect(tokenOf(message)).not.toBe('')
+    })
+
+    it('neutralises markup and line breaks in the workspace name and the inviter name', async () => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      await database.db
+        .update(workspaces)
+        .set({ name: '<b>Acme</b>\r\nBcc: thief@example.com' })
+        .where(eq(workspaces.id, workspaceId))
+      await setAccountName('ada@example.com', 'Ada<script>alert(1)</script>\nX-Injected: yes')
+
+      const { message } = await inviteGrace(cookie, workspaceId)
+      const html = message.html ?? ''
+
+      expect(message.subject).toBe(
+        'Ada<script>alert(1)</script> X-Injected: yes invited you to <b>Acme</b> Bcc: thief@example.com on Kelpie',
+      )
+      expect(message.subject).not.toMatch(/[\r\n]/u)
+      expect(html).not.toContain('<script>')
+      expect(html).not.toContain('<b>Acme')
+      expect(html).toContain('Ada&lt;script&gt;alert(1)&lt;/script&gt; X-Injected: yes')
+      expect(html).toContain('&lt;b&gt;Acme&lt;/b&gt; Bcc: thief@example.com')
+      // The names stay on the first line of the plaintext part, and the link
+      // stays on a line of its own.
+      const token = tokenOf(message)
+      const lines = message.body.split('\n')
+
+      expect(lines[0]).toContain('invited you to join the workspace <b>Acme</b> Bcc: thief@example.com on Kelpie')
+      expect(lines).toContain(`${TEST_APP_BASE_URL}/join?token=${token}`)
+      expect(lines).toHaveLength(7)
+    })
+
+    it('cuts a long name so the subject keeps its last words', () => {
+      const long = 'A'.repeat(500)
+      const wording = inviteEmailWording(long, { name: displayName(long) }, 'member')
+
+      expect(displayName(long)).toBe(`${'A'.repeat(59)}…`)
+      expect(displayName(' two\twords\u0000here\r\n')).toBe('two words here')
+      expect(wording.subject).toBe(`${'A'.repeat(59)}… invited you to ${'A'.repeat(59)}… on Kelpie`)
+      expect(wording.subject.length).toBeLessThan(160)
+    })
+
+    it('leaves the role out for a role it does not know, and names no workspace it cannot find', () => {
+      const wording = inviteEmailWording('', undefined, 'auditor')
+
+      expect(wording.subject).toBe('You are invited to a workspace on Kelpie')
+      expect(wording.intro).toBe('You are invited to join a workspace on Kelpie.')
     })
   })
 
@@ -1332,7 +2119,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         cookie,
       )
 
-      return lastInviteToken()
+      return await lastInviteToken()
     }
 
     it('joins the workspace with the invited role', async () => {
@@ -1390,7 +2177,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       )
       expect(invited.status).toBe(201)
 
-      const response = await send('POST', '/v1/invites/accept', { token: lastInviteToken() }, grace.cookie)
+      const response = await send('POST', '/v1/invites/accept', { token: await lastInviteToken() }, grace.cookie)
 
       expect(response.status).toBe(409)
 
@@ -1411,7 +2198,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         { email: 'henry@example.com', role: 'admin' },
         owner,
       )
-      const henryToken = lastInviteToken()
+      const henryToken = await lastInviteToken()
 
       // Grace clicks the link addressed to Henry. An invitation names an
       // address, not a person: accepting it as somebody else would let a
@@ -1496,6 +2283,7 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
           role: 'member',
         }),
       })
+      await stale.runQueuedJobs()
       const token = /token=([^\s]+)/u.exec(stale.services.sentEmails.at(-1)?.body ?? '')?.[1] ?? ''
 
       // The default harness clock is now, months past the seven-day window.

@@ -1430,7 +1430,15 @@ describe.skipIf(connectionString === undefined)('ai', () => {
         body: { email: 'member@example.com', role: 'member' },
         cookie: owner.cookie,
       })
-      const token = /token=([^\s]+)/u.exec(h.app.services.sentEmails.at(-1)?.body ?? '')?.[1] ?? ''
+      // The invitation email is a job, and this harness runs a real worker.
+      const invitation = await until(() =>
+        Promise.resolve(
+          h.app.services.sentEmails.find(
+            (message) => /invited you to .+ on Kelpie$/u.test(message.subject),
+          ),
+        ),
+      )
+      const token = /token=([^\s]+)/u.exec(invitation.body)?.[1] ?? ''
       expect((await h.client.send('POST', '/v1/invites/accept', { body: { token }, cookie: memberCookie })).status).toBeLessThan(300)
       const member = { cookie: memberCookie }
 

@@ -1,11 +1,9 @@
-import { APP_LINK_PATHS, buildAppLink } from '../../lib/appUrl.ts'
 import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
-import type { EmailSender } from '../../lib/email.ts'
-import { renderEmail } from '../../lib/emailContent.ts'
 import { isSingleEmailAddress } from '../../lib/emailAddress.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
+import type { JobHandle } from '../../lib/jobs.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { limitFor } from '../../runtime/entitlements.ts'
@@ -19,6 +17,8 @@ import { SEATS_LIMIT } from './capabilities.ts'
 import { STARTER_CONSENT_PURPOSES } from '../consent-purposes/starters.ts'
 import * as repository from './repository.ts'
 import { seedStarterForms } from './seedStarterForms.ts'
+import { INVITE_LIFETIME_MS } from './inviteEmailJob.ts'
+import type { SendInviteEmailData } from './inviteEmailJob.ts'
 import { parseInvitableRole, parseMemberRole, roleAllows } from './roles.ts'
 import type { InvitableRole, InviteStatus, MemberRole } from './roles.ts'
 import {
@@ -36,18 +36,26 @@ import type { HandbookTemplateId } from './starters.ts'
  * and it is what turns a bare account into something that can hold data.
  */
 
-const INVITE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000
+/**
+ * The hash an invitation holds until its email job runs. It is the hash of a
+ * token made here and kept nowhere, so no link matches it. The job replaces
+ * it with the hash of the token it sends. See `inviteEmailJob.ts`.
+ */
+function unsentTokenHash(): string {
+  return hashToken(generateToken())
+}
 
 export interface WorkspaceDependencies {
   readonly db: Database
   readonly transaction: TransactionScope
-  readonly email: EmailSender
   readonly createId: IdFactory
   readonly now: () => Date
   readonly entitlements: EntitlementRegistry
-  /** The deployment's own base URL. Every invitation link is built from it. */
-  readonly appBaseUrl: string
-  readonly newToken?: () => string
+  /**
+   * The invitation email. This service sends none itself: `invite` and
+   * `resendInvite` add this job inside their own transaction.
+   */
+  readonly sendInviteEmailJob: JobHandle<SendInviteEmailData>
   /** Every non-structural module id (`runtime/module.ts`'s `moduleCatalog`), in assembly order. */
   readonly toggleableModuleIds: readonly string[]
   /** The deploy-time module override, if this deployment has one. */
@@ -75,6 +83,10 @@ export interface InviteView {
   readonly role: InvitableRole
   readonly status: InviteStatus
   readonly expiresAt: Date
+  /** When the invitation email failed for the last time, or null. */
+  readonly emailFailedAt: Date | null
+  /** Why the invitation email was not delivered, or null. */
+  readonly emailFailure: string | null
   readonly createdAt: Date
 }
 
@@ -134,7 +146,7 @@ export interface WorkspaceService {
   removeMember(actor: Actor, workspaceId: string, memberId: string): Promise<void>
   invite(actor: Actor, workspaceId: string, email: string, role: InvitableRole): Promise<InviteView>
   listInvites(actor: Actor, workspaceId: string): Promise<readonly InviteView[]>
-  /** Issues a fresh token and expiry for an invitation, and emails it again. */
+  /** Retires the old link, sets a fresh expiry, and queues the email again. */
   resendInvite(actor: Actor, workspaceId: string, inviteId: string): Promise<InviteView>
   revokeInvite(actor: Actor, workspaceId: string, inviteId: string): Promise<void>
   /** Joins the invited workspace as the calling account. */
@@ -176,6 +188,8 @@ function toInviteView(record: repository.InviteRecord, now: Date): InviteView {
     role,
     status: record.expiresAt > now ? 'pending' : 'expired',
     expiresAt: record.expiresAt,
+    emailFailedAt: record.emailFailedAt,
+    emailFailure: record.emailFailure,
     createdAt: record.createdAt,
   }
 }
@@ -198,7 +212,6 @@ function toMemberView(record: repository.MemberWithUser): MemberView {
 }
 
 export function createWorkspaceService(dependencies: WorkspaceDependencies): WorkspaceService {
-  const newToken = dependencies.newToken ?? generateToken
 
   /**
    * A workspace the actor does not belong to is indistinguishable from one that
@@ -341,27 +354,6 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
     }
 
     return target
-  }
-
-  function sendInviteEmail(to: string, token: string): Promise<void> {
-    const link = buildAppLink(dependencies.appBaseUrl, APP_LINK_PATHS.inviteAccept, token)
-    const { text, html } = renderEmail(
-      {
-        action: {
-          instructions: 'Accept the invitation within seven days:',
-          buttonText: 'Accept invitation',
-          link,
-        },
-      },
-      dependencies.appBaseUrl,
-    )
-
-    return dependencies.email.send({
-      to,
-      subject: 'You have been invited to a Kelpie workspace',
-      body: text,
-      html,
-    })
   }
 
   /** The same membership with the name and email a reader needs, after a write. */
@@ -717,8 +709,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
       await requireSeat(workspaceId)
 
-      const token = newToken()
-      const invite = await dependencies.transaction(async ({ tx, events }) => {
+      const invite = await dependencies.transaction(async ({ tx, events, jobs }) => {
         // The expired invitations this one replaces. Kept to one row per address
         // so the list never shows the same person twice, which is the confusion
         // the guards above exist to remove.
@@ -733,8 +724,16 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
           role,
           invitedBy: inviter.memberId,
           status: 'pending',
-          tokenHash: hashToken(token),
+          tokenHash: unsentTokenHash(),
           expiresAt: new Date(now.getTime() + INVITE_LIFETIME_MS),
+        })
+
+        // On the same transaction, so a rolled-back invite never reaches an
+        // inbox and a committed one cannot lose its email.
+        await jobs.enqueue(dependencies.sendInviteEmailJob, {
+          workspaceId,
+          inviteId: created.id,
+          request: created.emailRequest,
         })
 
         events.emit(
@@ -745,9 +744,6 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
         return created
       }, { workspaceId, actor: toEventActor(actor) })
-
-      // Sent after commit, so a rolled-back invite never reaches an inbox.
-      await sendInviteEmail(invite.email, token)
 
       return toInviteView(invite, now)
     },
@@ -770,21 +766,38 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       await requireStranger(workspaceId, invite.email)
 
       // A new token, not the old one again: the address in the first email may
-      // have been forwarded anywhere, and reissuing retires it.
+      // have been forwarded anywhere, and reissuing retires it. The old link
+      // stops here, at once; the job puts the new token on the row and in the
+      // email when it runs. A recorded failure of the earlier email is
+      // removed: it does not apply to the email the new job sends.
+      //
+      // This is a new email request, with the next number. The new job
+      // carries that number. A job of an earlier request that is still in
+      // the queue finds a number that is not its own: it sends nothing and
+      // records nothing, so only the new job can change the invitation.
       const now = dependencies.now()
-      const token = newToken()
-      const updated = await repository.updateInvite(dependencies.db, invite.id, {
-        tokenHash: hashToken(token),
-        expiresAt: new Date(now.getTime() + INVITE_LIFETIME_MS),
-        status: 'pending',
-        updatedAt: now,
+      const updated = await dependencies.transaction(async ({ tx, jobs }) => {
+        const saved = await repository.beginInviteEmailRequest(tx, invite.id, {
+          tokenHash: unsentTokenHash(),
+          expiresAt: new Date(now.getTime() + INVITE_LIFETIME_MS),
+          status: 'pending',
+          emailFailedAt: null,
+          emailFailure: null,
+          updatedAt: now,
+        })
+
+        if (saved === undefined) {
+          throw AppError.notFound('Invitation not found')
+        }
+
+        await jobs.enqueue(dependencies.sendInviteEmailJob, {
+          workspaceId,
+          inviteId: saved.id,
+          request: saved.emailRequest,
+        })
+
+        return saved
       })
-
-      if (updated === undefined) {
-        throw AppError.notFound('Invitation not found')
-      }
-
-      await sendInviteEmail(updated.email, token)
 
       return toInviteView(updated, now)
     },

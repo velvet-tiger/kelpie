@@ -84,6 +84,8 @@ export function inviteResponse(invite: InviteView): Record<string, unknown> {
     role: invite.role,
     status: invite.status,
     expires_at: invite.expiresAt.toISOString(),
+    email_failed_at: invite.emailFailedAt === null ? null : invite.emailFailedAt.toISOString(),
+    email_failure: invite.emailFailure,
     created_at: invite.createdAt.toISOString(),
   }
 }
