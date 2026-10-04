@@ -406,6 +406,11 @@ async function sendOnce(
     },
     dependencies.appBaseUrl,
     workspaceName,
+    // The auto-reply goes to a person outside the workspace. A link to the
+    // deployment gives that person only a sign-in page, so the header shows
+    // the workspace name as text. The notification goes to the people the
+    // form names, and keeps the link.
+    kind === 'auto_reply' ? 'none' : 'deployment',
   )
 
   try {

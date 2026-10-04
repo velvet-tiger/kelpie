@@ -432,6 +432,11 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
       expect(message?.body).toContain(`${TEST_APP_BASE_URL}/forms/${form.id}/submissions/${submissionId}`)
       expect(message?.html).not.toContain('<script>')
       expect(message?.html).toContain('Hello &lt;script&gt;alert(1)&lt;/script&gt;')
+      // The notification goes to the people the form names, so the workspace
+      // name in its header links to the deployment.
+      expect(message?.html).toMatch(
+        new RegExp(`<a class="email-masthead_name" href="${TEST_APP_BASE_URL}"[^>]*>\\s*Acme\\s*</a>`, 'u'),
+      )
 
       const stored = await readSubmission(form, submissionId)
 
@@ -469,8 +474,13 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
         // An out-of-office answer to this goes to the Reply-To member.
         headers: { 'Auto-Submitted': 'auto-replied', 'X-Auto-Response-Suppress': 'OOF, AutoReply' },
       })
-      // The header names the workspace, not Kelpie.
-      expect(sent[0]?.html).toMatch(/<a [^>]*>\s*Acme\s*<\/a>/u)
+      // The header names the workspace, not Kelpie. The submitter is outside
+      // the workspace, so the name is text: nothing in the message links to
+      // the deployment, which would give the submitter a sign-in page.
+      expect(sent[0]?.html).toMatch(/<span class="email-masthead_name"[^>]*>\s*Acme\s*<\/span>/u)
+      expect(sent[0]?.html).not.toContain('<a ')
+      expect(sent[0]?.html).not.toContain(TEST_APP_BASE_URL)
+      expect(sent[0]?.body).not.toContain(TEST_APP_BASE_URL)
       expect((await readSubmission(form, first)).actionLog).toContainEqual({
         action: 'email_auto_reply',
         status: 'ok',

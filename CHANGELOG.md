@@ -84,6 +84,14 @@ While the major version is `0`, a minor bump may break the API.
   new class is retried as before. Migration
   `0059_email_refused_and_invite_email_failure` adds `refused` to
   `form_email_sends_status_check`; it runs on start.
+- **`@kelpie/server`** — **The form auto-reply has no link to the
+  deployment.** The workspace name in the header of the HTML part was a
+  link to the Kelpie deployment, which gave the person who submitted the
+  form a sign-in page. In the auto-reply the name is now text. The
+  notification to the people the form names keeps the link, as do the
+  account and invitation emails. `renderEmail` and `renderTextEmail` take an
+  optional fourth argument, `'deployment'` (the default) or `'none'`. The
+  plaintext part had no such link and is unchanged. No migration.
 - **`@kelpie/server`** — **The SMTP sender has time limits.** The
   `smtp-email` module now stops a send after 10 seconds with no connection,
   10 seconds with no greeting, 10 seconds with no DNS answer, or 30 seconds

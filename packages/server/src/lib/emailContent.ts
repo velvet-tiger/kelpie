@@ -41,6 +41,47 @@ const FOOTER_LINE = 'Sent by Kelpie.'
 const DEFAULT_HEADER_NAME = 'Kelpie'
 
 /**
+ * Where the name in the header goes when the reader selects it.
+ *
+ * `'deployment'` links it to the deployment that sent the mail. That is for a
+ * reader who can sign in there: a member, or a person who was invited.
+ * `'none'` shows the name as text. That is for a reader outside the workspace,
+ * such as the person who submitted a form: the deployment's address gives
+ * that reader only a sign-in page.
+ */
+export type EmailHeaderLink = 'deployment' | 'none'
+
+/**
+ * The header link as mailgen's default theme writes it, after its styles are
+ * put inline: one anchor with the class `email-masthead_name`. The groups are
+ * the attributes before `href`, the attributes after `target`, and the name.
+ */
+const HEADER_ANCHOR =
+  /<a(\s+class="email-masthead_name")\s+href="[^"]*"\s+target="_blank"(\s+style="[^"]*")?\s*>([\s\S]*?)<\/a>/u
+
+/**
+ * Replaces the header anchor with a `span` that has the same class, style and
+ * content. mailgen has no option for a header without a link (it refuses a
+ * product with no `link`, and its theme always writes the anchor), so the
+ * anchor is removed from the rendered HTML.
+ *
+ * @throws Error when the HTML has no header anchor in the expected form. A
+ * mailgen release that changes the header must stop the send here, not let
+ * the link back in without a sign.
+ */
+function withoutHeaderLink(html: string): string {
+  if (!HEADER_ANCHOR.test(html)) {
+    throw new Error('the email header link was not found in the HTML that mailgen rendered')
+  }
+
+  return html.replace(
+    HEADER_ANCHOR,
+    (_anchor, classAttribute: string, styleAttribute: string | undefined, name: string) =>
+      `<span${classAttribute}${styleAttribute ?? ''}>${name}</span>`,
+  )
+}
+
+/**
  * Renders one transactional message. `appBaseUrl` becomes the link on the
  * name in the header and footer, so every part of the mail points at the
  * deployment that sent it. `headerName` is the name in the header: Kelpie's,
@@ -50,11 +91,13 @@ export function renderEmail(
   content: EmailContent,
   appBaseUrl: string,
   headerName: string = DEFAULT_HEADER_NAME,
+  headerLink: EmailHeaderLink = 'deployment',
 ): RenderedEmail {
   const generator = new Mailgen({
     theme: 'default',
     product: {
       name: headerName,
+      // mailgen needs a link here. For `'none'` it is taken out again below.
       link: appBaseUrl,
       copyright: FOOTER_LINE,
     },
@@ -81,7 +124,7 @@ export function renderEmail(
     },
   })
 
-  return { text: plainTextOf(content), html }
+  return { text: plainTextOf(content), html: headerLink === 'none' ? withoutHeaderLink(html) : html }
 }
 
 function plainTextOf(content: EmailContent): string {
@@ -130,6 +173,7 @@ export function renderTextEmail(
   content: EmailContent,
   appBaseUrl: string,
   headerName: string = DEFAULT_HEADER_NAME,
+  headerLink: EmailHeaderLink = 'deployment',
 ): RenderedEmail {
   const escaped: EmailContent = {
     ...(content.intro === undefined ? {} : { intro: htmlFromText(content.intro) }),
@@ -147,6 +191,6 @@ export function renderTextEmail(
 
   return {
     text: plainTextOf(content),
-    html: renderEmail(escaped, appBaseUrl, htmlFromText(headerName)).html,
+    html: renderEmail(escaped, appBaseUrl, htmlFromText(headerName), headerLink).html,
   }
 }

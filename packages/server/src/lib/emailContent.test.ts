@@ -76,6 +76,35 @@ describe('renderEmail', () => {
     expect(headerNameOf(renderEmail(content, APP_BASE_URL, 'Acme').html)).toBe('Acme')
   })
 
+  it('shows the header name as text, with no link, when the reader is outside the workspace', () => {
+    const { html, text } = renderEmail({ intro: 'A bare message.' }, APP_BASE_URL, 'Acme', 'none')
+
+    expect(html).not.toContain(APP_BASE_URL)
+    expect(html).not.toContain('<a ')
+    expect(html).not.toContain('href=')
+    // The name keeps the class and the inline style the link had.
+    expect(html).toMatch(/<span class="email-masthead_name" style="[^"]+">\s*Acme\s*<\/span>/u)
+    expect(html).toContain('Sent by Kelpie.')
+    expect(text).toBe('A bare message.')
+  })
+
+  it('removes only the header link: the action keeps its links', () => {
+    const content = { action: { instructions: 'Use this link:', buttonText: 'Open', link: LINK } }
+    const linked = renderEmail(content, APP_BASE_URL, 'Acme').html
+    const { html } = renderEmail(content, APP_BASE_URL, 'Acme', 'none')
+    const anchorsIn = (rendered: string): number => rendered.split('<a ').length - 1
+
+    expect(html).not.toContain(`href="${APP_BASE_URL}"`)
+    expect(html).toContain(`href="${LINK}"`)
+    expect(anchorsIn(html)).toBe(anchorsIn(linked) - 1)
+  })
+
+  it('links the header when the caller does not say', () => {
+    const { html } = renderEmail({ intro: 'A bare message.' }, APP_BASE_URL, 'Acme')
+
+    expect(html).toMatch(new RegExp(`<a class="email-masthead_name" href="${APP_BASE_URL}"[^>]*>\\s*Acme\\s*</a>`, 'u'))
+  })
+
   it('is deterministic: the same content renders the same bytes', () => {
     // The default mailgen footer stamps the current year; the fixed copyright
     // line replaces it. Byte-equality catches any nondeterminism creeping back.
@@ -117,5 +146,13 @@ describe('renderTextEmail', () => {
 
     expect(html).not.toContain('<b>& Co</b>')
     expect(headerNameOf(html)).toBe('Acme &lt;b&gt;&amp; Co&lt;/b&gt;')
+  })
+
+  it('escapes the header name when it has no link, and keeps a "$" in it', () => {
+    const { html } = renderTextEmail(content, 'https://kelpie.test', 'Acme <b>$1 & Co</b>', 'none')
+
+    expect(html).not.toContain('<b>$1 & Co</b>')
+    expect(html).toMatch(/<span class="email-masthead_name"[^>]*>\s*Acme &lt;b&gt;\$1 &amp; Co&lt;\/b&gt;\s*<\/span>/u)
+    expect(html).not.toContain('href="https://kelpie.test"')
   })
 })
