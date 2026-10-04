@@ -29,7 +29,7 @@ A scaffolded project reads one file: `.env`, loaded by every script through `--e
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `EMAIL_PROVIDER` | yes | Which transactional-mail sender to use. `log` (built in) writes messages to the API log instead of sending — copy invitation and reset links from there during development. `smtp` sends through the built-in `smtp-email` module. A third-party provider module registers its own name. |
+| `EMAIL_PROVIDER` | yes | Which transactional-mail sender to use. `log` (built in) writes messages to the API log instead of sending — copy invitation and reset links from there during development. Each log line has the sender, the recipient, the subject and the full plaintext `body`, and, when the message sets them, `fromName`, `replyTo` and `headers`. The HTML part is not printed; `htmlLength` gives its length. `smtp` sends through the built-in `smtp-email` module. A third-party provider module registers its own name. |
 | `EMAIL_FROM` | yes | The sender of all transactional mail. One address, `kelpie@example.com`, or a name and one address, `Kelpie <kelpie@example.com>`. Put a name that has a comma in quotation marks: `"Acme, Inc." <kelpie@example.com>`. Any other text stops boot with an error that names the variable. |
 | `SMTP_HOST`, `SMTP_PORT` | when `smtp` | The mail server to connect to. |
 | `SMTP_SECURE` | when `smtp` | `true` connects over TLS from the start (typically port 465). `false` upgrades with STARTTLS (typically 587 or 25). |

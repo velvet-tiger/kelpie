@@ -47,6 +47,11 @@ While the major version is `0`, a minor bump may break the API.
   headers to nodemailer, and `SmtpTransport.sendMail` gets an optional
   `headers`. A provider module that does not read `headers` sends the
   message without them. No migration.
+- **`@kelpie/server`** — **The `log` email provider shows more of the
+  message.** The log line now has `fromName`, `replyTo` and `headers` when
+  the message sets them, and `htmlLength`, the length of the HTML part, when
+  there is one. The HTML itself is not printed. `from`, `to`, `subject` and
+  the full plaintext `body` are as before. No migration.
 
 ### Fixed
 

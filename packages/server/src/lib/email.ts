@@ -173,15 +173,24 @@ export type EmailConfig = z.infer<typeof emailConfigSchema>
  * swapped out for a real sender by picking a different provider name in
  * `email.provider` (`'smtp'` for the built-in SMTP module, or any name a
  * third-party provider module registers).
+ *
+ * The line holds each field a real sender would use. `body` is the full
+ * plaintext part, which is where a developer copies a link from. The HTML
+ * part shows the same content with much markup, so the line gives only its
+ * length, `htmlLength`. A field the message does not set is not on the line.
  */
 export function createLogEmailSender(logger: Logger, from: string): EmailSender {
   return {
     send(message) {
       logger.info('email not sent: no provider module registered', {
         from,
+        ...(message.fromName === undefined ? {} : { fromName: message.fromName }),
         to: message.to,
+        ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
         subject: message.subject,
+        ...(message.headers === undefined ? {} : { headers: message.headers }),
         body: message.body,
+        ...(message.html === undefined ? {} : { htmlLength: message.html.length }),
       })
 
       return Promise.resolve()

@@ -47,6 +47,53 @@ describe('createLogEmailSender', () => {
       subject: message.subject,
     })
   })
+
+  it('writes the full plaintext body, and no field the message does not set', async () => {
+    const { logger, lines } = capture()
+    const sender = createLogEmailSender(logger, 'kelpie@example.com')
+    const body = 'Use this link:\n\nhttps://kelpie.test/reset?token=abc123\n'
+
+    await sender.send({ ...message, body })
+
+    const line: Record<string, unknown> = JSON.parse(lines[0] ?? '')
+
+    expect(line.body).toBe(body)
+    expect(line).not.toHaveProperty('fromName')
+    expect(line).not.toHaveProperty('replyTo')
+    expect(line).not.toHaveProperty('headers')
+    expect(line).not.toHaveProperty('html')
+    expect(line).not.toHaveProperty('htmlLength')
+  })
+
+  it('writes the From name, the Reply-To, the headers and the length of the HTML part', async () => {
+    const { logger, lines } = capture()
+    const sender = createLogEmailSender(logger, 'kelpie@example.com')
+    const html = '<p>Follow this link.</p>'
+
+    await sender.send({
+      ...message,
+      html,
+      replyTo: 'ada@example.com',
+      fromName: 'Acme via Kelpie',
+      headers: { 'Auto-Submitted': 'auto-replied' },
+    })
+
+    const line: Record<string, unknown> = JSON.parse(lines[0] ?? '')
+
+    expect(line).toMatchObject({
+      from: 'kelpie@example.com',
+      fromName: 'Acme via Kelpie',
+      to: message.to,
+      replyTo: 'ada@example.com',
+      subject: message.subject,
+      headers: { 'Auto-Submitted': 'auto-replied' },
+      body: message.body,
+      htmlLength: html.length,
+    })
+    // The markup itself is not in the log.
+    expect(line).not.toHaveProperty('html')
+    expect(lines[0]).not.toContain('<p>')
+  })
 })
 
 describe('emailHeadersProblem', () => {
