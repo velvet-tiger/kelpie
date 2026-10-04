@@ -10,6 +10,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 
 import { useCustomFields } from '../api/resources/customFields.ts'
+import { useSession } from '../api/resources/session.ts'
 import { InlineEdit } from './InlineEdit.tsx'
 
 /**
@@ -42,6 +43,8 @@ export function CustomFieldsPanel({
   onPatch,
 }: CustomFieldsPanelProps): React.JSX.Element {
   const definitions = useCustomFields({ objectType, sort: 'sort_order', limit: 200 })
+  const { session } = useSession()
+  const isAdmin = session?.role === 'owner' || session?.role === 'admin'
 
   if (definitions.isLoading) {
     return <p className="text-[13px] text-ink-muted">Loading fields…</p>
@@ -50,11 +53,18 @@ export function CustomFieldsPanel({
   if (definitions.records.length === 0) {
     return (
       <p className="text-[13px] text-ink-muted">
-        No custom fields yet. Add them at{' '}
-        <Link to="/admin/fields" className="text-accent hover:text-accent-hover">
-          Admin → Fields
-        </Link>
-        .
+        No custom fields yet.
+        {/* Admin is closed to a member, so only an admin gets the link. */}
+        {isAdmin && (
+          <>
+            {' '}
+            Add them at{' '}
+            <Link to="/admin/fields" className="text-accent hover:text-accent-hover">
+              Admin → Fields
+            </Link>
+            .
+          </>
+        )}
       </p>
     )
   }

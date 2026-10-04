@@ -458,6 +458,8 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
     },
 
     async listRuns(actor, query) {
+      // The run log is an Admin page: it shows every member's prompts and answers.
+      requireAdmin(actor)
       const workspaceId = requireWorkspace(actor)
       const window = readListWindow(query, RUN_SORTS, DEFAULT_RUN_SORT)
       const rows = await listRuns(dependencies.db, workspaceId, window)
@@ -467,6 +469,7 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
     },
 
     async getRun(actor, id) {
+      requireAdmin(actor)
       const workspaceId = requireWorkspace(actor)
       const run = await findRun(dependencies.db, workspaceId, id)
 

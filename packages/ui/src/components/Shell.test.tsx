@@ -42,11 +42,11 @@ const PREFERENCES = {
   list_views: {},
 }
 
-function shellClient(): ApiClient {
+function shellClient(role: string): ApiClient {
   return stubClient({
     get: (path) => {
       if (path === '/auth/me') {
-        return SESSION
+        return { ...SESSION, role }
       }
 
       if (path === '/account') {
@@ -121,11 +121,11 @@ function OnboardingEcho(): React.JSX.Element {
   return <p>{params.get('new') === '1' ? 'new workspace form' : 'onboarding rerun'}</p>
 }
 
-function renderShell(initialPath: string): void {
+function renderShell(initialPath: string, role = 'owner'): void {
   render(
     <ApiProvider
       baseUrl="http://localhost/v1"
-      client={shellClient()}
+      client={shellClient(role)}
       queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
       <UiExtensionProvider extensions={registerUiModules([])}>
@@ -170,6 +170,32 @@ describe('the shell sidebar', () => {
       expect(labels).not.toContain('Dashboard')
       expect(labels).not.toContain('People')
     })
+  })
+
+  it('shows the admin link to an admin', async () => {
+    renderShell('/dashboard', 'admin')
+
+    await waitFor(() => {
+      expect(sidebarLinkLabels()).toContain('Admin')
+    })
+  })
+
+  it('shows no admin link to a member', async () => {
+    renderShell('/dashboard', 'member')
+
+    await waitFor(() => {
+      expect(sidebarLinkLabels()).toContain('Dashboard')
+    })
+
+    expect(sidebarLinkLabels()).not.toContain('Admin')
+  })
+
+  it('sends a member who opens an admin address to the dashboard', async () => {
+    renderShell('/admin/team', 'member')
+
+    expect(await screen.findByText('Dashboard page')).toBeTruthy()
+    expect(screen.queryByText('Team page')).toBeNull()
+    expect(sidebarLinkLabels()).not.toContain('← Back')
   })
 })
 

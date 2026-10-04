@@ -1014,9 +1014,10 @@ export function createImportExportService(
    * An import is admin work: it writes records in bulk, can overwrite the ones
    * already there, and makes custom field definitions, which need the admin
    * role in their own module. Reading a job and deleting one take the same
-   * role, because a job holds a preview of the file. The check is here, not in
-   * the routes, so the MCP tools get it too. Export is a read of records any
-   * member can read one at a time, so it stays open to a member.
+   * role, because a job holds a preview of the file. Export and the template
+   * take it too: the whole of Admin is for admins, and a file of every record
+   * is not the same as reading them one page at a time. The check is here, not
+   * in the routes, so the MCP tools get it too.
    */
   function requireAdminWorkspace(actor: Actor): string {
     const workspaceId = requireWorkspaceId(actor)
@@ -1221,11 +1222,11 @@ export function createImportExportService(
     },
 
     exportCsv(actor, object) {
-      return streamExport(dependencies.db, requireWorkspaceId(actor), object)
+      return streamExport(dependencies.db, requireAdminWorkspace(actor), object)
     },
 
     templateCsv(actor, object) {
-      const workspaceId = requireWorkspaceId(actor)
+      const workspaceId = requireAdminWorkspace(actor)
       const objectType = customFieldObjectTypeForExport(object)
 
       if (objectType === null) {

@@ -2,7 +2,7 @@
 
 Moving data in and out of Kelpie: CSV imports with vendor presets and a safe dry-run flow, CSV exports that round-trip, and the sample-data installer. All of it lives on **Admin → Data**.
 
-An import needs the admin role. A member can export, and gets a `403` on an import.
+Import and export need the admin role. A member gets a `403` on both.
 
 ## What you can import
 

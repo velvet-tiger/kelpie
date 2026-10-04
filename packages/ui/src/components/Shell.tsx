@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router'
 
 import { useAccount, useTheme } from '../api/resources/account.ts'
-import { useLogOut } from '../api/resources/session.ts'
+import { useLogOut, useSession } from '../api/resources/session.ts'
 import { initialsOf } from '../lib/names.ts'
 import type { ThemePreference } from '../lib/theme.ts'
 import { ONBOARDING_RERUN_ENTRY } from '../pages/onboarding/onboardingRerun.ts'
@@ -170,7 +170,14 @@ function ShellLayout(): React.JSX.Element {
     (item) => !DIRECTORY_NAV_IDS.has(item.id) && !TOOLS_NAV_IDS.has(item.id),
   )
   const adminItems = useVisibleNavItems(CORE_ADMIN_NAV, moduleAdminNav)
-  const inAdminNav = isAdminRoute(location.pathname)
+  // Admin is for owners and admins. A member gets no link to it, and an admin
+  // address sends a member back to the dashboard. The check is on the path, so
+  // an admin page that a module adds is covered too. The API refuses the same
+  // work on its own; this only keeps a member off pages that cannot work.
+  const { session } = useSession()
+  const isAdmin = session?.role === 'owner' || session?.role === 'admin'
+  const onAdminRoute = isAdminRoute(location.pathname)
+  const inAdminNav = onAdminRoute && isAdmin
 
   return (
     <div className="flex min-h-screen bg-surface">
@@ -284,11 +291,13 @@ function ShellLayout(): React.JSX.Element {
                 </div>
               )}
 
-              <div className="flex flex-col gap-0.5">
-                <NavLink to={ADMIN_ENTRY_PATH} className={linkClass}>
-                  Admin
-                </NavLink>
-              </div>
+              {isAdmin && (
+                <div className="flex flex-col gap-0.5">
+                  <NavLink to={ADMIN_ENTRY_PATH} className={linkClass}>
+                    Admin
+                  </NavLink>
+                </div>
+              )}
             </>
           )}
         </nav>
@@ -429,7 +438,12 @@ function ShellLayout(): React.JSX.Element {
             {/* Keyed on the path so navigating away from a crashed page remounts
                 the boundary instead of leaving it stuck showing the old error. */}
             <ErrorBoundary key={location.pathname}>
-              <Outlet />
+              {/* Nothing shows on an admin address until the role is known. */}
+              {!onAdminRoute || isAdmin ? (
+                <Outlet />
+              ) : session === undefined ? null : (
+                <Navigate to="/dashboard" replace />
+              )}
             </ErrorBoundary>
           </main>
           {/* Outside the route boundary, so a page that throws does not take a

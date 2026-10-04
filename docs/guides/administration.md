@@ -4,7 +4,7 @@ The owner's and admin's handbook: roles, team, workspace settings, modules, keys
 
 ## Roles
 
-Three roles, enforced by the service rather than hidden buttons — a member who tries an admin action anyway is refused with a clear error.
+Three roles, enforced by the service rather than hidden buttons — a member who tries an admin action anyway is refused with a clear error. A member also has no Admin link in the sidebar, and an Admin address sends a member to the dashboard.
 
 | Role | Can |
 | --- | --- |

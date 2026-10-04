@@ -216,13 +216,25 @@ While the major version is `0`, a minor bump may break the API.
   nullable column `email` to `email_verification_tokens` and
   `password_reset_tokens`. A link sent before the migration is refused; ask
   for a new one.
-- **`@kelpie/server`** — **An import needs the admin role.** A member could
-  create, read, commit and delete an import job, through `/v1/import/jobs`
-  and through the MCP tools `import_preview`, `import_commit` and
-  `import_job_get`. A member could thus overwrite records in bulk and make
-  custom field definitions, which need the admin role in their own module.
-  These calls now answer `403` to a member. Export and the template download
-  are unchanged: they read only what a member can read. No migration.
+- **Admin is for owners and admins only.** A member could open every Admin
+  page and call some of the API behind them.
+  - **`@kelpie/server`** — Import, export and the template download need the
+    admin role. A member could create, read, commit and delete an import
+    job, and thus overwrite records in bulk and make custom field
+    definitions. `/v1/import/jobs`, `/v1/export`, and the MCP tools
+    `import_preview`, `import_commit`, `import_job_get`, `export_csv` and
+    `export_template_csv` now answer `403` to a member.
+  - **`@kelpie/server`** — The AI run log needs the admin role.
+    `GET /v1/ai/runs` and `GET /v1/ai/runs/:id` answer `403` to a member.
+    `GET /v1/ai/settings` is unchanged, because the record pages read it.
+  - **`@kelpie/ui`** — The sidebar shows no Admin link to a member, and an
+    address under `/admin/` sends a member to the dashboard. This includes
+    an admin page that a module adds. The "Add them at Admin → Fields" link
+    on a record shows only to an admin.
+
+  A member still reads the member list, the custom field definitions, the
+  consent purposes, the module list and the registered agents, because the
+  record pages need them. No migration.
 
 ## [0.22.0] - 2026-10-04
 

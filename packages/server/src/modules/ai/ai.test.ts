@@ -1448,6 +1448,9 @@ describe.skipIf(connectionString === undefined)('ai', () => {
         (await h.client.send('POST', '/v1/ai/settings', { cookie: member.cookie, body: { provider: 'openai', api_key: 'sk-000000000000' } })).status,
       ).toBe(403)
       expect((await h.client.send('DELETE', '/v1/ai/settings', { cookie: member.cookie })).status).toBe(403)
+      // The run log is admin work too.
+      expect((await h.client.send('GET', '/v1/ai/runs', { cookie: member.cookie })).status).toBe(403)
+      expect((await h.client.send('GET', '/v1/ai/runs/run_none', { cookie: member.cookie })).status).toBe(403)
     })
 
     it('forgets the key on disable', async () => {

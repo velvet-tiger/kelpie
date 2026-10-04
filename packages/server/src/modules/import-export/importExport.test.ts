@@ -523,11 +523,21 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       expect(await database.db.select().from(companies)).toHaveLength(2)
     })
 
-    it('lets a member export, which reads only what a member can already read', async () => {
+    it('refuses a member who exports or downloads a template', async () => {
       await importCsv(COMPANIES_CSV)
       const member = await addMember('member@example.com', 'member')
 
-      expect(await exportCsv('companies', member)).toContain('Acme')
+      expect((await client.send('GET', '/v1/export/companies.csv', { cookie: member })).status).toBe(403)
+      expect(
+        (await client.send('GET', '/v1/export/templates/companies.csv', { cookie: member })).status,
+      ).toBe(403)
+    })
+
+    it('lets an admin export', async () => {
+      await importCsv(COMPANIES_CSV)
+      const admin = await addMember('admin@example.com', 'admin')
+
+      expect(await exportCsv('companies', admin)).toContain('Acme')
     })
   })
 
