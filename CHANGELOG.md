@@ -216,6 +216,13 @@ While the major version is `0`, a minor bump may break the API.
   nullable column `email` to `email_verification_tokens` and
   `password_reset_tokens`. A link sent before the migration is refused; ask
   for a new one.
+- **`@kelpie/server`** — **An import needs the admin role.** A member could
+  create, read, commit and delete an import job, through `/v1/import/jobs`
+  and through the MCP tools `import_preview`, `import_commit` and
+  `import_job_get`. A member could thus overwrite records in bulk and make
+  custom field definitions, which need the admin role in their own module.
+  These calls now answer `403` to a member. Export and the template download
+  are unchanged: they read only what a member can read. No migration.
 
 ## [0.22.0] - 2026-10-04
 

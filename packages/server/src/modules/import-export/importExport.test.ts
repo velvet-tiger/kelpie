@@ -464,6 +464,73 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
     })
   })
 
+  describe('roles', () => {
+    /** Invites an address with a role and accepts as a fresh account. */
+    async function addMember(email: string, role: 'admin' | 'member'): Promise<string> {
+      const invited = await client.send('POST', `/v1/workspaces/${acme.workspaceId}/invites`, {
+        body: { email, role },
+        cookie: acme.cookie,
+      })
+      expect(invited.status).toBe(201)
+      // The invitation email is a job; run it as the worker would.
+      await harness.runQueuedJobs()
+
+      const body = harness.services.sentEmails.at(-1)?.body ?? ''
+      const token = /token=(?<token>[\w-]+)/u.exec(body)?.groups?.token
+
+      if (token === undefined) {
+        throw new Error(`No invite token in the sent email: ${body}`)
+      }
+
+      const cookie = await client.signUp(email)
+      const accepted = await client.send('POST', '/v1/invites/accept', { body: { token }, cookie })
+      expect(accepted.status).toBe(200)
+
+      return cookie
+    }
+
+    it('refuses a member who creates, reads, commits, or deletes an import job', async () => {
+      const jobId = readString(await createJob(COMPANIES_CSV), 'id')
+      const member = await addMember('member@example.com', 'member')
+
+      expect((await upload(COMPANIES_CSV, {}, { cookie: member })).status).toBe(403)
+      expect((await client.send('GET', `/v1/import/jobs/${jobId}`, { cookie: member })).status).toBe(403)
+      expect((await sendCommit(jobId, COMPANIES_CSV, member)).status).toBe(403)
+      expect((await client.send('DELETE', `/v1/import/jobs/${jobId}`, { cookie: member })).status).toBe(403)
+
+      // Nothing was written, and the job is still there for the owner.
+      expect(await database.db.select().from(companies)).toHaveLength(0)
+      expect((await client.send('GET', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })).status).toBe(200)
+    })
+
+    it('refuses a member who imports custom field definitions', async () => {
+      const member = await addMember('member@example.com', 'member')
+
+      const response = await upload(ONE_ROW_CSV.custom_fields, { object: 'custom_fields' }, { cookie: member })
+
+      expect(response.status).toBe(403)
+    })
+
+    it('lets an admin run an import', async () => {
+      const admin = await addMember('admin@example.com', 'admin')
+      const created = await upload(COMPANIES_CSV, {}, { cookie: admin })
+
+      expect(created.status).toBe(201)
+
+      const jobId = readString(await created.json(), 'id')
+
+      expect((await sendCommit(jobId, COMPANIES_CSV, admin)).status).toBe(200)
+      expect(await database.db.select().from(companies)).toHaveLength(2)
+    })
+
+    it('lets a member export, which reads only what a member can already read', async () => {
+      await importCsv(COMPANIES_CSV)
+      const member = await addMember('member@example.com', 'member')
+
+      expect(await exportCsv('companies', member)).toContain('Acme')
+    })
+  })
+
   /**
    * A corrected mapping is a new job over the same file, so nothing removes the
    * one it replaced. This is the way out.

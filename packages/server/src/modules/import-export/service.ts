@@ -49,6 +49,7 @@ import '../raises/events.ts'
 import '../custom-fields/events.ts'
 import { RECORDS_LIMIT } from '../workspace/capabilities.ts'
 import { countRecordsInUse } from '../workspace/repository.ts'
+import { roleAllows } from '../workspace/roles.ts'
 import './events.ts'
 
 /**
@@ -1009,9 +1010,27 @@ export function createImportExportService(
     return toView(job)
   }
 
+  /**
+   * An import is admin work: it writes records in bulk, can overwrite the ones
+   * already there, and makes custom field definitions, which need the admin
+   * role in their own module. Reading a job and deleting one take the same
+   * role, because a job holds a preview of the file. The check is here, not in
+   * the routes, so the MCP tools get it too. Export is a read of records any
+   * member can read one at a time, so it stays open to a member.
+   */
+  function requireAdminWorkspace(actor: Actor): string {
+    const workspaceId = requireWorkspaceId(actor)
+
+    if (actor.role === null || !roleAllows(actor.role, 'admin')) {
+      throw new AppError('forbidden', 'This action needs the admin role')
+    }
+
+    return workspaceId
+  }
+
   return {
     async createJob(actor, input) {
-      const workspaceId = requireWorkspaceId(actor)
+      const workspaceId = requireAdminWorkspace(actor)
       const parsed = ((): ReturnType<typeof parseCsv> => {
         try {
           return parseCsv(input.csv)
@@ -1114,7 +1133,7 @@ export function createImportExportService(
     },
 
     async getJob(actor, id) {
-      return viewOf(await requireJob(requireWorkspaceId(actor), id))
+      return viewOf(await requireJob(requireAdminWorkspace(actor), id))
     },
 
     /**
@@ -1127,7 +1146,7 @@ export function createImportExportService(
      * to apply.
      */
     async commit(actor, id, csv) {
-      const workspaceId = requireWorkspaceId(actor)
+      const workspaceId = requireAdminWorkspace(actor)
       const job = await requireJob(workspaceId, id)
 
       // Checked before the file, so a caller re-POSTing a finished job gets the
@@ -1179,7 +1198,7 @@ export function createImportExportService(
      * neither of those stories wrongly.
      */
     async deleteJob(actor, id) {
-      const workspaceId = requireWorkspaceId(actor)
+      const workspaceId = requireAdminWorkspace(actor)
       const removed = await repository.deleteJob(
         dependencies.db,
         workspaceId,
