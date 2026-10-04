@@ -87,12 +87,18 @@ export const userPreferences = pgTable(
  * One-shot tokens for the reset link. Stored hashed like a session token, and
  * marked used rather than deleted so a replayed link is refused rather than
  * treated as an unknown token.
+ *
+ * `email` is the address the link was sent to. A token is good only while the
+ * account still has that address: a link in a mailbox the account has moved
+ * away from must not reset its password. Null on a token made before the
+ * column existed, and such a token is refused.
  */
 export const passwordResetTokens = pgTable('password_reset_tokens', {
   id: primaryId(),
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
+  email: text('email'),
   tokenHash: text('token_hash').notNull().unique(),
   expiresAt: moment('expires_at').notNull(),
   usedAt: moment('used_at'),
@@ -102,12 +108,17 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
 /**
  * One-shot tokens for the sign-up verification link. Same shape and the same
  * reasoning as `passwordResetTokens`: hashed, marked used rather than deleted.
+ *
+ * `email` is the address the link was sent to, and the only address the token
+ * verifies. Without it, a token sent to one address would verify whichever
+ * address the account has moved to since.
  */
 export const emailVerificationTokens = pgTable('email_verification_tokens', {
   id: primaryId(),
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
+  email: text('email'),
   tokenHash: text('token_hash').notNull().unique(),
   expiresAt: moment('expires_at').notNull(),
   usedAt: moment('used_at'),

@@ -590,6 +590,31 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
     })
 
+    it('refuses a verification link sent to the address the account has moved away from', async () => {
+      const cookie = await signUp()
+      const tokenForFirstAddress = verificationTokenFromEmail()
+
+      const changed = await patch(
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+      expect(changed.status).toBe(200)
+      await harness.runQueuedJobs()
+
+      // The link in the first mailbox proves nothing about the second address.
+      const stale = await post('/v1/auth/verify-email/confirm', { token: tokenForFirstAddress })
+      expect(stale.status).toBe(401)
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: false })
+
+      // A refused link is not used up, and the link sent to the new address works.
+      const confirmed = await post('/v1/auth/verify-email/confirm', {
+        token: verificationTokenFromEmail(),
+      })
+      expect(confirmed.status).toBe(204)
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
+    })
+
     it.each([
       ['a list', 'ada.king@example.com, grace@example.com'],
       ['a semicolon list', 'ada.king@example.com;grace@example.com'],
@@ -953,6 +978,32 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       })
 
       expect(replay.status).toBe(401)
+    })
+
+    it('refuses a reset link sent to the address the account has moved away from', async () => {
+      const cookie = await signUp()
+      await post('/v1/auth/password-reset', { email: SIGNUP.email })
+      await harness.runQueuedJobs()
+      const token = tokenFromEmail()
+
+      const changed = await patch(
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+      expect(changed.status).toBe(200)
+
+      const response = await post('/v1/auth/password-reset/confirm', {
+        token,
+        password: 'a brand new long password',
+      })
+
+      expect(response.status).toBe(401)
+      // The password is unchanged and the session is still open.
+      expect((await get('/v1/account', cookie)).status).toBe(200)
+      expect(
+        (await post('/v1/auth/login', { email: 'ada.king@example.com', password: SIGNUP.password })).status,
+      ).toBe(200)
     })
 
     it('refuses an expired token', async () => {

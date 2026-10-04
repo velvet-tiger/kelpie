@@ -689,6 +689,14 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       const passwordHash = await hashPassword(newPassword)
 
       await dependencies.transaction(async ({ tx }) => {
+        // A link sent to an address the account has since left is not a link
+        // to this account. The same answer as an unknown token.
+        const user = await repository.findUserById(tx, record.userId)
+
+        if (user === undefined || record.email === null || user.email !== record.email) {
+          throw AppError.unauthorized('That reset link is invalid or has expired')
+        }
+
         await repository.markPasswordResetTokenUsed(tx, record.id, now)
         await repository.updateUserPassword(tx, record.userId, passwordHash, now)
         await repository.deleteAllSessionsForUser(tx, record.userId)
@@ -750,9 +758,20 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         throw AppError.unauthorized('That verification link is invalid or has expired')
       }
 
+      const { email } = record
+
       await dependencies.transaction(async ({ tx }) => {
+        // The token verifies the address it was sent to and no other. An
+        // account that has changed address since needs the link sent to the
+        // new one. The same answer as an unknown token.
+        const user = await repository.findUserById(tx, record.userId)
+
+        if (user === undefined || email === null || user.email !== email) {
+          throw AppError.unauthorized('That verification link is invalid or has expired')
+        }
+
         await repository.markEmailVerificationTokenUsed(tx, record.id, now)
-        await repository.markEmailVerified(tx, record.userId, now)
+        await repository.markEmailAddressVerified(tx, record.userId, email, now)
       })
     },
   }

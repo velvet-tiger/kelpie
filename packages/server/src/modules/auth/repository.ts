@@ -269,6 +269,24 @@ export async function markEmailVerified(db: Queryable, userId: string, now: Date
     .where(and(eq(users.id, userId), isNull(users.emailVerifiedAt)))
 }
 
+/**
+ * Sets `email_verified_at` for the address a verification link was sent to.
+ *
+ * The address is in the `WHERE` clause, so an account that moves to another
+ * address between the caller's check and this write is left unverified.
+ */
+export async function markEmailAddressVerified(
+  db: Queryable,
+  userId: string,
+  email: string,
+  now: Date,
+): Promise<void> {
+  await db
+    .update(users)
+    .set({ emailVerifiedAt: now })
+    .where(and(eq(users.id, userId), eq(users.email, email), isNull(users.emailVerifiedAt)))
+}
+
 /** The membership a session's active workspace resolves to, if any. */
 export async function findMembership(
   db: Queryable,

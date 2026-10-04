@@ -138,6 +138,7 @@ export async function sendVerificationEmail(
   await repository.insertEmailVerificationToken(dependencies.db, {
     id: dependencies.createId('emailVerificationToken'),
     userId: user.id,
+    email: user.email,
     tokenHash: hashToken(token),
     expiresAt: new Date(now.getTime() + EMAIL_VERIFICATION_TOKEN_LIFETIME_MS),
   })
@@ -193,6 +194,7 @@ export async function sendPasswordResetEmail(
   await repository.insertPasswordResetToken(dependencies.db, {
     id: dependencies.createId('passwordResetToken'),
     userId: user.id,
+    email: user.email,
     tokenHash: hashToken(token),
     expiresAt: new Date(now.getTime() + RESET_TOKEN_LIFETIME_MS),
   })

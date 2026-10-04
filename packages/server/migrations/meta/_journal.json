@@ -421,6 +421,13 @@
       "when": 1790300000000,
       "tag": "0059_email_refused_and_invite_email_failure",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1790400000000,
+      "tag": "0060_auth_tokens_bind_email",
+      "breakpoints": true
     }
   ]
 }

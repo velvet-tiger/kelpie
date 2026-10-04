@@ -206,6 +206,16 @@ While the major version is `0`, a minor bump may break the API.
   fails. Login is unchanged, so an account with an older address still
   signs in. The "sign-in email changed" message now escapes both addresses
   in its HTML part. No migration.
+- **`@kelpie/server`** — **A verification link verifies only the address it
+  was sent to, and a reset link works only while the account has that
+  address.** An account could keep the verification link from its first
+  address, change to an address it did not own, and confirm with the old
+  link. A reset link in the old mailbox also stayed good after a change of
+  address. The two token tables now store the address, and confirm refuses a
+  token when the account has a different one. Migration `0060` adds the
+  nullable column `email` to `email_verification_tokens` and
+  `password_reset_tokens`. A link sent before the migration is refused; ask
+  for a new one.
 
 ## [0.22.0] - 2026-10-04
 
