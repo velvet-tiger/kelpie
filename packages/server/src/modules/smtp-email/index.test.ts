@@ -1,9 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import type { AddressInfo, Server, Socket } from 'node:net'
+import { createServer } from 'node:net'
+
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
 
-import type { EmailMessage, SmtpEmailConfig, SmtpTransport } from './index.ts'
-import { SMTP_EMAIL_PROVIDER, createSmtpEmailModule, createSmtpEmailSender, smtpEmailConfigSchema } from './index.ts'
+import type { EmailMessage, SmtpEmailConfig, SmtpTimeouts, SmtpTransport } from './index.ts'
+import {
+  SMTP_EMAIL_PROVIDER,
+  SMTP_TIMEOUTS,
+  createNodemailerTransport,
+  createSmtpEmailModule,
+  createSmtpEmailSender,
+  smtpEmailConfigSchema,
+} from './index.ts'
 
 const fixedTime = (): Date => new Date('2026-08-12T00:00:00.000Z')
 
@@ -185,6 +195,84 @@ describe('createSmtpEmailSender', () => {
         text: message.body,
       },
     ])
+  })
+})
+
+describe('createNodemailerTransport', () => {
+  const sockets: Socket[] = []
+  const servers: Server[] = []
+
+  /**
+   * A local TCP server that accepts a connection and runs `onConnection` on
+   * it. Resolves with the port the operating system gave it.
+   */
+  function listen(onConnection: (socket: Socket) => void): Promise<number> {
+    const server = createServer((socket) => {
+      sockets.push(socket)
+      socket.on('error', () => undefined)
+      onConnection(socket)
+    })
+    servers.push(server)
+
+    return new Promise((resolve) => {
+      server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port))
+    })
+  }
+
+  function localConfig(port: number): SmtpEmailConfig {
+    return { EMAIL_FROM: 'kelpie@example.com', SMTP_HOST: '127.0.0.1', SMTP_PORT: port, SMTP_SECURE: false }
+  }
+
+  /** Sends through a real transport and gives back the failure and how long it took. */
+  async function failedSend(
+    port: number,
+    timeouts: SmtpTimeouts,
+  ): Promise<{ thrown: unknown; elapsed: number }> {
+    const { logger } = capture()
+    const config = localConfig(port)
+    const sender = createSmtpEmailSender(config, logger, createNodemailerTransport(config, timeouts))
+    const started = Date.now()
+    const thrown: unknown = await sender.send(message).catch((error: unknown) => error)
+
+    return { thrown, elapsed: Date.now() - started }
+  }
+
+  afterEach(async () => {
+    for (const socket of sockets.splice(0)) {
+      socket.destroy()
+    }
+
+    await Promise.all(
+      servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+    )
+  })
+
+  it('fails the send when the server accepts the connection and sends no greeting', async () => {
+    const port = await listen(() => undefined)
+
+    // The other limits are long, so only the greeting limit can end the send.
+    const { thrown, elapsed } = await failedSend(port, { dns: 5_000, connection: 5_000, greeting: 150, socket: 5_000 })
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect((thrown as Error).message).toContain('Greeting never received')
+    expect(elapsed).toBeLessThan(2_000)
+  })
+
+  it('fails the send when the server goes silent after its greeting', async () => {
+    const port = await listen((socket) => {
+      socket.write('220 localhost ESMTP\r\n')
+    })
+
+    // The server never answers EHLO, so only the socket limit can end the send.
+    const { thrown, elapsed } = await failedSend(port, { dns: 5_000, connection: 5_000, greeting: 5_000, socket: 150 })
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect((thrown as Error).message).toContain('Timeout')
+    expect(elapsed).toBeLessThan(2_000)
+  })
+
+  it('sends with limits short enough for a send inside an HTTP request', () => {
+    expect(SMTP_TIMEOUTS).toEqual({ dns: 10_000, connection: 10_000, greeting: 10_000, socket: 30_000 })
   })
 })
 

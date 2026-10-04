@@ -72,13 +72,59 @@ export interface SmtpTransport {
   }): Promise<unknown>
 }
 
-function createNodemailerTransport(config: SmtpEmailConfig): SmtpTransport {
+/**
+ * How long the SMTP client waits, in milliseconds, at each step of a send.
+ */
+export interface SmtpTimeouts {
+  /** To resolve the host name. */
+  readonly dns: number
+  /** To open the TCP connection. */
+  readonly connection: number
+  /** For the server's greeting, after the connection opens. */
+  readonly greeting: number
+  /** With no data on an open socket, before the client gives up. */
+  readonly socket: number
+}
+
+// Emails are sent from background jobs, and a module can still send one
+// inside an HTTP request, so a slow or silent mail server must fail the send
+// in seconds. nodemailer's own defaults are 2 minutes to connect, 30 seconds
+// each for DNS and the greeting, and 10 minutes for an idle socket, which
+// holds a worker slot, or a request, open for as long.
+// The socket limit is the longest: a relay can be quiet for some seconds
+// after the message body while it scans it.
+const SMTP_DNS_TIMEOUT_MS = 10_000
+const SMTP_CONNECTION_TIMEOUT_MS = 10_000
+const SMTP_GREETING_TIMEOUT_MS = 10_000
+const SMTP_SOCKET_TIMEOUT_MS = 30_000
+
+/** The limits a real deployment sends with. */
+export const SMTP_TIMEOUTS: SmtpTimeouts = {
+  dns: SMTP_DNS_TIMEOUT_MS,
+  connection: SMTP_CONNECTION_TIMEOUT_MS,
+  greeting: SMTP_GREETING_TIMEOUT_MS,
+  socket: SMTP_SOCKET_TIMEOUT_MS,
+}
+
+/**
+ * A transport that opens a real SMTP connection. `timeouts` is a parameter so
+ * a test can use short limits against a local server; a deployment uses the
+ * default.
+ */
+export function createNodemailerTransport(
+  config: SmtpEmailConfig,
+  timeouts: SmtpTimeouts = SMTP_TIMEOUTS,
+): SmtpTransport {
   const authenticated = config.SMTP_USER !== undefined && config.SMTP_PASSWORD !== undefined
 
   return nodemailer.createTransport({
     host: config.SMTP_HOST,
     port: config.SMTP_PORT,
     secure: config.SMTP_SECURE,
+    dnsTimeout: timeouts.dns,
+    connectionTimeout: timeouts.connection,
+    greetingTimeout: timeouts.greeting,
+    socketTimeout: timeouts.socket,
     ...(authenticated ? { auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD } } : {}),
   })
 }

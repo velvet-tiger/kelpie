@@ -21,6 +21,16 @@ While the major version is `0`, a minor bump may break the API.
   deployment's own name. `renderEmail` and `renderTextEmail` take an optional
   header name. No migration.
 
+### Fixed
+
+- **`@kelpie/server`** — **The SMTP sender has time limits.** The
+  `smtp-email` module now stops a send after 10 seconds with no connection,
+  10 seconds with no greeting, 10 seconds with no DNS answer, or 30 seconds
+  with no data on the socket. Before, it used nodemailer's defaults of 2
+  minutes to connect and 10 minutes for an idle socket, so a slow mail server
+  could hold a sign-up request open for minutes. The limits are constants,
+  not environment variables. No migration.
+
 ### Security
 
 - **`@kelpie/server`** — **An address that gets mail must be one address.**
