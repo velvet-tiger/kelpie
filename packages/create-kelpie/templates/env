@@ -32,6 +32,7 @@ SECRET_ENCRYPTION_KEY=__SECRET_ENCRYPTION_KEY__
 # below. A different provider module (Resend, Postmark, …) registers its
 # own name — set EMAIL_PROVIDER to that name to use it.
 EMAIL_PROVIDER=log
+# One address, or a name and an address: Kelpie <kelpie@example.com>
 EMAIL_FROM=__EMAIL_FROM__
 
 # Read by `@kelpie/module-smtp-email` when EMAIL_PROVIDER=smtp. Ignored

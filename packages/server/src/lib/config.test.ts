@@ -76,6 +76,19 @@ describe('loadConfig', () => {
     expect(problems).toContain('EMAIL_FROM')
   })
 
+  it('accepts EMAIL_FROM with a display name', () => {
+    const config = loadConfig({ ...validEnvironment, EMAIL_FROM: 'Kelpie <kelpie@example.com>' })
+
+    expect(config.email.EMAIL_FROM).toBe('Kelpie <kelpie@example.com>')
+  })
+
+  it('stops with an error that names EMAIL_FROM when it is not an address', () => {
+    expect(() => loadConfig({ ...validEnvironment, EMAIL_FROM: 'the sales team' })).toThrow(
+      'EMAIL_FROM: must be an email address (kelpie@example.com) or a name and an address (Kelpie <kelpie@example.com>)',
+    )
+    expect(() => loadConfig({ ...validEnvironment, EMAIL_FROM: 'the sales team' })).toThrow(ConfigurationError)
+  })
+
   it('rejects a non-postgres database url', () => {
     expect(() => loadConfig({ ...validEnvironment, DATABASE_URL: 'mysql://localhost/kelpie' })).toThrow(
       ConfigurationError,

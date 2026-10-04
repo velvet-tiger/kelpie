@@ -145,6 +145,29 @@ describe('createSmtpEmailSender', () => {
     expect(calls).toMatchObject([{ from: { name: 'Acme via Kelpie', address: 'kelpie@example.com' } }])
   })
 
+  it('sends the name EMAIL_FROM carries apart from its address', async () => {
+    const { transport, calls } = fakeTransport()
+    const { logger } = capture()
+    const sender = createSmtpEmailSender(
+      { ...smtpConfig, EMAIL_FROM: '"Acme, Inc." <crm@acme.example>' },
+      logger,
+      transport,
+    )
+
+    await sender.send(message)
+
+    expect(calls).toMatchObject([{ from: { name: 'Acme, Inc.', address: 'crm@acme.example' } }])
+  })
+
+  it('refuses to build a sender from an EMAIL_FROM that is not an address', () => {
+    const { transport } = fakeTransport()
+    const { logger } = capture()
+
+    expect(() => createSmtpEmailSender({ ...smtpConfig, EMAIL_FROM: 'the sales team' }, logger, transport)).toThrow(
+      'EMAIL_FROM must be an email address',
+    )
+  })
+
   it('wraps a transport failure with context and logs it, rather than leaking it raw', async () => {
     const { logger, lines } = capture()
     const transport: SmtpTransport = {
@@ -300,6 +323,19 @@ describe('smtpEmailConfigSchema', () => {
 
     expect(parsed.SMTP_USER).toBeUndefined()
     expect(parsed.SMTP_PASSWORD).toBeUndefined()
+  })
+
+  it('accepts EMAIL_FROM with a display name', () => {
+    expect(smtpEmailConfigSchema.parse({ ...baseEnv, EMAIL_FROM: 'Kelpie <kelpie@example.com>' }).EMAIL_FROM).toBe(
+      'Kelpie <kelpie@example.com>',
+    )
+  })
+
+  it('rejects an EMAIL_FROM that is not an address, naming the key', () => {
+    const result = smtpEmailConfigSchema.safeParse({ ...baseEnv, EMAIL_FROM: 'the sales team' })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues.map((issue) => issue.path[0])).toEqual(['EMAIL_FROM'])
   })
 
   it('rejects a config that sets SMTP_USER without SMTP_PASSWORD, naming both keys', () => {

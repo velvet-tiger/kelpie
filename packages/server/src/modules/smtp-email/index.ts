@@ -2,7 +2,9 @@ import nodemailer from 'nodemailer'
 import { z } from 'zod'
 
 import { describeThrown } from '../../lib/errors.ts'
+import { EMAIL_FROM_PROBLEM, emailFromSchema } from '../../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../../lib/email.ts'
+import { parseSenderAddress } from '../../lib/emailAddress.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 
@@ -35,7 +37,7 @@ export type { EmailMessage } from '../../lib/email.ts'
 
 export const smtpEmailConfigSchema = z
   .object({
-    EMAIL_FROM: z.string().min(1),
+    EMAIL_FROM: emailFromSchema,
     SMTP_HOST: z.string().min(1),
     SMTP_PORT: z.coerce.number().int().positive().max(65535),
     SMTP_SECURE: z.enum(['true', 'false']).transform((value) => value === 'true'),
@@ -129,30 +131,27 @@ export function createNodemailerTransport(
   })
 }
 
-/**
- * The bare address in `EMAIL_FROM`, which may be `kelpie@example.com` or
- * `Kelpie <kelpie@example.com>`.
- */
-function addressOf(from: string): string {
-  const bracketed = /<([^<>]+)>\s*$/u.exec(from)
-
-  return (bracketed?.[1] ?? from).trim()
-}
-
 /** Sends over SMTP. `transport` defaults to a real connection built from `config`. */
 export function createSmtpEmailSender(
   config: SmtpEmailConfig,
   logger: Logger,
   transport: SmtpTransport = createNodemailerTransport(config),
 ): EmailSender {
+  const sender = parseSenderAddress(config.EMAIL_FROM)
+
+  if (sender === undefined) {
+    throw new Error(`EMAIL_FROM ${EMAIL_FROM_PROBLEM}`)
+  }
+
   return {
     async send(message: EmailMessage) {
+      // The name and the address go to the mail library as two values, so a
+      // comma in a name cannot be read as a second address.
+      const name = message.fromName ?? sender.name
+
       try {
         await transport.sendMail({
-          from:
-            message.fromName === undefined
-              ? config.EMAIL_FROM
-              : { name: message.fromName, address: addressOf(config.EMAIL_FROM) },
+          from: name === undefined ? sender.address : { name, address: sender.address },
           to: message.to,
           subject: message.subject,
           text: message.body,

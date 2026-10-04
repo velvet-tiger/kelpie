@@ -78,7 +78,7 @@ egress, module-locking, and per-account login-limit settings — is
 | `APP_BASE_URL` | The address people reach this Kelpie on. Emailed links (verification, password reset, invitations) are built from it. In development that is the Vite dev server; a deployment sets its real origin |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
 | `EMAIL_PROVIDER` | Name of the transactional-mail sender to use. `log` (built in) writes to the log instead of sending; `smtp` sends over SMTP through the built-in `smtp-email` core module; other names come from third-party provider modules |
-| `EMAIL_FROM` | The address transactional mail comes from |
+| `EMAIL_FROM` | The sender of transactional mail: an address, or `Name <address>`. Any other text stops boot |
 | `SMTP_HOST` | Read by the built-in `smtp-email` module when `EMAIL_PROVIDER=smtp`. The mail server to connect to |
 | `SMTP_PORT` | Read by the built-in `smtp-email` module when `EMAIL_PROVIDER=smtp`. The mail server's port |
 | `SMTP_SECURE` | Read by the built-in `smtp-email` module when `EMAIL_PROVIDER=smtp`. `true` or `false`. Whether to connect over TLS from the start (typically port 465) rather than upgrading with STARTTLS (typically port 587 or 25) |

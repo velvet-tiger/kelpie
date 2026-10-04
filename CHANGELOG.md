@@ -20,6 +20,18 @@ While the major version is `0`, a minor bump may break the API.
   from it, and a provider module that does not read it sends under the
   deployment's own name. `renderEmail` and `renderTextEmail` take an optional
   header name. No migration.
+- **`@kelpie/server`** — **`EMAIL_FROM` is checked at start-up.** The value
+  must be one address, `kelpie@example.com`, or a name and one address,
+  `Kelpie <kelpie@example.com>`; the name can be in quotation marks. Any
+  other text stops boot with a configuration error that names `EMAIL_FROM`.
+  Before, any text passed, and a wrong sender showed only when the first
+  email failed. `resolveKelpieConfig` does the check for every assembly, so
+  an assembly whose `kelpie.config.ts` reads `EMAIL_FROM` with
+  `z.string().min(1)` needs no change; `loadConfig` and the `smtp-email`
+  module do it too. The `smtp-email` module now gives the name in
+  `EMAIL_FROM` to nodemailer apart from the address. A deployment with a
+  value that is not one of the two forms must correct it before it upgrades.
+  No migration.
 
 ### Fixed
 

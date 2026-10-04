@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { parseSenderAddress } from './emailAddress.ts'
 import type { Logger } from './logger.ts'
 
 /**
@@ -49,6 +50,18 @@ export interface EmailSender {
   send(message: EmailMessage): Promise<void>
 }
 
+/** What boot says when `EMAIL_FROM` is not a sender. Names both permitted forms. */
+export const EMAIL_FROM_PROBLEM =
+  'must be an email address (kelpie@example.com) or a name and an address (Kelpie <kelpie@example.com>)'
+
+/**
+ * `EMAIL_FROM`: one address, or a display name and one address. Checked at
+ * boot, so a wrong sender stops the service there and not at the first send.
+ */
+export const emailFromSchema = z
+  .string()
+  .refine((value) => parseSenderAddress(value) !== undefined, { message: EMAIL_FROM_PROBLEM })
+
 export const emailConfigSchema = z.object({
   /**
    * The named provider `registerModules` resolves against its registry. `'log'`
@@ -57,7 +70,7 @@ export const emailConfigSchema = z.object({
    * so a self-hoster can add a module core has never heard of.
    */
   EMAIL_PROVIDER: z.string().min(1),
-  EMAIL_FROM: z.string().min(1),
+  EMAIL_FROM: emailFromSchema,
 })
 
 export type EmailConfig = z.infer<typeof emailConfigSchema>

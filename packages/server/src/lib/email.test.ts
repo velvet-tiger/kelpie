@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import type { EmailMessage } from './email.ts'
-import { createLogEmailSender, emailConfigSchema } from './email.ts'
+import {
+  EMAIL_FROM_PROBLEM,
+  createLogEmailSender,
+  emailConfigSchema,
+} from './email.ts'
 import { createCaptureTransport, createLogger } from './logger.ts'
 
 const fixedTime = (): Date => new Date('2026-08-12T00:00:00.000Z')
@@ -59,5 +63,20 @@ describe('emailConfigSchema', () => {
 
   it('rejects an empty provider name', () => {
     expect(emailConfigSchema.safeParse({ EMAIL_PROVIDER: '', EMAIL_FROM: 'k@example.com' }).success).toBe(false)
+  })
+
+  it('accepts EMAIL_FROM as one address, or as a name and an address', () => {
+    for (const from of ['kelpie@example.com', 'Kelpie <kelpie@example.com>', '"Acme, Inc." <crm@acme.example>']) {
+      expect(emailConfigSchema.safeParse({ EMAIL_PROVIDER: 'log', EMAIL_FROM: from }).success).toBe(true)
+    }
+  })
+
+  it('rejects an EMAIL_FROM that is not a sender, and says which forms are permitted', () => {
+    for (const from of ['', 'Kelpie', 'kelpie@localhost', 'a@x.example, b@y.example', 'Kelpie <kelpie>']) {
+      const result = emailConfigSchema.safeParse({ EMAIL_PROVIDER: 'log', EMAIL_FROM: from })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues).toMatchObject([{ path: ['EMAIL_FROM'], message: EMAIL_FROM_PROBLEM }])
+    }
   })
 })

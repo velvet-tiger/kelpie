@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isSingleEmailAddress } from './emailAddress.ts'
+import { isSingleEmailAddress, parseSenderAddress } from './emailAddress.ts'
 
 describe('isSingleEmailAddress', () => {
   it('accepts one ordinary address', () => {
@@ -74,5 +74,53 @@ describe('isSingleEmailAddress', () => {
     expect(`${local}@${domain}`).toHaveLength(254)
     expect(isSingleEmailAddress(`${local}@${domain}`)).toBe(true)
     expect(isSingleEmailAddress(`${local}@d${domain}`)).toBe(false)
+  })
+})
+
+describe('parseSenderAddress', () => {
+  it('reads one address', () => {
+    expect(parseSenderAddress('kelpie@example.com')).toEqual({ name: undefined, address: 'kelpie@example.com' })
+  })
+
+  it('reads a name and an address', () => {
+    expect(parseSenderAddress('Kelpie <kelpie@example.com>')).toEqual({ name: 'Kelpie', address: 'kelpie@example.com' })
+    expect(parseSenderAddress('Acme Inc. CRM<crm@acme.example>')).toEqual({
+      name: 'Acme Inc. CRM',
+      address: 'crm@acme.example',
+    })
+  })
+
+  it('reads a name in quotation marks, without the marks', () => {
+    expect(parseSenderAddress('"Acme, Inc." <crm@acme.example>')).toEqual({
+      name: 'Acme, Inc.',
+      address: 'crm@acme.example',
+    })
+  })
+
+  it('refuses text that is not a sender', () => {
+    expect(parseSenderAddress('')).toBeUndefined()
+    expect(parseSenderAddress('Kelpie')).toBeUndefined()
+    expect(parseSenderAddress('kelpie@localhost')).toBeUndefined()
+    expect(parseSenderAddress('<kelpie@example.com>')).toBeUndefined()
+    expect(parseSenderAddress('"" <kelpie@example.com>')).toBeUndefined()
+    expect(parseSenderAddress('Kelpie <kelpie>')).toBeUndefined()
+    expect(parseSenderAddress('Kelpie <kelpie@example.com> extra')).toBeUndefined()
+    expect(parseSenderAddress('Kelpie <<kelpie@example.com>>')).toBeUndefined()
+    expect(parseSenderAddress(' kelpie@example.com')).toBeUndefined()
+    expect(parseSenderAddress('Kelpie <kelpie@example.com> ')).toBeUndefined()
+  })
+
+  it('refuses more than one address', () => {
+    expect(parseSenderAddress('a@x.example, b@y.example')).toBeUndefined()
+    expect(parseSenderAddress('Kelpie <a@x.example>, Other <b@y.example>')).toBeUndefined()
+    expect(parseSenderAddress('Kelpie <a@x.example,b@y.example>')).toBeUndefined()
+  })
+
+  it('refuses a line break or a quotation mark in the name', () => {
+    expect(parseSenderAddress('Kelpie\r\nBcc: b@y.example <kelpie@example.com>')).toBeUndefined()
+    expect(parseSenderAddress('Kel\npie <kelpie@example.com>')).toBeUndefined()
+    expect(parseSenderAddress('Kel"pie <kelpie@example.com>')).toBeUndefined()
+    expect(parseSenderAddress('Kel\\pie <kelpie@example.com>')).toBeUndefined()
+    expect(parseSenderAddress('Kel\u2028pie <kelpie@example.com>')).toBeUndefined()
   })
 })

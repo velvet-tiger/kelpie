@@ -54,3 +54,56 @@ export function isSingleEmailAddress(value: string): boolean {
   // or doubled dot.
   return labels.length >= 2 && labels.every((label) => label.length > 0)
 }
+
+/** The sender a deployment's `EMAIL_FROM` names. */
+export interface SenderAddress {
+  /** The display name, when the value carries one. */
+  readonly name: string | undefined
+  readonly address: string
+}
+
+/** The `Name <address>` form: a name, then one address in angle brackets. */
+const NAMED_SENDER = /^([^<>]*)<([^<>]*)>$/u
+
+/**
+ * Characters a display name cannot hold: the quotation mark and backslash of
+ * the quoted form, and every line break, control and invisible formatting
+ * character. A comma or a full stop is permitted; the sender passes the name
+ * to its mail library apart from the address, and the library quotes it.
+ */
+const REFUSED_NAME_CHARACTERS = /["\\\p{C}\p{Zl}\p{Zp}]/u
+
+/**
+ * Reads the sender value a deployment sets in `EMAIL_FROM`. Two forms are
+ * permitted: one address, `kelpie@example.com`, or a display name and one
+ * address, `Kelpie <kelpie@example.com>`. The name can be in quotation marks,
+ * `"Acme, Inc." <kelpie@example.com>`.
+ *
+ * @returns The parts, or `undefined` when the value is neither form.
+ */
+export function parseSenderAddress(value: string): SenderAddress | undefined {
+  if (value !== value.trim()) {
+    return undefined
+  }
+
+  if (isSingleEmailAddress(value)) {
+    return { name: undefined, address: value }
+  }
+
+  const named = NAMED_SENDER.exec(value)
+  const rawName = named?.[1]?.trim()
+  const address = named?.[2]
+
+  if (rawName === undefined || address === undefined || !isSingleEmailAddress(address)) {
+    return undefined
+  }
+
+  const quoted = rawName.length >= 2 && rawName.startsWith('"') && rawName.endsWith('"')
+  const name = quoted ? rawName.slice(1, -1).trim() : rawName
+
+  if (name.length === 0 || REFUSED_NAME_CHARACTERS.test(name)) {
+    return undefined
+  }
+
+  return { name, address }
+}

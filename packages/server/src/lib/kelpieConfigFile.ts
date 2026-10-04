@@ -10,7 +10,9 @@ import {
   type RuntimeMode,
   type SignupsMode,
 } from './config.ts'
+import { EMAIL_FROM_PROBLEM } from './email.ts'
 import type { EmailConfig } from './email.ts'
+import { parseSenderAddress } from './emailAddress.ts'
 import { describeValidationIssue } from './errors.ts'
 import { type ConfigValue, resolveMarkers } from './fromEnv.ts'
 import type { LoggingDestination } from './logger.ts'
@@ -191,6 +193,13 @@ export function resolveKelpieConfig(input: KelpieConfigInput, environment: Envir
   const env = mergeEnv(environment, resolved.env)
   const secretEncryption = buildSecretEncryptionConfig(resolved.secretEncryption)
   const regions = resolved.regions ?? []
+
+  // The assembly's own schema for `email.from` can accept any text, and the
+  // field can be a literal, so the sender is checked here for every assembly.
+  // A value the walker already refused is undefined, and is not reported twice.
+  if (typeof resolved.email?.from === 'string' && parseSenderAddress(resolved.email.from) === undefined) {
+    problems.push(`email.from: EMAIL_FROM: ${EMAIL_FROM_PROBLEM}`)
+  }
 
   problems.push(...describeRegionProblems(regions))
 

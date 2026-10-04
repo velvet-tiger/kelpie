@@ -189,6 +189,44 @@ describe('resolveKelpieConfig', () => {
 
       expect(thrown.problems.join('\n')).toContain('email.from')
     })
+
+    it('accepts a `from` with a display name', () => {
+      const input = baseInput({
+        email: { provider: 'log', from: fromEnv('EMAIL_FROM', z.string().min(1)) },
+      })
+
+      expect(resolveKelpieConfig(input, { EMAIL_FROM: 'Kelpie <kelpie@example.com>' }).email.EMAIL_FROM).toBe(
+        'Kelpie <kelpie@example.com>',
+      )
+    })
+
+    it('refuses a `from` that is not an address, when the assembly schema accepts any text', () => {
+      const input = baseInput({
+        email: { provider: 'log', from: fromEnv('EMAIL_FROM', z.string().min(1)) },
+      })
+
+      let thrown: unknown
+      try {
+        resolveKelpieConfig(input, { EMAIL_FROM: 'the sales team' })
+      } catch (error: unknown) {
+        thrown = error
+      }
+
+      expect(thrown).toBeInstanceOf(ConfigurationError)
+      if (!(thrown instanceof ConfigurationError)) {
+        throw thrown
+      }
+
+      expect(thrown.problems).toEqual([
+        'email.from: EMAIL_FROM: must be an email address (kelpie@example.com) or a name and an address (Kelpie <kelpie@example.com>)',
+      ])
+    })
+
+    it('refuses a literal `from` that is not an address', () => {
+      const input = baseInput({ email: { provider: 'log', from: 'a@x.example, b@y.example' } })
+
+      expect(() => resolveKelpieConfig(input, {})).toThrow('email.from: EMAIL_FROM: must be an email address')
+    })
   })
 
   it('honours a rateLimit override in seconds', () => {
