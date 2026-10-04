@@ -512,6 +512,75 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
       expect(response.status).toBe(403)
     })
 
+    it('refuses a scoped key that creates a key with full access', async () => {
+      const { cookie } = await owner()
+      const secret = await mint(cookie, 'workspace', 'Key manager', ['api_keys:write'])
+
+      const omitted = await send('POST', '/v1/api-keys', {
+        body: { name: 'Second', kind: 'workspace' },
+        bearer: secret,
+      })
+      const empty = await send('POST', '/v1/api-keys', {
+        body: { name: 'Second', kind: 'workspace', scopes: [] },
+        bearer: secret,
+      })
+
+      expect(omitted.status).toBe(403)
+      expect(empty.status).toBe(403)
+    })
+
+    it('refuses a scoped key that gives a scope it does not have', async () => {
+      const { cookie } = await owner()
+      const secret = await mint(cookie, 'workspace', 'Key manager', ['api_keys:write', 'people:read'])
+
+      const granular = await send('POST', '/v1/api-keys', {
+        body: { name: 'Second', kind: 'workspace', scopes: ['people:read', 'webhooks:read'] },
+        bearer: secret,
+      })
+      const preset = await send('POST', '/v1/api-keys', {
+        body: { name: 'Second', kind: 'workspace', scopes: ['read:objects'] },
+        bearer: secret,
+      })
+      const write = await send('POST', '/v1/api-keys', {
+        body: { name: 'Second', kind: 'workspace', scopes: ['people:write'] },
+        bearer: secret,
+      })
+
+      expect(granular.status).toBe(403)
+      expect(preset.status).toBe(403)
+      expect(write.status).toBe(403)
+    })
+
+    it('lets a scoped key give scopes it has', async () => {
+      const { cookie } = await owner()
+      const secret = await mint(cookie, 'workspace', 'Key manager', ['api_keys:write', 'write:objects'])
+
+      // Write implies read, and a preset covers each scope in it.
+      const response = await send('POST', '/v1/api-keys', {
+        body: { name: 'Second', kind: 'workspace', scopes: ['people:read', 'deals:write'] },
+        bearer: secret,
+      })
+
+      expect(response.status).toBe(201)
+
+      const child = readString(await response.json(), 'secret')
+
+      expect((await send('GET', '/v1/people', { bearer: child })).status).toBe(200)
+      expect((await send('GET', '/v1/webhooks', { bearer: child })).status).toBe(403)
+    })
+
+    it('keeps the same limit for a scoped personal key', async () => {
+      const { cookie } = await owner()
+      const secret = await mint(cookie, 'personal', 'Mine', ['api_keys:write', 'people:read'])
+
+      const response = await send('POST', '/v1/api-keys', {
+        body: { name: 'Second', kind: 'personal' },
+        bearer: secret,
+      })
+
+      expect(response.status).toBe(403)
+    })
+
     it('keeps empty scopes as full access', async () => {
       const { cookie, workspaceId } = await owner()
       const secret = await mint(cookie, 'workspace')

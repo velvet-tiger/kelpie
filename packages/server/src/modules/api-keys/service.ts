@@ -4,7 +4,7 @@ import { API_KEY_SCOPES, dedupeApiKeyScopes } from '@kelpie/schemas'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import { isBearerActor } from '../../lib/actor.ts'
-import { hasApiKeyScope } from '../../lib/apiKeyScopes.ts'
+import { hasApiKeyScope, requireScopesWithinActor } from '../../lib/apiKeyScopes.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Actor } from '../auth/actor.ts'
 import { roleAllows } from '../workspace/roles.ts'
@@ -129,6 +129,9 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
       if (isBearerActor(actor) && !hasApiKeyScope(actor, 'api_keys:write')) {
         throw new AppError('forbidden', 'This API key does not have the api_keys:write scope')
       }
+
+      // A key cannot create a key that reaches more than it does.
+      requireScopesWithinActor(actor, storedScopes)
 
       const minted = mintKey(kind, dependencies.newToken)
       const record = await repository.insertApiKey(dependencies.db, {

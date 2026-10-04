@@ -236,6 +236,14 @@ While the major version is `0`, a minor bump may break the API.
   consent purposes, the module list and the registered agents, because the
   record pages need them. No migration.
 
+- **`@kelpie/server`** — **A scoped API key cannot create a key that reaches
+  more than it does.** `POST /v1/api-keys` checked that a key had
+  `api_keys:write` but not which scopes it gave, and a key with no scopes has
+  full access, so a key with `api_keys:write` alone could create a full-access
+  key. A scoped key now gets `403` when the new key has no scopes or has a
+  scope the caller does not have. Write implies read, as it does elsewhere. A
+  session and an unscoped key can give any scopes, as before. No migration.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added

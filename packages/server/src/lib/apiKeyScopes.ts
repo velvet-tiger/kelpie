@@ -1,5 +1,5 @@
 import type { ApiKeyGranularScope, ApiKeyScope } from '@kelpie/schemas'
-import { satisfiesApiKeyScope } from '@kelpie/schemas'
+import { expandApiKeyScopes, satisfiesApiKeyScope } from '@kelpie/schemas'
 
 import { isBearerActor } from './actor.ts'
 import type { Actor } from './actor.ts'
@@ -158,6 +158,46 @@ export function requireApiKeyScope(actor: Actor, required: ApiKeyGranularScope):
   const credential = actor.kind === 'oauth' ? 'OAuth token' : 'API key'
 
   throw new AppError('forbidden', `This ${credential} does not have the ${required} scope`)
+}
+
+/**
+ * Refuses a new key that would reach more than the credential that creates it.
+ *
+ * Without this, a key with `api_keys:write` and nothing else is a full-access
+ * key in two requests: it creates a key with no scopes, and no scopes means
+ * everything. A session and an unscoped API key can give any scopes.
+ *
+ * Write implies read here as it does at enforcement, so a caller with
+ * `people:write` can give `people:read`.
+ */
+export function requireScopesWithinActor(actor: Actor, requested: readonly ApiKeyScope[]): void {
+  if (!isBearerActor(actor)) {
+    return
+  }
+
+  if (actor.kind !== 'oauth' && actor.scopes.length === 0) {
+    return
+  }
+
+  const credential = actor.kind === 'oauth' ? 'OAuth token' : 'API key'
+
+  if (requested.length === 0) {
+    throw new AppError(
+      'forbidden',
+      `This ${credential} is scoped and cannot create a key with full access. Give the new key scopes`,
+    )
+  }
+
+  const beyond = [...expandApiKeyScopes(requested)].filter(
+    (scope) => !satisfiesApiKeyScope(actor.scopes, scope),
+  )
+
+  if (beyond.length > 0) {
+    throw new AppError(
+      'forbidden',
+      `This ${credential} cannot give scopes it does not have: ${beyond.join(', ')}`,
+    )
+  }
 }
 
 export function resolveRestScope(method: string, path: string): ApiKeyGranularScope | null {
