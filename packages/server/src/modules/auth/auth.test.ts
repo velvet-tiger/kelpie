@@ -202,6 +202,30 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
       expect(response.status).toBe(422)
     })
+
+    /**
+     * The verification email goes to this value. A mail library reads a list
+     * as several recipients and a line break as a new header, so anything that
+     * is not exactly one address must never become an account.
+     */
+    it.each([
+      ['a list', 'ada@example.com, grace@example.com'],
+      ['a semicolon list', 'ada@example.com;grace@example.com'],
+      ['the display-name form', 'Ada <ada@example.com>'],
+      ['markup', '<script>alert(1)</script>@example.com'],
+      ['a line break', 'ada@example.com\nBcc: grace@example.com'],
+      ['text with no domain', 'ada'],
+    ])('rejects %s as the address, and creates and sends nothing', async (_label, email) => {
+      const response = await post('/v1/auth/signup', { ...SIGNUP, email })
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toMatchObject({
+        error: { code: 'validation_failed', details: [{ field: 'email' }] },
+      })
+      expect(response.headers.get('Set-Cookie')).toBeNull()
+      expect(await database.db.select().from(users)).toHaveLength(0)
+      expect(harness.services.sentEmails).toHaveLength(0)
+    })
   })
 
   describe('signups closed', () => {
@@ -266,6 +290,16 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
       expect(unknown.status).toBe(401)
       expect(await unknown.json()).toEqual(await wrong.json())
+    })
+
+    it('still signs in an account whose stored address the sign-up check would now refuse', async () => {
+      const stored = 'ada@example.com, grace@example.com'
+
+      await database.db.update(users).set({ email: stored }).where(eq(users.email, 'ada@example.com'))
+
+      const response = await post('/v1/auth/login', { email: stored, password: SIGNUP.password })
+
+      expect(response.status).toBe(200)
     })
   })
 
@@ -527,6 +561,26 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       })
       expect(confirmed.status).toBe(204)
       expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
+    })
+
+    it.each([
+      ['a list', 'ada.king@example.com, grace@example.com'],
+      ['a semicolon list', 'ada.king@example.com;grace@example.com'],
+      ['the display-name form', 'Ada <ada.king@example.com>'],
+      ['markup', '<a href="https://evil.example">ada.king@example.com</a>'],
+      ['a line break', 'ada.king@example.com\nBcc: grace@example.com'],
+    ])('refuses a change to %s, and changes and sends nothing', async (_label, email) => {
+      const cookie = await signUp()
+      const sentBeforeChange = harness.services.sentEmails.length
+
+      const response = await patch('/v1/account', { email, current_password: SIGNUP.password }, cookie)
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toMatchObject({
+        error: { code: 'validation_failed', details: [{ field: 'email' }] },
+      })
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email: 'ada@example.com' })
+      expect(harness.services.sentEmails).toHaveLength(sentBeforeChange)
     })
 
     it('refuses a name that is only whitespace', async () => {

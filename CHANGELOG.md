@@ -21,6 +21,21 @@ While the major version is `0`, a minor bump may break the API.
   deployment's own name. `renderEmail` and `renderTextEmail` take an optional
   header name. No migration.
 
+### Security
+
+- **`@kelpie/server`** — **An address that gets mail must be one address.**
+  The public form submit, sign-up, a change of sign-in email and a workspace
+  invitation refuse, with a `422`, an address that is not exactly one
+  mailbox: a list with commas or semicolons, the `Name <address>` form,
+  markup, a line break, or a domain with no dot. Before, the server only
+  looked for an `@` on a form answer and for any text on the others, so one
+  auto-reply, verification email or invitation could go to several
+  addresses and count as one. The form email job applies the same check to
+  a stored submission, and sends no auto-reply and sets no Reply-To when it
+  fails. Login is unchanged, so an account with an older address still
+  signs in. The "sign-in email changed" message now escapes both addresses
+  in its HTML part. No migration.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added

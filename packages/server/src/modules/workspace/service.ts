@@ -3,6 +3,7 @@ import { UNIQUE_VIOLATION, isReferenceViolation, postgresErrorCode } from '../..
 import type { Database } from '../../lib/database.ts'
 import type { EmailSender } from '../../lib/email.ts'
 import { renderEmail } from '../../lib/emailContent.ts'
+import { isSingleEmailAddress } from '../../lib/emailAddress.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
@@ -690,6 +691,14 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       const inviter = await requireMembership(actor, workspaceId, 'admin')
       const address = email.trim().toLowerCase()
       const now = dependencies.now()
+
+      // The invitation is mailed to this value, and a list of addresses would
+      // send one token to every address in it.
+      if (!isSingleEmailAddress(address)) {
+        throw AppError.validationFailed('Use a valid email address', [
+          { field: 'email', message: 'Must be one email address' },
+        ])
+      }
 
       // Both refusals come before the seat check, so an address that could never
       // be invited is told that rather than told the workspace is full.

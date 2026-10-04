@@ -906,6 +906,27 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(harness.services.sentEmails).toHaveLength(sentBeforeInviting)
     })
 
+    it.each([
+      ['a list', 'grace@example.com, alan@example.com'],
+      ['a semicolon list', 'grace@example.com;alan@example.com'],
+      ['the display-name form', 'Grace <grace@example.com>'],
+      ['markup', '<script>alert(1)</script>@example.com'],
+      ['a line break', 'grace@example.com\nBcc: alan@example.com'],
+    ])('refuses %s as the address, and writes and sends nothing', async (_label, email) => {
+      const cookie = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(cookie)
+      const sentBeforeInviting = harness.services.sentEmails.length
+
+      const response = await send('POST', `/v1/workspaces/${workspaceId}/invites`, { email, role: 'member' }, cookie)
+
+      expect(response.status).toBe(422)
+      expect(readErrorFields(await response.json())).toEqual(['email'])
+
+      const listed = await send('GET', `/v1/workspaces/${workspaceId}/invites`, undefined, cookie)
+      expect(readList(await listed.json())).toHaveLength(0)
+      expect(harness.services.sentEmails).toHaveLength(sentBeforeInviting)
+    })
+
     it('refuses an address that is already invited', async () => {
       const cookie = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(cookie)

@@ -1,6 +1,7 @@
 import { APP_LINK_PATHS, buildAppLink } from '../../lib/appUrl.ts'
 import type { EmailSender } from '../../lib/email.ts'
 import { renderEmail } from '../../lib/emailContent.ts'
+import { isSingleEmailAddress } from '../../lib/emailAddress.ts'
 import { AppError, ExternalSignInError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
@@ -174,6 +175,22 @@ function requireText(value: string, field: string): string {
   return trimmed
 }
 
+/**
+ * Refuses a new sign-in address that is not exactly one address. Mail goes to
+ * this value, and a list of addresses would send one verification email to
+ * every address in it. Login does not call this: an account stored before the
+ * check existed must still be able to sign in.
+ */
+function requireSingleAddress(email: string): string {
+  if (!isSingleEmailAddress(email)) {
+    throw AppError.validationFailed('Use a valid email address', [
+      { field: 'email', message: 'Must be one email address' },
+    ])
+  }
+
+  return email
+}
+
 export interface AuthService {
   /** Creates the account only. The first workspace comes from onboarding. */
   signUp(input: SignUpInput): Promise<IssuedSession>
@@ -290,7 +307,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         ])
       }
 
-      const email = normaliseEmail(input.email)
+      const email = requireSingleAddress(normaliseEmail(input.email))
       const passwordHash = await hashPassword(input.password)
       const now = dependencies.now()
       const verificationToken = newToken()
@@ -480,6 +497,12 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       const nextEmail =
         changes.email === undefined ? undefined : requireText(normaliseEmail(changes.email), 'email')
       const emailChanging = nextEmail !== undefined && nextEmail !== user.email
+
+      // Only a real change is checked. The address already on file is not new
+      // input, and an older account may hold one this check would refuse.
+      if (emailChanging) {
+        requireSingleAddress(nextEmail)
+      }
 
       const values = {
         ...(changes.name === undefined ? {} : { name: requireText(changes.name, 'name') }),
