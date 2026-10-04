@@ -253,6 +253,14 @@ While the major version is `0`, a minor bump may break the API.
   the workspace and writes nothing. As a second layer, the import and export
   queries join `companies` on the workspace too. No migration.
 
+- **`@kelpie/server`** — **A new agent endpoint does not get the old auth
+  header.** `PATCH /v1/agents/:id` with only `endpoint` kept the stored
+  header, and the next run sent it as `Authorization` to the new address. An
+  admin who did not set the header could thus read a credential that the API
+  never returns. A change of `endpoint` now clears the header unless the same
+  request gives `auth_header`. **An integration that changes an endpoint must
+  send the header again.** No migration.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added

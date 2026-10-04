@@ -608,6 +608,52 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       )
     })
 
+    it('clears the auth header when only the endpoint changes', async () => {
+      const id = readString(await createAgent({ auth_header: 'Bearer one' }), 'id')
+
+      const moved = await client.send('PATCH', `/v1/agents/${id}`, {
+        body: { endpoint: 'https://elsewhere.example.com/run' },
+        cookie: acme.cookie,
+      })
+
+      expect(moved.status).toBe(200)
+
+      const agent = registeredAgentSchema.parse(readRecord(await moved.json()))
+
+      expect(agent.endpoint).toBe('https://elsewhere.example.com/run')
+      expect(agent.hasAuthHeader).toBe(false)
+
+      const [row] = await database.db
+        .select()
+        .from(agentRegistrations)
+        .where(eq(agentRegistrations.id, id))
+
+      expect(row?.authHeaderEncrypted).toBeNull()
+    })
+
+    it('keeps a header given in the same request as a new endpoint', async () => {
+      const id = readString(await createAgent({ auth_header: 'Bearer one' }), 'id')
+
+      const moved = await client.send('PATCH', `/v1/agents/${id}`, {
+        body: { endpoint: 'https://elsewhere.example.com/run', auth_header: 'Bearer two' },
+        cookie: acme.cookie,
+      })
+
+      expect(registeredAgentSchema.parse(readRecord(await moved.json())).hasAuthHeader).toBe(true)
+    })
+
+    it('keeps the header when the endpoint is sent unchanged or only the name changes', async () => {
+      const created = await createAgent({ auth_header: 'Bearer one' })
+      const id = readString(created, 'id')
+
+      const same = await client.send('PATCH', `/v1/agents/${id}`, {
+        body: { name: 'Renamed', endpoint: readString(created, 'endpoint') },
+        cookie: acme.cookie,
+      })
+
+      expect(registeredAgentSchema.parse(readRecord(await same.json())).hasAuthHeader).toBe(true)
+    })
+
     it('refuses to change or remove an agent a module manages', async () => {
       const id = readString(await createAgent(), 'id')
 

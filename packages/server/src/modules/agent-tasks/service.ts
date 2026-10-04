@@ -353,6 +353,12 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
       if (changes.authHeader !== undefined) {
         columns.authHeaderEncrypted =
           changes.authHeader === null ? null : dependencies.cipher.seal(changes.authHeader)
+      } else if (changes.endpoint !== undefined && changes.endpoint !== existing.endpoint) {
+        // The header was given for the old endpoint. Sent to a new one, it
+        // would hand the credential to whoever changed the address, and the
+        // API never returns it. So a new endpoint starts with no header unless
+        // the same request gives one.
+        columns.authHeaderEncrypted = null
       }
 
       // A PATCH that changes nothing is not a write, the webhook rule.
