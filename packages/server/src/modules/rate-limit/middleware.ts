@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono'
 
 import { bearerCredentialId, isBearerActor } from '../../lib/actor.ts'
+import type { Actor } from '../../lib/actor.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import { PUBLIC_ROUTE_PREFIX } from '../../lib/http.ts'
@@ -118,8 +119,14 @@ async function readLoginEmail(context: Context): Promise<string | undefined> {
 async function enforceBudget(
   dependencies: RateLimitMiddlewareDependencies,
   context: Context,
-  params: { readonly scope: string; readonly key: string; readonly budget: RateLimitBudget },
+  params: {
+    readonly scope: string
+    readonly key: string
+    readonly budget: RateLimitBudget
+    readonly amount?: number
+  },
 ): Promise<void> {
+  const amount = params.amount ?? 1
   const now = dependencies.now()
   const start = windowStart(now, params.budget.windowMs)
 
@@ -128,9 +135,11 @@ async function enforceBudget(
     scope: params.scope,
     key: params.key,
     windowStart: start,
+    amount,
   })
 
-  if (count === 1) {
+  // Equal to the amount means this request opened the window.
+  if (count === amount) {
     await pruneExpiredRateLimitBuckets(dependencies.db, new Date(now.getTime() - maxWindowMs(dependencies.config)))
   }
 
@@ -140,6 +149,31 @@ async function enforceBudget(
 
     context.header('Retry-After', String(retryAfterSeconds))
     throw AppError.rateLimited()
+  }
+}
+
+/**
+ * Spends more of a bearer credential's `api` budget than the one unit the
+ * middleware took for the request.
+ *
+ * `/mcp` uses it for a batch: one POST there can carry many messages, and each
+ * is a call the budget exists to count. Throws `429` when the credential is
+ * over budget. A session spends nothing, as in the middleware.
+ */
+export type ApiBudgetCharger = (context: Context, actor: Actor, units: number) => Promise<void>
+
+export function createApiBudgetCharger(dependencies: RateLimitMiddlewareDependencies): ApiBudgetCharger {
+  return async (context, actor, units) => {
+    if (units <= 0 || !isBearerActor(actor)) {
+      return
+    }
+
+    await enforceBudget(dependencies, context, {
+      scope: 'api',
+      key: bearerCredentialId(actor),
+      budget: dependencies.config.api,
+      amount: units,
+    })
   }
 }
 

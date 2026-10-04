@@ -22,8 +22,16 @@ export type RateLimitBucketRecord = typeof rateLimitBuckets.$inferSelect
  */
 export async function incrementRateLimitBucket(
   db: Queryable,
-  params: { readonly id: string; readonly scope: string; readonly key: string; readonly windowStart: Date },
+  params: {
+    readonly id: string
+    readonly scope: string
+    readonly key: string
+    readonly windowStart: Date
+    /** How many units this request spends. One unless the caller says otherwise. */
+    readonly amount?: number
+  },
 ): Promise<number> {
+  const amount = params.amount ?? 1
   const [row] = await db
     .insert(rateLimitBuckets)
     .values({
@@ -31,11 +39,11 @@ export async function incrementRateLimitBucket(
       scope: params.scope,
       key: params.key,
       windowStart: params.windowStart,
-      count: 1,
+      count: amount,
     })
     .onConflictDoUpdate({
       target: [rateLimitBuckets.scope, rateLimitBuckets.key, rateLimitBuckets.windowStart],
-      set: { count: sql`${rateLimitBuckets.count} + 1` },
+      set: { count: sql`${rateLimitBuckets.count} + ${amount}` },
     })
     .returning({ count: rateLimitBuckets.count })
 

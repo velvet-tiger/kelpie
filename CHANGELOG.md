@@ -271,6 +271,15 @@ While the major version is `0`, a minor bump may break the API.
   20,000 characters. **A module in an assembly that takes a body larger than
   1 MB on its own route is now refused.** No migration.
 
+- **`@kelpie/server`** — **An MCP batch has a maximum length, and each
+  message counts against the rate limit.** A `2025-03-26` client can send
+  many messages in one `POST /mcp`. The batch had no maximum, and the whole
+  request spent one unit of the API budget, so one key could run any number
+  of tool calls for the price of one. A batch can now hold at most 20
+  messages; a longer one gets `400`. Each message spends one unit, and a
+  batch the budget does not cover gets `429` before a message runs. A request
+  with one message is not changed. No migration.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added

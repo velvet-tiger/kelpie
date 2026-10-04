@@ -85,7 +85,19 @@ export interface McpRouterDependencies extends CredentialDependencies {
    * authorization server. Undefined leaves a bare `Bearer`.
    */
   readonly authorization?: McpAuthorization | undefined
+  /**
+   * Spends the caller's rate-limit budget for the messages of a batch after
+   * the first. The middleware in front of the transport counts one unit for
+   * the request. Undefined counts nothing more.
+   */
+  readonly chargeMessages?: ((context: Context, actor: Actor, units: number) => Promise<void>) | undefined
 }
+
+/**
+ * The most messages one batch may hold. Only a `2025-03-26` client sends a
+ * batch, and such a client sends a few messages, not hundreds.
+ */
+export const MAX_BATCH_MESSAGES = 20
 
 /**
  * The `WWW-Authenticate` value for a refusal.
@@ -442,6 +454,17 @@ export function createMcpEndpoint(dependencies: McpRouterDependencies): McpEndpo
     if (incoming.length === 0) {
       return context.json(failure(null, INVALID_REQUEST, 'A batch must hold at least one message'), 400)
     }
+
+    if (incoming.length > MAX_BATCH_MESSAGES) {
+      return context.json(
+        failure(null, INVALID_REQUEST, `A batch may hold at most ${String(MAX_BATCH_MESSAGES)} messages`),
+        400,
+      )
+    }
+
+    // Each message is a call, so each one counts. The whole batch is refused
+    // when the budget does not cover it, before any message runs.
+    await dependencies.chargeMessages?.(context, actor, incoming.length - 1)
 
     const parsed = incoming.map(parseMessage)
     // The era belongs to the POST, not to each message in it: a modern request

@@ -198,6 +198,15 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       expect(payload.map((message) => message.id)).toEqual([1, 2])
     })
 
+    it('refuses a batch with more than 20 messages', async () => {
+      const full = await post(Array.from({ length: 20 }, (_, index) => request(index + 1, 'ping')))
+      const over = await post(Array.from({ length: 21 }, (_, index) => request(index + 1, 'ping')))
+
+      expect(full.status).toBe(200)
+      expect(over.status).toBe(400)
+      expect((await envelope(over)).error?.message).toBe('A batch may hold at most 20 messages')
+    })
+
     it('sends an event stream to a client that will take nothing else', async () => {
       const response = await harness.app.request('/mcp', {
         method: 'POST',

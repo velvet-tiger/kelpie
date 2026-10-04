@@ -20,6 +20,7 @@ import { OAUTH_ROUTE_PREFIX } from './modules/oauth/paths.ts'
 import { createMcpEndpoint } from './modules/mcp/router.ts'
 import { createApiKeyScopeMiddleware } from './modules/api-keys/scopeMiddleware.ts'
 import {
+  createApiBudgetCharger,
   createAuthAndApiRateLimitMiddleware,
   createFormSubmitRateLimitMiddleware,
   createOAuthRateLimitMiddleware,
@@ -231,6 +232,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
     instructions: MCP_INSTRUCTIONS,
     logger: dependencies.logger,
     authorization: dependencies.contributions.mcpAuthorization,
+    chargeMessages: createApiBudgetCharger(rateLimitDependencies),
   })
 
   // The transport takes bearer keys only, so every call that

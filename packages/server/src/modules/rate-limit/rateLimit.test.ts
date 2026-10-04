@@ -349,6 +349,40 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       expect(blocked.status).toBe(429)
       expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
     })
+
+    it('counts each message of an MCP batch, not each request', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ api: { limit: 5, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const owner = await client.owner()
+      const secret = await mintApiKey(client, owner.cookie)
+
+      const batch = (length: number): Promise<Response> =>
+        Promise.resolve(
+          harness.app.request('/mcp', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json, text/event-stream',
+              Authorization: `Bearer ${secret}`,
+            },
+            body: JSON.stringify(
+              Array.from({ length }, (_, index) => ({ jsonrpc: '2.0', id: index + 1, method: 'ping' })),
+            ),
+          }),
+        )
+
+      // Three of five units.
+      expect((await batch(3)).status).toBe(200)
+
+      // Three more is six: over budget, and no message of the batch runs.
+      const blocked = await batch(3)
+
+      expect(blocked.status).toBe(429)
+      expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
+    })
   })
 
   describe('security headers', () => {
