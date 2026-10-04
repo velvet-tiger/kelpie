@@ -152,6 +152,48 @@ describe.skipIf(connectionString === undefined)('pipeline conversions', () => {
     expect(second.status).toBe(409)
   })
 
+  it('404s a company_id from another workspace and converts nothing', async () => {
+    const other = await client.owner('grace@example.com')
+    const foreign = await client.send('POST', '/v1/companies', {
+      body: { name: 'Contoso', domain: 'contoso.example' },
+      cookie: other.cookie,
+    })
+    expect(foreign.status).toBe(201)
+    const foreignCompanyId = readString(await foreign.json(), 'id')
+
+    const deal = await createDeal()
+    const dealId = readString(deal, 'id')
+
+    const convert = await client.send('POST', `/v1/deals/${dealId}/convert`, {
+      body: convertPipelineRecordRequest({ targetType: 'opportunity', companyId: foreignCompanyId }),
+      cookie: acme.cookie,
+    })
+    expect(convert.status).toBe(404)
+
+    const readBack = readRecord(
+      await (await client.send('GET', `/v1/deals/${dealId}`, { cookie: acme.cookie })).json(),
+    )
+    expect(readBack.converted_to).toBeNull()
+
+    const opportunities = readList(
+      await (await client.send('GET', '/v1/opportunities', { cookie: acme.cookie })).json(),
+    )
+    expect(opportunities).toHaveLength(0)
+  })
+
+  it('accepts a company_id from this workspace', async () => {
+    const companyId = await createCompany('Fabrikam')
+    const deal = await createDeal()
+
+    const convert = await client.send('POST', `/v1/deals/${readString(deal, 'id')}/convert`, {
+      body: convertPipelineRecordRequest({ targetType: 'opportunity', companyId }),
+      cookie: acme.cookie,
+    })
+
+    expect(convert.status).toBe(201)
+    expect(readRecord(await convert.json()).company_id).toBe(companyId)
+  })
+
   it('422s deal to partnership without a company', async () => {
     const response = await client.send('POST', '/v1/opportunities', {
       body: { name: 'Speaking slot' },

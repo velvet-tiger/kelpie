@@ -325,7 +325,10 @@ export function findPositionKeys(
       })
       .from(positions)
       .innerJoin(people, eq(people.id, positions.personId))
-      .innerJoin(companies, eq(companies.id, positions.companyId))
+      .innerJoin(
+        companies,
+        and(eq(companies.id, positions.companyId), eq(companies.workspaceId, workspaceId)),
+      )
       .where(and(eq(positions.workspaceId, workspaceId), inArray(people.email, [...chunk]))),
   ).then((rows) =>
     rows.map((row) => ({
@@ -361,7 +364,10 @@ export function findDealKeysByCompany(
     db
       .select({ id: deals.id, name: deals.name, companyDomain: companies.domain })
       .from(deals)
-      .innerJoin(companies, eq(companies.id, deals.companyId))
+      .innerJoin(
+        companies,
+        and(eq(companies.id, deals.companyId), eq(companies.workspaceId, workspaceId)),
+      )
       .where(and(eq(deals.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
   ).then((rows) =>
     rows.map((row) => ({
@@ -398,7 +404,10 @@ export function findOpportunityKeysByCompany(
     db
       .select({ id: opportunities.id, name: opportunities.name, companyDomain: companies.domain })
       .from(opportunities)
-      .leftJoin(companies, eq(companies.id, opportunities.companyId))
+      .leftJoin(
+        companies,
+        and(eq(companies.id, opportunities.companyId), eq(companies.workspaceId, workspaceId)),
+      )
       .where(and(eq(opportunities.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
   ).then((rows) =>
     rows.map((row) => ({
@@ -435,7 +444,10 @@ export function findEnquiryKeysByCompany(
     db
       .select({ id: enquiries.id, name: enquiries.name, companyDomain: companies.domain })
       .from(enquiries)
-      .leftJoin(companies, eq(companies.id, enquiries.companyId))
+      .leftJoin(
+        companies,
+        and(eq(companies.id, enquiries.companyId), eq(companies.workspaceId, workspaceId)),
+      )
       .where(and(eq(enquiries.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
   ).then((rows) =>
     rows.map((row) => ({
@@ -454,7 +466,10 @@ export function findPartnershipKeysByCompany(
     db
       .select({ id: partnerships.id, name: partnerships.name, companyDomain: companies.domain })
       .from(partnerships)
-      .innerJoin(companies, eq(companies.id, partnerships.companyId))
+      .innerJoin(
+        companies,
+        and(eq(companies.id, partnerships.companyId), eq(companies.workspaceId, workspaceId)),
+      )
       .where(and(eq(partnerships.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
   ).then((rows) =>
     rows.map((row) => ({
@@ -473,7 +488,10 @@ export function findRaiseKeysByCompany(
     db
       .select({ id: raises.id, name: raises.name, companyDomain: companies.domain })
       .from(raises)
-      .innerJoin(companies, eq(companies.id, raises.companyId))
+      .innerJoin(
+        companies,
+        and(eq(companies.id, raises.companyId), eq(companies.workspaceId, workspaceId)),
+      )
       .where(and(eq(raises.workspaceId, workspaceId), inArray(companies.domain, [...chunk]))),
   ).then((rows) =>
     rows.map((row) => ({
@@ -764,7 +782,10 @@ export function readPositions(
     })
     .from(positions)
     .innerJoin(people, eq(people.id, positions.personId))
-    .innerJoin(companies, eq(companies.id, positions.companyId))
+    .innerJoin(
+      companies,
+      and(eq(companies.id, positions.companyId), eq(companies.workspaceId, workspaceId)),
+    )
     .where(and(eq(positions.workspaceId, workspaceId), gt(positions.id, after)))
     .orderBy(asc(positions.id))
     .limit(EXPORT_PAGE)
@@ -814,7 +835,10 @@ export function readDeals(
       customFields: deals.customFields,
     })
     .from(deals)
-    .innerJoin(companies, eq(companies.id, deals.companyId))
+    .innerJoin(
+      companies,
+      and(eq(companies.id, deals.companyId), eq(companies.workspaceId, workspaceId)),
+    )
     .innerJoin(pipelineStages, eq(pipelineStages.id, deals.stageId))
     .leftJoin(workspaceMembers, eq(workspaceMembers.id, deals.ownerId))
     .leftJoin(users, eq(users.id, workspaceMembers.userId))
@@ -910,7 +934,10 @@ export function readOpportunities(
       customFields: opportunities.customFields,
     })
     .from(opportunities)
-    .leftJoin(companies, eq(companies.id, opportunities.companyId))
+    .leftJoin(
+      companies,
+      and(eq(companies.id, opportunities.companyId), eq(companies.workspaceId, workspaceId)),
+    )
     .innerJoin(pipelineStages, eq(pipelineStages.id, opportunities.stageId))
     .leftJoin(workspaceMembers, eq(workspaceMembers.id, opportunities.ownerId))
     .leftJoin(users, eq(users.id, workspaceMembers.userId))
@@ -941,7 +968,10 @@ export function readEnquiries(
       customFields: enquiries.customFields,
     })
     .from(enquiries)
-    .leftJoin(companies, eq(companies.id, enquiries.companyId))
+    .leftJoin(
+      companies,
+      and(eq(companies.id, enquiries.companyId), eq(companies.workspaceId, workspaceId)),
+    )
     .innerJoin(pipelineStages, eq(pipelineStages.id, enquiries.stageId))
     .leftJoin(workspaceMembers, eq(workspaceMembers.id, enquiries.ownerId))
     .leftJoin(users, eq(users.id, workspaceMembers.userId))
@@ -978,7 +1008,10 @@ export function readPartnerships(
       customFields: partnerships.customFields,
     })
     .from(partnerships)
-    .innerJoin(companies, eq(companies.id, partnerships.companyId))
+    .innerJoin(
+      companies,
+      and(eq(companies.id, partnerships.companyId), eq(companies.workspaceId, workspaceId)),
+    )
     .innerJoin(pipelineStages, eq(pipelineStages.id, partnerships.stageId))
     .leftJoin(workspaceMembers, eq(workspaceMembers.id, partnerships.ownerId))
     .leftJoin(users, eq(users.id, workspaceMembers.userId))
@@ -1017,7 +1050,10 @@ export function readRaises(
       customFields: raises.customFields,
     })
     .from(raises)
-    .innerJoin(companies, eq(companies.id, raises.companyId))
+    .innerJoin(
+      companies,
+      and(eq(companies.id, raises.companyId), eq(companies.workspaceId, workspaceId)),
+    )
     .innerJoin(pipelineStages, eq(pipelineStages.id, raises.stageId))
     .leftJoin(workspaceMembers, eq(workspaceMembers.id, raises.ownerId))
     .leftJoin(users, eq(users.id, workspaceMembers.userId))

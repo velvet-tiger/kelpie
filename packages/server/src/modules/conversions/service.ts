@@ -14,6 +14,7 @@ import {
   describeCreationFrom,
   describeStageChange,
 } from '../activities/wording.ts'
+import * as companyRepository from '../companies/repository.ts'
 import type { CustomFieldValuesValidator } from '../custom-fields/values.ts'
 import * as personLinks from '../personLinks.ts'
 import * as pipelineRepository from '../pipelines/repository.ts'
@@ -166,6 +167,21 @@ export function createConversionsService(dependencies: ConversionsDependencies):
           throw AppError.validationFailed('Stage not found for this target type', [
             { field: 'stage_id', message: body.stageId },
           ])
+        }
+      }
+
+      // A company id from the caller is checked against this workspace. One in
+      // another workspace reads as missing. The source's own company needs no
+      // check: it was checked when the source was written.
+      if (body.companyId !== undefined) {
+        const company = await companyRepository.findCompany(
+          dependencies.db,
+          workspaceId,
+          body.companyId,
+        )
+
+        if (company === undefined) {
+          throw AppError.notFound('Company not found')
         }
       }
 

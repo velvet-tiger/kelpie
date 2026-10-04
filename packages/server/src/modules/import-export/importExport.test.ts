@@ -1252,6 +1252,37 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       expect(response.headers.get('Cache-Control')).toBe('private, no-store')
     })
 
+    it('never reads a company from another workspace', async () => {
+      // No API path writes such a row. This is the second layer: the join
+      // itself must not cross the workspace when a row is wrong.
+      const other = await client.owner('grace@example.com')
+      const foreign = await client.send('POST', '/v1/companies', {
+        body: { name: 'Contoso', domain: 'contoso.example' },
+        cookie: other.cookie,
+      })
+      const foreignCompanyId = readString(await foreign.json(), 'id')
+
+      const company = await client.send('POST', '/v1/companies', {
+        body: { name: 'Northwind', domain: 'northwind.example' },
+        cookie: acme.cookie,
+      })
+      const deal = await client.send('POST', '/v1/deals', {
+        body: { name: 'Enterprise licence', company_id: readString(await company.json(), 'id') },
+        cookie: acme.cookie,
+      })
+      expect(deal.status).toBe(201)
+
+      await database.db
+        .update(deals)
+        .set({ companyId: foreignCompanyId })
+        .where(eq(deals.workspaceId, acme.workspaceId))
+
+      const response = await client.send('GET', '/v1/export/deals.csv', { cookie: acme.cookie })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).not.toContain('contoso.example')
+    })
+
     it('answers 404 for an object nothing exports', async () => {
       const response = await client.send('GET', '/v1/export/notes.csv', { cookie: acme.cookie })
 

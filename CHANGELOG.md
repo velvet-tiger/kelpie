@@ -244,6 +244,15 @@ While the major version is `0`, a minor bump may break the API.
   scope the caller does not have. Write implies read, as it does elsewhere. A
   session and an unscoped key can give any scopes, as before. No migration.
 
+- **`@kelpie/server`** — **Convert checks that `company_id` is in the
+  workspace.** `POST /v1/{enquiries,deals,opportunities,raises,partnerships}/:id/convert`
+  and the convert MCP tools stored a `company_id` from the request without a
+  workspace check, so a member who knew a company id from another workspace
+  could attach a new record to it, and the CSV export then gave that
+  company's domain. Convert now answers `404` for a company that is not in
+  the workspace and writes nothing. As a second layer, the import and export
+  queries join `companies` on the workspace too. No migration.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added
