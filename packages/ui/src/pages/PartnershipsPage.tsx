@@ -1,4 +1,5 @@
 import type { Partnership, PipelineStage } from '@kelpie/schemas'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { useCompanies } from '../api/resources/companies.ts'
@@ -11,6 +12,8 @@ import {
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
 import { useTimezone } from '../api/resources/account.ts'
+import { AddCompanyRecordPanel } from '../components/AddRecordPanel.tsx'
+import type { AddRecordValues } from '../components/AddRecordPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
@@ -127,19 +130,19 @@ export function PartnershipsPage(): React.JSX.Element {
 
   const companyNameById = new Map(companies.records.map((company) => [company.id, company.name]))
 
-  async function addPartnership(): Promise<void> {
-    const firstCompany = companies.records[0]
+  const [adding, setAdding] = useState(false)
 
-    if (firstCompany === undefined) {
+  function addPartnership(values: AddRecordValues): void {
+    // The panel asks for a company, so one is always set here.
+    if (values.companyId === undefined) {
       return
     }
 
-    const partnership = await createPartnership.runAsync({
-      name: 'New partnership',
-      companyId: firstCompany.id,
-    })
-
-    await navigate(`/partnerships/${partnership.id}`)
+    createPartnership
+      .runAsync({ name: values.name, companyId: values.companyId })
+      .then((record) => navigate(`/partnerships/${record.id}`))
+      // The failure is shown from `createPartnership.error` below.
+      .catch(() => undefined)
   }
 
   const stageLabelById = new Map(allStages.map((stage) => [stage.id, stage.label]))
@@ -320,7 +323,7 @@ export function PartnershipsPage(): React.JSX.Element {
       <PageHeader
         title="Partnerships"
         onAdd={() => {
-          void addPartnership()
+          setAdding(true)
         }}
         addLabel="Add partnership"
         actions={
@@ -383,6 +386,17 @@ export function PartnershipsPage(): React.JSX.Element {
         </p>
       )}
 
+      {adding && (
+        <AddCompanyRecordPanel
+          title="Add partnership"
+          isPending={createPartnership.isPending}
+          onCancel={() => {
+            setAdding(false)
+          }}
+          onCreate={addPartnership}
+        />
+      )}
+
       {createPartnership.error !== null && (
         <div className="mb-3">
           <ErrorPanel error={createPartnership.error} />
@@ -435,7 +449,7 @@ export function PartnershipsPage(): React.JSX.Element {
                   ? {
                       label: 'Add partnership',
                       onClick: () => {
-                        void addPartnership()
+                        setAdding(true)
                       },
                     }
                   : scope === 'open'

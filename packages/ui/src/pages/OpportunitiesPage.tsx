@@ -1,4 +1,5 @@
 import type { Opportunity, PipelineStage } from '@kelpie/schemas'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { useCompanies } from '../api/resources/companies.ts'
@@ -11,6 +12,8 @@ import {
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
 import { useTimezone } from '../api/resources/account.ts'
+import { AddRecordPanel } from '../components/AddRecordPanel.tsx'
+import type { AddRecordValues } from '../components/AddRecordPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
@@ -126,10 +129,14 @@ export function OpportunitiesPage(): React.JSX.Element {
 
   const companyNameById = new Map(companies.records.map((company) => [company.id, company.name]))
 
-  async function addOpportunity(): Promise<void> {
-    const opportunity = await createOpportunity.runAsync({ name: 'New opportunity' })
+  const [adding, setAdding] = useState(false)
 
-    await navigate(`/opportunities/${opportunity.id}`)
+  function addOpportunity(values: AddRecordValues): void {
+    createOpportunity
+      .runAsync({ name: values.name })
+      .then((record) => navigate(`/opportunities/${record.id}`))
+      // The failure is shown from `createOpportunity.error` below.
+      .catch(() => undefined)
   }
 
   const stageLabelById = new Map(allStages.map((stage) => [stage.id, stage.label]))
@@ -303,7 +310,7 @@ export function OpportunitiesPage(): React.JSX.Element {
       <PageHeader
         title="Opportunities"
         onAdd={() => {
-          void addOpportunity()
+          setAdding(true)
         }}
         addLabel="Add opportunity"
         actions={
@@ -360,6 +367,17 @@ export function OpportunitiesPage(): React.JSX.Element {
         }
       />
 
+      {adding && (
+        <AddRecordPanel
+          title="Add opportunity"
+          isPending={createOpportunity.isPending}
+          onCancel={() => {
+            setAdding(false)
+          }}
+          onCreate={addOpportunity}
+        />
+      )}
+
       {createOpportunity.error !== null && (
         <div className="mb-3">
           <ErrorPanel error={createOpportunity.error} />
@@ -412,7 +430,7 @@ export function OpportunitiesPage(): React.JSX.Element {
                   ? {
                       label: 'Add opportunity',
                       onClick: () => {
-                        void addOpportunity()
+                        setAdding(true)
                       },
                     }
                   : scope === 'open'

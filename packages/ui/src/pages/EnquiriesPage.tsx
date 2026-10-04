@@ -1,4 +1,5 @@
 import type { Enquiry, PipelineStage } from '@kelpie/schemas'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { useCompanies } from '../api/resources/companies.ts'
@@ -11,6 +12,8 @@ import { useMembers } from '../api/resources/members.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
 import { useTimezone } from '../api/resources/account.ts'
+import { AddRecordPanel } from '../components/AddRecordPanel.tsx'
+import type { AddRecordValues } from '../components/AddRecordPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
@@ -120,10 +123,14 @@ export function EnquiriesPage(): React.JSX.Element {
 
   const companyNameById = new Map(companies.records.map((company) => [company.id, company.name]))
 
-  async function addEnquiry(): Promise<void> {
-    const enquiry = await createEnquiry.runAsync({ name: 'New enquiry' })
+  const [adding, setAdding] = useState(false)
 
-    await navigate(`/enquiries/${enquiry.id}`)
+  function addEnquiry(values: AddRecordValues): void {
+    createEnquiry
+      .runAsync({ name: values.name })
+      .then((record) => navigate(`/enquiries/${record.id}`))
+      // The failure is shown from `createEnquiry.error` below.
+      .catch(() => undefined)
   }
 
   const stageLabelById = new Map(allStages.map((stage) => [stage.id, stage.label]))
@@ -282,7 +289,7 @@ export function EnquiriesPage(): React.JSX.Element {
       <PageHeader
         title="Enquiries"
         onAdd={() => {
-          void addEnquiry()
+          setAdding(true)
         }}
         addLabel="Add enquiry"
         actions={
@@ -339,6 +346,17 @@ export function EnquiriesPage(): React.JSX.Element {
         }
       />
 
+      {adding && (
+        <AddRecordPanel
+          title="Add enquiry"
+          isPending={createEnquiry.isPending}
+          onCancel={() => {
+            setAdding(false)
+          }}
+          onCreate={addEnquiry}
+        />
+      )}
+
       {createEnquiry.error !== null && (
         <div className="mb-3">
           <ErrorPanel error={createEnquiry.error} />
@@ -391,7 +409,7 @@ export function EnquiriesPage(): React.JSX.Element {
                   ? {
                       label: 'Add enquiry',
                       onClick: () => {
-                        void addEnquiry()
+                        setAdding(true)
                       },
                     }
                   : scope === 'open'

@@ -1,4 +1,5 @@
 import type { Deal, PipelineStage } from '@kelpie/schemas'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { useCompanies } from '../api/resources/companies.ts'
@@ -7,6 +8,8 @@ import { useMembers } from '../api/resources/members.ts'
 import { usePipelineStages } from '../api/resources/pipelineStages.ts'
 import { MAX_PAGE_SIZE, usePlanItems } from '../api/resources/planItems.ts'
 import { useTimezone } from '../api/resources/account.ts'
+import { AddCompanyRecordPanel } from '../components/AddRecordPanel.tsx'
+import type { AddRecordValues } from '../components/AddRecordPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
@@ -125,16 +128,19 @@ export function DealsPage(): React.JSX.Element {
 
   const companyNameById = new Map(companies.records.map((company) => [company.id, company.name]))
 
-  async function addDeal(): Promise<void> {
-    const firstCompany = companies.records[0]
+  const [adding, setAdding] = useState(false)
 
-    if (firstCompany === undefined) {
+  function addDeal(values: AddRecordValues): void {
+    // The panel asks for a company, so one is always set here.
+    if (values.companyId === undefined) {
       return
     }
 
-    const deal = await createDeal.runAsync({ name: 'New deal', companyId: firstCompany.id })
-
-    await navigate(`/deals/${deal.id}`)
+    createDeal
+      .runAsync({ name: values.name, companyId: values.companyId })
+      .then((record) => navigate(`/deals/${record.id}`))
+      // The failure is shown from `createDeal.error` below.
+      .catch(() => undefined)
   }
 
   const stageLabelById = new Map(allStages.map((stage) => [stage.id, stage.label]))
@@ -340,7 +346,7 @@ export function DealsPage(): React.JSX.Element {
       <PageHeader
         title="Deals"
         onAdd={() => {
-          void addDeal()
+          setAdding(true)
         }}
         addLabel="Add deal"
         actions={
@@ -396,6 +402,17 @@ export function DealsPage(): React.JSX.Element {
           </>
         }
       />
+
+      {adding && (
+        <AddCompanyRecordPanel
+          title="Add deal"
+          isPending={createDeal.isPending}
+          onCancel={() => {
+            setAdding(false)
+          }}
+          onCreate={addDeal}
+        />
+      )}
 
       {createDeal.error !== null && (
         <div className="mb-3">
@@ -454,7 +471,7 @@ export function DealsPage(): React.JSX.Element {
                   ? {
                       label: 'Add deal',
                       onClick: () => {
-                        void addDeal()
+                        setAdding(true)
                       },
                     }
                   : scope === 'open'

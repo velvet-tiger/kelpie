@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router'
 
 import { useTimezone } from '../api/resources/account.ts'
 import { useCreatePerson, usePeople } from '../api/resources/people.ts'
+import { AddRecordPanel } from '../components/AddRecordPanel.tsx'
+import type { AddRecordValues } from '../components/AddRecordPanel.tsx'
 import { useAiDrawer } from '../components/aiDrawerState.ts'
 import { Chip } from '../components/Chip.tsx'
 import { SocialNetworkIcon } from '../components/SocialNetworkIcon.tsx'
@@ -64,12 +66,14 @@ export function PeoplePage(): React.JSX.Element {
   const createPerson = useCreatePerson()
   const aiDrawer = useAiDrawer()
 
-  async function addPerson(): Promise<void> {
-    // The same defaults the API applies, so a person created here and one
-    // created through the API are the same record.
-    const person = await createPerson.runAsync({ name: 'New person' })
+  const [adding, setAdding] = useState(false)
 
-    await navigate(`/people/${person.id}`)
+  function addPerson(values: AddRecordValues): void {
+    createPerson
+      .runAsync({ name: values.name })
+      .then((record) => navigate(`/people/${record.id}`))
+      // The failure is shown from `createPerson.error` below.
+      .catch(() => undefined)
   }
 
   const columns: readonly Column<Person>[] = [
@@ -244,7 +248,7 @@ export function PeoplePage(): React.JSX.Element {
       <PageHeader
         title="People"
         onAdd={() => {
-          void addPerson()
+          setAdding(true)
         }}
         addLabel="Add person"
         actions={
@@ -267,6 +271,17 @@ export function PeoplePage(): React.JSX.Element {
         onChange={setTerm}
         placeholder="Filter by name, position, company…"
       />
+
+      {adding && (
+        <AddRecordPanel
+          title="Add person"
+          isPending={createPerson.isPending}
+          onCancel={() => {
+            setAdding(false)
+          }}
+          onCreate={addPerson}
+        />
+      )}
 
       {createPerson.error !== null && (
         <div className="mb-3">
@@ -296,7 +311,7 @@ export function PeoplePage(): React.JSX.Element {
                 : {
                     label: 'Add person',
                     onClick: () => {
-                      void addPerson()
+                      setAdding(true)
                     },
                   }
             }

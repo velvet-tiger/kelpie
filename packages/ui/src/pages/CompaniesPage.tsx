@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router'
 
 import { useTimezone } from '../api/resources/account.ts'
 import { useCompanies, useCreateCompany } from '../api/resources/companies.ts'
+import { AddRecordPanel } from '../components/AddRecordPanel.tsx'
+import type { AddRecordValues } from '../components/AddRecordPanel.tsx'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
@@ -50,10 +52,14 @@ export function CompaniesPage(): React.JSX.Element {
   const headcounts = useCompanyHeadcounts(companies.records.map((company) => company.id))
   const createCompany = useCreateCompany()
 
-  async function addCompany(): Promise<void> {
-    const company = await createCompany.runAsync({ name: 'New company' })
+  const [adding, setAdding] = useState(false)
 
-    await navigate(`/companies/${company.id}`)
+  function addCompany(values: AddRecordValues): void {
+    createCompany
+      .runAsync({ name: values.name })
+      .then((record) => navigate(`/companies/${record.id}`))
+      // The failure is shown from `createCompany.error` below.
+      .catch(() => undefined)
   }
 
   const columns: readonly Column<Company>[] = [
@@ -195,7 +201,7 @@ export function CompaniesPage(): React.JSX.Element {
       <PageHeader
         title="Companies"
         onAdd={() => {
-          void addCompany()
+          setAdding(true)
         }}
         addLabel="Add company"
         actions={
@@ -207,6 +213,17 @@ export function CompaniesPage(): React.JSX.Element {
         }
       />
       <FilterBar value={term} onChange={setTerm} placeholder="Filter by name, type, tags…" />
+
+      {adding && (
+        <AddRecordPanel
+          title="Add company"
+          isPending={createCompany.isPending}
+          onCancel={() => {
+            setAdding(false)
+          }}
+          onCreate={addCompany}
+        />
+      )}
 
       {createCompany.error !== null && (
         <div className="mb-3">
@@ -236,7 +253,7 @@ export function CompaniesPage(): React.JSX.Element {
                 : {
                     label: 'Add company',
                     onClick: () => {
-                      void addCompany()
+                      setAdding(true)
                     },
                   }
             }
