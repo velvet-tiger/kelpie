@@ -15,6 +15,8 @@ export { createJobsRuntime } from './runtime/jobs.ts'
 export type { JobsRuntime, JobsRuntimeOptions } from './runtime/jobs.ts'
 export { deadLetterQueueName } from './lib/jobs.ts'
 export type {
+  DeadLetterContext,
+  DeadLetterHandler,
   EnqueueOptions,
   JobContext,
   JobDefaults,

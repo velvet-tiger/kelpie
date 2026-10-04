@@ -64,9 +64,30 @@ export interface JobContext<Data> {
   readonly log: Logger
   /** Fires when pg-boss decides the job has expired. Long-running handlers should honour it. */
   readonly signal: AbortSignal
+  /**
+   * True when this run is the last one: the retries are used, so the queue
+   * does not run the job again if the handler throws. False while a retry
+   * remains. A handler reads it to record a failure that nothing will clear.
+   *
+   * The queue sets it on every run. It is optional so that a test which calls
+   * a handler with a context of its own, and gives no value, still compiles;
+   * a handler reads an absent value as false.
+   */
+  readonly lastAttempt?: boolean
 }
 
 export type JobHandler<Data> = (context: JobContext<Data>) => Promise<void>
+
+/** Passed to `onDeadLetter` when a job arrives in its dead-letter queue. */
+export interface DeadLetterContext<Data> {
+  /** The id of the job in the dead-letter queue, not of the job that ended. */
+  readonly id: string
+  /** The payload of the job that ended, parsed with the definition's schema. */
+  readonly data: Data
+  readonly log: Logger
+}
+
+export type DeadLetterHandler<Data> = (context: DeadLetterContext<Data>) => Promise<void>
 
 export interface JobDefinition<Data> {
   /**
@@ -85,6 +106,28 @@ export interface JobDefinition<Data> {
   readonly schema: ZodType<Data>
   readonly handler: JobHandler<Data>
   readonly defaults?: JobDefaults
+  /**
+   * Runs once for each job that ends in the dead-letter queue: the queue
+   * gave up on it and does not run `handler` for it again. A module uses it
+   * to record that the work was not done.
+   *
+   * A job gets there in two ways. Its handler threw on the last run; that
+   * handler saw `lastAttempt` and could record the failure itself. Or the
+   * worker died during the last run, and supervision ended the job; no
+   * handler ran to the end, so only this function can record it. It runs in
+   * both cases, so write it to do nothing when the handler has already made
+   * its record.
+   *
+   * It runs on a worker, some seconds after the job ended. When it throws,
+   * the queue runs it again a small number of times, so it must be safe to
+   * run more than once. A payload that does not match `schema` is written
+   * to the log and the function does not run.
+   *
+   * Without it, a job in the dead-letter queue stays there untouched, for an
+   * operator to read. With it, the job in the dead-letter queue completes
+   * when the function returns; the queue keeps the row for some days.
+   */
+  readonly onDeadLetter?: DeadLetterHandler<Data>
 }
 
 /**

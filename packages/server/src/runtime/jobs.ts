@@ -1,10 +1,11 @@
 import { sql } from 'drizzle-orm'
 import { PgBoss, fromDrizzle } from 'pg-boss'
-import type { Job } from 'pg-boss'
+import type { JobWithMetadata } from 'pg-boss'
 
 import { describeThrown } from '../lib/errors.ts'
 import type { Logger } from '../lib/logger.ts'
 import type {
+  DeadLetterContext,
   EnqueueOptions,
   JobContext,
   JobDefinition,
@@ -54,6 +55,13 @@ import type { Transaction } from './transaction.ts'
  * queue, and the expiry statement takes `pg_advisory_xact_lock` and moves
  * rows with one `DELETE ... RETURNING`, so two passes cannot retry the same
  * job twice.
+ *
+ * A job with no retry left goes to its dead-letter queue, from a handler
+ * that threw and from the supervision pass alike. For a definition with
+ * `onDeadLetter`, `startWorking()` also works that dead-letter queue and
+ * gives each job in it to the function. The supervision pass runs no handler,
+ * so this is the only code that sees a job whose worker died on the last run.
+ * A dead-letter queue is made with no NOTIFY, so the poll finds its jobs.
  */
 
 /**
@@ -317,8 +325,11 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
           localConcurrency,
           pollingIntervalSeconds,
           notifyPollingIntervalSeconds: pollingIntervalSeconds,
+          // For `retryCount` and `retryLimit`, which say if this run is the
+          // last one. See `lastAttempt` below.
+          includeMetadata: true,
         },
-        async (batch: Job<unknown>[]) => {
+        async (batch: JobWithMetadata<unknown>[]) => {
           const job = batch[0]
           if (job === undefined) {
             return
@@ -345,6 +356,10 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
             data: parsed.data,
             log: jobLogger,
             signal: job.signal,
+            // pg-boss counts a retry when it fetches the job for it: the first
+            // run has `retryCount` 0. When the handler fails, pg-boss retries
+            // only while `retryCount < retryLimit`.
+            lastAttempt: job.retryCount >= job.retryLimit,
           }
 
           try {
@@ -357,6 +372,48 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
       )
 
       workersStarted.add(definition.name)
+
+      const { onDeadLetter } = definition
+
+      if (onDeadLetter === undefined) {
+        continue
+      }
+
+      const deadLetter = deadLetterQueueName(definition.name)
+
+      await instance.work(
+        deadLetter,
+        { batchSize: 1, localConcurrency: 1, pollingIntervalSeconds },
+        async (batch) => {
+          const job = batch[0]
+          if (job === undefined) {
+            return
+          }
+
+          const jobLogger = options.logger.child({ job: deadLetter, jobId: job.id })
+          const parsed = definition.schema.safeParse(job.data)
+
+          // The usual reason this job is here. A retry cannot change the
+          // payload, so the job completes.
+          if (!parsed.success) {
+            jobLogger.error('dead-letter job payload rejected by schema', {
+              issues: parsed.error.issues,
+            })
+            return
+          }
+
+          const context: DeadLetterContext<unknown> = { id: job.id, data: parsed.data, log: jobLogger }
+
+          try {
+            await onDeadLetter(context)
+          } catch (error: unknown) {
+            jobLogger.error('dead-letter handler failed', { error: describeThrown(error) })
+            throw error
+          }
+        },
+      )
+
+      workersStarted.add(deadLetter)
     }
 
     startSupervising(instance)
