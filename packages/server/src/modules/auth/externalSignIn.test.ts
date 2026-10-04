@@ -167,6 +167,8 @@ describe.skipIf(connectionString === undefined)('external sign-in', () => {
       expect(user.emailVerifiedAt).not.toBeNull()
       expect(user.name).toBe('Ada Lovelace')
       // The provider proved control of the address, so there is nothing to confirm.
+      expect(services.queuedJobs).toHaveLength(0)
+      await harness.runQueuedJobs()
       expect(services.sentEmails.length).toBe(before)
     })
 
@@ -338,6 +340,7 @@ describe.skipIf(connectionString === undefined)('external sign-in', () => {
 
       const requested = await post('/v1/auth/password-reset', { email: IDENTITY.email })
       expect(requested.status).toBe(202)
+      await harness.runQueuedJobs()
 
       const sent = services.sentEmails.at(-1)
       const token = /token=([\w-]+)/u.exec(sent?.body ?? '')?.[1]

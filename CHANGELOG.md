@@ -102,6 +102,25 @@ While the major version is `0`, a minor bump may break the API.
   account and invitation emails. `renderEmail` and `renderTextEmail` take an
   optional fourth argument, `'deployment'` (the default) or `'none'`. The
   plaintext part had no such link and is unchanged. No migration.
+- **`@kelpie/server`** — **Account and invitation emails are background
+  jobs.** The verification email, the password reset email, the "sign-in
+  email changed" notice and the workspace invitation are now sent by the job
+  worker, as the form emails are. Before, they were sent inside the request
+  after the write was saved, so a mail server that failed gave the caller a
+  `500` for a sign-up, an address change or an invitation that did exist, and
+  a failed notice to the old address stopped the verification email to the
+  new one. Now the request adds the job in the same transaction as the write
+  and answers without waiting; each email is its own job and is retried three
+  times in about four minutes. No job payload holds a token: the job makes
+  the token when it runs, so a resent invitation's old link stops at the
+  request and the new link starts when the job runs. An API started with
+  `--no-worker` needs a worker process beside it, or these emails are not
+  sent. The four queues are `auth.send-verification-email`,
+  `auth.send-password-reset-email`, `auth.send-email-change-notice` and
+  `workspace.send-invite-email`. In `@kelpie/server/testing`,
+  `createTestServices` now takes jobs into an in-memory queue when it gets no
+  `enqueueOnTx`, and `TestApp.runQueuedJobs()` runs them; a test that reads
+  an email after a sign-up or an invitation must call it first. No migration.
 - **`@kelpie/server`** — **The SMTP sender has time limits.** The
   `smtp-email` module now stops a send after 10 seconds with no connection,
   10 seconds with no greeting, 10 seconds with no DNS answer, or 30 seconds
@@ -109,9 +128,20 @@ While the major version is `0`, a minor bump may break the API.
   minutes to connect and 10 minutes for an idle socket, so a slow mail server
   could hold a sign-up request open for minutes. The limits are constants,
   not environment variables. No migration.
+- **`@kelpie/server`** — **No "sign-in email changed" notice for the same
+  address.** `PATCH /v1/account` with the address already on file sent the
+  owner a notice that the address changed from itself to itself. It now
+  sends none. No migration.
 
 ### Security
 
+- **`@kelpie/server`** — **A password reset request no longer shows which
+  addresses have accounts.** `POST /v1/auth/password-reset` answered at once
+  for an unknown address and waited for the mail server for a registered
+  one, and a mail server that failed gave `500` for a registered address and
+  `202` for an unknown one. The request now adds one job for every address
+  and does not read the accounts table; the job looks the account up. Both
+  cases do the same work and get `202`. No migration.
 - **`@kelpie/server`** — **An address that gets mail must be one address.**
   The public form submit, sign-up, a change of sign-in email and a workspace
   invitation refuse, with a `422`, an address that is not exactly one

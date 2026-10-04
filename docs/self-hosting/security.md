@@ -21,6 +21,10 @@ Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` everywhere except d
 
 ## Email verification and link building
 
+A password reset request answers `202` for every address and does the same work for each: it adds one background job and does not read the accounts table. The job finds the account, or finds none, after the caller has its answer. The response and its timing thus do not show which addresses have accounts, and a mail server that is down does not change them.
+
+Emailed links hold a single-use token, and the database stores only its hash. The job that sends the email makes the token when it runs, so no job payload holds one.
+
 An account must verify its email address before it can create a workspace; accepting an invitation verifies as a side effect, since the invite link already proves control of the address. Every emailed link is built server-side from your `APP_BASE_URL` plus a fixed path — a caller can never supply the link target, which closes the classic account-takeover path.
 
 ## Rate limits

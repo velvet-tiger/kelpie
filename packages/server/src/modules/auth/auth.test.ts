@@ -1,6 +1,8 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { PermanentEmailError } from '../../lib/email.ts'
+import type { EmailMessage, EmailSender } from '../../lib/email.ts'
 import { verifyPassword } from '../../lib/passwords.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
@@ -9,7 +11,13 @@ import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
-import { userPreferences, users } from './schema.ts'
+import {
+  SEND_EMAIL_CHANGE_NOTICE_JOB,
+  SEND_PASSWORD_RESET_EMAIL_JOB,
+  SEND_VERIFICATION_EMAIL_JOB,
+  sendVerificationEmail,
+} from './emailJobs.ts'
+import { emailVerificationTokens, passwordResetTokens, userPreferences, users } from './schema.ts'
 
 /**
  * The auth surface against real Postgres. These assert behaviour a stranger can
@@ -137,9 +145,14 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     return match[1]
   }
 
+  /**
+   * Signs up, then runs the verification email job the sign-up queued, as the
+   * worker would, so the email is in `sentEmails` when this resolves.
+   */
   async function signUp(): Promise<string> {
     const response = await post('/v1/auth/signup', SIGNUP)
     expect(response.status).toBe(201)
+    await harness.runQueuedJobs()
 
     return sessionCookieFrom(response)
   }
@@ -224,6 +237,8 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       })
       expect(response.headers.get('Set-Cookie')).toBeNull()
       expect(await database.db.select().from(users)).toHaveLength(0)
+      expect(harness.services.queuedJobs).toHaveLength(0)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(0)
     })
   })
@@ -526,11 +541,16 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: keep } })).status).toBe(200)
       expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: other } })).status).toBe(401)
 
+      await harness.runQueuedJobs()
+
       const [changeNotice, verification] = harness.services.sentEmails.slice(sentBeforeChange)
       expect(harness.services.sentEmails).toHaveLength(sentBeforeChange + 2)
-      expect(changeNotice).toMatchObject({ to: 'ada@example.com' })
+      expect(changeNotice).toMatchObject({ to: 'ada@example.com', headers: { 'Auto-Submitted': 'auto-generated' } })
       expect(changeNotice?.body).toContain('ada.king@example.com')
-      expect(verification).toMatchObject({ to: 'ada.king@example.com' })
+      expect(verification).toMatchObject({
+        to: 'ada.king@example.com',
+        headers: { 'Auto-Submitted': 'auto-generated' },
+      })
     })
 
     it('resets verification on a real address change, and a no-op change resets nothing', async () => {
@@ -547,6 +567,11 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect(unchanged.status).toBe(200)
       expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
 
+      // Nor does it tell the owner that the address changed.
+      const sentBeforeNoOp = harness.services.sentEmails.length
+      await harness.runQueuedJobs()
+      expect(harness.services.sentEmails).toHaveLength(sentBeforeNoOp)
+
       const changed = await patch(
         '/v1/account',
         { email: 'ada.king@example.com', current_password: SIGNUP.password },
@@ -555,6 +580,8 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect(changed.status).toBe(200)
       expect(await changed.json()).toMatchObject({ email: 'ada.king@example.com', email_verified: false })
       expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: false })
+
+      await harness.runQueuedJobs()
 
       const confirmed = await post('/v1/auth/verify-email/confirm', {
         token: verificationTokenFromEmail(),
@@ -580,7 +607,43 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         error: { code: 'validation_failed', details: [{ field: 'email' }] },
       })
       expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email: 'ada@example.com' })
+      expect(harness.services.queuedJobs).toHaveLength(0)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(sentBeforeChange)
+    })
+
+    /**
+     * The notice quotes both addresses to the old one. An account stored before
+     * the address check can hold markup, so the HTML part must show it as text.
+     */
+    it('escapes the addresses in the change notice', async () => {
+      const cookie = await signUp()
+      const stored = '<b>ada</b><a href="https://evil.example">x</a>@example.com'
+
+      await database.db.update(users).set({ email: stored }).where(eq(users.email, 'ada@example.com'))
+
+      const sentBeforeChange = harness.services.sentEmails.length
+      const response = await patch(
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+
+      expect(response.status).toBe(200)
+      await harness.runQueuedJobs()
+
+      const changeNotice = harness.services.sentEmails[sentBeforeChange]
+
+      expect(changeNotice?.subject).toBe('Your Kelpie sign-in email changed')
+      // The plaintext part is the words as written.
+      expect(changeNotice?.body).toBe(
+        `Your Kelpie sign-in email changed from ${stored} to ada.king@example.com. If you did not make this change, reset your password right away.`,
+      )
+      expect(changeNotice?.html).toContain(
+        '&lt;b&gt;ada&lt;/b&gt;&lt;a href=&quot;https://evil.example&quot;&gt;x&lt;/a&gt;@example.com',
+      )
+      expect(changeNotice?.html).not.toContain('<b>ada</b>')
+      expect(changeNotice?.html).not.toContain('https://evil.example"')
     })
 
     it('refuses a name that is only whitespace', async () => {
@@ -839,8 +902,12 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const response = await post('/v1/auth/password-reset', { email: SIGNUP.email })
 
       expect(response.status).toBe(202)
+      // The request itself sends nothing: the email is a job.
+      expect(harness.services.sentEmails).toHaveLength(sentBeforeReset)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(sentBeforeReset + 1)
       expect(harness.services.sentEmails.at(-1)?.to).toBe('ada@example.com')
+      expect(harness.services.sentEmails.at(-1)?.headers).toMatchObject({ 'Auto-Submitted': 'auto-generated' })
       // The link is built server-side from APP_BASE_URL, not from anything the
       // caller sent, which is the whole point of the change.
       expect(harness.services.sentEmails.at(-1)?.body).toContain(
@@ -852,12 +919,14 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const response = await post('/v1/auth/password-reset', { email: 'nobody@example.com' })
 
       expect(response.status).toBe(202)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(0)
     })
 
     it('sets the new password and ends every session', async () => {
       const cookie = await signUp()
       await post('/v1/auth/password-reset', { email: SIGNUP.email })
+      await harness.runQueuedJobs()
 
       const confirmed = await post('/v1/auth/password-reset/confirm', {
         token: tokenFromEmail(),
@@ -874,6 +943,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     it('refuses a token that has already been used', async () => {
       await signUp()
       await post('/v1/auth/password-reset', { email: SIGNUP.email })
+      await harness.runQueuedJobs()
       const token = tokenFromEmail()
 
       await post('/v1/auth/password-reset/confirm', { token, password: 'a brand new long password' })
@@ -903,6 +973,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'expiry@example.com' }),
       })
+      await expired.runQueuedJobs()
 
       const issuedToken = /token=([^\s]+)/u.exec(expired.services.sentEmails.at(-1)?.body ?? '')?.[1] ?? ''
 
@@ -940,6 +1011,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         body: JSON.stringify({ email: 'precedence-reset@example.com' }),
       })
       expect(resetResponse.status).toBe(202)
+      await overridden.runQueuedJobs()
 
       const body = overridden.services.sentEmails.at(-1)?.body ?? ''
       expect(body).toContain(`${SERVICES_URL}/reset-password?token=`)
@@ -953,6 +1025,9 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const response = await post('/v1/auth/signup', SIGNUP)
       const cookie = sessionCookieFrom(response)
 
+      // The request itself sends nothing: the email is a job.
+      expect(harness.services.sentEmails).toHaveLength(0)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(1)
       expect(harness.services.sentEmails[0]?.to).toBe('ada@example.com')
       expect(await response.json()).toMatchObject({ account: { email_verified: false } })
@@ -997,6 +1072,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...SIGNUP, email: 'expiry@example.com' }),
       })
+      await expired.runQueuedJobs()
 
       const issuedToken = /token=([^\s]+)/u.exec(expired.services.sentEmails[0]?.body ?? '')?.[1] ?? ''
 
@@ -1012,6 +1088,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const response = await post('/v1/auth/verify-email', {}, cookie)
 
       expect(response.status).toBe(202)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(2)
 
       const confirmed = await post('/v1/auth/verify-email/confirm', {
@@ -1028,6 +1105,8 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const response = await post('/v1/auth/verify-email', {}, cookie)
 
       expect(response.status).toBe(202)
+      expect(harness.services.queuedJobs).toHaveLength(0)
+      await harness.runQueuedJobs()
       expect(harness.services.sentEmails).toHaveLength(1)
     })
 
@@ -1043,6 +1122,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const response = await post('/v1/auth/signup', { ...SIGNUP, email })
       expect(response.status).toBe(201)
       const cookie = sessionCookieFrom(response)
+      await harness.runQueuedJobs()
       const confirmed = await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() })
       expect(confirmed.status).toBe(204)
 
@@ -1146,6 +1226,336 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     it('answers 401 without a cookie', async () => {
       expect((await get('/v1/auth/workspaces')).status).toBe(401)
       expect((await post('/v1/auth/workspace', { workspace_id: 'ws_nope' })).status).toBe(401)
+    })
+  })
+
+  /**
+   * Every auth email is a job. A mail server that refuses a message must not
+   * change what the caller sees, because the account is already saved.
+   */
+  describe('when the mail server refuses a message', () => {
+    /**
+     * Refuses every message while `down` is true, and the addresses in
+     * `failing` always. An address in `refusing` is refused permanently.
+     * `tried` counts every call.
+     */
+    interface ControlledSender {
+      readonly sender: EmailSender
+      readonly sent: EmailMessage[]
+      readonly failing: Set<string>
+      readonly refusing: Set<string>
+      down: boolean
+      tried: number
+    }
+
+    function controlledSender(): ControlledSender {
+      const control: ControlledSender = {
+        sent: [],
+        failing: new Set<string>(),
+        refusing: new Set<string>(),
+        down: true,
+        tried: 0,
+        sender: {
+          send(message) {
+            control.tried += 1
+
+            if (control.refusing.has(message.to)) {
+              return Promise.reject(new PermanentEmailError(`550 no mailbox ${message.to}`))
+            }
+
+            if (control.down || control.failing.has(message.to)) {
+              return Promise.reject(new Error(`mailbox ${message.to} refused the message`))
+            }
+
+            control.sent.push(message)
+
+            return Promise.resolve()
+          },
+        },
+      }
+
+      return control
+    }
+
+    let mail: ControlledSender
+
+    beforeEach(async () => {
+      mail = controlledSender()
+      harness = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: { ...createTestServices({ db: database.db }), emailSender: mail.sender },
+      })
+    })
+
+    function tokenIn(message: EmailMessage | undefined): string {
+      return /token=([^\s]+)/u.exec(message?.body ?? '')?.[1] ?? ''
+    }
+
+    function queuedNames(): string[] {
+      return harness.services.queuedJobs.map((job) => job.name)
+    }
+
+    it('still signs the account up, and sends a working link when the job is retried', async () => {
+      const response = await post('/v1/auth/signup', SIGNUP)
+
+      expect(response.status).toBe(201)
+      expect(await database.db.select().from(users)).toHaveLength(1)
+
+      // The job fails and stays queued, as the real queue keeps it for a retry.
+      await expect(harness.runQueuedJobs()).rejects.toThrow()
+      expect(queuedNames()).toEqual([SEND_VERIFICATION_EMAIL_JOB])
+      expect(mail.sent).toHaveLength(0)
+
+      mail.down = false
+      await harness.runQueuedJobs()
+
+      expect(mail.sent).toHaveLength(1)
+      expect(queuedNames()).toEqual([])
+      expect((await post('/v1/auth/verify-email/confirm', { token: tokenIn(mail.sent[0]) })).status).toBe(204)
+    })
+
+    it('still answers 202 to a request for another verification email', async () => {
+      const cookie = sessionCookieFrom(await post('/v1/auth/signup', SIGNUP))
+
+      const response = await post('/v1/auth/verify-email', {}, cookie)
+
+      expect(response.status).toBe(202)
+      await expect(harness.runQueuedJobs()).rejects.toThrow()
+      expect(mail.sent).toHaveLength(0)
+    })
+
+    it('answers a password reset the same for a registered and an unknown address', async () => {
+      await post('/v1/auth/signup', SIGNUP)
+      harness.services.queuedJobs.length = 0
+
+      const known = await post('/v1/auth/password-reset', { email: SIGNUP.email })
+      const afterKnown = queuedNames()
+      const unknown = await post('/v1/auth/password-reset', { email: 'nobody@example.com' })
+
+      expect(known.status).toBe(202)
+      expect(unknown.status).toBe(202)
+      expect(await known.text()).toBe(await unknown.text())
+      // Each request did the same work: one job, and no token made yet.
+      expect(afterKnown).toEqual([SEND_PASSWORD_RESET_EMAIL_JOB])
+      expect(queuedNames()).toEqual([SEND_PASSWORD_RESET_EMAIL_JOB, SEND_PASSWORD_RESET_EMAIL_JOB])
+      expect(await database.db.select().from(passwordResetTokens)).toHaveLength(0)
+
+      // Only the job for the registered address has a message to fail on.
+      await expect(harness.runQueuedJobs()).rejects.toThrow()
+      expect(harness.services.queuedJobs).toEqual([
+        { name: SEND_PASSWORD_RESET_EMAIL_JOB, data: expect.objectContaining({ email: 'ada@example.com' }) },
+      ])
+
+      mail.down = false
+      await harness.runQueuedJobs()
+
+      expect(mail.sent.map((message) => message.to)).toEqual(['ada@example.com'])
+      expect(
+        (
+          await post('/v1/auth/password-reset/confirm', {
+            token: tokenIn(mail.sent[0]),
+            password: 'a brand new long password',
+          })
+        ).status,
+      ).toBe(204)
+    })
+
+    it('still changes the address, and a refused notice does not stop the verification email', async () => {
+      const cookie = sessionCookieFrom(await post('/v1/auth/signup', SIGNUP))
+      harness.services.queuedJobs.length = 0
+      // Only the old address refuses mail from here on.
+      mail.down = false
+      mail.failing.add('ada@example.com')
+
+      const response = await patch(
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ email: 'ada.king@example.com', email_verified: false })
+      expect(queuedNames()).toEqual([SEND_EMAIL_CHANGE_NOTICE_JOB, SEND_VERIFICATION_EMAIL_JOB])
+
+      await expect(harness.runQueuedJobs()).rejects.toThrow()
+
+      expect(mail.sent.map((message) => message.to)).toEqual(['ada.king@example.com'])
+      expect((await post('/v1/auth/verify-email/confirm', { token: tokenIn(mail.sent[0]) })).status).toBe(204)
+
+      // Only the notice is retried. The verification email is not sent again.
+      expect(queuedNames()).toEqual([SEND_EMAIL_CHANGE_NOTICE_JOB])
+      mail.failing.clear()
+      await harness.runQueuedJobs()
+
+      expect(mail.sent.map((message) => message.to)).toEqual(['ada.king@example.com', 'ada@example.com'])
+    })
+
+    it('does not retry a verification email the mail server refused permanently', async () => {
+      mail.down = false
+      mail.refusing.add('ada@example.com')
+
+      expect((await post('/v1/auth/signup', SIGNUP)).status).toBe(201)
+
+      // The job completes: no throw, and nothing stays queued for a retry.
+      await harness.runQueuedJobs()
+
+      expect(mail.tried).toBe(1)
+      expect(queuedNames()).toEqual([])
+    })
+
+    it('does not retry a password reset email the mail server refused permanently', async () => {
+      await post('/v1/auth/signup', SIGNUP)
+      harness.services.queuedJobs.length = 0
+      mail.down = false
+      mail.tried = 0
+      mail.refusing.add('ada@example.com')
+
+      expect((await post('/v1/auth/password-reset', { email: SIGNUP.email })).status).toBe(202)
+      await harness.runQueuedJobs()
+
+      expect(mail.tried).toBe(1)
+      expect(queuedNames()).toEqual([])
+    })
+
+    it('does not retry a refused notice, and still sends the verification email', async () => {
+      const cookie = sessionCookieFrom(await post('/v1/auth/signup', SIGNUP))
+      harness.services.queuedJobs.length = 0
+      mail.down = false
+      mail.refusing.add('ada@example.com')
+
+      await patch('/v1/account', { email: 'ada.king@example.com', current_password: SIGNUP.password }, cookie)
+      await harness.runQueuedJobs()
+
+      expect(mail.sent.map((message) => message.to)).toEqual(['ada.king@example.com'])
+      expect(queuedNames()).toEqual([])
+    })
+  })
+
+  describe('the email jobs', () => {
+    it('sends no verification email for a request older than the link would have lived', async () => {
+      await post('/v1/auth/signup', SIGNUP)
+      const [user] = await database.db.select().from(users)
+
+      await sendVerificationEmail(
+        {
+          db: database.db,
+          email: harness.services.emailSender,
+          createId: harness.services.createId,
+          now: () => new Date('2026-08-03T00:00:01.000Z'),
+          appBaseUrl: TEST_APP_BASE_URL,
+        },
+        { userId: user?.id ?? '', email: 'ada@example.com', requestedAt: '2026-08-02T00:00:00.000Z' },
+      )
+
+      expect(harness.services.sentEmails).toHaveLength(0)
+      expect(await database.db.select().from(emailVerificationTokens)).toHaveLength(0)
+    })
+
+    it('sends no verification email to an address the account has since left', async () => {
+      const cookie = await signUp()
+      const sentBefore = harness.services.sentEmails.length
+
+      await post('/v1/auth/verify-email', {}, cookie)
+      await database.db.update(users).set({ email: 'ada.king@example.com' })
+      await harness.runQueuedJobs()
+
+      expect(harness.services.sentEmails).toHaveLength(sentBefore)
+    })
+
+    it('skips a password reset request with an address too long to be a mailbox', async () => {
+      const response = await post('/v1/auth/password-reset', { email: `${'a'.repeat(320)}@example.com` })
+
+      expect(response.status).toBe(202)
+      expect(harness.services.queuedJobs).toHaveLength(0)
+    })
+  })
+
+  /**
+   * The same writes against the real queue, which the suites above replace
+   * with one in memory. The job must commit with the write it belongs to, and
+   * its row must hold nothing that works as a link.
+   */
+  describe('on the real queue', () => {
+    beforeAll(async () => {
+      await database.jobs.start()
+    })
+
+    beforeEach(async () => {
+      harness = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db, enqueueOnTx: database.jobs.enqueueOnTx }),
+      })
+    })
+
+    async function queueRows(): Promise<{ name: string; data: unknown }[]> {
+      const rows = await database.db.execute<{ name: string; data: unknown }>(
+        sql`select name, data from pgboss.job order by created_on`,
+      )
+
+      return [...rows].map((row) => ({ name: row.name, data: row.data }))
+    }
+
+    it('adds the verification job with the sign-up, and its payload holds no token', async () => {
+      const response = await post('/v1/auth/signup', SIGNUP)
+
+      expect(response.status).toBe(201)
+
+      const [user] = await database.db.select().from(users)
+
+      expect(await queueRows()).toEqual([
+        {
+          name: SEND_VERIFICATION_EMAIL_JOB,
+          data: { userId: user?.id, email: 'ada@example.com', requestedAt: expect.any(String) },
+        },
+      ])
+      // No token exists until the job runs.
+      expect(await database.db.select().from(emailVerificationTokens)).toHaveLength(0)
+    })
+
+    it('adds no job for a sign-up that is refused', async () => {
+      await post('/v1/auth/signup', SIGNUP)
+      await database.db.execute(sql`delete from pgboss.job`)
+
+      const response = await post('/v1/auth/signup', SIGNUP)
+
+      expect(response.status).toBe(409)
+      expect(await queueRows()).toEqual([])
+    })
+
+    it('adds no job for a change of address that is refused as taken', async () => {
+      const cookie = sessionCookieFrom(await post('/v1/auth/signup', SIGNUP))
+      await post('/v1/auth/signup', { ...SIGNUP, email: 'grace@example.com' })
+      await database.db.execute(sql`delete from pgboss.job`)
+
+      const response = await patch(
+        '/v1/account',
+        { email: 'grace@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+
+      expect(response.status).toBe(409)
+      expect(await queueRows()).toEqual([])
+    })
+
+    it('adds the same password reset job for a registered and an unknown address', async () => {
+      await post('/v1/auth/signup', SIGNUP)
+      await database.db.execute(sql`delete from pgboss.job`)
+
+      await post('/v1/auth/password-reset', { email: SIGNUP.email })
+      await post('/v1/auth/password-reset', { email: 'nobody@example.com' })
+
+      expect(await queueRows()).toEqual([
+        {
+          name: SEND_PASSWORD_RESET_EMAIL_JOB,
+          data: { email: 'ada@example.com', requestedAt: expect.any(String) },
+        },
+        {
+          name: SEND_PASSWORD_RESET_EMAIL_JOB,
+          data: { email: 'nobody@example.com', requestedAt: expect.any(String) },
+        },
+      ])
     })
   })
 })

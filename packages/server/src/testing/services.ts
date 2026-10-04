@@ -10,6 +10,8 @@ import type { EventBus } from '../runtime/events.ts'
 import type { ModuleServices } from '../runtime/module.ts'
 import { createTransactionScope } from '../runtime/transaction.ts'
 import type { EnqueueOnTransaction } from '../runtime/transaction.ts'
+import { createMemoryJobQueue } from './jobs.ts'
+import type { QueuedJob } from './jobs.ts'
 
 /**
  * The collaborators a module needs, wired for tests.
@@ -42,9 +44,10 @@ export interface TestServicesOptions {
   /** Threaded through to `ModuleServices.secretEncryption`, so a test exercises the preferred path. */
   readonly secretEncryption?: SecretEncryptionConfig
   /**
-   * How `tx.jobs.enqueue(...)` reaches its backing runtime. Omitted, the
-   * transaction scope rejects the call with a boot-time bug message; tests
-   * that never enqueue leave this unset.
+   * How `tx.jobs.enqueue(...)` reaches its backing runtime. Omitted, jobs go
+   * to a queue in memory (`TestServices.queuedJobs`) and nothing runs them
+   * until the test does. A suite that tests the queue itself passes the real
+   * one, `TestDatabase.jobs.enqueueOnTx`.
    */
   readonly enqueueOnTx?: EnqueueOnTransaction
 }
@@ -60,6 +63,11 @@ export interface TestServices extends ModuleServices {
   /** Everything the email port was asked to send, in order. */
   readonly sentEmails: readonly EmailMessage[]
   readonly events: EventBus
+  /**
+   * The jobs the in-memory queue holds, oldest first. `TestApp.runQueuedJobs`
+   * runs them. Always empty when the caller passed its own `enqueueOnTx`.
+   */
+  readonly queuedJobs: QueuedJob[]
 }
 
 /** Collects messages instead of sending them, so a test can read the reset link. */
@@ -85,6 +93,7 @@ export function createTestServices(options: TestServicesOptions = {}): TestServi
   const createId = options.createId ?? createIdFactory()
   const now = options.now ?? ((): Date => new Date())
   const { sender, sent } = createCollectingEmailSender()
+  const memoryQueue = createMemoryJobQueue()
 
   return {
     db,
@@ -94,12 +103,13 @@ export function createTestServices(options: TestServicesOptions = {}): TestServi
       logger,
       createId,
       now,
-      ...(options.enqueueOnTx === undefined ? {} : { enqueueOnTx: options.enqueueOnTx }),
+      enqueueOnTx: options.enqueueOnTx ?? memoryQueue.enqueueOnTx,
     }),
     createId,
     now,
     emailSender: sender,
     sentEmails: sent,
+    queuedJobs: memoryQueue.queued,
     events,
     // Spread conditionally so the field is absent (not `undefined`) when the
     // caller does not opt in, keeping the fallback path (context.config) live

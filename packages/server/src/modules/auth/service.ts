@@ -1,6 +1,3 @@
-import { APP_LINK_PATHS, buildAppLink } from '../../lib/appUrl.ts'
-import type { EmailSender } from '../../lib/email.ts'
-import { renderEmail } from '../../lib/emailContent.ts'
 import { isSingleEmailAddress } from '../../lib/emailAddress.ts'
 import { AppError, ExternalSignInError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -13,6 +10,7 @@ import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { MemberRole } from '../workspace/roles.ts'
 import { parseMemberRole } from '../workspace/roles.ts'
 import type { SessionActor } from './actor.ts'
+import type { AuthEmailJobs } from './emailJobs.ts'
 import { DEFAULT_PREFERENCES, applyPreferenceChanges } from './preferences.ts'
 import type { PreferenceChanges, PreferenceValues } from './preferences.ts'
 import * as repository from './repository.ts'
@@ -27,18 +25,23 @@ import * as repository from './repository.ts'
  */
 
 const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
-const RESET_TOKEN_LIFETIME_MS = 60 * 60 * 1000
-/** Longer than a reset token: there is no stolen-account urgency, and an inbox is checked on its own time. */
-const EMAIL_VERIFICATION_TOKEN_LIFETIME_MS = 24 * 60 * 60 * 1000
+/**
+ * The longest address a reset request puts on the queue. The route sets no
+ * length limit and the caller is a stranger, so without one a job payload
+ * could be as large as a request body. No mailbox has a longer address.
+ */
+const LONGEST_EMAIL_ADDRESS = 320
 
 export interface AuthDependencies {
   readonly db: Database
   readonly transaction: TransactionScope
-  readonly email: EmailSender
   readonly createId: IdFactory
   readonly now: () => Date
-  /** The deployment's own base URL. Every emailed link is built from it. */
-  readonly appBaseUrl: string
+  /**
+   * The emails this service asks for. It sends none itself: each one is a job
+   * added inside the transaction that made it necessary. See `emailJobs.ts`.
+   */
+  readonly emailJobs: AuthEmailJobs
   /**
    * Whether a brand-new account may be created, through `signUp` or
    * `completeExternalSignIn` provisioning. Joining an existing workspace via
@@ -46,7 +49,7 @@ export interface AuthDependencies {
    * unaffected either way — this only gates the account-creation step itself.
    */
   readonly signupsEnabled: boolean
-  /** Injected only so tests can pin tokens. Production uses the crypto default. */
+  /** Injected only so tests can pin session tokens. Production uses the crypto default. */
   readonly newToken?: () => string
 }
 
@@ -213,11 +216,11 @@ export interface AuthService {
   listWorkspaces(actor: SessionActor): Promise<readonly AccountWorkspaceView[]>
   /** Moves this session into a membership. Answers the same shape as `GET /v1/auth/me`. */
   switchWorkspace(actor: SessionActor, workspaceId: string): Promise<MeView>
-  /** Resolves whether or not the address is registered. */
+  /** Resolves whether or not the address is registered, after the same work for both. */
   requestPasswordReset(email: string): Promise<void>
   confirmPasswordReset(token: string, newPassword: string): Promise<void>
   changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<void>
-  /** Issues a fresh verification token and emails it. A no-op once already verified. */
+  /** Queues a fresh verification email. A no-op once already verified. */
   requestEmailVerification(actor: SessionActor): Promise<void>
   confirmEmailVerification(token: string): Promise<void>
 }
@@ -272,28 +275,6 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     }
   }
 
-  function sendVerificationEmail(to: string, token: string): Promise<void> {
-    const link = buildAppLink(dependencies.appBaseUrl, APP_LINK_PATHS.verifyEmail, token)
-    const { text, html } = renderEmail(
-      {
-        action: {
-          instructions: 'Confirm this address to finish setting up your account:',
-          buttonText: 'Verify email address',
-          link,
-        },
-        outro: 'The link expires in 24 hours.',
-      },
-      dependencies.appBaseUrl,
-    )
-
-    return dependencies.email.send({
-      to,
-      subject: 'Verify your Kelpie email address',
-      body: text,
-      html,
-    })
-  }
-
   return {
     /** Creates the account only. The first workspace comes from onboarding. */
     async signUp(input: SignUpInput): Promise<IssuedSession> {
@@ -310,9 +291,8 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       const email = requireSingleAddress(normaliseEmail(input.email))
       const passwordHash = await hashPassword(input.password)
       const now = dependencies.now()
-      const verificationToken = newToken()
 
-      const issued = await dependencies.transaction(async ({ tx }) => {
+      return dependencies.transaction(async ({ tx, jobs }) => {
         let user: repository.UserRecord
 
         try {
@@ -334,20 +314,17 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           throw error
         }
 
-        await repository.insertEmailVerificationToken(tx, {
-          id: dependencies.createId('emailVerificationToken'),
+        // On the same transaction, so a rolled-back signup never emails a
+        // link and a committed one cannot lose its email. The job makes the
+        // token when it runs.
+        await jobs.enqueue(dependencies.emailJobs.verification, {
           userId: user.id,
-          tokenHash: hashToken(verificationToken),
-          expiresAt: new Date(now.getTime() + EMAIL_VERIFICATION_TOKEN_LIFETIME_MS),
+          email: user.email,
+          requestedAt: now.toISOString(),
         })
 
         return issueSession(tx, user, input.device, input.location)
       })
-
-      // Sent after commit, so a rolled-back signup never emails a token.
-      await sendVerificationEmail(email, verificationToken)
-
-      return issued
     },
 
     async logIn(input: LogInInput): Promise<IssuedSession> {
@@ -484,8 +461,8 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
      * ends, and the address being replaced is told, in case the caller was not
      * its owner.
      *
-     * A real change of address also resets verification and sends a fresh
-     * token to the new one. Verifying the old address proves nothing about the
+     * A real change of address also resets verification and queues a fresh
+     * verification email to the new one. Verifying the old address proves nothing about the
      * new one, and leaving the flag set would let anyone who can rename an
      * unregistered account onto a given address inherit "verified" for free —
      * exactly the mailbox-ownership proof signup's own token exists to require.
@@ -523,10 +500,9 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       const previousEmail = user.email
       const now = dependencies.now()
-      const verificationToken = emailChanging ? newToken() : undefined
 
       try {
-        const updated = await dependencies.transaction(async ({ tx }) => {
+        const updated = await dependencies.transaction(async ({ tx, jobs }) => {
           const saved = await repository.updateUserProfile(tx, actor.userId, values, now)
 
           if (saved === undefined) {
@@ -537,40 +513,25 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
             await repository.deleteOtherSessionsForUser(tx, actor.userId, actor.sessionId)
           }
 
-          if (verificationToken !== undefined) {
-            await repository.insertEmailVerificationToken(tx, {
-              id: dependencies.createId('emailVerificationToken'),
-              userId: actor.userId,
-              tokenHash: hashToken(verificationToken),
-              expiresAt: new Date(now.getTime() + EMAIL_VERIFICATION_TOKEN_LIFETIME_MS),
+          // Two jobs, on the same transaction as the change: a rolled-back
+          // change emails nobody, and one email that fails is retried alone
+          // and does not hold back the other. The address already on file is
+          // not a change, so it queues neither.
+          if (emailChanging) {
+            await jobs.enqueue(dependencies.emailJobs.emailChangeNotice, {
+              previousEmail,
+              newEmail: saved.email,
+            })
+
+            await jobs.enqueue(dependencies.emailJobs.verification, {
+              userId: saved.id,
+              email: saved.email,
+              requestedAt: now.toISOString(),
             })
           }
 
           return saved
         })
-
-        if (changes.email !== undefined) {
-          const { text, html } = renderEmail(
-            {
-              intro: `Your Kelpie sign-in email changed from ${previousEmail} to ${updated.email}. If you did not make this change, reset your password right away.`,
-            },
-            dependencies.appBaseUrl,
-          )
-
-          await dependencies.email.send({
-            to: previousEmail,
-            subject: 'Your Kelpie sign-in email changed',
-            body: text,
-            html,
-          })
-        }
-
-        // Sent after commit, same as signup: a rolled-back change never emails
-        // a token, and this token is only ever minted alongside a committed
-        // `emailVerifiedAt: null` write.
-        if (verificationToken !== undefined) {
-          await sendVerificationEmail(updated.email, verificationToken)
-        }
 
         return toAccountView(updated)
       } catch (error: unknown) {
@@ -689,42 +650,24 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     /**
      * Always resolves, whether or not the address is registered. Telling a
      * stranger which addresses have accounts is the whole attack.
+     *
+     * The request does not look the account up. It adds one job for any
+     * address, and the job finds the account, or does not, after the caller
+     * has its answer. So both cases do the same work here, take the same time,
+     * and a mail server that is down changes neither.
      */
     async requestPasswordReset(email: string): Promise<void> {
-      const user = await repository.findUserByEmail(dependencies.db, normaliseEmail(email))
+      const address = normaliseEmail(email)
 
-      if (user === undefined) {
+      if (address.length === 0 || address.length > LONGEST_EMAIL_ADDRESS) {
         return
       }
 
-      const now = dependencies.now()
-      const token = newToken()
-
-      await repository.insertPasswordResetToken(dependencies.db, {
-        id: dependencies.createId('passwordResetToken'),
-        userId: user.id,
-        tokenHash: hashToken(token),
-        expiresAt: new Date(now.getTime() + RESET_TOKEN_LIFETIME_MS),
-      })
-
-      const link = buildAppLink(dependencies.appBaseUrl, APP_LINK_PATHS.passwordReset, token)
-      const { text, html } = renderEmail(
-        {
-          action: {
-            instructions: 'Use this link within the hour to choose a new password:',
-            buttonText: 'Reset password',
-            link,
-          },
-          outro: 'If you did not ask for this, ignore it.',
-        },
-        dependencies.appBaseUrl,
-      )
-
-      await dependencies.email.send({
-        to: user.email,
-        subject: 'Reset your Kelpie password',
-        body: text,
-        html,
+      await dependencies.transaction(async ({ jobs }) => {
+        await jobs.enqueue(dependencies.emailJobs.passwordReset, {
+          email: address,
+          requestedAt: dependencies.now().toISOString(),
+        })
       })
     },
 
@@ -786,17 +729,13 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         return
       }
 
-      const now = dependencies.now()
-      const token = newToken()
-
-      await repository.insertEmailVerificationToken(dependencies.db, {
-        id: dependencies.createId('emailVerificationToken'),
-        userId: user.id,
-        tokenHash: hashToken(token),
-        expiresAt: new Date(now.getTime() + EMAIL_VERIFICATION_TOKEN_LIFETIME_MS),
+      await dependencies.transaction(async ({ jobs }) => {
+        await jobs.enqueue(dependencies.emailJobs.verification, {
+          userId: user.id,
+          email: user.email,
+          requestedAt: dependencies.now().toISOString(),
+        })
       })
-
-      await sendVerificationEmail(user.email, token)
     },
 
     async confirmEmailVerification(token: string): Promise<void> {

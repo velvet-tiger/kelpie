@@ -2,6 +2,12 @@ import { z } from 'zod'
 
 import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
+import {
+  defineSendEmailChangeNoticeJob,
+  defineSendPasswordResetEmailJob,
+  defineSendVerificationEmailJob,
+} from './emailJobs.ts'
+import type { AuthEmailDependencies } from './emailJobs.ts'
 import { mountAuthRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createAuthService } from './service.ts'
@@ -30,13 +36,26 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
       // fall back to the schema read for older assemblies that don't declare it.
       const appBaseUrl = context.appBaseUrl ?? context.config(appUrlConfigSchema).APP_BASE_URL
 
-      const service = createAuthService({
+      // Every auth email is a job, so no request waits on a mail server. The
+      // assembly's worker runs them: inline in the API process, or apart.
+      const emailDependencies: AuthEmailDependencies = {
         db: context.db,
-        transaction: context.transaction,
         email: context.email,
         createId: context.createId,
         now: context.now,
         appBaseUrl,
+      }
+
+      const service = createAuthService({
+        db: context.db,
+        transaction: context.transaction,
+        createId: context.createId,
+        now: context.now,
+        emailJobs: {
+          verification: context.jobs.define(defineSendVerificationEmailJob(emailDependencies)),
+          passwordReset: context.jobs.define(defineSendPasswordResetEmailJob(emailDependencies)),
+          emailChangeNotice: context.jobs.define(defineSendEmailChangeNoticeJob(emailDependencies)),
+        },
         signupsEnabled: context.signupsEnabled ?? true,
       })
 

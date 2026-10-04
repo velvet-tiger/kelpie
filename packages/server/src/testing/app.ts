@@ -15,8 +15,8 @@ import type { ModuleContributions } from '../runtime/registry.ts'
 import type { EntitlementRegistry } from '../runtime/entitlements.ts'
 import { registerModules } from '../runtime/registry.ts'
 import { TEST_ENVIRONMENT } from './environment.ts'
-import { createRecordingJobsRegistry } from './jobs.ts'
-import type { RecordingJobsRegistry } from './jobs.ts'
+import { createRecordingJobsRegistry, runJobs } from './jobs.ts'
+import type { RecordingJobsRegistry, RunJobsOptions } from './jobs.ts'
 import { TEST_EMAIL_FROM, TEST_EMAIL_PROVIDER, createTestServices } from './services.ts'
 import type { TestServices } from './services.ts'
 
@@ -92,6 +92,14 @@ export interface TestApp {
    * `jobs` of its own. A test runs a handler from here directly.
    */
   readonly jobs: RecordingJobsRegistry | undefined
+  /**
+   * Runs every job in `services.queuedJobs` once, as a worker would. A job
+   * that fails stays queued, and the call rejects after the rest have run.
+   * Rejects when the test passed a `jobs` registry of its own.
+   * `options.lastAttempt: true` runs them as the queue does when no retry
+   * remains.
+   */
+  readonly runQueuedJobs: (options?: RunJobsOptions) => Promise<void>
 }
 
 const reachableDatabase = (): Promise<DatabaseProbe> => Promise.resolve({ reachable: true })
@@ -140,5 +148,13 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     ...(options.regions === undefined ? {} : { regions: options.regions }),
   })
 
-  return { app, contributions, logLines, services, jobs: recordingJobs }
+  function runQueuedJobs(runOptions?: RunJobsOptions): Promise<void> {
+    if (recordingJobs === undefined) {
+      return Promise.reject(new Error('runQueuedJobs needs the recording registry: pass no `jobs` option'))
+    }
+
+    return runJobs(recordingJobs, services.queuedJobs, runOptions)
+  }
+
+  return { app, contributions, logLines, services, jobs: recordingJobs, runQueuedJobs }
 }
