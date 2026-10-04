@@ -1,6 +1,7 @@
 import { composeName, FORM_LIST_TARGET, formFieldDisplayLabel } from '@kelpie/schemas'
 
 import type { ErrorDetail } from '../../lib/errors.ts'
+import { isSingleEmailAddress } from '../../lib/emailAddress.ts'
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
 import type { FormFieldRecord } from './repository.ts'
 import { PERSON_EMAIL_TARGET } from './schema.ts'
@@ -339,14 +340,15 @@ function resolveDomain(mapped: MappedAnswers): string | undefined {
  * Reads an answer map into what the submit will write.
  *
  * @returns undefined when no usable `person.email` answer was given, which is
- *   the `422`. A value that is not an address at all fails the
- *   same way: it would otherwise create a person nobody can reply to.
+ *   the `422`. A value that is not exactly one address fails the
+ *   same way: it would otherwise create a person nobody can reply to, and a
+ *   list of addresses would make one auto-reply go to every address in it.
  */
 export function readIntent(mapped: MappedAnswers): SubmitIntent | undefined {
   const raw = mapped[PERSON_EMAIL_TARGET]
   const email = raw === undefined ? null : normaliseEmail(raw)
 
-  if (email === null || !email.includes('@')) {
+  if (email === null || !isSingleEmailAddress(email)) {
     return undefined
   }
 

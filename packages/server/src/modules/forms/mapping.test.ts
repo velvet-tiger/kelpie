@@ -255,6 +255,16 @@ describe('findUnknownAnswers', () => {
 })
 
 describe('readIntent', () => {
+  it('reads nothing from an answer that is not exactly one address', () => {
+    expect(readIntent({ 'person.email': 'alex@example.com, sam@example.com' })).toBeUndefined()
+    expect(readIntent({ 'person.email': 'alex@example.com;sam@example.com' })).toBeUndefined()
+    expect(readIntent({ 'person.email': 'Alex <alex@example.com>' })).toBeUndefined()
+    expect(readIntent({ 'person.email': '<script>alert(1)</script>@example.com' })).toBeUndefined()
+    expect(readIntent({ 'person.email': 'alex@example.com\nBcc: sam@example.com' })).toBeUndefined()
+    expect(readIntent({ 'person.email': 'alex' })).toBeUndefined()
+    expect(readIntent({ 'person.email': '  Alex@Example.com ' })?.email).toBe('alex@example.com')
+  })
+
   it('falls back to the part of the address before the @ when no name was given', () => {
     const intent = readIntent({ 'person.email': 'alex@example.com' })
 

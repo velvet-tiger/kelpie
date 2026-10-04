@@ -9,6 +9,7 @@ import { z } from 'zod'
 
 import type { Database } from '../../lib/database.ts'
 import type { EmailSender } from '../../lib/email.ts'
+import { isSingleEmailAddress } from '../../lib/emailAddress.ts'
 import { renderTextEmail } from '../../lib/emailContent.ts'
 import { describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -191,7 +192,9 @@ async function decideAndSend(
   const memberEmails = new Map(members.map((member) => [member.id, member.email]))
   const previous = await emailRepository.listEmailSends(db, submission.id)
   const values = await loadValues(dependencies, form, workspace, fields, submission)
-  const submitterEmail = submitterEmailOf(fields, submission.answers) ?? values.personEmail
+  const submitterEmail = singleAddressOrNone(
+    submitterEmailOf(fields, submission.answers) ?? values.personEmail,
+  )
   const context: SendContext = { dependencies, form, submission, previous, values, memberEmails }
   const outcomes: EmailOutcome[] = []
 
@@ -268,6 +271,16 @@ function submitterEmailOf(
   const raw = field === undefined ? undefined : answers[field.id]
 
   return raw === undefined ? undefined : (normaliseEmail(raw) ?? undefined)
+}
+
+/**
+ * The submitter's address when it is exactly one address, and nothing when it
+ * is not. The submit refuses any other value, but a submission stored before
+ * that check, or a Person a member edited since, can still hold one. Such a
+ * value is neither a recipient nor a Reply-To.
+ */
+function singleAddressOrNone(email: string | undefined): string | undefined {
+  return email !== undefined && isSingleEmailAddress(email) ? email : undefined
 }
 
 /** A recipient as an address, or undefined for a member who has left. */

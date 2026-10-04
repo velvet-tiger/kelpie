@@ -16,7 +16,7 @@ import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
 import { SEND_FORM_EMAILS_JOB, sendFormEmails, sendFormEmailsDataSchema } from './emailJob.ts'
 import type { FormEmailDependencies, SendFormEmailsData } from './emailJob.ts'
-import { formEmailSends } from './schema.ts'
+import { formEmailSends, formSubmissions } from './schema.ts'
 
 /**
  * Form emails end to end: the settings on `/v1/forms`, the job a submit
@@ -334,6 +334,30 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
       expect(response.status).toBe(422)
       expect(await queuedJobs()).toEqual([])
     })
+
+    /**
+     * The submit route is public, so the embed script's own check proves
+     * nothing. A mail library reads a list as several recipients: one
+     * auto-reply, counted once against the limits, would go to all of them.
+     */
+    it.each([
+      ['a list', 'alex@example.com, sam@example.com'],
+      ['a semicolon list', 'alex@example.com;sam@example.com'],
+      ['the display-name form', 'Alex <alex@example.com>'],
+      ['markup', '<script>alert(1)</script>@example.com'],
+      ['a line break', 'alex@example.com\nBcc: sam@example.com'],
+    ])('refuses %s as the email answer, and stores and enqueues nothing', async (_label, email) => {
+      const form = await createForm({ auto_reply: true })
+      const response = await client.send(
+        'POST',
+        `/v1/public/workspaces/${acme.workspaceId}/forms/${form.slug}/submit`,
+        { body: { answers: contactAnswers(form, email) } },
+      )
+
+      expect(response.status).toBe(422)
+      expect(await database.db.select().from(formSubmissions)).toHaveLength(0)
+      expect(await queuedJobs()).toEqual([])
+    })
   })
 
   describe('the job', () => {
@@ -424,6 +448,38 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
         action: 'email_auto_reply',
         status: 'skipped',
         detail: 'Sent to this address in the last 24 hours',
+      })
+    })
+
+    /** A submission stored before the submit refused such an answer. */
+    it('sends no auto-reply, and sets no Reply-To, for a stored answer that is not one address', async () => {
+      const form = await createForm({
+        auto_reply: true,
+        notify_email: true,
+        notify_recipients: [{ kind: 'member', member_id: ownerMemberId }],
+      })
+      const submissionId = await submit(form, contactAnswers(form))
+
+      await database.db
+        .update(formSubmissions)
+        .set({ answers: contactAnswers(form, 'alex@example.com, sam@example.com') })
+        .where(eq(formSubmissions.id, submissionId))
+
+      const before = harness.services.sentEmails.length
+
+      for (const job of await queuedJobs()) {
+        await runRegisteredJob(job)
+      }
+
+      const sent = harness.services.sentEmails.slice(before)
+
+      expect(sent).toHaveLength(1)
+      expect(sent[0]?.to).toBe('ada@example.com')
+      expect(sent[0]?.replyTo).toBeUndefined()
+      expect((await readSubmission(form, submissionId)).actionLog).toContainEqual({
+        action: 'email_auto_reply',
+        status: 'skipped',
+        detail: 'No submitter email',
       })
     })
 
