@@ -104,6 +104,37 @@ describe('createSmtpEmailSender', () => {
     ])
   })
 
+  it('puts the message From name on the deployment address', async () => {
+    const { transport, calls } = fakeTransport()
+    const { logger } = capture()
+    const sender = createSmtpEmailSender(smtpConfig, logger, transport)
+
+    await sender.send({ ...message, fromName: 'Acme via Kelpie' })
+
+    expect(calls).toEqual([
+      {
+        from: { name: 'Acme via Kelpie', address: 'kelpie@example.com' },
+        to: message.to,
+        subject: message.subject,
+        text: message.body,
+      },
+    ])
+  })
+
+  it('replaces a name EMAIL_FROM already carries, and keeps its address', async () => {
+    const { transport, calls } = fakeTransport()
+    const { logger } = capture()
+    const sender = createSmtpEmailSender(
+      { ...smtpConfig, EMAIL_FROM: 'Kelpie <kelpie@example.com>' },
+      logger,
+      transport,
+    )
+
+    await sender.send({ ...message, fromName: 'Acme via Kelpie' })
+
+    expect(calls).toMatchObject([{ from: { name: 'Acme via Kelpie', address: 'kelpie@example.com' } }])
+  })
+
   it('wraps a transport failure with context and logs it, rather than leaking it raw', async () => {
     const { logger, lines } = capture()
     const transport: SmtpTransport = {

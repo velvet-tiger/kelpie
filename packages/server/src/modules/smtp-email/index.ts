@@ -63,7 +63,7 @@ export type SmtpEmailConfig = z.infer<typeof smtpEmailConfigSchema>
  */
 export interface SmtpTransport {
   sendMail(message: {
-    from: string
+    from: string | { name: string; address: string }
     to: string
     subject: string
     text: string
@@ -83,6 +83,16 @@ function createNodemailerTransport(config: SmtpEmailConfig): SmtpTransport {
   })
 }
 
+/**
+ * The bare address in `EMAIL_FROM`, which may be `kelpie@example.com` or
+ * `Kelpie <kelpie@example.com>`.
+ */
+function addressOf(from: string): string {
+  const bracketed = /<([^<>]+)>\s*$/u.exec(from)
+
+  return (bracketed?.[1] ?? from).trim()
+}
+
 /** Sends over SMTP. `transport` defaults to a real connection built from `config`. */
 export function createSmtpEmailSender(
   config: SmtpEmailConfig,
@@ -93,7 +103,10 @@ export function createSmtpEmailSender(
     async send(message: EmailMessage) {
       try {
         await transport.sendMail({
-          from: config.EMAIL_FROM,
+          from:
+            message.fromName === undefined
+              ? config.EMAIL_FROM
+              : { name: message.fromName, address: addressOf(config.EMAIL_FROM) },
           to: message.to,
           subject: message.subject,
           text: message.body,

@@ -36,6 +36,13 @@ export interface EmailMessage {
    * and a reply goes to the From address instead.
    */
   readonly replyTo?: string
+  /**
+   * The display name on the From header, in place of the one `EMAIL_FROM`
+   * carries. The address stays the deployment's. Optional, and a provider
+   * module written before it existed ignores it: the message still arrives,
+   * under the deployment's own name.
+   */
+  readonly fromName?: string
 }
 
 export interface EmailSender {

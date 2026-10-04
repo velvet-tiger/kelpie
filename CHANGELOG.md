@@ -10,6 +10,17 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Changed
+
+- **`@kelpie/server`** — **Form emails show the workspace.** The notification
+  and the auto-reply have the From name `<workspace name> via Kelpie`, and
+  the header of the HTML part shows the workspace name in place of "Kelpie".
+  The From address stays the deployment's `EMAIL_FROM`. `EmailMessage` gets
+  an optional `fromName`; the `smtp-email` module sets the From display name
+  from it, and a provider module that does not read it sends under the
+  deployment's own name. `renderEmail` and `renderTextEmail` take an optional
+  header name. No migration.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added

@@ -5,6 +5,11 @@ import { renderEmail, renderTextEmail } from './emailContent.ts'
 const APP_BASE_URL = 'https://crm.example.com'
 const LINK = 'https://crm.example.com/verify-email?token=abc123_-xyz'
 
+/** The text of the header link: the first link in the mail. */
+function headerNameOf(html: string): string | undefined {
+  return /<a [^>]*>\s*([^<]*?)\s*<\/a>/u.exec(html)?.[1]
+}
+
 describe('renderEmail', () => {
   it('builds the plaintext part as instructions, link, then outro', () => {
     const { text } = renderEmail(
@@ -64,6 +69,13 @@ describe('renderEmail', () => {
     expect(html).toContain('Sent by Kelpie.')
   })
 
+  it('names Kelpie in the header unless the caller gives a name', () => {
+    const content = { intro: 'A bare message.' }
+
+    expect(headerNameOf(renderEmail(content, APP_BASE_URL).html)).toBe('Kelpie')
+    expect(headerNameOf(renderEmail(content, APP_BASE_URL, 'Acme').html)).toBe('Acme')
+  })
+
   it('is deterministic: the same content renders the same bytes', () => {
     // The default mailgen footer stamps the current year; the fixed copyright
     // line replaces it. Byte-equality catches any nondeterminism creeping back.
@@ -98,5 +110,12 @@ describe('renderTextEmail', () => {
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('<b>Co</b>')
     expect(html).toContain('Message: &lt;script&gt;alert(1)&lt;/script&gt;<br>Name: &quot;Alex&quot; &amp; &lt;b&gt;Co&lt;/b&gt;')
+  })
+
+  it('escapes the header name', () => {
+    const { html } = renderTextEmail(content, 'https://kelpie.test', 'Acme <b>& Co</b>')
+
+    expect(html).not.toContain('<b>& Co</b>')
+    expect(headerNameOf(html)).toBe('Acme &lt;b&gt;&amp; Co&lt;/b&gt;')
   })
 })

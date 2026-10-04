@@ -37,16 +37,24 @@ export interface RenderedEmail {
  */
 const FOOTER_LINE = 'Sent by Kelpie.'
 
+/** The name in the header when the caller gives none. */
+const DEFAULT_HEADER_NAME = 'Kelpie'
+
 /**
  * Renders one transactional message. `appBaseUrl` becomes the link on the
- * product name in the header and footer, so every part of the mail points at
- * the deployment that sent it.
+ * name in the header and footer, so every part of the mail points at the
+ * deployment that sent it. `headerName` is the name in the header: Kelpie's,
+ * unless the mail speaks for a workspace. It goes into the HTML unescaped.
  */
-export function renderEmail(content: EmailContent, appBaseUrl: string): RenderedEmail {
+export function renderEmail(
+  content: EmailContent,
+  appBaseUrl: string,
+  headerName: string = DEFAULT_HEADER_NAME,
+): RenderedEmail {
   const generator = new Mailgen({
     theme: 'default',
     product: {
-      name: 'Kelpie',
+      name: headerName,
       link: appBaseUrl,
       copyright: FOOTER_LINE,
     },
@@ -115,9 +123,14 @@ function htmlFromText(text: string): string {
  * HTML part unescaped (`<%- %>`), which is right for Kelpie's own fixed copy
  * and wrong for anything else: an answer holding markup would become markup.
  * Here every string is escaped for the HTML part and its line breaks kept.
- * The plaintext part is the text exactly as given.
+ * The plaintext part is the text exactly as given. `headerName` is escaped the
+ * same way: a workspace name is also text an admin typed.
  */
-export function renderTextEmail(content: EmailContent, appBaseUrl: string): RenderedEmail {
+export function renderTextEmail(
+  content: EmailContent,
+  appBaseUrl: string,
+  headerName: string = DEFAULT_HEADER_NAME,
+): RenderedEmail {
   const escaped: EmailContent = {
     ...(content.intro === undefined ? {} : { intro: htmlFromText(content.intro) }),
     ...(content.action === undefined
@@ -132,5 +145,8 @@ export function renderTextEmail(content: EmailContent, appBaseUrl: string): Rend
     ...(content.outro === undefined ? {} : { outro: htmlFromText(content.outro) }),
   }
 
-  return { text: plainTextOf(content), html: renderEmail(escaped, appBaseUrl).html }
+  return {
+    text: plainTextOf(content),
+    html: renderEmail(escaped, appBaseUrl, htmlFromText(headerName)).html,
+  }
 }

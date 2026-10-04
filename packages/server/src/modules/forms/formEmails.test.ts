@@ -369,6 +369,7 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
 
       expect(message?.subject).toBe('Lead from Example Co Bcc: x@example.com')
       expect(message?.replyTo).toBe('alex@example.com')
+      expect(message?.fromName).toBe('Acme via Kelpie')
       expect(message?.body).toContain(
         'Alex Rivera <alex@example.com> wrote:\n' +
           'Name: Alex Rivera\nEmail: Alex@Example.com\nCompany: Example Co\n' +
@@ -410,7 +411,10 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
         subject: 'Thanks from Acme',
         body: 'We received your Website contact message.',
         replyTo: 'ada@example.com',
+        fromName: 'Acme via Kelpie',
       })
+      // The header names the workspace, not Kelpie.
+      expect(sent[0]?.html).toMatch(/<a [^>]*>\s*Acme\s*<\/a>/u)
       expect((await readSubmission(form, first)).actionLog).toContainEqual({
         action: 'email_auto_reply',
         status: 'ok',

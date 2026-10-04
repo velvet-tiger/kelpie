@@ -311,6 +311,15 @@ async function record(
 }
 
 /**
+ * The From display name on a form email. It names the workspace, and names
+ * Kelpie too: every workspace on a deployment sends from the same address, so
+ * the workspace's name alone would let it pass as whoever it calls itself.
+ */
+function fromNameOf(workspaceName: string): string {
+  return `${workspaceName} via Kelpie`
+}
+
+/**
  * Sends one message unless a `sent` row says an earlier try already did.
  *
  * @returns Whether the message is now sent.
@@ -326,6 +335,7 @@ async function sendOnce(
   }
 
   const { dependencies, form, submission } = context
+  const { workspaceName } = context.values
   const link = new URL(`/forms/${form.id}/submissions/${submission.id}`, dependencies.appBaseUrl).toString()
   const rendered = renderTextEmail(
     {
@@ -341,6 +351,7 @@ async function sendOnce(
         : {}),
     },
     dependencies.appBaseUrl,
+    workspaceName,
   )
 
   try {
@@ -349,6 +360,7 @@ async function sendOnce(
       subject: message.subject,
       body: rendered.text,
       html: rendered.html,
+      fromName: fromNameOf(workspaceName),
       ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
     })
   } catch (error: unknown) {
