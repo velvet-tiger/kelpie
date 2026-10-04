@@ -6,6 +6,7 @@ import type { PublicRegion } from '@kelpie/schemas'
 
 import type { RuntimeMode } from './lib/config.ts'
 import type { DatabaseProbe } from './lib/database.ts'
+import { createBodyLimitMiddleware } from './lib/bodyLimit.ts'
 import { AppError, internalErrorBody, toErrorBody } from './lib/errors.ts'
 import { PUBLIC_ROUTE_PREFIX } from './lib/http.ts'
 import { createIdFactory } from './lib/ids.ts'
@@ -135,6 +136,9 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   })
 
   app.use('*', securityHeadersMiddleware)
+
+  // Ahead of everything that reads a body, the login rate limit included.
+  app.use('*', createBodyLimitMiddleware(MCP_ROUTE_PREFIX))
 
   const rateLimitDependencies = {
     db: dependencies.credentials.db,

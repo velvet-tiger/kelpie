@@ -795,6 +795,19 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(formSubmitResultSchema.parse(result).id).not.toBe('')
     })
 
+    it('refuses an answer that is far longer than a form asks for', async () => {
+      const form = await createForm()
+      const ids = fieldIds(form)
+      const first = Object.values(ids)[0] ?? ''
+
+      const response = await submit(formPath(form), {
+        ...filledIn(ids),
+        [first]: 'x'.repeat(20_001),
+      })
+
+      expect(response.status).toBe(422)
+    })
+
     it('echoes the thank-you copy so an embed needs no second request', async () => {
       const result = await submitContact(
         (ids) => filledIn(ids),

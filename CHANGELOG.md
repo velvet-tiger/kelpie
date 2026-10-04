@@ -261,6 +261,16 @@ While the major version is `0`, a minor bump may break the API.
   request gives `auth_header`. **An integration that changes an endpoint must
   send the header again.** No migration.
 
+- **`@kelpie/server`** — **Every request body has a size limit.** No route
+  had one, so a small number of large requests could use all the memory of
+  the process, and some of those routes need no credentials. A body over the
+  limit now gets `413` with the new error code `payload_too_large`, before a
+  handler runs. The limit is 1 MB; 256 KB under `/v1/public`; 11 MB for
+  `POST /v1/import/jobs`; 15 MB for `/mcp`, where the import tools take the
+  file as a JSON string. One answer on a public form submit can have at most
+  20,000 characters. **A module in an assembly that takes a body larger than
+  1 MB on its own route is now refused.** No migration.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added

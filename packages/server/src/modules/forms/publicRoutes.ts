@@ -41,11 +41,26 @@ import type { FormSubmitService, SubmitOutcome } from './submission.ts'
  * them, and one that does holds a submit without them as spam, which is not a
  * refusal and so not a 422.
  */
+/**
+ * The most characters one answer may carry. The caller has no credentials, and
+ * an answer is stored and then copied to a note or a record. The request body
+ * limit (`lib/bodyLimit.ts`) is the outer limit; this one refuses a single
+ * field that is far longer than any form asks for.
+ */
+const MAX_ANSWER_LENGTH = 20_000
+
+/** Field ids are generated and short. Spam check values are tokens. */
+const MAX_FIELD_ID_LENGTH = 200
+const MAX_SPAM_VALUE_LENGTH = 8192
+
 const submitBody = z.strictObject({
-  answers: z.record(z.string().min(1), z.string()),
-  token: z.string().optional(),
-  trap: z.string().optional(),
-  captcha_response: z.string().optional(),
+  answers: z.record(
+    z.string().min(1).max(MAX_FIELD_ID_LENGTH),
+    z.string().max(MAX_ANSWER_LENGTH),
+  ),
+  token: z.string().max(MAX_SPAM_VALUE_LENGTH).optional(),
+  trap: z.string().max(MAX_SPAM_VALUE_LENGTH).optional(),
+  captcha_response: z.string().max(MAX_SPAM_VALUE_LENGTH).optional(),
 })
 
 export interface PublicFormRoutesDependencies {

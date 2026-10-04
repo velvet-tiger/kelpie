@@ -27,6 +27,10 @@ Emailed links hold a single-use token, and the database stores only its hash. Th
 
 An account must verify its email address before it can create a workspace; accepting an invitation verifies as a side effect, since the invite link already proves control of the address. Every emailed link is built server-side from your `APP_BASE_URL` plus a fixed path — a caller can never supply the link target, which closes the classic account-takeover path.
 
+## Request size
+
+Every request body has a limit. A body over it gets `413` with the code `payload_too_large` before a handler runs. The limit is 1 MB; 256 KB under `/v1/public`; 11 MB for the import upload; 15 MB for `/mcp`, where the import tools take the file as text. If a reverse proxy sits in front of Kelpie, set its body limit to 15 MB or more, or the larger imports stop at the proxy.
+
 ## Rate limits
 
 Four fixed-window budgets, all configurable ([Configuration](configuration.md#rate-limits)): public forms and unauthenticated auth per client IP, login additionally per account, and API-key traffic per key. The per-account login budget is the one an IP-rotating attacker cannot reset. Set `TRUSTED_PROXY_HOP_COUNT` behind a proxy so the limiter meters real clients.

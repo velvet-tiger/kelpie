@@ -1,5 +1,7 @@
+import { MAX_IMPORT_FILE_BYTES } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
+import { MAX_BODY_BYTES, MAX_PUBLIC_BODY_BYTES, maxBodyBytesFor } from './lib/bodyLimit.ts'
 import { AppError } from './lib/errors.ts'
 import type { DatabaseProbe } from './lib/database.ts'
 import { createTestApp } from './testing/app.ts'
@@ -154,5 +156,55 @@ describe('errors', () => {
       error: { code: 'internal_error', message: 'Internal server error' },
     })
     expect(logLines.join('\n')).toContain('column')
+  })
+})
+
+describe('request body limit', () => {
+  function post(app: TestApp['app'], path: string, bytes: number, declareLength: boolean): Promise<Response> {
+    const body = 'x'.repeat(bytes)
+
+    return Promise.resolve(
+      app.request(path, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(declareLength ? { 'Content-Length': String(bytes) } : {}),
+        },
+        body,
+      }),
+    )
+  }
+
+  it('answers 413 for a body over the limit, on the declared length alone', async () => {
+    const { app } = await buildApp({ reachable: true })
+
+    const response = await post(app, '/v1/auth/login', MAX_BODY_BYTES + 1, true)
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      error: { code: 'payload_too_large', message: 'The request body may be at most 1 MB' },
+    })
+  })
+
+  it('answers 413 for a body over the limit that does not declare its length', async () => {
+    const { app } = await buildApp({ reachable: true })
+
+    expect((await post(app, '/v1/people', MAX_BODY_BYTES + 1, false)).status).toBe(413)
+  })
+
+  it('gives a public route the smaller limit', async () => {
+    const { app } = await buildApp({ reachable: true })
+
+    const response = await post(app, '/v1/public/ws_1/forms/contact/submit', MAX_PUBLIC_BODY_BYTES + 1, true)
+
+    expect(response.status).toBe(413)
+  })
+
+  it('gives the import upload and /mcp room for a full file', () => {
+    expect(maxBodyBytesFor('/v1/import/jobs', '/mcp')).toBeGreaterThan(MAX_IMPORT_FILE_BYTES)
+    expect(maxBodyBytesFor('/mcp', '/mcp')).toBeGreaterThan(MAX_IMPORT_FILE_BYTES)
+    expect(maxBodyBytesFor('/v1/import/jobs/imp_1/commit', '/mcp')).toBe(MAX_BODY_BYTES)
+    expect(maxBodyBytesFor('/v1/people', '/mcp')).toBe(MAX_BODY_BYTES)
+    expect(maxBodyBytesFor('/v1/public/ws_1/forms/contact/submit', '/mcp')).toBe(MAX_PUBLIC_BODY_BYTES)
   })
 })
