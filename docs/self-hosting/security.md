@@ -51,7 +51,7 @@ Every response carries `Strict-Transport-Security`, `X-Content-Type-Options`, an
 
 ## Outbound requests
 
-Webhook deliveries and agent-task dispatches are the two places Kelpie POSTs to URLs your users typed. Redirects are never followed — a moved endpoint should be seen and fixed, not silently posted to wherever the old address now points. With `BLOCK_PRIVATE_EGRESS=true`, URLs resolving to private or reserved addresses are refused; it defaults off because self-hosted installs legitimately post to internal automation. Hosted, multi-tenant deployments should turn it on and add network-level egress policy behind it.
+Webhook deliveries and agent-task dispatches are the two places Kelpie POSTs to URLs your users typed. Redirects are never followed — a moved endpoint should be seen and fixed, not silently posted to wherever the old address now points. With `BLOCK_PRIVATE_EGRESS=true`, URLs resolving to private or reserved addresses are refused, and the connection goes only to an address that passed that check, so a host cannot give a public address for the check and a private one for the connection. It defaults off because self-hosted installs legitimately post to internal automation. Hosted, multi-tenant deployments should turn it on and add network-level egress policy behind it.
 
 ## Roles and gates
 

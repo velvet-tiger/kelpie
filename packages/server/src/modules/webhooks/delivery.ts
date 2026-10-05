@@ -122,7 +122,7 @@ export function sleepFor(milliseconds: number): Promise<void> {
  */
 export function createHttpSender(
   egress: EgressGuard,
-  fetchImplementation: typeof fetch = fetch,
+  fetchImplementation: typeof fetch = egress.fetch,
 ): SendDelivery {
   return async (request) => {
     try {

@@ -1,9 +1,12 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import type { LookupFunction } from 'node:net'
+import ipaddr from 'ipaddr.js'
+import { Agent, fetch as pinnedFetch } from 'undici'
 import { z } from 'zod'
 
 /**
- * An optional guard against outbound POSTs to private or reserved addresses.
+ * An optional guard against outbound requests to private or reserved addresses.
  *
  * Webhook and agent endpoints are customer-supplied, and a self-hosted Kelpie
  * legitimately posts to an internal host such as `http://automation.internal`.
@@ -11,12 +14,16 @@ import { z } from 'zod'
  * deployment, where a customer must not be able to aim a delivery at the
  * metadata service or a neighbour's database, sets `BLOCK_PRIVATE_EGRESS=true`.
  *
- * The check resolves the host and refuses the request when any resolved address
- * is loopback, private, link-local, unique-local, or otherwise reserved. It runs
- * just before the fetch. That leaves a narrow rebinding window between this
- * lookup and the connection's own; the senders already pass `redirect: 'manual'`,
- * which closes the redirect-based bypass, and a hosted deployment pairs this with
- * network-level egress rules. It is defence in depth, not the only defence.
+ * The guard has two parts. `check` resolves the host and refuses the URL when
+ * any resolved address is not a public one. `fetch` makes the request, and
+ * its connection resolves the host through the same rule: the socket connects
+ * only to an address that the rule accepted in that same lookup. A host whose
+ * DNS answer changes between `check` and the connection (DNS rebinding) is
+ * thus refused at the connection. A sender must use the guard's `fetch`, not
+ * the global one.
+ *
+ * The senders also pass `redirect: 'manual'`, which closes the redirect-based
+ * bypass, and a hosted deployment pairs this with network-level egress rules.
  */
 
 export const egressConfigSchema = z.object({
@@ -36,74 +43,102 @@ export class BlockedEgressError extends Error {
   }
 }
 
-/** True for an IPv4 address in a loopback, private, link-local, or reserved range. */
-function isPrivateIpv4(ip: string): boolean {
-  const parts = ip.split('.').map((part) => Number(part))
-
-  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) {
+/**
+ * True when a request may go to this address: a global unicast address and
+ * nothing else. The ranges are those of `ipaddr.js`, so loopback, private,
+ * link-local, carrier-grade NAT, benchmarking, multicast and reserved
+ * addresses are all refused.
+ *
+ * Each IPv6 form that carries an IPv4 address is refused or reduced to that
+ * IPv4 address, because the request ends at the IPv4 host: IPv4-mapped
+ * (`::ffff:a.b.c.d`) is classified by its IPv4 address; NAT64
+ * (`64:ff9b::/96`), 6to4 (`2002::/16`), Teredo and IPv4-compatible
+ * (`::a.b.c.d`) are refused. A string that is not an address is refused.
+ */
+function isPublicAddress(ip: string): boolean {
+  if (!ipaddr.isValid(ip)) {
     return false
   }
 
-  const [a, b] = parts as [number, number, number, number]
+  const parsed = ipaddr.parse(ip)
 
-  if (a === 0 || a === 10 || a === 127) {
-    return true
+  if (parsed.kind() === 'ipv4') {
+    return parsed.range() === 'unicast'
   }
 
-  if (a === 169 && b === 254) {
-    // Link-local, which is where the cloud metadata service (169.254.169.254) lives.
-    return true
+  const ipv6 = parsed as ipaddr.IPv6
+
+  if (ipv6.isIPv4MappedAddress()) {
+    return ipv6.toIPv4Address().range() === 'unicast'
   }
 
-  if (a === 172 && b >= 16 && b <= 31) {
-    return true
+  // `::/96`: the unspecified address, loopback, and the IPv4-compatible form.
+  if (ipv6.parts.slice(0, 6).every((part) => part === 0)) {
+    return false
   }
 
-  if (a === 192 && b === 168) {
-    return true
-  }
-
-  if (a === 100 && b >= 64 && b <= 127) {
-    // Carrier-grade NAT.
-    return true
-  }
-
-  // Multicast (224.0.0.0/4) and reserved (240.0.0.0/4), including broadcast.
-  return a >= 224
+  return ipv6.range() === 'unicast'
 }
 
-/** True for an IPv6 address in a loopback, unspecified, link-local, or unique-local range. */
-function isPrivateIpv6(ip: string): boolean {
-  // Normalize both DNS results and literals. URL parsing compresses IPv6 and
-  // rewrites a dotted IPv4 suffix as two hexadecimal groups.
-  const lower = new URL(`http://[${ip}]/`).hostname.slice(1, -1)
+/** `URL.hostname` keeps the brackets of an IPv6 literal; `isIP` wants them gone. */
+function bareHostOf(url: string): string {
+  const host = new URL(url).hostname
 
-  if (lower === '::1' || lower === '::') {
-    return true
-  }
-
-  const mapped = /^::ffff:([\da-f]{1,4}):([\da-f]{1,4})$/u.exec(lower)
-
-  if (mapped?.[1] !== undefined && mapped[2] !== undefined) {
-    // An IPv4 address written in IPv6 form resolves by its IPv4 rules.
-    const high = Number.parseInt(mapped[1], 16)
-    const low = Number.parseInt(mapped[2], 16)
-    return isPrivateIpv4([high >>> 8, high & 255, low >>> 8, low & 255].join('.'))
-  }
-
-  const firstHextet = Number.parseInt(lower.split(':')[0] || '0', 16)
-
-  // fe80::/10 link-local.
-  if ((firstHextet & 0xffc0) === 0xfe80) {
-    return true
-  }
-
-  // fc00::/7 unique-local.
-  return (firstHextet & 0xfe00) === 0xfc00
+  return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host
 }
 
-function isPrivateAddress(ip: string): boolean {
-  return isIP(ip) === 6 ? isPrivateIpv6(ip) : isPrivateIpv4(ip)
+/** The `BlockedEgressError` in an error's `cause` chain, when there is one. */
+function blockedCauseOf(error: unknown): BlockedEgressError | undefined {
+  for (let current = error, depth = 0; current instanceof Error && depth < 5; current = current.cause, depth += 1) {
+    if (current instanceof BlockedEgressError) {
+      return current
+    }
+
+    if (current instanceof AggregateError) {
+      const blocked = current.errors.find((inner) => inner instanceof BlockedEgressError)
+
+      if (blocked instanceof BlockedEgressError) {
+        return blocked
+      }
+    }
+  }
+
+  return undefined
+}
+
+type ResolveHost = (host: string) => Promise<readonly string[]>
+
+/**
+ * A `lookup` for a socket, in the shape `net.connect` takes. It gives the
+ * socket only addresses the guard accepts, and fails when the host has one
+ * that it does not. The socket connects to what this lookup returned, so no
+ * second DNS answer can change the target.
+ */
+function createGuardedLookup(resolveHost: ResolveHost): LookupFunction {
+  return (hostname, options, callback) => {
+    resolveHost(hostname).then(
+      (addresses) => {
+        const refused = addresses.find((address) => !isPublicAddress(address))
+        const [first] = addresses
+
+        if (refused !== undefined) {
+          callback(new BlockedEgressError(hostname, refused), [])
+        } else if (first === undefined) {
+          callback(new Error(`${hostname} has no address`), [])
+        } else if (options.all === true) {
+          callback(
+            null,
+            addresses.map((address) => ({ address, family: isIP(address) })),
+          )
+        } else {
+          callback(null, first, isIP(first))
+        }
+      },
+      (error: unknown) => {
+        callback(error instanceof Error ? error : new Error(String(error)), [])
+      },
+    )
+  }
 }
 
 export interface EgressGuard {
@@ -113,6 +148,13 @@ export interface EgressGuard {
    *   resolved address is public.
    */
   check(url: string): Promise<void>
+  /**
+   * The `fetch` for a request to a customer-supplied URL. With the guard on,
+   * the connection goes only to an address the guard accepted, and the
+   * request rejects with a `BlockedEgressError` when the host has an address
+   * that it did not. With the guard off, it is the global `fetch`.
+   */
+  readonly fetch: typeof fetch
 }
 
 /**
@@ -123,25 +165,47 @@ export interface EgressGuard {
  */
 export function createEgressGuard(
   config: EgressConfig,
-  resolveHost: (host: string) => Promise<readonly string[]> = defaultResolveHost,
+  resolveHost: ResolveHost = defaultResolveHost,
 ): EgressGuard {
   if (!config.BLOCK_PRIVATE_EGRESS) {
-    return { check: () => Promise.resolve() }
+    return { check: () => Promise.resolve(), fetch: (input, init) => fetch(input, init) }
   }
+
+  const dispatcher = new Agent({ connect: { lookup: createGuardedLookup(resolveHost) } })
 
   return {
     async check(url) {
-      const host = new URL(url).hostname
-      // A bracketed IPv6 literal arrives with its brackets; `URL.hostname` keeps
-      // them, and `isIP` wants them gone.
-      const bareHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host
-      const addresses = isIP(bareHost) !== 0 ? [bareHost] : await resolveHost(bareHost)
+      const host = bareHostOf(url)
+      const addresses = isIP(host) !== 0 ? [host] : await resolveHost(host)
 
       for (const address of addresses) {
-        if (isPrivateAddress(address)) {
+        if (!isPublicAddress(address)) {
           throw new BlockedEgressError(host, address)
         }
       }
+    },
+    fetch(input, init) {
+      const url = input instanceof Request ? input.url : String(input)
+      const host = bareHostOf(url)
+
+      // A socket to a literal address does no lookup, so the literal is
+      // checked here. A hostname is checked by the connection's own lookup.
+      if (isIP(host) !== 0 && !isPublicAddress(host)) {
+        return Promise.reject(new BlockedEgressError(host, host))
+      }
+
+      // `undici` has its own request and response types. They are the same
+      // Fetch Standard shapes as the global ones; only the declarations differ.
+      const request = pinnedFetch as unknown as (
+        input: Parameters<typeof fetch>[0],
+        init: object,
+      ) => Promise<Response>
+
+      return request(input, { ...init, dispatcher }).catch((error: unknown) => {
+        // `fetch` rejects with a `TypeError` whose cause is the socket's
+        // error. The caller records the reason, so it gets the guard's own.
+        throw blockedCauseOf(error) ?? error
+      })
     },
   }
 }

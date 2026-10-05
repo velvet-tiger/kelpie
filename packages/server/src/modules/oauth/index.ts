@@ -36,13 +36,14 @@ export function createOAuthModule(migrationsDirectory: string, options: OAuthMod
 
     register(context) {
       const appBaseUrl = context.appBaseUrl ?? context.config(appUrlConfigSchema).APP_BASE_URL
+      const egress = createEgressGuard(context.config(egressConfigSchema))
       const service = createOAuthService({
         db: context.db,
         createId: context.createId,
         now: context.now,
         appBaseUrl,
-        egress: createEgressGuard(context.config(egressConfigSchema)),
-        fetch: options.fetch ?? ((input, init) => fetch(input, init)),
+        egress,
+        fetch: options.fetch ?? ((input, init) => egress.fetch(input, init)),
         ...(options.newToken === undefined ? {} : { newToken: options.newToken }),
       })
       const handlers = createProtocolHandlers(service)

@@ -52,7 +52,7 @@ export type SendDispatch = (request: DispatchRequest) => Promise<DispatchOutcome
  */
 export function createHttpSender(
   egress: EgressGuard,
-  fetchImplementation: typeof fetch = fetch,
+  fetchImplementation: typeof fetch = egress.fetch,
 ): SendDispatch {
   return async (request) => {
     try {

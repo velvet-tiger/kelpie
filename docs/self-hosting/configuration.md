@@ -78,7 +78,7 @@ The per-account login budget is the one an attacker rotating IP addresses cannot
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `BLOCK_PRIVATE_EGRESS` | no | `true` refuses webhook deliveries and agent-task dispatches whose URL resolves to a private or reserved address. Default `false`, because a self-hosted install legitimately posts to internal hosts. Turn it on when strangers can register webhooks on your deployment. |
+| `BLOCK_PRIVATE_EGRESS` | no | `true` refuses webhook deliveries, agent-task dispatches and OAuth client metadata fetches whose URL resolves to a private or reserved address. Only a global unicast address is accepted. Default `false`, because a self-hosted install legitimately posts to internal hosts. Turn it on when strangers can register webhooks on your deployment. |
 
 ## AI module
 

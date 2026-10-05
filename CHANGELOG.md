@@ -196,6 +196,20 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`@kelpie/server`** — **The private-address guard now controls the
+  connection, not only a lookup before it.** With `BLOCK_PRIVATE_EGRESS=true`,
+  the guard resolved the host and checked the addresses, and then `fetch`
+  resolved the host again. A host whose DNS answer changed between the two
+  (DNS rebinding) passed the check and then connected to a private address.
+  A webhook delivery, an agent-task dispatch and the fetch of an OAuth client
+  metadata document now connect only to an address that the guard accepted
+  in the same lookup. The guard also accepts only global unicast addresses,
+  from the range list of `ipaddr.js`. It thus now refuses NAT64
+  (`64:ff9b::/96`), 6to4 (`2002::/16`), Teredo, IPv4-compatible IPv6
+  (`::a.b.c.d`), `198.18.0.0/15`, `192.0.0.0/24` and the documentation
+  ranges, which it accepted before. `@kelpie/server` has two new
+  dependencies, `undici` and `ipaddr.js`. Nothing changes with the setting
+  off, which is the default. No migration.
 - **`@kelpie/server`** — **Form notifications to addresses outside the
   workspace have a daily limit.** A member can name any address as a
   notification recipient, and a submit needs no credentials. Thus a member
