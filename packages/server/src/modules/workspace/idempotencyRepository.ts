@@ -12,7 +12,7 @@ export type IdempotencyKeyRecord = typeof idempotencyKeys.$inferSelect
  * Reserves a key, or reclaims one whose reservation has expired.
  *
  * A plain insert would raise a unique violation on a second request for the
- * same `(workspace_id, key)`, which is exactly the signal the caller needs —
+ * same `(workspace_id, actor_key, key)`, which is exactly the signal the caller needs —
  * but Postgres has no way to say "insert, unless the existing row is expired,
  * in which case overwrite it" as two statements without a race between them.
  * `onConflictDoUpdate` with a `setWhere` does it as one: the update only fires
@@ -25,6 +25,7 @@ export async function reserveIdempotencyKey(
   params: {
     readonly id: string
     readonly workspaceId: string
+    readonly actorKey: string
     readonly key: string
     readonly requestHash: string
     readonly expiresAt: Date
@@ -36,6 +37,7 @@ export async function reserveIdempotencyKey(
     .values({
       id: params.id,
       workspaceId: params.workspaceId,
+      actorKey: params.actorKey,
       key: params.key,
       requestHash: params.requestHash,
       response: null,
@@ -43,7 +45,7 @@ export async function reserveIdempotencyKey(
       createdAt: params.now,
     })
     .onConflictDoUpdate({
-      target: [idempotencyKeys.workspaceId, idempotencyKeys.key],
+      target: [idempotencyKeys.workspaceId, idempotencyKeys.actorKey, idempotencyKeys.key],
       set: {
         id: params.id,
         requestHash: params.requestHash,
@@ -62,12 +64,19 @@ export async function reserveIdempotencyKey(
 export async function findIdempotencyKey(
   db: Queryable,
   workspaceId: string,
+  actorKey: string,
   key: string,
 ): Promise<IdempotencyKeyRecord | undefined> {
   const [found] = await db
     .select()
     .from(idempotencyKeys)
-    .where(and(eq(idempotencyKeys.workspaceId, workspaceId), eq(idempotencyKeys.key, key)))
+    .where(
+      and(
+        eq(idempotencyKeys.workspaceId, workspaceId),
+        eq(idempotencyKeys.actorKey, actorKey),
+        eq(idempotencyKeys.key, key),
+      ),
+    )
     .limit(1)
 
   return found

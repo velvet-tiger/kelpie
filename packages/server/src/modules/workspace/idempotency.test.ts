@@ -10,6 +10,7 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
+import { users } from '../auth/schema.ts'
 import { idempotencyKeys } from './schema.ts'
 
 /**
@@ -75,6 +76,40 @@ describe.skipIf(connectionString === undefined)('idempotency keys', () => {
     )
   }
 
+  /** The `actor_key` the middleware stores for the owner's session. */
+  async function ownerActorKey(): Promise<string> {
+    const [owner] = await database.db.select().from(users).where(eq(users.email, 'ada@example.com'))
+
+    if (owner === undefined) {
+      throw new Error('The owner account does not exist')
+    }
+
+    return `user:${owner.id}`
+  }
+
+  /** Invites an address at `role` and accepts it as a fresh account. */
+  async function addMember(email: string, role: 'admin' | 'member'): Promise<string> {
+    const invited = await client.send('POST', `/v1/workspaces/${acme.workspaceId}/invites`, {
+      body: { email, role },
+      cookie: acme.cookie,
+    })
+    expect(invited.status).toBe(201)
+    await harness.runQueuedJobs()
+
+    const body = harness.services.sentEmails.at(-1)?.body ?? ''
+    const token = /token=(?<token>[\w-]+)/u.exec(body)?.groups?.token
+
+    if (token === undefined) {
+      throw new Error(`No invite token in the sent email: ${body}`)
+    }
+
+    const cookie = await client.signUp(email)
+    const accepted = await client.send('POST', '/v1/invites/accept', { body: { token }, cookie })
+    expect(accepted.status).toBe(200)
+
+    return cookie
+  }
+
   async function countPeople(): Promise<number> {
     const response = await harness.app.request('/v1/people', { headers: { Cookie: acme.cookie } })
     const payload: unknown = await response.json()
@@ -122,6 +157,73 @@ describe.skipIf(connectionString === undefined)('idempotency keys', () => {
     expect(await countPeople()).toBe(1)
   })
 
+  it('does not replay one member\'s response to another member', async () => {
+    const first = await postPeople({ name: 'Ada Lovelace' }, 'key-shared')
+    expect(first.status).toBe(201)
+    const firstId = readRecord(await first.json()).id
+
+    const member = await addMember('grace@example.com', 'member')
+    const second = await harness.app.request('/v1/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: member, 'Idempotency-Key': 'key-shared' },
+      body: JSON.stringify({ name: 'Ada Lovelace' }),
+    })
+
+    // The member's own request ran: a new record, not the owner's stored answer.
+    expect(second.status).toBe(201)
+    expect(readRecord(await second.json()).id).not.toBe(firstId)
+    expect(await countPeople()).toBe(2)
+  })
+
+  it('does not hand a new API key secret to a member who repeats the request', async () => {
+    const request = (cookie: string): Promise<Response> =>
+      Promise.resolve(
+        harness.app.request('/v1/api-keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: cookie, 'Idempotency-Key': 'key-mint' },
+          body: JSON.stringify({ name: 'CI', kind: 'workspace' }),
+        }),
+      )
+
+    const minted = await request(acme.cookie)
+    expect(minted.status).toBe(201)
+
+    const member = await addMember('grace@example.com', 'member')
+    const attempt = await request(member)
+
+    // The role check runs, because nothing is replayed to a different actor.
+    expect(attempt.status).toBe(403)
+  })
+
+  it('keeps no copy of a response that holds a secret, and refuses the retry', async () => {
+    const request = (): Promise<Response> =>
+      Promise.resolve(
+        harness.app.request('/v1/api-keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: acme.cookie, 'Idempotency-Key': 'key-secret' },
+          body: JSON.stringify({ name: 'CI', kind: 'workspace' }),
+        }),
+      )
+
+    const minted = await request()
+    expect(minted.status).toBe(201)
+    expect(minted.headers.get('Cache-Control')).toBe('no-store')
+    const secret = readRecord(await minted.json()).secret
+
+    const [row] = await database.db.select().from(idempotencyKeys)
+    expect(JSON.stringify(row)).not.toContain(String(secret))
+    expect(row?.response).toEqual({ status: 201, body: null, withheld: true })
+
+    const retry = await request()
+    expect(retry.status).toBe(409)
+    expect(readErrorCode(await retry.json())).toBe('conflict')
+
+    // The retry did not make a second key.
+    const listed = await harness.app.request('/v1/api-keys?kind=workspace', { headers: { Cookie: acme.cookie } })
+    const payload: unknown = await listed.json()
+    expect(isRecord(payload) && Array.isArray(payload.data) ? payload.data.length : -1).toBe(1)
+  })
+
   it('answers 409 when the same key is replayed with a different body', async () => {
     const first = await postPeople({ name: 'Ada Lovelace' }, 'key-2')
     expect(first.status).toBe(201)
@@ -139,6 +241,7 @@ describe.skipIf(connectionString === undefined)('idempotency keys', () => {
     await database.db.insert(idempotencyKeys).values({
       id: 'idem_in_flight',
       workspaceId: acme.workspaceId,
+      actorKey: await ownerActorKey(),
       key: 'key-3',
       requestHash: 'irrelevant-while-response-is-null',
       response: null,
@@ -156,6 +259,7 @@ describe.skipIf(connectionString === undefined)('idempotency keys', () => {
     await database.db.insert(idempotencyKeys).values({
       id: 'idem_expired',
       workspaceId: acme.workspaceId,
+      actorKey: await ownerActorKey(),
       key: 'key-4',
       requestHash: 'stale-hash-from-a-different-body',
       response: { status: 201, body: { id: 'per_stale', name: 'Someone else entirely' } },
@@ -193,6 +297,7 @@ describe.skipIf(connectionString === undefined)('idempotency keys', () => {
       {
         id: 'idem_old_1',
         workspaceId: acme.workspaceId,
+        actorKey: await ownerActorKey(),
         key: 'old-key-1',
         requestHash: 'h1',
         response: { status: 201, body: {} },
@@ -201,6 +306,7 @@ describe.skipIf(connectionString === undefined)('idempotency keys', () => {
       {
         id: 'idem_old_2',
         workspaceId: acme.workspaceId,
+        actorKey: await ownerActorKey(),
         key: 'old-key-2',
         requestHash: 'h2',
         response: { status: 201, body: {} },

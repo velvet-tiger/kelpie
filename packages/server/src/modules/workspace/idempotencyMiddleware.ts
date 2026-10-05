@@ -3,7 +3,9 @@ import type { Context, MiddlewareHandler } from 'hono'
 
 import type { Database } from '../../lib/database.ts'
 import { AppError, describeThrown } from '../../lib/errors.ts'
-import { PUBLIC_ROUTE_PREFIX } from '../../lib/http.ts'
+import { bearerCredentialId, isBearerActor } from '../../lib/actor.ts'
+import type { Actor } from '../../lib/actor.ts'
+import { PUBLIC_ROUTE_PREFIX, isWithheldFromReplay } from '../../lib/http.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
 import { actorWorkspaceId } from '../auth/actor.ts'
@@ -61,6 +63,18 @@ function replayResponse(stored: StoredIdempotentResponse): Response {
   })
 }
 
+/**
+ * Who a stored response belongs to. A session is its user, so a retry after a
+ * new sign-in still replays; a bearer credential is the key or the grant.
+ *
+ * The replay answers before any handler runs, and so before any role check.
+ * Without this, a member who sent another member's key and body got that
+ * member's response.
+ */
+function actorKeyOf(actor: Actor): string {
+  return isBearerActor(actor) ? `${actor.kind}:${bearerCredentialId(actor)}` : `user:${actor.userId}`
+}
+
 function conflict(message: string): AppError {
   return AppError.conflict(message, [{ field: 'Idempotency-Key', message }])
 }
@@ -87,7 +101,13 @@ type ReservationOutcome =
  */
 async function acquireReservation(
   dependencies: IdempotencyMiddlewareDependencies,
-  params: { readonly workspaceId: string; readonly key: string; readonly requestHash: string; readonly now: Date },
+  params: {
+    readonly workspaceId: string
+    readonly actorKey: string
+    readonly key: string
+    readonly requestHash: string
+    readonly now: Date
+  },
 ): Promise<ReservationOutcome> {
   const expiresAt = new Date(params.now.getTime() + IDEMPOTENCY_REPLAY_WINDOW_MS)
 
@@ -95,6 +115,7 @@ async function acquireReservation(
     const reserved = await reserveIdempotencyKey(dependencies.db, {
       id: dependencies.createId('idempotencyKey'),
       workspaceId: params.workspaceId,
+      actorKey: params.actorKey,
       key: params.key,
       requestHash: params.requestHash,
       expiresAt,
@@ -105,7 +126,12 @@ async function acquireReservation(
       return { kind: 'reserved', record: reserved }
     }
 
-    const existing = await findIdempotencyKey(dependencies.db, params.workspaceId, params.key)
+    const existing = await findIdempotencyKey(
+      dependencies.db,
+      params.workspaceId,
+      params.actorKey,
+      params.key,
+    )
 
     if (existing !== undefined) {
       return { kind: 'existing', record: existing }
@@ -160,7 +186,13 @@ export function createIdempotencyMiddleware(dependencies: IdempotencyMiddlewareD
     const requestHash = hashRequest(context.req.method, context.req.path, rawBody)
     const now = dependencies.now()
 
-    const outcome = await acquireReservation(dependencies, { workspaceId, key, requestHash, now })
+    const outcome = await acquireReservation(dependencies, {
+      workspaceId,
+      actorKey: actorKeyOf(actor),
+      key,
+      requestHash,
+      now,
+    })
 
     if (outcome.kind === 'contended') {
       throw conflict('A request with this Idempotency-Key is already in progress')
@@ -173,6 +205,12 @@ export function createIdempotencyMiddleware(dependencies: IdempotencyMiddlewareD
 
       if (outcome.record.requestHash !== requestHash) {
         throw conflict('This Idempotency-Key was already used for a different request')
+      }
+
+      if (outcome.record.response.withheld === true) {
+        throw conflict(
+          'This request already completed. Its response held a secret, which is not kept, so it cannot be sent again. The request was not run again',
+        )
       }
 
       return replayResponse(outcome.record.response)
@@ -202,10 +240,21 @@ export function createIdempotencyMiddleware(dependencies: IdempotencyMiddlewareD
     }
 
     try {
-      const bodyText = await context.res.clone().text()
-      const body: unknown = bodyText.length === 0 ? null : JSON.parse(bodyText)
+      // A response with a secret in it is not kept: the table would otherwise
+      // hold a new API key or signing secret in clear text for a day. The row
+      // stays, so a retry is refused and the write is not done twice.
+      if (isWithheldFromReplay(context)) {
+        await completeIdempotencyKey(dependencies.db, record.id, {
+          status: context.res.status,
+          body: null,
+          withheld: true,
+        })
+      } else {
+        const bodyText = await context.res.clone().text()
+        const body: unknown = bodyText.length === 0 ? null : JSON.parse(bodyText)
 
-      await completeIdempotencyKey(dependencies.db, record.id, { status: context.res.status, body })
+        await completeIdempotencyKey(dependencies.db, record.id, { status: context.res.status, body })
+      }
       await pruneExpiredIdempotencyKeys(dependencies.db, workspaceId, now)
     } catch (persistError) {
       // The handler already answered correctly; a bookkeeping failure here must

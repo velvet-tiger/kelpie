@@ -9,7 +9,12 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError, toErrorDetails } from '../../lib/errors.ts'
-import { pageBody, readJsonBody, readListParameters } from '../../lib/http.ts'
+import {
+  pageBody,
+  readJsonBody,
+  readListParameters,
+  withholdFromReplay,
+} from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -181,6 +186,8 @@ export function mountWebhooksRoutes(router: Hono, dependencies: WebhooksRoutesDe
       events: body.events,
     })
 
+    withholdFromReplay(context)
+
     return context.json(createdWebhookResponse(webhook), 201)
   })
 
@@ -216,6 +223,8 @@ export function mountWebhooksRoutes(router: Hono, dependencies: WebhooksRoutesDe
       context.req.param('id'),
       { overlap: body.overlap ?? false },
     )
+
+    withholdFromReplay(context)
 
     return context.json(createdWebhookResponse(webhook))
   })

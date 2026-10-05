@@ -4,6 +4,7 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError, toErrorDetails } from '../../lib/errors.ts'
+import { withholdFromReplay } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -65,6 +66,8 @@ export function mountApiKeyRoutes(router: Hono, dependencies: ApiKeyRoutesDepend
       body.kind,
       body.scopes as ApiKeyScope[] | undefined,
     )
+
+    withholdFromReplay(context)
 
     return context.json({ ...keyResponse(minted), secret: minted.secret }, 201)
   })

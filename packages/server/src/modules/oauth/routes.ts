@@ -2,7 +2,7 @@ import { API_KEY_SCOPES } from '@kelpie/schemas'
 import type { Context, Handler, Hono } from 'hono'
 import { z } from 'zod'
 
-import { readJsonBody } from '../../lib/http.ts'
+import { readJsonBody, withholdFromReplay } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -325,6 +325,9 @@ export function mountOAuthRoutes(router: Hono, dependencies: OAuthRoutesDependen
       body.workspace_id,
       body.scopes,
     )
+
+    // The URL carries the authorization code.
+    withholdFromReplay(context)
 
     return context.json({ redirect_url: redirectUrl })
   })

@@ -43,6 +43,25 @@ export function requestOrigin(context: Context): string {
   return url.origin
 }
 
+const WITHHELD_FROM_REPLAY = 'kelpie.withheldFromReplay'
+
+/**
+ * Marks the response as one that holds a secret shown exactly once: a new API
+ * key, a webhook signing secret. The idempotency middleware then keeps no copy
+ * of it, and a retry of the same `Idempotency-Key` is refused, not replayed.
+ * Also tells every cache between here and the caller to keep nothing.
+ *
+ * Call it in the handler of any `POST` whose response carries a secret.
+ */
+export function withholdFromReplay(context: Context): void {
+  context.set(WITHHELD_FROM_REPLAY, true)
+  context.header('Cache-Control', 'no-store')
+}
+
+export function isWithheldFromReplay(context: Context): boolean {
+  return context.get(WITHHELD_FROM_REPLAY) === true
+}
+
 /**
  * Reads and validates a JSON request body.
  *

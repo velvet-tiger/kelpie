@@ -93,6 +93,8 @@ export {
   toErrorBody,
   toErrorDetails,
 } from './lib/errors.ts'
+// For a module's own `POST` whose response carries a secret shown once.
+export { withholdFromReplay } from './lib/http.ts'
 export type {
   ErrorBody,
   ErrorCode,

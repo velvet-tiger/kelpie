@@ -113,12 +113,17 @@ export const workspaceModuleSettings = pgTable(
 export interface StoredIdempotentResponse {
   readonly status: number
   readonly body: unknown
+  /**
+   * True when the response held a secret and so was not kept. The request ran
+   * and must not run again, but there is nothing to replay: `body` is null.
+   */
+  readonly withheld?: true
 }
 
 /**
  * Replayed `Idempotency-Key` requests return the stored response instead of
- * re-executing (`docs/agents/api-and-webhooks.md`). Workspace-scoped because a
- * key is only meaningful within the workspace whose credentials sent it.
+ * re-executing (`docs/agents/api-and-webhooks.md`). Scoped to the workspace and to the actor, because a
+ * key is only meaningful to the credential that sent it.
  *
  * `response` is nullable: the middleware reserves the row (inserts it with a
  * null response) before running the handler, so a concurrent replay of the
@@ -137,11 +142,19 @@ export const idempotencyKeys = pgTable(
     workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /**
+     * Who sent the request: a user, an API key or an OAuth grant. A key is
+     * replayed only to the actor that first sent it. `''` is a row from before
+     * the column existed, which no actor matches.
+     */
+    actorKey: text('actor_key').notNull().default(''),
     key: text('key').notNull(),
     requestHash: text('request_hash').notNull(),
     response: jsonb('response').$type<StoredIdempotentResponse>(),
     expiresAt: moment('expires_at').notNull(),
     createdAt: createdAt(),
   },
-  (table) => [unique('idempotency_keys_workspace_key_key').on(table.workspaceId, table.key)],
+  (table) => [
+    unique('idempotency_keys_workspace_actor_key_key').on(table.workspaceId, table.actorKey, table.key),
+  ],
 )

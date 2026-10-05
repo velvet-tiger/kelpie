@@ -302,6 +302,28 @@ While the major version is `0`, a minor bump may break the API.
   response has no maximum. An import and a form submission do not go through
   these schemas. No migration.
 
+- **`@kelpie/server`** — **A stored `Idempotency-Key` response belongs to
+  the caller that sent it, and a response with a secret is not stored.** The
+  row was keyed on the workspace and the header value, and the replay answers
+  before a handler checks a role. A member who sent the same key and body as
+  an admin thus got the admin's stored response, which could hold a new API
+  key. The table also held each new API key and webhook signing secret in
+  clear text for 24 hours. Two changes:
+  - The row key now includes the actor: the user for a session, the key or
+    the grant for a bearer credential (migration `0061`, new column
+    `idempotency_keys.actor_key`). Two callers can use the same key value
+    and do not see each other's responses.
+  - `POST /v1/api-keys`, `POST /v1/webhooks`,
+    `POST /v1/webhooks/:id/rotate_secret` and
+    `POST /v1/oauth/requests/:id/approve` send `Cache-Control: no-store`, and
+    no copy of the response is kept. **A retry of one of these with the same
+    key gets `409`, not the first response.** The request is not run again.
+    A module marks its own route with `withholdFromReplay`, which
+    `@kelpie/server` now exports.
+
+  A row from before the migration is not replayed, so a retry in the first 24
+  hours after the upgrade can run a request a second time.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added
