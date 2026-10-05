@@ -22,6 +22,15 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **`@kelpie/ui`** — **MCP is on a new AI page that every member can open.**
+  The sidebar has an **AI** link below **Admin**, to `/ai`. The page shows
+  the MCP endpoint, OAuth sign-in, the client config and the tool list. It
+  was the MCP tab on Admin → AI, which a member could not open, although a
+  member can use MCP. The config text now points to personal API keys; an
+  admin also sees the link to workspace keys. Registered agents and Recent
+  runs stay in Admin and are now the **Agents** tab on Admin → AI.
+  `/admin/mcp` and `/admin/ai?tab=mcp` redirect to `/ai`.
+
 - **`@kelpie/server`** — **The invitation email names the workspace and the
   inviter.** The subject was "You have been invited to a Kelpie workspace".
   It is now "Ada Lovelace invited you to Acme on Kelpie". The body gives the

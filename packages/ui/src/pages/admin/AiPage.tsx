@@ -16,7 +16,7 @@ import { targetHref } from '../../lib/recordLinks.ts'
 
 /**
  * The optional `ai` module's two tabs on Admin → AI, the core page at
- * `/admin/ai` (`AiAdminPage`), beside core's MCP tab.
+ * `/admin/ai` (`AiAdminPage`), beside core's Agents tab.
  *
  * Settings for Kelpie AI in this workspace, and its run log. Both read the
  * same `/v1/ai/*` endpoints an agent would use.

@@ -190,6 +190,21 @@ describe('the shell sidebar', () => {
     expect(sidebarLinkLabels()).not.toContain('Admin')
   })
 
+  it('shows the AI link to a member, below where Admin sits for an admin', async () => {
+    renderShell('/dashboard', 'member')
+
+    await waitFor(() => {
+      expect(sidebarLinkLabels()).toContain('AI')
+    })
+
+    cleanup()
+    renderShell('/dashboard', 'admin')
+
+    await waitFor(() => {
+      expect(sidebarLinkLabels().slice(-2)).toEqual(['Admin', 'AI'])
+    })
+  })
+
   it('sends a member who opens an admin address to the dashboard', async () => {
     renderShell('/admin/team', 'member')
 

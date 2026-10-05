@@ -1,39 +1,13 @@
 import { QueryClient } from '@tanstack/react-query'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiProvider } from '../../api/ApiProvider.tsx'
-import { ApiError } from '../../api/client.ts'
-import { setInputValue } from '../../testing/inputs.ts'
 import { stubClient } from '../../testing/stubClient.ts'
-import { McpPanel } from './McpPanel.tsx'
+import { AgentsPanel } from './AgentsPanel.tsx'
 
 afterEach(cleanup)
-
-/**
- * What this page can get wrong in a way a reader would believe: an endpoint URL
- * that is not the one this deployment answers on, and a tool list written into
- * the page rather than read from the registry.
- */
-
-const TOOLS = [
-  {
-    name: 'people_list',
-    description: 'List person records. Mirrors GET /v1/people.',
-    input_schema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'people_create',
-    description: 'Create a person. Mirrors POST /v1/people.',
-    input_schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
-  },
-  {
-    name: 'export_csv',
-    description: 'Export every record of one object as CSV text.',
-    input_schema: { type: 'object', properties: {} },
-  },
-]
 
 const AGENTS = [
   {
@@ -89,18 +63,16 @@ const TASK_DEFINITIONS = [
 ]
 
 interface PageStubs {
-  readonly tools?: () => unknown
   readonly agents?: () => unknown
   readonly runs?: () => unknown
 }
 
-function renderPage(stubs: PageStubs = {}): void {
+function renderPanel(stubs: PageStubs = {}): void {
   const empty = (): unknown => ({ items: [], nextCursor: null })
   const client = stubClient({
     list: (path) => {
       const answer =
         {
-          '/mcp/tools': stubs.tools ?? empty,
           '/agents': stubs.agents ?? empty,
           '/agent-runs': stubs.runs ?? empty,
           '/agent-tasks': () => ({ items: TASK_DEFINITIONS, nextCursor: null }),
@@ -115,64 +87,15 @@ function renderPage(stubs: PageStubs = {}): void {
   render(
     <MemoryRouter>
       <ApiProvider client={client} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <McpPanel />
+        <AgentsPanel />
       </ApiProvider>
     </MemoryRouter>,
   )
 }
 
-describe('McpPanel', () => {
-  it('shows the endpoint this deployment answers on, not a written-down one', async () => {
-    renderPage({ tools: () => ({ items: TOOLS, nextCursor: null }) })
-
-    // jsdom serves the page from localhost:3000, which stands in for whatever
-    // host a self-hosted install is reached at.
-    const endpoint = `${window.location.origin}/mcp`
-
-    expect(await screen.findByText(endpoint)).toBeTruthy()
-    expect(screen.getByText(new RegExp(`"url": "${endpoint}"`, 'u'))).toBeTruthy()
-  })
-
-  it('lists what the registry reported, with its count', async () => {
-    renderPage({ tools: () => ({ items: TOOLS, nextCursor: null }) })
-
-    expect(await screen.findByText(/3 tools/u)).toBeTruthy()
-    expect(screen.getByText('export_csv')).toBeTruthy()
-    expect(screen.getByText('people_list')).toBeTruthy()
-    expect(screen.getByText(/Mirrors POST \/v1\/people/u)).toBeTruthy()
-  })
-
-  it('filters on the name and on the description', async () => {
-    renderPage({ tools: () => ({ items: TOOLS, nextCursor: null }) })
-
-    const filter = await screen.findByLabelText('Filter tools')
-
-    await act(async () => {
-      setInputValue(filter, 'CSV')
-    })
-
-    expect(screen.getByText('export_csv')).toBeTruthy()
-    expect(screen.queryByText('people_list')).toBeNull()
-
-    await act(async () => {
-      setInputValue(filter, 'nothing here')
-    })
-
-    expect(screen.getByText(/No tool matches/u)).toBeTruthy()
-  })
-
-  it('says the listing failed rather than showing no tools', async () => {
-    renderPage({
-      tools: () => Promise.reject(new ApiError(401, 'unauthorized', 'Your session has expired')),
-    })
-
-    await waitFor(() => {
-      expect(screen.getByText('Your session has expired')).toBeTruthy()
-    })
-  })
-
+describe('AgentsPanel', () => {
   it('lists registered agents with their endpoint and last run', async () => {
-    renderPage({ agents: () => ({ items: AGENTS, nextCursor: null }) })
+    renderPanel({ agents: () => ({ items: AGENTS, nextCursor: null }) })
 
     expect(await screen.findByText('Local Claude')).toBeTruthy()
     expect(screen.getByText('https://agents.example.com/kelpie/run')).toBeTruthy()
@@ -182,7 +105,7 @@ describe('McpPanel', () => {
   })
 
   it('links a module-managed agent to its settings instead of offering Remove', async () => {
-    renderPage({ agents: () => ({ items: [MANAGED_AGENT], nextCursor: null }) })
+    renderPanel({ agents: () => ({ items: [MANAGED_AGENT], nextCursor: null }) })
 
     expect(await screen.findByText('Hosted agent')).toBeTruthy()
     // Dispatched in-process: the stored endpoint is not shown as an address.
@@ -195,7 +118,7 @@ describe('McpPanel', () => {
   })
 
   it('says a module manages the agent when the module gave no settings path', async () => {
-    renderPage({
+    renderPanel({
       agents: () => ({ items: [{ ...MANAGED_AGENT, settings_path: null }], nextCursor: null }),
     })
 
@@ -204,7 +127,7 @@ describe('McpPanel', () => {
   })
 
   it('labels run-log rows from the catalog, with the failure reason', async () => {
-    renderPage({
+    renderPanel({
       agents: () => ({ items: AGENTS, nextCursor: null }),
       runs: () => ({ items: RUNS, nextCursor: null }),
     })
@@ -216,7 +139,7 @@ describe('McpPanel', () => {
   })
 
   it('says so when nothing has run yet', async () => {
-    renderPage()
+    renderPanel()
 
     expect(await screen.findByText(/No runs yet/u)).toBeTruthy()
     expect(screen.getByText(/No agents registered/u)).toBeTruthy()

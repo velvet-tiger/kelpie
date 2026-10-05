@@ -64,6 +64,7 @@ const DIRECTORY_NAV_IDS: ReadonlySet<string> = new Set(['people', 'companies'])
 const TOOLS_NAV_IDS: ReadonlySet<string> = new Set(['lists', 'forms'])
 
 const ADMIN_ENTRY_PATH = '/admin/workspace'
+const AI_ENTRY_PATH = '/ai'
 
 function isAdminRoute(pathname: string): boolean {
   return pathname.startsWith('/admin/')
@@ -291,13 +292,18 @@ function ShellLayout(): React.JSX.Element {
                 </div>
               )}
 
-              {isAdmin && (
-                <div className="flex flex-col gap-0.5">
+              {/* AI is how a member connects an agent, so every member gets
+                  the link. Admin is for owners and admins. */}
+              <div className="flex flex-col gap-0.5">
+                {isAdmin && (
                   <NavLink to={ADMIN_ENTRY_PATH} className={linkClass}>
                     Admin
                   </NavLink>
-                </div>
-              )}
+                )}
+                <NavLink to={AI_ENTRY_PATH} className={linkClass}>
+                  AI
+                </NavLink>
+              </div>
             </>
           )}
         </nav>

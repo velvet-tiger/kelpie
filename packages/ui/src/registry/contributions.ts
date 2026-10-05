@@ -84,7 +84,7 @@ export interface RecordTab {
 
 /**
  * An admin page whose tabs modules may add to. `ai` is Admin → AI: core owns
- * the page and its MCP tab, and the optional `ai` module adds Kelpie AI's
+ * the page and its Agents tab, and the optional `ai` module adds Kelpie AI's
  * settings and run log.
  */
 export type ExtensibleAdminPage = 'ai'

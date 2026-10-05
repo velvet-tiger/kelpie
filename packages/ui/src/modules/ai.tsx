@@ -9,7 +9,7 @@ import { PersonIntakeWizard } from './PersonIntakeWizard.tsx'
  * Not registered by default. An assembly that lists `createAiModule()` on the
  * server lists `aiUi` in `kelpie.ui.config.ts`, the same pairing any module
  * uses. Two tabs on core's Admin → AI page, Settings and Run log, before
- * core's MCP tab. On record pages it is the Agent menu's runner: Run dispatches straight to the "Kelpie AI" agent row, and
+ * core's Agents tab. On record pages it is the Agent menu's runner: Run dispatches straight to the "Kelpie AI" agent row, and
  * stays disabled until AI is enabled and has a key. Preview's Run… still lists
  * every registered agent, Kelpie AI included. On People it is the wizard behind
  * Add from notes.

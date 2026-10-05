@@ -42,6 +42,7 @@ import { PreferencesPage } from '../pages/account/PreferencesPage.tsx'
 import { ProfilePage } from '../pages/account/ProfilePage.tsx'
 import { SecurityPage } from '../pages/account/SecurityPage.tsx'
 import { AiAdminPage } from '../pages/admin/AiAdminPage.tsx'
+import { AiAccessPage } from '../pages/ai/AiAccessPage.tsx'
 import { ApiKeysPage } from '../pages/admin/ApiKeysPage.tsx'
 import { DataPage } from '../pages/admin/DataPage.tsx'
 import { FieldsPage } from '../pages/admin/FieldsPage.tsx'
@@ -193,6 +194,7 @@ function AppRoutes(): React.JSX.Element {
           {/* The optional segment is the mockup's: /handbook opens the first page. */}
           <Route path="handbook" element={<HandbookLayout />} />
           <Route path="handbook/:pageId" element={<HandbookLayout />} />
+          <Route path="ai" element={<AiAccessPage />} />
           <Route path="admin" element={<Navigate to="/admin/workspace" replace />} />
           <Route path="admin/workspace" element={<WorkspaceSettingsPage />} />
           <Route path="admin/team" element={<TeamPage />} />
@@ -201,8 +203,8 @@ function AppRoutes(): React.JSX.Element {
           <Route path="admin/data" element={<DataPage />} />
           <Route path="admin/api-keys" element={<ApiKeysPage />} />
           <Route path="admin/ai" element={<AiAdminPage />} />
-          {/* MCP moved to a tab on Admin → AI. */}
-          <Route path="admin/mcp" element={<Navigate to="/admin/ai?tab=mcp" replace />} />
+          {/* MCP moved out of Admin: every member can open the AI page. */}
+          <Route path="admin/mcp" element={<Navigate to="/ai" replace />} />
           <Route path="admin/webhooks" element={<WebhooksPage />} />
           <Route path="admin/modules" element={<ModulesPage />} />
           {/* The mockup's own shape: /account opens the first tab. */}

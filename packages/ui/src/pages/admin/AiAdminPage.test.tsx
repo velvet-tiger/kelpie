@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiProvider } from '../../api/ApiProvider.tsx'
@@ -109,6 +109,11 @@ function renderPage(stubs: PageStubs = {}): void {
       return current
     },
     list: (path) => {
+      // The core Agents tab's three lists; empty is all these tests need.
+      if (path === '/agents' || path === '/agent-runs' || path === '/agent-tasks') {
+        return { items: [], nextCursor: null }
+      }
+
       if (path !== '/ai/runs') {
         throw new Error(`Unexpected list ${path}`)
       }
@@ -132,7 +137,10 @@ function renderPage(stubs: PageStubs = {}): void {
         queryClient={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}
       >
         <UiExtensionProvider extensions={registerUiModules(stubs.modules ?? [aiUi])}>
-          <AiAdminPage />
+          <Routes>
+            <Route path="/admin/ai" element={<AiAdminPage />} />
+            <Route path="/ai" element={<p>AI page</p>} />
+          </Routes>
         </UiExtensionProvider>
       </ApiProvider>
     </MemoryRouter>,
@@ -236,26 +244,33 @@ describe('AiAdminPage', () => {
     expect(screen.queryByText(/ws_01M1DDZF4C4QW2W2NW3K2XV0C5/u)).toBeNull()
   })
 
-  it('opens on Settings, with MCP after the module tabs', async () => {
+  it('opens on Settings, with Agents after the module tabs', async () => {
     renderPage({})
 
     expect(await screen.findByText('Custom provider')).toBeTruthy()
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Settings', 'Run log', 'MCP'])
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Settings', 'Run log', 'Agents'])
     expect(screen.getByRole('tab', { name: 'Settings' }).getAttribute('aria-selected')).toBe('true')
   })
 
-  it('shows only the core MCP tab when the assembly lists no ai module', () => {
+  it('shows only the core Agents tab when the assembly lists no ai module', () => {
     renderPage({ modules: [] })
 
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['MCP'])
-    expect(screen.getByText('Streamable HTTP endpoint')).toBeTruthy()
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Agents'])
+    expect(screen.getByText('Registered agents')).toBeTruthy()
   })
 
-  it('opens the tab ?tab= names, which is where /admin/mcp redirects', () => {
+  it('opens the tab ?tab= names', () => {
+    renderPage({ path: '/admin/ai?tab=agents' })
+
+    expect(screen.getByRole('tab', { name: 'Agents' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('Registered agents')).toBeTruthy()
+  })
+
+  it('sends the old MCP tab address to the AI page', () => {
     renderPage({ path: '/admin/ai?tab=mcp' })
 
-    expect(screen.getByRole('tab', { name: 'MCP' }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByText('Streamable HTTP endpoint')).toBeTruthy()
+    expect(screen.getByText('AI page')).toBeTruthy()
+    expect(screen.queryByRole('tab')).toBeNull()
   })
 
   it('names a custom provider and shows which provider and model it runs', async () => {
