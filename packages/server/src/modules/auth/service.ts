@@ -3,7 +3,12 @@ import { AppError, ExternalSignInError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
-import { MINIMUM_PASSWORD_LENGTH, hashPassword, verifyPassword } from '../../lib/passwords.ts'
+import {
+  MINIMUM_PASSWORD_LENGTH,
+  hashPassword,
+  verifyLoginPassword,
+  verifyPassword,
+} from '../../lib/passwords.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
 import type { VerifiedIdentity } from '../../runtime/module.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
@@ -330,16 +335,13 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     async logIn(input: LogInInput): Promise<IssuedSession> {
       const user = await repository.findUserByEmail(dependencies.db, normaliseEmail(input.email))
 
-      // Hash a throwaway password when the account is unknown or has no
-      // password, so all three cases take the same time to answer.
-      const storedHash = user?.passwordHash ?? (await hashPassword('not-a-real-password-placeholder'))
-      // Always run the verify, even when the hash is the placeholder: skipping
-      // it would make a passwordless account answer faster than a wrong one.
-      const matches = await verifyPassword(storedHash, input.password)
+      // One verify in every case: against the account's hash, or against a
+      // placeholder when the account is unknown or has no password. All three
+      // cases thus take the same time to answer.
+      const matches = await verifyLoginPassword(user?.passwordHash, input.password)
 
-      // The null check is the guard, not the placeholder hash. Without it,
-      // whoever guessed the placeholder string would sign in to every account
-      // that has no password.
+      // The null check is the guard, not the placeholder hash. An account
+      // with no password must refuse a password login whatever the verify says.
       if (user === undefined || user.passwordHash === null || !matches) {
         throw AppError.unauthorized('Email or password is incorrect')
       }

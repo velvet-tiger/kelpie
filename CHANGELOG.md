@@ -187,6 +187,13 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`@kelpie/server`** — **The time a login takes no longer shows which
+  addresses have an account.** A login for an unknown address, or for an
+  account with no password, made a new argon2 hash and then verified against
+  it. A login for a known address only verified. The first case thus took
+  about two times as long, and a caller could measure that. All cases now do
+  one verify: against the hash of the account, or against one placeholder
+  hash of a random value that the process makes when it starts. No migration.
 - **`@kelpie/server`** — **A page on another origin cannot make a browser
   change data.** The `SameSite=Lax` cookie was the only defence. It does not
   stop a page on a sibling subdomain, and it does nothing for a forged login,

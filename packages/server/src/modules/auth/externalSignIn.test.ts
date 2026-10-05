@@ -297,8 +297,9 @@ describe.skipIf(connectionString === undefined)('external sign-in', () => {
 
     /**
      * The guard is the null check, not the placeholder hash `logIn` compares
-     * against when it has none. Without it, whoever knew that string would sign
-     * in to every passwordless account.
+     * against when it has none. The placeholder was once the hash of this fixed
+     * string, and whoever knew it would have signed in to every passwordless
+     * account without the guard. It is now the hash of a random value.
      */
     it('refuses the placeholder the timing-safe path hashes', async () => {
       await provision()

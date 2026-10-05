@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto'
+
 import { MINIMUM_PASSWORD_LENGTH } from '@kelpie/schemas'
 import { hash, verify } from '@node-rs/argon2'
 
@@ -49,6 +51,36 @@ export async function verifyPassword(storedHash: string, plaintext: string): Pro
     // A hash argon2 cannot parse is not a match. The row is corrupt, not correct.
     return false
   }
+}
+
+/**
+ * The hash of a random password that nobody knows, made one time when the
+ * process starts. A login for an account that has no password hash is verified
+ * against it, so that login does the same work as a login with a wrong
+ * password: one verify and no hash.
+ *
+ * It is made here and not for each login. A hash for each login made an
+ * unknown address take two argon2 operations and a known one take one, and
+ * that difference showed which addresses have an account.
+ */
+const PLACEHOLDER_HASH: Promise<string> = hash(randomBytes(32).toString('base64url'))
+
+/**
+ * Verifies a login attempt, in the same time for an account with a password,
+ * an account without one, and no account at all.
+ *
+ * @param storedHash The account's hash, or null or undefined when there is no
+ *   account or the account has no password.
+ * @returns False when there is no stored hash, whatever the password is. The
+ *   placeholder is there for the time it takes, not as a credential.
+ */
+export async function verifyLoginPassword(
+  storedHash: string | null | undefined,
+  plaintext: string,
+): Promise<boolean> {
+  const matches = await verifyPassword(storedHash ?? (await PLACEHOLDER_HASH), plaintext)
+
+  return storedHash !== null && storedHash !== undefined && matches
 }
 
 export function isPasswordStrongEnough(plaintext: string): boolean {
