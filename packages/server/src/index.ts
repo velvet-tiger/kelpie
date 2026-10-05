@@ -93,6 +93,8 @@ export {
   toErrorBody,
   toErrorDetails,
 } from './lib/errors.ts'
+// For a module's own cookie-authenticated routes outside `/v1`.
+export { createCrossSiteGuardMiddleware } from './lib/crossSiteGuard.ts'
 // For a module's own `POST` whose response carries a secret shown once.
 export { withholdFromReplay } from './lib/http.ts'
 export type {

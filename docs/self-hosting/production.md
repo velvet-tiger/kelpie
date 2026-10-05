@@ -52,6 +52,7 @@ server {
         proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
@@ -60,6 +61,8 @@ Two settings must agree with the proxy:
 
 - `TRUSTED_PROXY_HOP_COUNT=1` (or your real hop count). Without it the rate limiter reads your proxy's address as the client, and one busy proxy looks like one abusive caller.
 - `APP_BASE_URL=https://crm.example.com`, as above.
+
+The proxy must pass the `Host` header through unchanged, as both examples do. Kelpie compares the `Origin` of a browser request with that host, and refuses a write with `403` when they are different. A proxy that replaces `Host` with the upstream address thus stops every save in the app. `X-Forwarded-Proto` tells Kelpie that the page is on `https`; Caddy sends it by default.
 
 ## Keeping it running
 

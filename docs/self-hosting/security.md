@@ -19,6 +19,8 @@ The rule behind the table: a value the service only checks is hashed; a value it
 
 Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` everywhere except development. Confirming a password reset ends every session on the account.
 
+The cookie is not the only defence against a forged request. A request under `/v1` that changes something and carries no API key must come from a page of your deployment: the browser states the page's origin in the `Origin` header, and Kelpie compares it with the host the request arrived on. Another origin gets `403`. The body must also be `application/json`, which a page on another origin cannot send without permission; another content type gets `415`. A sign-in request is checked the same way, so another site cannot sign a reader in to an account of its choice. For this to work behind a reverse proxy, the proxy must keep the `Host` header ([Production](production.md#a-reverse-proxy-with-tls)).
+
 ## Email verification and link building
 
 A password reset request answers `202` for every address and does the same work for each: it adds one background job and does not read the accounts table. The job finds the account, or finds none, after the caller has its answer. The response and its timing thus do not show which addresses have accounts, and a mail server that is down does not change them.
@@ -29,7 +31,7 @@ An account must verify its email address before it can create a workspace; accep
 
 ## Request size
 
-Every request body has a limit. A body over it gets `413` with the code `payload_too_large` before a handler runs. The limit is 1 MB; 256 KB under `/v1/public`; 11 MB for the import upload; 15 MB for `/mcp`, where the import tools take the file as text. If a reverse proxy sits in front of Kelpie, set its body limit to 15 MB or more, or the larger imports stop at the proxy.
+Every request body has a limit. A body over it gets `413` with the code `payload_too_large` before a handler runs. The limit is 1 MB; 256 KB under `/v1/public`; 11 MB for the import upload and the import commit; 15 MB for `/mcp`, where the import tools take the file as text. If a reverse proxy sits in front of Kelpie, set its body limit to 15 MB or more, or the larger imports stop at the proxy.
 
 ## Rate limits
 

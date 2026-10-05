@@ -6,6 +6,7 @@ import type { PublicRegion } from '@kelpie/schemas'
 
 import type { RuntimeMode } from './lib/config.ts'
 import type { DatabaseProbe } from './lib/database.ts'
+import { createCrossSiteGuardMiddleware } from './lib/crossSiteGuard.ts'
 import { createBodyLimitMiddleware } from './lib/bodyLimit.ts'
 import { AppError, internalErrorBody, toErrorBody } from './lib/errors.ts'
 import { PUBLIC_ROUTE_PREFIX } from './lib/http.ts'
@@ -140,6 +141,10 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
 
   // Ahead of everything that reads a body, the login rate limit included.
   app.use('*', createBodyLimitMiddleware(MCP_ROUTE_PREFIX))
+
+  // Ahead of the rate limits and the idempotency store: a request another
+  // website forged must not spend the reader's budget or reserve a key.
+  app.use('/v1/*', createCrossSiteGuardMiddleware())
 
   const rateLimitDependencies = {
     db: dependencies.credentials.db,

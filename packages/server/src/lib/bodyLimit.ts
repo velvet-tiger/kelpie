@@ -36,7 +36,15 @@ export const MAX_IMPORT_BODY_BYTES = MAX_IMPORT_FILE_BYTES + MIB
  */
 export const MAX_MCP_BODY_BYTES = Math.ceil(MAX_IMPORT_FILE_BYTES * 1.5)
 
-const IMPORT_UPLOAD_PATH = '/v1/import/jobs'
+/**
+ * The two routes that take the import file as a multipart body: the upload
+ * that makes a job, and the commit, which sends the same file again.
+ */
+const IMPORT_FILE_PATH = /^\/v1\/import\/jobs(?:\/[^/]+\/commit)?$/u
+
+export function isImportFilePath(path: string): boolean {
+  return IMPORT_FILE_PATH.test(path)
+}
 
 /** The limit for one path. Exported for tests. */
 export function maxBodyBytesFor(path: string, mcpPath: string): number {
@@ -44,7 +52,7 @@ export function maxBodyBytesFor(path: string, mcpPath: string): number {
     return MAX_MCP_BODY_BYTES
   }
 
-  if (path === IMPORT_UPLOAD_PATH) {
+  if (isImportFilePath(path)) {
     return MAX_IMPORT_BODY_BYTES
   }
 

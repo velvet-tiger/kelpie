@@ -12,6 +12,7 @@ export type ErrorCode =
   | 'conflict'
   | 'entitlement_required'
   | 'payload_too_large'
+  | 'unsupported_media_type'
   | 'validation_failed'
   | 'rate_limited'
   | 'internal_error'
@@ -33,6 +34,8 @@ const statusByCode = {
   // Extends the API's status list: the body is over the limit in
   // `lib/bodyLimit.ts`. A client reads 413 as "send less", not "fix a field".
   payload_too_large: 413,
+  // Extends the API's status list: the body is not JSON (`lib/crossSiteGuard.ts`).
+  unsupported_media_type: 415,
   validation_failed: 422,
   rate_limited: 429,
   internal_error: 500,

@@ -187,6 +187,20 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`@kelpie/server`** — **A page on another origin cannot make a browser
+  change data.** The `SameSite=Lax` cookie was the only defence. It does not
+  stop a page on a sibling subdomain, and it does nothing for a forged login,
+  which needs no session. A request under `/v1` that is not `GET` or `HEAD`
+  and has no bearer credential must now pass two checks. Its `Origin` must be
+  the origin of the deployment, or the request gets `403`. Its body must be
+  `application/json`, or the request gets `415` with the new error code
+  `unsupported_media_type`; the two import routes that take the file accept
+  `multipart/form-data`. A request with an API key, `/v1/public`, and a
+  client that sends no `Origin` are not changed. **A reverse proxy must keep
+  the `Host` header.** It should also send `X-Forwarded-Proto`. A script
+  that uses a session cookie must send JSON bodies as `application/json`. A
+  module can put the same check on its own routes with
+  `createCrossSiteGuardMiddleware`. No migration.
 - **`@kelpie/server`** — **A password reset request no longer shows which
   addresses have accounts.** `POST /v1/auth/password-reset` answered at once
   for an unknown address and waited for the mail server for a registered
@@ -266,7 +280,8 @@ While the major version is `0`, a minor bump may break the API.
   the process, and some of those routes need no credentials. A body over the
   limit now gets `413` with the new error code `payload_too_large`, before a
   handler runs. The limit is 1 MB; 256 KB under `/v1/public`; 11 MB for
-  `POST /v1/import/jobs`; 15 MB for `/mcp`, where the import tools take the
+  `POST /v1/import/jobs` and `POST /v1/import/jobs/:id/commit`; 15 MB for
+  `/mcp`, where the import tools take the
   file as a JSON string. One answer on a public form submit can have at most
   20,000 characters. **A module in an assembly that takes a body larger than
   1 MB on its own route is now refused.** No migration.

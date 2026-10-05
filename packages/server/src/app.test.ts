@@ -200,10 +200,12 @@ describe('request body limit', () => {
     expect(response.status).toBe(413)
   })
 
-  it('gives the import upload and /mcp room for a full file', () => {
+  it('gives the import upload, the import commit and /mcp room for a full file', () => {
     expect(maxBodyBytesFor('/v1/import/jobs', '/mcp')).toBeGreaterThan(MAX_IMPORT_FILE_BYTES)
+    expect(maxBodyBytesFor('/v1/import/jobs/imp_1/commit', '/mcp')).toBeGreaterThan(MAX_IMPORT_FILE_BYTES)
     expect(maxBodyBytesFor('/mcp', '/mcp')).toBeGreaterThan(MAX_IMPORT_FILE_BYTES)
-    expect(maxBodyBytesFor('/v1/import/jobs/imp_1/commit', '/mcp')).toBe(MAX_BODY_BYTES)
+    expect(maxBodyBytesFor('/v1/import/jobs/imp_1', '/mcp')).toBe(MAX_BODY_BYTES)
+    expect(maxBodyBytesFor('/v1/import/jobs/imp_1/commit/more', '/mcp')).toBe(MAX_BODY_BYTES)
     expect(maxBodyBytesFor('/v1/people', '/mcp')).toBe(MAX_BODY_BYTES)
     expect(maxBodyBytesFor('/v1/public/ws_1/forms/contact/submit', '/mcp')).toBe(MAX_PUBLIC_BODY_BYTES)
   })
