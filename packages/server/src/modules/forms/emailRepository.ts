@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gte, inArray, ne, sql } from 'drizzle-orm'
+import { and, asc, count, eq, gte, inArray, ne, notInArray, sql } from 'drizzle-orm'
 import type { FormEmailKind, FormEmailRecipient, FormEmailSendStatus, FormSubmissionActionEntry } from '@kelpie/schemas'
 
 import type { Queryable } from '../../runtime/transaction.ts'
@@ -171,6 +171,35 @@ export async function countAutoRepliesSince(
         eq(formEmailSends.kind, 'auto_reply'),
         eq(formEmailSends.status, 'sent'),
         gte(formEmailSends.createdAt, since),
+      ),
+    )
+
+  return row?.total ?? 0
+}
+
+/**
+ * How many notifications the workspace sent since `since` to an address that
+ * is not in `memberAddresses`. A message to a member's address is not
+ * counted, so the limit never stops a notification to the team.
+ */
+export async function countExternalNotificationsSince(
+  db: Queryable,
+  workspaceId: string,
+  since: Date,
+  memberAddresses: readonly string[],
+): Promise<number> {
+  const [row] = await db
+    .select({ total: count() })
+    .from(formEmailSends)
+    .where(
+      and(
+        eq(formEmailSends.workspaceId, workspaceId),
+        eq(formEmailSends.kind, 'notification'),
+        eq(formEmailSends.status, 'sent'),
+        gte(formEmailSends.createdAt, since),
+        memberAddresses.length === 0
+          ? undefined
+          : notInArray(formEmailSends.recipient, [...memberAddresses]),
       ),
     )
 

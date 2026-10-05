@@ -102,6 +102,11 @@ export interface FormEmailDependencies {
   readonly entitlements: EntitlementRegistry
   /** Auto-replies one workspace may send in a UTC day. `FORMS_AUTO_REPLY_DAILY_LIMIT`. */
   readonly autoReplyDailyLimit: number
+  /**
+   * Notifications one workspace may send in a UTC day to addresses that are
+   * not its members'. `FORMS_EXTERNAL_NOTIFICATION_DAILY_LIMIT`.
+   */
+  readonly externalNotificationDailyLimit: number
 }
 
 /** What one email came to, as its `action_log` entry reports it. */
@@ -208,12 +213,17 @@ async function decideAndSend(
   const fields = await repository.listFields(db, form.id)
   const members = await workspaceRepository.listMembers(db, data.workspaceId)
   const memberEmails = new Map(members.map((member) => [member.id, member.email]))
+  const memberAddresses = new Set(
+    members
+      .map((member) => normaliseEmail(member.email))
+      .filter((address): address is string => address !== null),
+  )
   const previous = await emailRepository.listEmailSends(db, submission.id)
   const values = await loadValues(dependencies, form, workspace, fields, submission)
   const submitterEmail = singleAddressOrNone(
     submitterEmailOf(fields, submission.answers) ?? values.personEmail,
   )
-  const context: SendContext = { dependencies, form, submission, previous, values, memberEmails }
+  const context: SendContext = { dependencies, form, submission, previous, values, memberEmails, memberAddresses }
   const outcomes: EmailOutcome[] = []
 
   if (data.kinds.includes('notification')) {
@@ -234,6 +244,8 @@ interface SendContext {
   readonly previous: readonly FormEmailSendRecord[]
   readonly values: FormEmailValues
   readonly memberEmails: ReadonlyMap<string, string>
+  /** Each member's address, normalised. An address not in here is external. */
+  readonly memberAddresses: ReadonlySet<string>
 }
 
 async function loadValues(
@@ -440,11 +452,23 @@ async function sendOnce(
   return { sent: true }
 }
 
+/** The detail of a notification that the daily limit stopped. */
+const EXTERNAL_LIMIT_DETAIL = 'Daily limit for addresses outside the workspace reached'
+
+/**
+ * Sends the notification to each recipient.
+ *
+ * A member can name any address as a recipient, and a submit needs no
+ * credentials, so a form is a way to send mail from the deployment's address
+ * to a stranger. The messages to addresses that are not a member's thus have
+ * a limit for the workspace for each UTC day. The messages to members have
+ * no limit.
+ */
 async function sendNotification(
   context: SendContext,
   submitterEmail: string | undefined,
 ): Promise<EmailOutcome> {
-  const { form } = context
+  const { dependencies, form, submission } = context
 
   if (!form.notifyEmail) {
     return { kind: 'notification', status: 'skipped', detail: 'Turned off before it was sent' }
@@ -467,9 +491,33 @@ async function sendNotification(
   const body = fillTemplate(form.notifyBody, context.values)
   const errors: string[] = []
   let sent = 0
+  let limited = 0
   let retry = false
+  let externalToday = await emailRepository.countExternalNotificationsSince(
+    dependencies.db,
+    submission.workspaceId,
+    startOfUtcDay(dependencies.now()),
+    [...context.memberAddresses],
+  )
 
   for (const to of addresses) {
+    const external = !context.memberAddresses.has(to)
+    // The limit is for a message that is about to go. One that is sent, or
+    // that the mail system refused on an earlier try, is not.
+    const settled =
+      alreadySent(context, 'notification', to) || refusalOf(context, 'notification', to) !== undefined
+
+    if (external && !settled) {
+      if (externalToday >= dependencies.externalNotificationDailyLimit) {
+        await record(context, 'notification', to, 'skipped', EXTERNAL_LIMIT_DETAIL)
+        limited += 1
+
+        continue
+      }
+
+      externalToday += 1
+    }
+
     const result = await sendOnce(context, 'notification', { to, subject, body, replyTo: submitterEmail }, true)
 
     if (result.sent) {
@@ -480,10 +528,11 @@ async function sendNotification(
     }
   }
 
-  const count = `Sent to ${String(sent)} of ${String(addresses.length)} recipients`
+  const sentCount = `Sent to ${String(sent)} of ${String(addresses.length)} recipients`
+  const count = limited === 0 ? sentCount : `${sentCount}. ${EXTERNAL_LIMIT_DETAIL}`
 
   return errors.length === 0
-    ? { kind: 'notification', status: 'ok', detail: count }
+    ? { kind: 'notification', status: sent === 0 ? 'skipped' : 'ok', detail: count }
     : {
         kind: 'notification',
         status: retry ? 'error' : 'refused',

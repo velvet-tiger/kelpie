@@ -23,12 +23,19 @@ import { registerFormsTools } from './tools.ts'
  * typed, so the cap protects the deployment's sending reputation from a bot
  * that fills in a public form with other people's addresses.
  *
+ * `FORMS_EXTERNAL_NOTIFICATION_DAILY_LIMIT` caps the notifications one
+ * workspace sends in a UTC day to addresses that are not its members'. A
+ * member can name any address as a recipient and then submit the form with no
+ * credentials, so the cap stops a form from being used to send mail to
+ * strangers. A notification to a member is not counted.
+ *
  * `FORMS_SPAM_MIN_SECONDS` is the shortest time a person takes to fill a form
  * in. A submit that arrives sooner after its page loaded is held as spam, on a
  * form that requires the spam check. Zero turns that one rule off.
  */
 export const formsConfigSchema = z.object({
   FORMS_AUTO_REPLY_DAILY_LIMIT: z.coerce.number().int().min(0).default(500),
+  FORMS_EXTERNAL_NOTIFICATION_DAILY_LIMIT: z.coerce.number().int().min(0).default(500),
   FORMS_SPAM_MIN_SECONDS: z.coerce.number().min(0).default(2),
 })
 
@@ -72,6 +79,7 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
           appBaseUrl: context.appBaseUrl ?? context.config(appUrlConfigSchema).APP_BASE_URL,
           entitlements: context.entitlements,
           autoReplyDailyLimit: config.FORMS_AUTO_REPLY_DAILY_LIMIT,
+          externalNotificationDailyLimit: config.FORMS_EXTERNAL_NOTIFICATION_DAILY_LIMIT,
         }),
       )
 

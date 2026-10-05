@@ -227,6 +227,7 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
       appBaseUrl: TEST_APP_BASE_URL,
       entitlements: harness.contributions.entitlements,
       autoReplyDailyLimit: 500,
+      externalNotificationDailyLimit: 500,
       ...overrides,
     }
   }
@@ -541,6 +542,77 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
         status: 'skipped',
         detail: 'Daily auto-reply limit reached',
       })
+    })
+
+    it('stops notifications to outside addresses at the daily limit, and still sends to members', async () => {
+      const form = await createForm({
+        notify_email: true,
+        notify_recipients: [
+          { kind: 'member', member_id: ownerMemberId },
+          { kind: 'address', address: 'outside@example.com' },
+        ],
+      })
+      const first = await submit(form, contactAnswers(form, 'one@example.com'))
+      const second = await submit(form, contactAnswers(form, 'two@example.com'))
+      const { sender, sent } = controlledSender(new Set())
+      const dependencies = directDependencies(sender, { externalNotificationDailyLimit: 1 })
+
+      await sendFormEmails(dependencies, { workspaceId: acme.workspaceId, submissionId: first, kinds: ['notification'] })
+      await sendFormEmails(dependencies, { workspaceId: acme.workspaceId, submissionId: second, kinds: ['notification'] })
+
+      expect(sent.map((message) => message.to)).toEqual([
+        'ada@example.com',
+        'outside@example.com',
+        'ada@example.com',
+      ])
+      expect((await readSubmission(form, first)).actionLog).toContainEqual({
+        action: 'email_notification',
+        status: 'ok',
+        detail: 'Sent to 2 of 2 recipients',
+      })
+      expect((await readSubmission(form, second)).actionLog).toContainEqual({
+        action: 'email_notification',
+        status: 'ok',
+        detail: 'Sent to 1 of 2 recipients. Daily limit for addresses outside the workspace reached',
+      })
+    })
+
+    it('counts the limit for the workspace, not for one form or one submit', async () => {
+      const recipients = [
+        { kind: 'address', address: 'a@example.com' },
+        { kind: 'address', address: 'b@example.com' },
+        { kind: 'address', address: 'c@example.com' },
+      ]
+      const one = await createForm({ notify_email: true, notify_recipients: recipients })
+      const two = await createForm({ name: 'Second form', notify_email: true, notify_recipients: recipients })
+      const first = await submit(one, contactAnswers(one, 'one@example.com'))
+      const second = await submit(two, contactAnswers(two, 'two@example.com'))
+      const { sender, sent } = controlledSender(new Set())
+      const dependencies = directDependencies(sender, { externalNotificationDailyLimit: 2 })
+
+      await sendFormEmails(dependencies, { workspaceId: acme.workspaceId, submissionId: first, kinds: ['notification'] })
+      await sendFormEmails(dependencies, { workspaceId: acme.workspaceId, submissionId: second, kinds: ['notification'] })
+
+      expect(sent.map((message) => message.to)).toEqual(['a@example.com', 'b@example.com'])
+      expect((await readSubmission(two, second)).actionLog).toContainEqual({
+        action: 'email_notification',
+        status: 'skipped',
+        detail: 'Sent to 0 of 3 recipients. Daily limit for addresses outside the workspace reached',
+      })
+    })
+
+    it('does not count an address recipient that is the address of a member', async () => {
+      const form = await createForm({
+        notify_email: true,
+        notify_recipients: [{ kind: 'address', address: 'ada@example.com' }],
+      })
+      const submissionId = await submit(form, contactAnswers(form))
+      const { sender, sent } = controlledSender(new Set())
+      const dependencies = directDependencies(sender, { externalNotificationDailyLimit: 0 })
+
+      await sendFormEmails(dependencies, { workspaceId: acme.workspaceId, submissionId, kinds: ['notification'] })
+
+      expect(sent.map((message) => message.to)).toEqual(['ada@example.com'])
     })
 
     it('records a failure, throws so the queue retries, and a retry sends only what failed', async () => {

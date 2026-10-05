@@ -187,6 +187,17 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`@kelpie/server`** — **Form notifications to addresses outside the
+  workspace have a daily limit.** A member can name any address as a
+  notification recipient, and a submit needs no credentials. Thus a member
+  could use a form to send mail, with a subject and body the member wrote,
+  from the deployment's address to strangers, with no limit. A workspace can
+  now send at most `FORMS_EXTERNAL_NOTIFICATION_DAILY_LIMIT` notifications
+  in a UTC day to addresses that are not a member's. The default is `500`.
+  Above the limit, the message is not sent and the submission's
+  `email_notification` entry says "Daily limit for addresses outside the
+  workspace reached". A notification to a member is not counted and is
+  always sent. No migration.
 - **`@kelpie/server`** — **A public form submit no longer sets a withdrawn
   consent back to granted.** A submit finds the person by email address
   only, and it wrote `granted` without a check of the status before. Thus
