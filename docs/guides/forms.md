@@ -22,6 +22,8 @@ Each field maps to an object and attribute via a searchable picker — not a fix
 
 **Repeatable:** **Submission only** and **Person · consent** may appear on more than one field.
 
+**A withdrawn consent stays withdrawn.** If a person withdrew a consent and the form is then sent with that person's email address and the box ticked, Kelpie does not change the consent. A form needs no sign-in, so the submit does not prove who sent it. The person's timeline shows the attempt, and you can grant the consent again on the person record.
+
 **When values land:** Person, Company, and Position fields write on every submit. Deal, Opportunity, Partnership, and Enquiry fields write when the matching create trigger runs. Raise fields write when the form attaches submitters to that raise. Everything uses fill-a-blank except tags (union merge).
 
 Common starters — Person · name, Company · domain, Position · title, Submission only — remain in the "Add field" menu for speed.

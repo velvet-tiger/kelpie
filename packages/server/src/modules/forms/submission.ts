@@ -44,7 +44,7 @@ import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import * as customFieldsRepository from '../custom-fields/repository.ts'
 import { CUSTOM_FIELD_OBJECT_TYPES } from '../custom-fields/schema.ts'
 import '../people/events.ts'
-import { upsertPersonConsent } from '../people/personConsentWrites.ts'
+import { grantPersonConsentUnlessWithdrawn } from '../people/personConsentWrites.ts'
 import * as peopleRepository from '../people/repository.ts'
 import type { PersonRecord } from '../people/repository.ts'
 import * as personLinks from '../personLinks.ts'
@@ -882,7 +882,8 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
 
   /**
    * Writes each ticked grant as a `person_consents` row and appends an
-   * Activity to the person carrying the verbatim statement. A grant whose
+   * Activity to the person carrying the verbatim statement. A consent the
+   * person withdrew is not changed, and the Activity says so. A grant whose
    * purpose has since been removed is silently skipped — the form's own
    * consent field would have been left dangling anyway, and the submit
    * cannot know that from the answer alone.
@@ -903,14 +904,11 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     for (const grant of grants) {
       const purpose = purposes.get(grant.purposeId)
       if (purpose === undefined) continue
-      await upsertPersonConsent(
+      const { applied } = await grantPersonConsentUnlessWithdrawn(
         tx,
         workspaceId,
         personId,
         grant.purposeId,
-        purpose.slug,
-        purpose.label,
-        'granted',
         source,
         now,
       )
@@ -923,7 +921,12 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         targetType: 'person',
         targetId: personId,
         kind: 'updated',
-        action: `granted ${purpose.label} consent via ${formName}`,
+        // A withdrawn consent stays withdrawn: the submit proves nothing about
+        // who sent it. The timeline keeps the attempt, so a person in the
+        // workspace can decide what to do about it.
+        action: applied
+          ? `granted ${purpose.label} consent via ${formName}`
+          : `kept ${purpose.label} consent withdrawn after a submit of ${formName}`,
         detail,
       })
     }

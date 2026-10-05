@@ -1,5 +1,5 @@
 import type { ConsentStatus } from '@kelpie/schemas'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, ne } from 'drizzle-orm'
 
 import { AppError } from '../../lib/errors.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -116,6 +116,48 @@ export async function upsertPersonConsent(
     })
 
   return { purposeSlug, purposeLabel, status, previousStatus }
+}
+
+/**
+ * A grant from somebody who showed no credentials: a public form submit.
+ *
+ * It never changes a `withdrawn` row. The person is matched by email address
+ * alone, so anybody who knows the address can send the form, and a withdrawal
+ * that such a request could undo would be worth nothing. A person in the
+ * workspace can set the consent back to granted by hand.
+ *
+ * The condition is part of the upsert itself, so a withdrawal that lands
+ * between a read and this write is not lost.
+ *
+ * @returns `applied: false` when the row was `withdrawn` and stays so.
+ */
+export async function grantPersonConsentUnlessWithdrawn(
+  tx: Transaction,
+  workspaceId: string,
+  personId: string,
+  purposeId: string,
+  source: string,
+  now: Date,
+): Promise<{ readonly applied: boolean }> {
+  const written = await tx
+    .insert(personConsents)
+    .values({
+      workspaceId,
+      personId,
+      purposeId,
+      status: 'granted',
+      notedAt: now,
+      source,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [personConsents.personId, personConsents.purposeId],
+      set: { status: 'granted', notedAt: now, source, updatedAt: now },
+      setWhere: ne(personConsents.status, 'withdrawn'),
+    })
+    .returning({ personId: personConsents.personId })
+
+  return { applied: written.length > 0 }
 }
 
 /**

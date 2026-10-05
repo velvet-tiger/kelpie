@@ -187,6 +187,15 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`@kelpie/server`** — **A public form submit no longer sets a withdrawn
+  consent back to granted.** A submit finds the person by email address
+  only, and it wrote `granted` without a check of the status before. Thus
+  anybody who knew an address could undo that person's withdrawal with no
+  credentials. A submit now leaves a `withdrawn` consent as it is and adds
+  an activity to the person: "kept Newsletter consent withdrawn after a
+  submit of Website contact". The submit itself succeeds as before. A person
+  in the workspace can grant the consent again on the person record. No
+  migration.
 - **`@kelpie/server`** — **The time a login takes no longer shows which
   addresses have an account.** A login for an unknown address, or for an
   account with no password, made a new argon2 hash and then verified against

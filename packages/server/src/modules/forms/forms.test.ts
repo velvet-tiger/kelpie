@@ -2103,4 +2103,120 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(String(first?.person_id ?? '')).toBe(personId)
     })
   })
+
+  describe('a consent field', () => {
+    interface ConsentSetup {
+      readonly form: Record<string, unknown>
+      readonly answers: Record<string, string>
+    }
+
+    /** A purpose, and a form whose one checkbox grants it. */
+    async function consentForm(): Promise<ConsentSetup> {
+      const purpose = await client.send('POST', '/v1/consent_purposes', {
+        cookie: acme.cookie,
+        body: { slug: 'newsletter', label: 'Newsletter' },
+      })
+
+      expect(purpose.status).toBe(201)
+
+      const purposeId = readString(await purpose.json(), 'id')
+      const form = await createForm({
+        fields: [
+          ...CONTACT_FIELDS,
+          {
+            label: 'Keep in touch',
+            type: 'consent',
+            map_to: 'person.consent',
+            statement: 'I agree to receive:',
+            consent_purpose_ids: [purposeId],
+          },
+        ],
+      })
+      const ids = fieldIds(form)
+
+      return { form, answers: filledIn(ids, { [ids['Keep in touch'] ?? '']: purposeId }) }
+    }
+
+    async function alex(): Promise<Record<string, unknown>> {
+      const list = await client.send('GET', '/v1/people', { cookie: acme.cookie })
+      const [person] = readList(await list.json())
+
+      if (person === undefined) {
+        throw new Error('Expected the submit to have made a person')
+      }
+
+      return person
+    }
+
+    function newsletterOf(person: Record<string, unknown>): Record<string, unknown> {
+      const consents = Array.isArray(person.consents) ? person.consents.filter(isRecord) : []
+      const entry = consents.find((consent) => consent.purpose_slug === 'newsletter')
+
+      if (entry === undefined) {
+        throw new Error(`Expected a newsletter consent on ${JSON.stringify(person.consents)}`)
+      }
+
+      return entry
+    }
+
+    async function activityActions(personId: string): Promise<string[]> {
+      const response = await client.send(
+        'GET',
+        `/v1/activities?target_type=person&target_id=${personId}`,
+        { cookie: acme.cookie },
+      )
+
+      return readList(await response.json()).map((activity) => String(activity.action))
+    }
+
+    it('grants the ticked purpose', async () => {
+      const { form, answers } = await consentForm()
+
+      expect((await submit(formPath(form), answers)).status).toBe(201)
+
+      expect(newsletterOf(await alex())).toMatchObject({
+        status: 'granted',
+        source: `form:${readString(form, 'id')}`,
+      })
+    })
+
+    it('does not set a withdrawn consent back to granted, and records the attempt', async () => {
+      const { form, answers } = await consentForm()
+
+      await submit(formPath(form), answers)
+
+      const personId = readString(await alex(), 'id')
+      const withdrawn = await client.send('PATCH', `/v1/people/${personId}`, {
+        cookie: acme.cookie,
+        body: { consents: [{ purpose_slug: 'newsletter', status: 'withdrawn' }] },
+      })
+
+      expect(withdrawn.status).toBe(200)
+
+      // Anybody who knows the address can send this. It needs no credentials.
+      expect((await submit(formPath(form), answers)).status).toBe(201)
+
+      expect(newsletterOf(await alex())).toMatchObject({ status: 'withdrawn', source: 'manual' })
+      expect(await activityActions(personId)).toContain(
+        'kept Newsletter consent withdrawn after a submit of Website contact',
+      )
+    })
+
+    it('lets a person in the workspace grant it again by hand', async () => {
+      const { form, answers } = await consentForm()
+
+      await submit(formPath(form), answers)
+
+      const personId = readString(await alex(), 'id')
+
+      for (const status of ['withdrawn', 'granted']) {
+        await client.send('PATCH', `/v1/people/${personId}`, {
+          cookie: acme.cookie,
+          body: { consents: [{ purpose_slug: 'newsletter', status }] },
+        })
+      }
+
+      expect(newsletterOf(await alex())).toMatchObject({ status: 'granted', source: 'manual' })
+    })
+  })
 })
