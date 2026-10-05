@@ -9,6 +9,10 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { DecisionFilters } from './repository.ts'
 import { RECORD_TARGET_TYPES } from './schema.ts'
 import type { RecordTargetType } from './schema.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_LONG_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 import type {
   CreateDecisionInput,
   DecisionView,
@@ -30,10 +34,10 @@ import type {
  * have to check for both.
  */
 const decisionShape = {
-  body: z.string().min(1),
-  rationale: z.string().min(1).nullable(),
+  body: z.string().min(1).max(MAX_LONG_TEXT_LENGTH),
+  rationale: z.string().min(1).max(MAX_LONG_TEXT_LENGTH).nullable(),
   decided_at: z.iso.datetime(),
-  owner_id: z.string().min(1).nullable(),
+  owner_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
   due_at: z.iso.datetime().nullable(),
 }
 
@@ -45,7 +49,7 @@ const decisionShape = {
 export const createBody = z.strictObject({
   ...decisionShape,
   target_type: z.enum(RECORD_TARGET_TYPES),
-  target_id: z.string().min(1),
+  target_id: z.string().min(1).max(MAX_ID_LENGTH),
   rationale: decisionShape.rationale.default(null),
   decided_at: decisionShape.decided_at.optional(),
   owner_id: decisionShape.owner_id.optional(),

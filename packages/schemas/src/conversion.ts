@@ -40,19 +40,19 @@ export interface ConvertPipelineRecordInput {
 
 export const convertPipelineRecordBody = z.strictObject({
   target_type: z.enum(PIPELINE_KINDS),
-  stage_id: idSchema.optional(),
-  company_id: idSchema.optional(),
-  kind: z.string().optional(),
-  name: z.string().min(1).optional(),
+  stage_id: idSchema.max(200).optional(),
+  company_id: idSchema.max(200).optional(),
+  kind: z.string().max(500).optional(),
+  name: z.string().min(1).max(500).optional(),
 })
 
 /** Enquiry convert accepts an empty body and defaults the target to a deal. */
 export const convertEnquiryBody = z.strictObject({
   target_type: z.enum(PIPELINE_KINDS).default('deal'),
-  stage_id: idSchema.optional(),
-  company_id: idSchema.optional(),
-  kind: z.string().optional(),
-  name: z.string().min(1).optional(),
+  stage_id: idSchema.max(200).optional(),
+  company_id: idSchema.max(200).optional(),
+  kind: z.string().max(500).optional(),
+  name: z.string().min(1).max(500).optional(),
 })
 
 export function convertPipelineRecordRequest(

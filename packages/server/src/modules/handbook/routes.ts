@@ -7,6 +7,11 @@ import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { referenceResponse } from '../recordReferences.ts'
 import { MAX_SLUG_LENGTH, SLUG_PATTERN } from './slugs.ts'
+import {
+  MAX_DOCUMENT_LENGTH,
+  MAX_ID_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 import type {
   CreateHandbookPageInput,
   HandbookPageView,
@@ -35,10 +40,10 @@ const slugField = z
  * does not. Moving a slug on purpose is a separate field in the same request.
  */
 export const createBody = z.strictObject({
-  title: z.string().min(1),
-  body: z.string().default(''),
+  title: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  body: z.string().max(MAX_DOCUMENT_LENGTH).default(''),
   slug: slugField.optional(),
-  parent_id: z.string().min(1).nullable().default(null),
+  parent_id: z.string().min(1).max(MAX_ID_LENGTH).nullable().default(null),
 })
 
 /**
@@ -47,10 +52,10 @@ export const createBody = z.strictObject({
  */
 export const updateBody = z
   .strictObject({
-    title: z.string().min(1),
-    body: z.string(),
+    title: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+    body: z.string().max(MAX_DOCUMENT_LENGTH),
     slug: slugField,
-    parent_id: z.string().min(1).nullable(),
+    parent_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
     sort_order: z.number().int().min(0),
   })
   .partial()

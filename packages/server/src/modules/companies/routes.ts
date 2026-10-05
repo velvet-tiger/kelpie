@@ -8,6 +8,13 @@ import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from './schema.ts'
+import {
+  MAX_LIST_ITEMS,
+  MAX_LONG_TEXT_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+} from '../../lib/fieldLimits.ts'
 import type {
   CompaniesService,
   CompanyView,
@@ -19,18 +26,18 @@ import type {
 
 /** The full field set, without defaults. `createBody` adds those; `updateBody` makes it partial. */
 const companyShape = {
-  name: z.string().min(1),
-  domain: z.string().nullable(),
-  industry: z.string().nullable(),
-  description: z.string(),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  domain: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  industry: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  description: z.string().max(MAX_LONG_TEXT_LENGTH),
   stage: z.enum(COMPANY_STAGES),
   size_band: z.enum(SIZE_BANDS),
   addresses: companyAddressesSchema,
   account_type: z.enum(ACCOUNT_TYPES),
   icp_fit: z.enum(ICP_FITS),
-  tech_stack: z.array(z.string().min(1)),
-  summary: z.string(),
-  tags: z.array(z.string().min(1)),
+  tech_stack: z.array(z.string().min(1).max(MAX_SHORT_TEXT_LENGTH)).max(MAX_LIST_ITEMS),
+  summary: z.string().max(MAX_LONG_TEXT_LENGTH),
+  tags: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS),
   is_own: z.boolean(),
   custom_fields: customFieldsPatchShape,
 }

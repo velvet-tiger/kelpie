@@ -10,11 +10,15 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import { INVITABLE_ROLES, MEMBER_ROLES } from './roles.ts'
 import type { InviteView, MemberView, ModuleSettingView, WorkspaceService, WorkspaceView } from './service.ts'
 import { HANDBOOK_TEMPLATE_IDS } from './starters.ts'
+import {
+  MAX_SHORT_TEXT_LENGTH,
+  MAX_TOKEN_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /** Wire shapes for `/v1/workspaces`. */
 
 const createBody = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   timezone: timezoneSchema,
 })
 
@@ -25,13 +29,13 @@ const seedHandbookBodySchema = z.object({
 
 export const updateBody = z
   .object({
-    name: z.string().min(1),
+    name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
     timezone: timezoneSchema,
   })
   .partial()
 
 export const inviteBody = z.object({
-  email: z.string().min(1),
+  email: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   role: z.enum(INVITABLE_ROLES),
 })
 
@@ -39,7 +43,7 @@ export const memberRoleBody = z.object({ role: z.enum(MEMBER_ROLES) })
 
 export const moduleSettingBody = z.object({ enabled: z.boolean() })
 
-const acceptBody = z.object({ token: z.string().min(1) })
+const acceptBody = z.object({ token: z.string().min(1).max(MAX_TOKEN_LENGTH) })
 
 export interface WorkspaceRoutesDependencies extends CredentialDependencies {
   readonly service: WorkspaceService

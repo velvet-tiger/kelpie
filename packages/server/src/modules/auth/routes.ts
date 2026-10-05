@@ -13,6 +13,13 @@ import type { PreferenceValues } from './preferences.ts'
 import type { AccountView, AuthService, IssuedSession, MeView, SessionView } from './service.ts'
 import { clearSessionCookie, describeClient, writeSessionCookie } from './session.ts'
 import type { SessionCookieOptions } from './session.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_LIST_ITEMS,
+  MAX_PASSWORD_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+  MAX_TOKEN_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /**
  * Wire shapes for `/v1/auth/*`. Bodies are `snake_case` per
@@ -21,43 +28,43 @@ import type { SessionCookieOptions } from './session.ts'
  */
 
 const signUpBody = z.object({
-  email: z.string().min(1),
-  name: z.string().min(1),
-  password: z.string().min(1),
+  email: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  password: z.string().min(1).max(MAX_PASSWORD_LENGTH),
 })
 
 const logInBody = z.object({
-  email: z.string().min(1),
-  password: z.string().min(1),
+  email: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  password: z.string().min(1).max(MAX_PASSWORD_LENGTH),
 })
 
 const resetRequestBody = z.object({
-  email: z.string().min(1),
+  email: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
 })
 
 const resetConfirmBody = z.object({
-  token: z.string().min(1),
-  password: z.string().min(1),
+  token: z.string().min(1).max(MAX_TOKEN_LENGTH),
+  password: z.string().min(1).max(MAX_PASSWORD_LENGTH),
 })
 
 const changePasswordBody = z.object({
-  current_password: z.string().min(1),
-  new_password: z.string().min(1),
+  current_password: z.string().min(1).max(MAX_PASSWORD_LENGTH),
+  new_password: z.string().min(1).max(MAX_PASSWORD_LENGTH),
 })
 
 const switchWorkspaceBodySchema = z.object({
-  workspace_id: z.string().min(1),
+  workspace_id: z.string().min(1).max(MAX_ID_LENGTH),
 })
 
 const verifyEmailConfirmBody = z.object({
-  token: z.string().min(1),
+  token: z.string().min(1).max(MAX_TOKEN_LENGTH),
 })
 
 const updateAccountBody = z
   .strictObject({
-    name: z.string().min(1),
-    email: z.string().min(1),
-    current_password: z.string().min(1),
+    name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+    email: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+    current_password: z.string().min(1).max(MAX_PASSWORD_LENGTH),
   })
   .partial()
   .refine((body) => body.email === undefined || body.current_password !== undefined, {
@@ -67,11 +74,11 @@ const updateAccountBody = z
 
 const listViewBody: z.ZodType<ListViewPreference, unknown> = z
   .strictObject({
-    columns: z.array(z.string()).optional(),
+    columns: z.array(z.string().max(MAX_SHORT_TEXT_LENGTH)).max(MAX_LIST_ITEMS).optional(),
     mode: z.enum(['list', 'columns']).optional(),
-    grouping: z.string().optional(),
-    scope: z.string().optional(),
-    sort: z.string().optional(),
+    grouping: z.string().max(MAX_SHORT_TEXT_LENGTH).optional(),
+    scope: z.string().max(MAX_SHORT_TEXT_LENGTH).optional(),
+    sort: z.string().max(MAX_SHORT_TEXT_LENGTH).optional(),
   })
   .transform(
     (wire): ListViewPreference => ({
@@ -90,7 +97,7 @@ const updatePreferencesBody = z
     email_digest: z.boolean(),
     mention_emails: z.boolean(),
     product_updates: z.boolean(),
-    list_views: z.record(z.string(), listViewBody),
+    list_views: z.record(z.string().max(MAX_ID_LENGTH), listViewBody),
   })
   .partial()
 

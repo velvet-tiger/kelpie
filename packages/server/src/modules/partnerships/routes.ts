@@ -10,6 +10,14 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import { mountPipelineConvertRoute } from '../conversions/routes.ts'
 import type { ConversionsService } from '../conversions/index.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_LIST_ITEMS,
+  MAX_LONG_TEXT_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+} from '../../lib/fieldLimits.ts'
 import type {
   CreatePartnershipInput,
   PartnershipView,
@@ -21,17 +29,17 @@ import type {
 
 /** The full field set, without defaults. `createBody` adds those; `updateBody` makes it partial. */
 const partnershipShape = {
-  name: z.string().min(1),
-  company_id: z.string().min(1),
-  stage_id: z.string().min(1),
-  kind: z.string(),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  company_id: z.string().min(1).max(MAX_ID_LENGTH),
+  stage_id: z.string().min(1).max(MAX_ID_LENGTH),
+  kind: z.string().max(MAX_SHORT_TEXT_LENGTH),
   next_touchpoint: isoDateSchema.nullable(),
-  owner_id: z.string().min(1).nullable(),
-  goals: z.string(),
-  success_looks_like: z.string(),
-  person_ids: z.array(z.string().min(1)),
-  summary: z.string(),
-  tags: z.array(z.string().min(1)),
+  owner_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
+  goals: z.string().max(MAX_LONG_TEXT_LENGTH),
+  success_looks_like: z.string().max(MAX_LONG_TEXT_LENGTH),
+  person_ids: z.array(z.string().min(1).max(MAX_ID_LENGTH)).max(MAX_LIST_ITEMS),
+  summary: z.string().max(MAX_LONG_TEXT_LENGTH),
+  tags: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS),
   custom_fields: customFieldsPatchShape,
 }
 

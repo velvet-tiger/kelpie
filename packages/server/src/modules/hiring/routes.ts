@@ -14,6 +14,10 @@ import type {
 } from './candidates.ts'
 import type { CreateRoleInput, RoleView, RolesService, UpdateRoleInput } from './roles.ts'
 import { CANDIDATE_STATUSES, INTERVIEW_STAGES, ROLE_STATUSES } from './schema.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /**
  * Wire shapes for `/v1/roles` and `/v1/candidates`. Bodies are strict; an
@@ -21,7 +25,7 @@ import { CANDIDATE_STATUSES, INTERVIEW_STAGES, ROLE_STATUSES } from './schema.ts
  */
 
 const roleShape = {
-  title: z.string().min(1),
+  title: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   status: z.enum(ROLE_STATUSES),
 }
 
@@ -34,11 +38,11 @@ export const createRoleBody = z.strictObject({
 export const updateRoleBody = z.strictObject(roleShape).partial()
 
 const candidateShape = {
-  role_id: z.string().min(1),
-  person_id: z.string().min(1),
+  role_id: z.string().min(1).max(MAX_ID_LENGTH),
+  person_id: z.string().min(1).max(MAX_ID_LENGTH),
   status: z.enum(CANDIDATE_STATUSES),
   interview_stage: z.enum(INTERVIEW_STAGES).nullable(),
-  referrer_person_id: z.string().min(1).nullable(),
+  referrer_person_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
 }
 
 /**

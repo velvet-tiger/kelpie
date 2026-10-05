@@ -224,6 +224,14 @@ describe.skipIf(connectionString === undefined)('notes', () => {
       ).toBe(422)
     })
 
+    it('takes a long note, and refuses one over the document maximum', async () => {
+      const long = await addNote({ target_type: 'person', target_id: personId, body: 'x'.repeat(500_000) })
+      const over = await addNote({ target_type: 'person', target_id: personId, body: 'x'.repeat(500_001) })
+
+      expect(long.status).toBe(201)
+      expect(over.status).toBe(422)
+    })
+
     it('answers 401 without credentials', async () => {
       const response = await client.send('POST', '/v1/notes', {
         body: { target_type: 'person', target_id: personId, body: 'x' },

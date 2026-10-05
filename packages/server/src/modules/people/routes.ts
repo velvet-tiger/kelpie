@@ -16,6 +16,14 @@ import {
   SOCIAL_NETWORK_IDS,
 } from './schema.ts'
 import type { CreatePersonInput, PeopleService, PersonView, UpdatePersonInput } from './service.ts'
+import {
+  MAX_LIST_ITEMS,
+  MAX_LONG_TEXT_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+  MAX_URL_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /**
  * Wire shapes for `/v1/people`.
@@ -27,7 +35,7 @@ import type { CreatePersonInput, PeopleService, PersonView, UpdatePersonInput } 
 
 const socialProfileBody = z.strictObject({
   network: z.enum(SOCIAL_NETWORK_IDS),
-  url: z.string().min(1),
+  url: z.string().min(1).max(MAX_URL_LENGTH),
 })
 
 /**
@@ -36,7 +44,7 @@ const socialProfileBody = z.strictObject({
  * purpose default, any other value upserts `source: manual`.
  */
 const consentWriteBody = z.strictObject({
-  purpose_slug: z.string().min(1),
+  purpose_slug: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   status: z.enum(CONSENT_STATUSES).nullable(),
 })
 
@@ -51,24 +59,24 @@ function toNameParts(body: {
 
 /** The full field set, without defaults. `createBody` adds those; `updateBody` makes it partial. */
 const personShape = {
-  name: z.string().min(1),
-  salutation: z.string().nullable(),
-  first_name: z.string().nullable(),
-  last_name: z.string().nullable(),
-  suffix: z.string().nullable(),
-  email: z.string().nullable(),
-  phones: z.array(z.string().min(1)),
-  social_profiles: z.array(socialProfileBody),
-  timezone: z.string().nullable(),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  salutation: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  first_name: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  last_name: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  suffix: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  email: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  phones: z.array(z.string().min(1).max(MAX_SHORT_TEXT_LENGTH)).max(MAX_LIST_ITEMS),
+  social_profiles: z.array(socialProfileBody).max(MAX_LIST_ITEMS),
+  timezone: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
   addresses: personAddressesSchema,
   preferred_channel: z.enum(PREFERRED_CHANNELS),
   influence: z.enum(INFLUENCE_LEVELS),
   relationship: z.enum(RELATIONSHIP_LEVELS),
-  summary: z.string(),
-  tags: z.array(z.string().min(1)),
+  summary: z.string().max(MAX_LONG_TEXT_LENGTH),
+  tags: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS),
   last_contacted_at: z.iso.datetime().nullable(),
   do_not_contact: z.boolean(),
-  consents: z.array(consentWriteBody),
+  consents: z.array(consentWriteBody).max(MAX_LIST_ITEMS),
   custom_fields: customFieldsPatchShape,
 }
 

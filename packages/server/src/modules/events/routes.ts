@@ -24,29 +24,38 @@ import type {
 } from './attendances.ts'
 import type { CreateEventInput, EventView, EventsService, UpdateEventInput } from './service.ts'
 import type { AssociationRef } from './repository.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_LIST_ITEMS,
+  MAX_LONG_TEXT_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+  MAX_URL_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 const isoTimestamp = z.iso.datetime()
 
 const associationBody = z.strictObject({
   target_type: z.enum(EVENT_ASSOCIATION_TARGET_TYPES),
-  target_id: z.string().min(1),
+  target_id: z.string().min(1).max(MAX_ID_LENGTH),
 })
 
 const eventShape = {
-  name: z.string().min(1),
-  kind: z.string(),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  kind: z.string().max(MAX_SHORT_TEXT_LENGTH),
   starts_at: isoTimestamp,
   ends_at: isoTimestamp,
-  timezone: z.string().min(1),
-  location: z.string(),
-  meeting_url: z.string().url().nullable(),
+  timezone: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  location: z.string().max(MAX_SHORT_TEXT_LENGTH),
+  meeting_url: z.string().url().max(MAX_URL_LENGTH).nullable(),
   format: z.enum(EVENT_FORMATS),
-  details: z.string(),
+  details: z.string().max(MAX_LONG_TEXT_LENGTH),
   status: z.enum(EVENT_STATUSES),
-  owner_id: z.string().min(1).nullable(),
-  summary: z.string(),
-  tags: z.array(z.string().min(1)),
-  associations: z.array(associationBody),
+  owner_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
+  summary: z.string().max(MAX_LONG_TEXT_LENGTH),
+  tags: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS),
+  associations: z.array(associationBody).max(MAX_LIST_ITEMS),
   custom_fields: customFieldsPatchShape,
 }
 
@@ -68,8 +77,8 @@ export const createEventBody = z.strictObject({
 export const updateEventBody = z.strictObject(eventShape).partial()
 
 const attendanceShape = {
-  event_id: z.string().min(1),
-  person_id: z.string().min(1),
+  event_id: z.string().min(1).max(MAX_ID_LENGTH),
+  person_id: z.string().min(1).max(MAX_ID_LENGTH),
   status: z.enum(ATTENDANCE_STATUSES),
   source: z.enum(ATTENDANCE_SOURCES),
 }
@@ -81,7 +90,7 @@ export const createAttendanceBody = z.strictObject({
 })
 
 export const nestedCreateAttendanceBody = z.strictObject({
-  person_id: z.string().min(1),
+  person_id: z.string().min(1).max(MAX_ID_LENGTH),
   status: z.enum(ATTENDANCE_STATUSES).default('registered'),
 })
 

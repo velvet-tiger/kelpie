@@ -9,6 +9,11 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import { isRecordTargetType } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import { RECORD_TARGET_TYPES } from './schema.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_LONG_TEXT_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 import type {
   AddListMemberInput,
   CreateListInput,
@@ -28,21 +33,21 @@ import type {
  */
 
 export const createBody = z.strictObject({
-  name: z.string().min(1),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   target_type: z.enum(RECORD_TARGET_TYPES),
-  description: z.string().nullable().default(null),
+  description: z.string().max(MAX_LONG_TEXT_LENGTH).nullable().default(null),
 })
 
 export const updateBody = z
   .strictObject({
-    name: z.string().min(1),
-    description: z.string().nullable(),
+    name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+    description: z.string().max(MAX_LONG_TEXT_LENGTH).nullable(),
   })
   .partial()
 
 export const addMemberBody = z.strictObject({
   target_type: z.enum(RECORD_TARGET_TYPES),
-  target_id: z.string().min(1),
+  target_id: z.string().min(1).max(MAX_ID_LENGTH),
 })
 
 export interface ListsRoutesDependencies extends CredentialDependencies {

@@ -10,6 +10,10 @@ import { OAuthClientError, registrationBody } from './clients.ts'
 import { OAUTH_TOKEN_AUTH_METHODS } from './schema.ts'
 import { DEFAULT_SCOPES, OAuthError } from './service.ts'
 import type { ClientCredentials, ConsentView, GrantView, OAuthService } from './service.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_LIST_ITEMS,
+} from '../../lib/fieldLimits.ts'
 
 /**
  * The OAuth surfaces.
@@ -264,8 +268,8 @@ export function createProtocolHandlers(service: OAuthService): OAuthProtocolHand
 // The consent page and connected apps, under /v1
 
 const approveBody = z.object({
-  workspace_id: z.string().min(1),
-  scopes: z.array(z.enum(API_KEY_SCOPES)),
+  workspace_id: z.string().min(1).max(MAX_ID_LENGTH),
+  scopes: z.array(z.enum(API_KEY_SCOPES)).max(MAX_LIST_ITEMS),
 })
 
 function requestResponse(view: ConsentView): Record<string, unknown> {

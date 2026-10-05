@@ -7,6 +7,7 @@ import { MAX_FILTER_IDS } from '../lib/http.ts'
 import { MAX_PAGE_SIZE } from '../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../lib/pagination.ts'
 import type { McpToolRegistry } from '../runtime/module.ts'
+import { MAX_ID_LENGTH } from '../lib/fieldLimits.ts'
 
 /**
  * The five tools a CRM resource gets, built from the pieces its routes already
@@ -28,7 +29,7 @@ export interface CrudService<View, CreateInput, UpdateInput, Filters> {
 }
 
 /** An id argument. Present and non-empty; whether it exists is the service's answer. */
-export const idArg = z.string().min(1)
+export const idArg = z.string().min(1).max(MAX_ID_LENGTH)
 
 /**
  * A filter naming one id or a set of them, mirroring the repeated query parameter

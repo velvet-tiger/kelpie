@@ -14,6 +14,7 @@ import type { McpToolRegistry } from '../../runtime/module.ts'
 import { idArg } from '../crudTools.ts'
 import { importJobResponse } from './routes.ts'
 import type { ImportExportService } from './service.ts'
+import { MAX_SHORT_TEXT_LENGTH } from '../../lib/fieldLimits.ts'
 
 /**
  * The four import and export tools: `export_csv`, `import_preview`,
@@ -45,7 +46,7 @@ const importObjectArg = z
 
 /** `column_map` is a real object here. The multipart route takes it as a JSON string. */
 const columnMapArg = z
-  .record(z.string(), z.string().nullable())
+  .record(z.string().max(MAX_SHORT_TEXT_LENGTH), z.string().max(MAX_SHORT_TEXT_LENGTH).nullable())
   .describe(
     'Kelpie column to source header, or null to ignore that column. Omit to derive one ' +
       'from the source preset and the file\'s own headers.',
@@ -72,7 +73,7 @@ const previewArgs = z.strictObject({
       'People import only: what to do when a row names a company that is not here yet. ' +
         "'skip' imports the person and leaves the position unlinked; 'create' invents the company.",
     ),
-  match_key: z.string().min(1).optional().describe('Which field decides that match.'),
+  match_key: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH).optional().describe('Which field decides that match.'),
   column_map: columnMapArg.optional(),
   consent_purpose_id: z
     .string()
@@ -83,7 +84,7 @@ const previewArgs = z.strictObject({
       'People imports only: the consent purpose a row grants for each `consent_status`. ' +
         'Required whenever consent_status or consent_at is mapped.',
     ),
-  file_name: z.string().min(1).nullable().default(null).describe('Recorded on the job, for the log.'),
+  file_name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH).nullable().default(null).describe('Recorded on the job, for the log.'),
 })
 
 async function collectCsv(lines: AsyncIterable<string>): Promise<string> {

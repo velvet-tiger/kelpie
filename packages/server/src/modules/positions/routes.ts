@@ -5,6 +5,10 @@ import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 import type {
   CreatePositionInput,
   PositionView,
@@ -15,15 +19,15 @@ import type {
 /** Wire shapes for `/v1/positions`. Bodies are strict; an unknown field is a 422. */
 
 export const createBody = z.strictObject({
-  person_id: z.string().min(1),
-  company_id: z.string().min(1),
+  person_id: z.string().min(1).max(MAX_ID_LENGTH),
+  company_id: z.string().min(1).max(MAX_ID_LENGTH),
   // An empty title records the link without a job title — a person known to be
   // at the company, with the role not yet captured.
-  title: z.string(),
+  title: z.string().max(MAX_SHORT_TEXT_LENGTH),
 })
 
 /** Only the title. Moving a link to a different person or company is a delete and a create. */
-export const updateBody = z.strictObject({ title: z.string() }).partial()
+export const updateBody = z.strictObject({ title: z.string().max(MAX_SHORT_TEXT_LENGTH) }).partial()
 
 export interface PositionsRoutesDependencies extends CredentialDependencies {
   readonly service: PositionsService

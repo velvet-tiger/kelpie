@@ -10,6 +10,14 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import { mountPipelineConvertRoute } from '../conversions/routes.ts'
 import type { ConversionsService } from '../conversions/index.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_LIST_ITEMS,
+  MAX_LONG_TEXT_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+} from '../../lib/fieldLimits.ts'
 import type {
   CreateOpportunityInput,
   OpportunitiesService,
@@ -21,15 +29,15 @@ import type {
 
 /** The full field set, without defaults. `createBody` adds those; `updateBody` makes it partial. */
 const opportunityShape = {
-  name: z.string().min(1),
-  kind: z.string(),
-  stage_id: z.string().min(1),
-  company_id: z.string().min(1).nullable(),
-  owner_id: z.string().min(1).nullable(),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  kind: z.string().max(MAX_SHORT_TEXT_LENGTH),
+  stage_id: z.string().min(1).max(MAX_ID_LENGTH),
+  company_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
+  owner_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
   expected_close: isoDateSchema.nullable(),
-  person_ids: z.array(z.string().min(1)),
-  summary: z.string(),
-  tags: z.array(z.string().min(1)),
+  person_ids: z.array(z.string().min(1).max(MAX_ID_LENGTH)).max(MAX_LIST_ITEMS),
+  summary: z.string().max(MAX_LONG_TEXT_LENGTH),
+  tags: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS),
   custom_fields: customFieldsPatchShape,
 }
 

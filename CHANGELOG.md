@@ -289,6 +289,19 @@ While the major version is `0`, a minor bump may break the API.
   each with a `422`. The message for too many rows no longer gives the number
   of rows in the file. Blank rows are not counted, as before. No migration.
 
+- **`@kelpie/server`** — **Request fields have maximum lengths.** The body
+  limit let one field be the full megabyte, which was then stored, indexed
+  and sent to webhooks. A field over its maximum now gets `422` with the
+  field named. One-line text (names, titles, labels, kinds, an email
+  address): 500 characters. Paragraphs (summaries, descriptions, a decision,
+  a rationale): 50,000. A note or a handbook page: 500,000. An id: 200. A
+  tag: 120 characters, 100 tags on a record. Other lists on one record
+  (linked people, the fields of a form, consents, phones): 200 items. A
+  password: 1,024. A URL: 2,048. The maximums apply to requests on `/v1` and
+  to the MCP tools. A value that is already stored is not checked, and a
+  response has no maximum. An import and a form submission do not go through
+  these schemas. No migration.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added

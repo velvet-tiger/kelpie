@@ -9,13 +9,17 @@ import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { KEY_KINDS } from './keys.ts'
 import type { ApiKeyService, ApiKeyView, MintedApiKey } from './service.ts'
+import {
+  MAX_LIST_ITEMS,
+  MAX_SHORT_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /** Wire shapes for `/v1/api-keys`. */
 
 const createBody = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   kind: z.enum(KEY_KINDS),
-  scopes: z.array(z.enum(API_KEY_SCOPES)).optional(),
+  scopes: z.array(z.enum(API_KEY_SCOPES)).max(MAX_LIST_ITEMS).optional(),
 })
 
 const listQuery = z.object({ kind: z.enum(KEY_KINDS) })

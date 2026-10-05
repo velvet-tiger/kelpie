@@ -11,6 +11,11 @@ import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { AgentTasksService, AgentView, RunView } from './service.ts'
 import { resolvedTaskResponse } from './wire.ts'
+import {
+  MAX_AUTH_HEADER_LENGTH,
+  MAX_ID_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /**
  * Wire shapes for `/v1/agent-tasks`, `/v1/agent-runs` and `/v1/agents`.
@@ -32,27 +37,27 @@ const targetTypeField = z.enum(AGENT_TASK_TARGET_TYPES)
 
 export const resolveBody = z.strictObject({
   target_type: targetTypeField,
-  target_id: z.string().min(1),
+  target_id: z.string().min(1).max(MAX_ID_LENGTH),
 })
 
 export const runBody = z.strictObject({
   target_type: targetTypeField,
-  target_id: z.string().min(1),
-  agent_id: z.string().min(1),
+  target_id: z.string().min(1).max(MAX_ID_LENGTH),
+  agent_id: z.string().min(1).max(MAX_ID_LENGTH),
 })
 
 export const createAgentBody = z.strictObject({
-  name: z.string().min(1),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   endpoint: endpointField,
-  auth_header: z.string().min(1).optional(),
+  auth_header: z.string().min(1).max(MAX_AUTH_HEADER_LENGTH).optional(),
 })
 
 /** `auth_header: null` clears the stored header; a string replaces it. */
 export const updateAgentBody = z
   .strictObject({
-    name: z.string().min(1),
+    name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
     endpoint: endpointField,
-    auth_header: z.string().min(1).nullable(),
+    auth_header: z.string().min(1).max(MAX_AUTH_HEADER_LENGTH).nullable(),
   })
   .partial()
 

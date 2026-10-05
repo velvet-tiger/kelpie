@@ -8,6 +8,9 @@ import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { PIPELINE_KINDS } from './schema.ts'
 import type { PipelineKind } from './schema.ts'
+import {
+  MAX_SHORT_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 import type {
   CreateStageInput,
   PipelineStageView,
@@ -19,7 +22,7 @@ import type {
 
 export const createBody = z.strictObject({
   kind: z.enum(PIPELINE_KINDS),
-  label: z.string().min(1),
+  label: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   open: z.boolean().default(true),
 })
 
@@ -30,7 +33,7 @@ export const createBody = z.strictObject({
  */
 export const updateBody = z
   .strictObject({
-    label: z.string().min(1),
+    label: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
     open: z.boolean(),
     sort_order: z.number().int().min(0),
   })

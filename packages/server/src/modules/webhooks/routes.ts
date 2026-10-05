@@ -15,6 +15,9 @@ import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { CreatedWebhookView, DeliveryView, WebhooksService, WebhookView } from './service.ts'
 import { urlProblem } from './url.ts'
+import {
+  MAX_URL_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /**
  * Wire shapes for `/v1/webhooks`.
@@ -23,7 +26,7 @@ import { urlProblem } from './url.ts'
  * something dropped in silence.
  */
 
-const urlField = z.string().refine((value) => urlProblem(value) === undefined, {
+const urlField = z.string().max(MAX_URL_LENGTH).refine((value) => urlProblem(value) === undefined, {
   error: (issue) => urlProblem(String(issue.input))?.message ?? 'Invalid URL',
 })
 

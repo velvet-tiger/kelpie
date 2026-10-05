@@ -49,6 +49,14 @@ import type {
   UpdateFormInput,
 } from './service.ts'
 import type { FormSubmitService } from './submission.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_LIST_ITEMS,
+  MAX_LONG_TEXT_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /**
  * Wire shapes for `/v1/forms`. Bodies are strict; an unknown field is a 422.
@@ -61,33 +69,37 @@ import type { FormSubmitService } from './submission.ts'
  */
 
 const optionBody = z.strictObject({
-  key: z.string().min(1),
-  value: z.string().min(1),
+  key: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  value: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   value_type: z.enum(FORM_OPTION_VALUE_TYPES).default('string'),
 })
 
 const fieldBody = z.strictObject({
   // May be empty: a field needs no visible heading, such as one checkbox whose
   // own text says everything.
-  label: z.string(),
+  label: z.string().max(MAX_SHORT_TEXT_LENGTH),
   type: z.enum(FORM_FIELD_TYPES),
   required: z.boolean().default(false),
-  map_to: z.string().min(1),
-  options: z.array(optionBody).default([]),
-  placeholder: z.string().nullable().default(null),
-  statement: z.string().nullable().default(null),
-  consent_purpose_ids: z.array(z.string().min(1)).default([]),
-  consent_purpose_labels: z.record(z.string().min(1), z.string()).default({}),
-  list_ids: z.array(z.string().min(1)).default([]),
-  list_labels: z.record(z.string().min(1), z.string()).default({}),
+  map_to: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  options: z.array(optionBody).max(MAX_LIST_ITEMS).default([]),
+  placeholder: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable().default(null),
+  statement: z.string().max(MAX_LONG_TEXT_LENGTH).nullable().default(null),
+  consent_purpose_ids: z.array(z.string().min(1).max(MAX_ID_LENGTH)).max(MAX_LIST_ITEMS).default([]),
+  consent_purpose_labels: z
+    .record(z.string().min(1).max(MAX_ID_LENGTH), z.string().max(MAX_SHORT_TEXT_LENGTH))
+    .default({}),
+  list_ids: z.array(z.string().min(1).max(MAX_ID_LENGTH)).max(MAX_LIST_ITEMS).default([]),
+  list_labels: z
+    .record(z.string().min(1).max(MAX_ID_LENGTH), z.string().max(MAX_SHORT_TEXT_LENGTH))
+    .default({}),
 })
 
 /** A field on an update, which may name the stored field it is. */
-const updateFieldBody = fieldBody.extend({ id: z.string().min(1).optional() })
+const updateFieldBody = fieldBody.extend({ id: z.string().min(1).max(MAX_ID_LENGTH).optional() })
 
 const attachTargetBody = z.strictObject({
   target_type: z.enum(FORM_ATTACH_TARGET_TYPES),
-  target_id: z.string().min(1),
+  target_id: z.string().min(1).max(MAX_ID_LENGTH),
 })
 
 /**
@@ -95,7 +107,7 @@ const attachTargetBody = z.strictObject({
  * stored value and the one a send compares against are the same string.
  */
 const emailRecipientBody = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('member'), member_id: z.string().min(1) }),
+  z.strictObject({ kind: z.literal('member'), member_id: z.string().min(1).max(MAX_ID_LENGTH) }),
   z.strictObject({
     kind: z.literal('address'),
     address: z
@@ -107,37 +119,37 @@ const emailRecipientBody = z.discriminatedUnion('kind', [
 ])
 
 const formShape = {
-  name: z.string().min(1),
-  title: z.string().min(1),
+  name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  title: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   slug: z
     .string()
     .regex(FORM_SLUG_PATTERN, 'Use 3 to 64 letters, digits, hyphens or underscores'),
-  description: z.string().nullable(),
+  description: z.string().max(MAX_LONG_TEXT_LENGTH).nullable(),
   status: z.enum(FORM_STATUSES),
-  fields: z.array(fieldBody),
-  thank_you_message: z.string(),
+  fields: z.array(fieldBody).max(MAX_LIST_ITEMS),
+  thank_you_message: z.string().max(MAX_LONG_TEXT_LENGTH),
   create_deal: z.boolean(),
-  deal_stage_id: z.string().min(1).nullable(),
-  deal_name_template: z.string().nullable(),
+  deal_stage_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
+  deal_name_template: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
   create_opportunity: z.boolean(),
-  opportunity_kind: z.string().nullable(),
-  opportunity_stage_id: z.string().min(1).nullable(),
-  opportunity_name_template: z.string().nullable(),
-  opportunity_owner_id: z.string().min(1).nullable(),
+  opportunity_kind: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  opportunity_stage_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
+  opportunity_name_template: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  opportunity_owner_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
   create_partnership: z.boolean(),
-  partnership_kind: z.string().nullable(),
-  partnership_stage_id: z.string().min(1).nullable(),
-  partnership_name_template: z.string().nullable(),
-  partnership_owner_id: z.string().min(1).nullable(),
+  partnership_kind: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  partnership_stage_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
+  partnership_name_template: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  partnership_owner_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
   create_enquiry: z.boolean(),
-  enquiry_source: z.string().nullable(),
-  enquiry_stage_id: z.string().min(1).nullable(),
-  enquiry_name_template: z.string().nullable(),
-  enquiry_owner_id: z.string().min(1).nullable(),
-  person_tags: z.array(z.string().min(1)),
-  company_tags: z.array(z.string().min(1)),
-  list_ids: z.array(z.string().min(1)),
-  attach_targets: z.array(attachTargetBody),
+  enquiry_source: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  enquiry_stage_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
+  enquiry_name_template: z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+  enquiry_owner_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
+  person_tags: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS),
+  company_tags: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS),
+  list_ids: z.array(z.string().min(1).max(MAX_ID_LENGTH)).max(MAX_LIST_ITEMS),
+  attach_targets: z.array(attachTargetBody).max(MAX_LIST_ITEMS),
   notify_email: z.boolean(),
   notify_recipients: z.array(emailRecipientBody).max(FORM_EMAIL_MAX_RECIPIENTS),
   notify_subject: z.string().max(FORM_EMAIL_SUBJECT_MAX_LENGTH),
@@ -205,7 +217,7 @@ export const createBody = z.strictObject({
 })
 
 export const updateBody = z
-  .strictObject({ ...formShape, fields: z.array(updateFieldBody) })
+  .strictObject({ ...formShape, fields: z.array(updateFieldBody).max(MAX_LIST_ITEMS) })
   .partial()
 
 /** `POST /v1/forms/:id/submissions/delete`. Duplicate ids are allowed and count once. */

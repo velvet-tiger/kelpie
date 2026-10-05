@@ -11,6 +11,10 @@ import { isRecordTargetType } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import { RECORD_TARGET_TYPES } from './schema.ts'
 import type { CreateNoteInput, NoteView, NotesService, UpdateNoteInput } from './service.ts'
+import {
+  MAX_DOCUMENT_LENGTH,
+  MAX_ID_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /**
  * Wire shapes for `/v1/notes`.
@@ -21,15 +25,15 @@ import type { CreateNoteInput, NoteView, NotesService, UpdateNoteInput } from '.
 
 export const createBody = z.strictObject({
   target_type: z.enum(RECORD_TARGET_TYPES),
-  target_id: z.string().min(1),
-  body: z.string().min(1),
+  target_id: z.string().min(1).max(MAX_ID_LENGTH),
+  body: z.string().min(1).max(MAX_DOCUMENT_LENGTH),
   pinned: z.boolean().default(false),
 })
 
 /** The target never moves. Re-filing a note under another record is a delete and a create. */
 export const updateBody = z
   .strictObject({
-    body: z.string().min(1),
+    body: z.string().min(1).max(MAX_DOCUMENT_LENGTH),
     pinned: z.boolean(),
   })
   .partial()

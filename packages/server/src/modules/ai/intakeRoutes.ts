@@ -10,6 +10,7 @@ import { readJsonBody } from '../../lib/http.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { PersonIntake } from './intake.ts'
+import { MAX_ID_LENGTH } from '../../lib/fieldLimits.ts'
 
 /**
  * `/v1/ai/person-intake/*`. Public API like the rest of the module, behind
@@ -24,7 +25,7 @@ const identifyBody = z.strictObject({ text: notes })
 const researchBody = z.strictObject({
   text: notes,
   candidate: personIntakeCandidateWireSchema,
-  existing_person_id: z.string().min(1).nullable().default(null),
+  existing_person_id: z.string().min(1).max(MAX_ID_LENGTH).nullable().default(null),
 })
 
 const applyBody = z.strictObject({

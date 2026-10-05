@@ -178,6 +178,37 @@ describe.skipIf(connectionString === undefined)('people', () => {
       ])
     })
 
+    it('refuses a field over its maximum with 422, and names it', async () => {
+      const attempts: readonly [string, Record<string, unknown>][] = [
+        ['name', { name: 'a'.repeat(501) }],
+        ['summary', { name: 'Ada', summary: 'a'.repeat(50_001) }],
+        ['tags', { name: 'Ada', tags: Array.from({ length: 101 }, (_, index) => `t${String(index)}`) }],
+        ['tags.0', { name: 'Ada', tags: ['a'.repeat(121)] }],
+      ]
+
+      for (const [field, body] of attempts) {
+        const response = await client.send('POST', '/v1/people', { body, cookie: acme.cookie })
+
+        expect(response.status, field).toBe(422)
+        expect(readRecord(readRecord(await response.json()).error).details).toContainEqual(
+          expect.objectContaining({ field }),
+        )
+      }
+    })
+
+    it('accepts fields that are exactly at their maximum', async () => {
+      const response = await client.send('POST', '/v1/people', {
+        body: {
+          name: 'a'.repeat(500),
+          summary: 'a'.repeat(50_000),
+          tags: Array.from({ length: 100 }, (_, index) => `t${String(index)}`),
+        },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(201)
+    })
+
     it('refuses a missing name with 422', async () => {
       const response = await client.send('POST', '/v1/people', { body: {}, cookie: acme.cookie })
 

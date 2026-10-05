@@ -17,6 +17,11 @@ import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { ImportExportService, ImportJobView } from './service.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_DOCUMENT_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 
 /**
  * `/v1/export` and `/v1/import`.
@@ -38,17 +43,20 @@ const objectFile = z.enum(EXPORT_OBJECTS.map((object) => `${object}.csv`) as [st
  * empty object is a map that ignores every column, and it fails the required
  * column check as it should.
  */
-const columnMapSchema = z.record(z.string(), z.string().nullable())
+const columnMapSchema = z.record(
+  z.string().max(MAX_SHORT_TEXT_LENGTH),
+  z.string().max(MAX_SHORT_TEXT_LENGTH).nullable(),
+)
 
 const createJobForm = z.object({
   source: z.enum(IMPORT_SOURCES),
   object: z.enum(IMPORT_OBJECTS),
   conflict_mode: z.enum(IMPORT_CONFLICT_MODES).default('skip'),
   on_missing_company: z.enum(ON_MISSING_COMPANY).default('skip'),
-  match_key: z.string().min(1).optional(),
-  column_map: z.string().optional(),
+  match_key: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH).optional(),
+  column_map: z.string().max(MAX_DOCUMENT_LENGTH).optional(),
   /** People imports only — mirrors on_missing_company's per-object gate. */
-  consent_purpose_id: z.string().min(1).optional(),
+  consent_purpose_id: z.string().min(1).max(MAX_ID_LENGTH).optional(),
   dry_run: z.enum(['true', 'false']).default('true'),
 })
 

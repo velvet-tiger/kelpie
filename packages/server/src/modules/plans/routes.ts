@@ -10,6 +10,10 @@ import type { CredentialDependencies } from '../auth/credentials.ts'
 import type { PlanItemFilters } from './repository.ts'
 import { PLAN_ITEM_STATUSES, PLAN_ITEM_TARGET_TYPES } from './schema.ts'
 import type { PlanItemStatus, PlanItemTargetType } from './schema.ts'
+import {
+  MAX_ID_LENGTH,
+  MAX_SHORT_TEXT_LENGTH,
+} from '../../lib/fieldLimits.ts'
 import type {
   CreatePlanItemInput,
   PlanItemView,
@@ -27,8 +31,8 @@ import type {
 /** The full field set, without defaults. `createBody` adds those; `updateBody` makes it partial. */
 const planItemShape = {
   date: isoDateSchema,
-  title: z.string().min(1),
-  owner_id: z.string().min(1).nullable(),
+  title: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
+  owner_id: z.string().min(1).max(MAX_ID_LENGTH).nullable(),
   status: z.enum(PLAN_ITEM_STATUSES),
 }
 
@@ -41,7 +45,7 @@ const planItemShape = {
 export const createBody = z.strictObject({
   ...planItemShape,
   target_type: z.enum(PLAN_ITEM_TARGET_TYPES),
-  target_id: z.string().min(1),
+  target_id: z.string().min(1).max(MAX_ID_LENGTH),
   owner_id: planItemShape.owner_id.default(null),
   status: planItemShape.status.default('todo'),
 })
