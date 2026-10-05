@@ -77,6 +77,11 @@ export type SettledRowAction = Exclude<ImportRowAction, 'pending'>
 /** Limits from `docs/guides/import-and-export.md`. Placeholders until billing exists. */
 export const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024
 export const MAX_IMPORT_ROWS = 10_000
+/**
+ * The most columns a file's header row may have. A CRM export with every
+ * property turned on has a few hundred; a file with more is not a record list.
+ */
+export const MAX_IMPORT_COLUMNS = 500
 
 /**
  * Above this many rows a job validates and commits in the background, and the

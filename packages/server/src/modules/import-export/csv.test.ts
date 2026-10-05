@@ -1,3 +1,4 @@
+import { MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
 import { CsvFormatError, csvLine, parseCsv, serialiseCsv } from './csv.ts'
@@ -81,6 +82,54 @@ describe('parseCsv', () => {
    */
   it('refuses a header row that repeats a name', () => {
     expect(() => parseCsv('Email,Name,Email\na,b,c\n')).toThrow(/"Email" appears more than once/u)
+  })
+
+  describe('limits', () => {
+    const limits = { maxRows: 3, maxColumns: 4 }
+
+    it('reads a file that is exactly at both limits', () => {
+      const parsed = parseCsv('a,b,c,d\n1,2,3,4\n1,2,3,4\n1,2,3,4\n', limits)
+
+      expect(parsed.headers).toHaveLength(4)
+      expect(parsed.rows).toHaveLength(3)
+    })
+
+    it('refuses a header row with too many columns', () => {
+      expect(() => parseCsv('a,b,c,d,e\n1,2,3,4,5\n', limits)).toThrow(/at most 4 columns/u)
+    })
+
+    it('refuses a file with too many rows', () => {
+      expect(() => parseCsv('a\n1\n2\n3\n4\n', limits)).toThrow(/at most 3 rows/u)
+    })
+
+    it('does not count blank rows, and keeps the line numbers of the rows after them', () => {
+      const parsed = parseCsv('a\n1\n\n\n2\n\n3\n', limits)
+
+      expect(parsed.rows.map((row) => row.number)).toEqual([2, 5, 7])
+    })
+
+    it('ignores the cells of a data row past the last header', () => {
+      const parsed = parseCsv(`a,b\n1,2${',x'.repeat(50)}\n`, limits)
+
+      expect(parsed.rows[0]?.values).toEqual({ a: '1', b: '2' })
+    })
+
+    it('uses the import limits by default', () => {
+      const wide = Array.from({ length: MAX_IMPORT_COLUMNS + 1 }, (_, index) => `c${String(index)}`)
+      const long = `a\n${'1\n'.repeat(MAX_IMPORT_ROWS + 1)}`
+
+      expect(() => parseCsv(`${wide.join(',')}\n`)).toThrow(/at most 500 columns/u)
+      expect(() => parseCsv(long)).toThrow(/at most 10000 rows/u)
+    })
+
+    it('reads ten megabytes of commas or of line breaks without holding them', () => {
+      const size = 10 * 1024 * 1024
+      const started = performance.now()
+
+      expect(() => parseCsv(','.repeat(size))).toThrow(CsvFormatError)
+      expect(() => parseCsv(`a\n${'\n'.repeat(size)}`)).not.toThrow()
+      expect(performance.now() - started).toBeLessThan(5000)
+    })
   })
 })
 

@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+import { MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS } from '@kelpie/schemas'
+
 /**
  * RFC 4180 CSV, read and written.
  *
@@ -50,18 +52,71 @@ export class CsvFormatError extends Error {
 /** A leading byte-order mark, which a spreadsheet export routinely writes. */
 const BYTE_ORDER_MARK = /^﻿/u
 
+/** What `parseCsv` refuses to read past. Injected so a test can use small numbers. */
+export interface CsvLimits {
+  readonly maxRows: number
+  readonly maxColumns: number
+}
+
+const DEFAULT_LIMITS: CsvLimits = { maxRows: MAX_IMPORT_ROWS, maxColumns: MAX_IMPORT_COLUMNS }
+
+interface PhysicalRow {
+  /** The record's place in the file, counting the header as 1. */
+  readonly number: number
+  readonly cells: readonly string[]
+}
+
+function isBlank(cells: readonly string[]): boolean {
+  return cells.every((cell) => cell.trim().length === 0)
+}
+
 /**
  * Splits the text into physical cells, honouring quoted fields.
  *
  * A quote inside a quoted field is doubled (`""`), and a newline inside one does
  * not end the record — which is why this cannot be a `split` on lines.
+ *
+ * The limits apply here, while the text is read, and not afterwards: a file of
+ * ten megabytes of commas or of line breaks is otherwise millions of cells or
+ * of rows in memory before anything counts them. A blank data row is dropped as
+ * it is read, and still counts towards the numbering. A record keeps at most
+ * one cell more than `maxColumns`, which is enough to see that a header row is
+ * too wide, and a data cell past the last header has nowhere to go anyway.
+ *
+ * @throws CsvFormatError when the file has more than `maxRows` data rows.
  */
-function splitRows(text: string): string[][] {
-  const rows: string[][] = []
+function splitRows(text: string, limits: CsvLimits): PhysicalRow[] {
+  const rows: PhysicalRow[] = []
   let row: string[] = []
   let cell = ''
   let inQuotes = false
+  let number = 0
   const input = text.replace(BYTE_ORDER_MARK, '')
+
+  function endCell(): void {
+    if (row.length <= limits.maxColumns) {
+      row.push(cell)
+    }
+
+    cell = ''
+  }
+
+  function endRow(): void {
+    endCell()
+    number += 1
+
+    // The header row is kept even when blank, so the caller can say so.
+    if (number === 1 || !isBlank(row)) {
+      // The header is not a data row, hence the `+ 1`.
+      if (rows.length === limits.maxRows + 1) {
+        throw new CsvFormatError(`A file may carry at most ${String(limits.maxRows)} rows`)
+      }
+
+      rows.push({ number, cells: row })
+    }
+
+    row = []
+  }
 
   for (let index = 0; index < input.length; index += 1) {
     const character = input[index]
@@ -88,16 +143,12 @@ function splitRows(text: string): string[][] {
     }
 
     if (character === ',') {
-      row.push(cell)
-      cell = ''
+      endCell()
       continue
     }
 
     if (character === '\n') {
-      row.push(cell)
-      rows.push(row)
-      row = []
-      cell = ''
+      endRow()
       continue
     }
 
@@ -110,57 +161,54 @@ function splitRows(text: string): string[][] {
   }
 
   if (cell.length > 0 || row.length > 0) {
-    row.push(cell)
-    rows.push(row)
+    endRow()
   }
 
   return rows
 }
 
-function isBlank(cells: readonly string[]): boolean {
-  return cells.every((cell) => cell.trim().length === 0)
-}
-
 /**
  * @throws CsvFormatError when the file has no header row, when a header is
- *   blank, or when two headers are the same. Each of those makes a `column_map`
- *   unanswerable rather than merely inconvenient.
+ *   blank, when two headers are the same, or when the file is over a limit.
+ *   The first three make a `column_map` unanswerable rather than merely
+ *   inconvenient.
  */
-export function parseCsv(text: string): ParsedCsv {
-  const [headerCells, ...dataCells] = splitRows(text)
+export function parseCsv(text: string, limits: CsvLimits = DEFAULT_LIMITS): ParsedCsv {
+  const [headerRow, ...dataRows] = splitRows(text, limits)
 
-  if (headerCells === undefined || isBlank(headerCells)) {
+  if (headerRow === undefined || isBlank(headerRow.cells)) {
     throw new CsvFormatError('The file has no header row')
   }
 
-  const headers = headerCells.map((header) => header.trim())
+  if (headerRow.cells.length > limits.maxColumns) {
+    throw new CsvFormatError(`A file may have at most ${String(limits.maxColumns)} columns`)
+  }
+
+  const headers = headerRow.cells.map((header) => header.trim())
   const blank = headers.findIndex((header) => header.length === 0)
 
   if (blank >= 0) {
     throw new CsvFormatError(`Column ${String(blank + 1)} of the header row has no name`)
   }
 
-  const duplicate = headers.find((header, index) => headers.indexOf(header) !== index)
+  const seen = new Set<string>()
 
-  if (duplicate !== undefined) {
-    throw new CsvFormatError(`The header "${duplicate}" appears more than once`)
-  }
-
-  const rows: CsvRow[] = []
-
-  dataCells.forEach((cells, index) => {
-    if (isBlank(cells)) {
-      return
+  for (const header of headers) {
+    if (seen.has(header)) {
+      throw new CsvFormatError(`The header "${header}" appears more than once`)
     }
 
+    seen.add(header)
+  }
+
+  const rows = dataRows.map(({ number, cells }): CsvRow => {
     const values: Record<string, string> = {}
 
     headers.forEach((header, column) => {
       values[header] = (cells[column] ?? '').trim()
     })
 
-    // +2, not +1: the header is line 1 and this index counts from the line after.
-    rows.push({ number: index + 2, values })
+    return { number, values }
   })
 
   return { headers, rows }

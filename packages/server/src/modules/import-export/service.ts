@@ -1,7 +1,6 @@
 import {
   IMPORT_PREVIEW_ROWS,
   IMPORT_REPORTED_ERRORS,
-  MAX_IMPORT_ROWS,
   OBJECT_COLUMNS,
   SYNC_IMPORT_ROWS,
   customFieldObjectTypeForExport,
@@ -1045,13 +1044,6 @@ export function createImportExportService(
           throw error
         }
       })()
-
-      if (parsed.rows.length > MAX_IMPORT_ROWS) {
-        throw AppError.validationFailed(
-          `A file may carry at most ${String(MAX_IMPORT_ROWS)} rows`,
-          [{ field: 'file', message: `This one has ${String(parsed.rows.length)}` }],
-        )
-      }
 
       const matchKey = requireMatchKey(input.object, input.matchKeyId)
       const { keys: customFieldKeys } = await customFieldContext(workspaceId, input.object)

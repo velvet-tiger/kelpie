@@ -38,7 +38,7 @@ The commit re-checks every row against the workspace as it stands rather than re
 
 Over 500 rows, the dry run and the commit finish in the background and the job shows its progress. If a server restart strands a job mid-run, upload the file again — commits being idempotent makes that safe.
 
-Limits: 10 MB per file, 10,000 rows per job.
+Limits: 10 MB per file, 10,000 rows per job, 500 columns per file.
 
 ## Record limits
 

@@ -280,6 +280,15 @@ While the major version is `0`, a minor bump may break the API.
   batch the budget does not cover gets `429` before a message runs. A request
   with one message is not changed. No migration.
 
+- **`@kelpie/server`** — **The CSV parser applies its limits while it reads
+  the file.** The row limit ran after the whole file was parsed, the header
+  row had no column limit, and the check for a repeated header compared each
+  header with all the others. One file of 10 MB could thus block or stop the
+  API process. The parser now stops at 10,000 data rows and refuses a header
+  row with more than 500 columns (`MAX_IMPORT_COLUMNS` in `@kelpie/schemas`),
+  each with a `422`. The message for too many rows no longer gives the number
+  of rows in the file. Blank rows are not counted, as before. No migration.
+
 ## [0.22.0] - 2026-10-04
 
 ### Added
