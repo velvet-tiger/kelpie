@@ -4,6 +4,13 @@ import type { Actor } from '../../lib/actor.ts'
 import { AppError, describeThrown, internalErrorBody, toErrorBody } from '../../lib/errors.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { McpTool } from '../../runtime/module.ts'
+import {
+  WORKSPACES_LIST_TOOL,
+  bindConnectionCall,
+  connectionInstructions,
+  listConnectionWorkspaces,
+  stripBoundWorkspace,
+} from './workspaces.ts'
 
 /**
  * JSON-RPC 2.0 and the MCP methods Kelpie answers, as pure functions over parsed
@@ -166,10 +173,32 @@ export interface DispatchDependencies {
   readonly tools: readonly McpTool[]
   /** The `tools/list` payload, built once at mount. */
   readonly published: readonly PublishedTool[]
+  /**
+   * The same listing for an OAuth connection that covers more than one
+   * workspace: every tool takes `workspace_id`, and `workspaces_list` is added.
+   */
+  readonly publishedForConnection: readonly PublishedTool[]
   readonly serverInfo: McpServerInfo
   /** What this workspace's data is for. Sent on `initialize` and on `server/discover`. */
   readonly instructions: string
   readonly logger: Logger
+  /**
+   * Refuses a workspace that may not be used, for a call that named it on a
+   * connection covering several. A connection with one workspace is checked by
+   * the middleware in front of the transport. Undefined checks nothing.
+   *
+   * @throws AppError when the workspace is blocked.
+   */
+  readonly checkWorkspaceAccess?: ((workspaceId: string) => Promise<void>) | undefined
+  /** Records that a grant was used, for a call that named its workspace. */
+  readonly recordGrantUse?: ((grantId: string) => Promise<void>) | undefined
+}
+
+/** The instructions for this caller: longer for a connection that covers several workspaces. */
+function instructionsFor(dependencies: DispatchDependencies, actor: Actor): string {
+  return actor.kind === 'oauth_connection'
+    ? connectionInstructions(dependencies.instructions)
+    : dependencies.instructions
 }
 
 /**
@@ -311,6 +340,16 @@ async function callTool(
     return failure(id, INVALID_PARAMS, 'tools/call needs a tool "name"')
   }
 
+  if (actor.kind === 'oauth_connection' && parsed.data.name === WORKSPACES_LIST_TOOL) {
+    return success(
+      id,
+      completeResult(dependencies, era, {
+        content: [{ type: 'text', text: JSON.stringify(listConnectionWorkspaces(actor)) }],
+        isError: false,
+      }),
+    )
+  }
+
   const tool = dependencies.tools.find((candidate) => candidate.name === parsed.data.name)
 
   if (tool === undefined) {
@@ -323,7 +362,8 @@ async function callTool(
     // `arguments` is optional on the wire and every tool schema is an object, so
     // an absent one is an empty object rather than a validation failure the
     // caller cannot act on.
-    const value = await tool.invoke(parsed.data.arguments ?? {}, actor)
+    const call = await resolveCall(dependencies, actor, parsed.data.arguments ?? {})
+    const value = await tool.invoke(call.arguments, call.actor)
 
     return success(
       id,
@@ -338,6 +378,37 @@ async function callTool(
       completeResult(dependencies, era, toolFailure(dependencies.logger, tool.name, error)),
     )
   }
+}
+
+/**
+ * Who a tool call runs as, and with which arguments.
+ *
+ * An API key and a one-workspace connection run as they arrived. A connection
+ * that covers several workspaces runs as its user in the one the call names,
+ * after the checks the middleware could not make without knowing which.
+ *
+ * @throws AppError when the call names no workspace, one the connection does
+ *   not cover, or one that is blocked. `callTool` renders it as a tool error.
+ */
+async function resolveCall(
+  dependencies: DispatchDependencies,
+  actor: Actor,
+  rawArguments: unknown,
+): Promise<{ readonly actor: Actor; readonly arguments: unknown }> {
+  if (actor.kind === 'oauth') {
+    return { actor, arguments: stripBoundWorkspace(actor, rawArguments) }
+  }
+
+  if (actor.kind !== 'oauth_connection') {
+    return { actor, arguments: rawArguments }
+  }
+
+  const call = bindConnectionCall(actor, rawArguments)
+
+  await dependencies.checkWorkspaceAccess?.(call.actor.workspaceId)
+  await dependencies.recordGrantUse?.(call.actor.grantId)
+
+  return call
 }
 
 /**
@@ -382,7 +453,7 @@ export async function dispatch(
         // so there is never a change to notify.
         capabilities: { tools: { listChanged: false } },
         serverInfo: dependencies.serverInfo,
-        instructions: dependencies.instructions,
+        instructions: instructionsFor(dependencies, actor),
       })
     }
 
@@ -402,7 +473,7 @@ export async function dispatch(
         completeResult(dependencies, era, {
           supportedVersions: SUPPORTED_PROTOCOL_VERSIONS,
           capabilities: { tools: {} },
-          instructions: dependencies.instructions,
+          instructions: instructionsFor(dependencies, actor),
           ...CACHE_HINTS,
         }),
       )
@@ -421,6 +492,12 @@ export async function dispatch(
       // No pagination: the whole set is known at boot and is a few hundred
       // kilobytes at most, so a cursor would only add a round trip. The order is
       // module registration order, which is fixed, so a client may cache it.
+      // A connection that covers several workspaces gets its own listing, and
+      // no cache hints: `public` is true only of the listing every caller gets.
+      if (actor.kind === 'oauth_connection') {
+        return success(id, completeResult(dependencies, era, { tools: dependencies.publishedForConnection }))
+      }
+
       return success(
         id,
         completeResult(dependencies, era, {

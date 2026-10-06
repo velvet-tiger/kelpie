@@ -12,8 +12,19 @@ export {
   actorUserId,
   actorWorkspaceId,
   bearerCredentialId,
+  bindOAuthWorkspace,
   isBearerActor,
+  isOAuthActor,
   requireSessionActor,
   requireWorkspaceId,
 } from '../../lib/actor.ts'
-export type { Actor, ApiKeyActor, BearerActor, OAuthActor, SessionActor } from '../../lib/actor.ts'
+export type {
+  Actor,
+  AnyOAuthActor,
+  ApiKeyActor,
+  BearerActor,
+  OAuthActor,
+  OAuthConnectionActor,
+  OAuthWorkspaceAccess,
+  SessionActor,
+} from '../../lib/actor.ts'

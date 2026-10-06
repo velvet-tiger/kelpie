@@ -1,15 +1,16 @@
-import { and, desc, eq, gt, inArray, isNull, lt, notExists } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNull, lt, notExists } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
 import { workspaceMembers, workspaces } from '../workspace/schema.ts'
-import { oauthClients, oauthGrants, oauthRequests, oauthTokens } from './schema.ts'
+import { oauthClients, oauthConnections, oauthGrants, oauthRequests, oauthTokens } from './schema.ts'
 import type { OAuthTokenKind } from './schema.ts'
 
 export type Queryable = Database | Transaction
 
 export type OAuthClientRecord = typeof oauthClients.$inferSelect
 export type OAuthRequestRecord = typeof oauthRequests.$inferSelect
+export type OAuthConnectionRecord = typeof oauthConnections.$inferSelect
 export type OAuthGrantRecord = typeof oauthGrants.$inferSelect
 export type OAuthTokenRecord = typeof oauthTokens.$inferSelect
 
@@ -142,9 +143,70 @@ export async function deleteExpiredRequests(db: Queryable, now: Date): Promise<v
   await db.delete(oauthRequests).where(lt(oauthRequests.expiresAt, now))
 }
 
+// Connections
+
+export async function insertConnection(
+  db: Queryable,
+  values: typeof oauthConnections.$inferInsert,
+): Promise<OAuthConnectionRecord> {
+  const [created] = await db.insert(oauthConnections).values(values).returning()
+
+  if (created === undefined) {
+    throw new Error(`Inserting OAuth connection ${values.id} returned no row`)
+  }
+
+  return created
+}
+
+export async function findConnection(db: Queryable, id: string): Promise<OAuthConnectionRecord | undefined> {
+  const [found] = await db.select().from(oauthConnections).where(eq(oauthConnections.id, id)).limit(1)
+
+  return found
+}
+
+/** Ends the connection: every grant, code and token under it goes through the cascade. */
+export async function deleteConnectionById(db: Queryable, id: string): Promise<void> {
+  await db.delete(oauthConnections).where(eq(oauthConnections.id, id))
+}
+
+export async function deleteConnection(db: Queryable, userId: string, id: string): Promise<number> {
+  const deleted = await db
+    .delete(oauthConnections)
+    .where(and(eq(oauthConnections.id, id), eq(oauthConnections.userId, userId)))
+    .returning({ id: oauthConnections.id })
+
+  return deleted.length
+}
+
+/**
+ * Deletes the connections that have no grant left, and their tokens with them.
+ *
+ * A connection loses a grant when the user revokes one workspace, approves the
+ * same client for that workspace again, leaves the workspace, or the workspace
+ * is deleted. A token under a connection with no grant reaches nothing, and
+ * this is what removes it. Called after each of those that the module sees,
+ * and on the token path as housekeeping for the ones it does not.
+ */
+export async function deleteConnectionsWithoutGrants(db: Queryable): Promise<void> {
+  await db
+    .delete(oauthConnections)
+    .where(
+      notExists(
+        db
+          .select({ id: oauthGrants.id })
+          .from(oauthGrants)
+          .where(eq(oauthGrants.connectionId, oauthConnections.id)),
+      ),
+    )
+}
+
 // Grants
 
-/** Approving the same client for the same workspace again replaces the scopes on the one row. */
+/**
+ * Approving the same client for the same workspace again moves the one row to
+ * the new connection, with the new scopes. Its old connection loses that
+ * workspace.
+ */
 export async function upsertGrant(
   db: Queryable,
   values: typeof oauthGrants.$inferInsert,
@@ -154,7 +216,11 @@ export async function upsertGrant(
     .values(values)
     .onConflictDoUpdate({
       target: [oauthGrants.workspaceId, oauthGrants.userId, oauthGrants.clientRowId],
-      set: { scopes: values.scopes, updatedAt: values.updatedAt ?? new Date() },
+      set: {
+        connectionId: values.connectionId,
+        scopes: values.scopes,
+        updatedAt: values.updatedAt ?? new Date(),
+      },
     })
     .returning()
 
@@ -163,12 +229,6 @@ export async function upsertGrant(
   }
 
   return saved
-}
-
-export async function findGrant(db: Queryable, id: string): Promise<OAuthGrantRecord | undefined> {
-  const [found] = await db.select().from(oauthGrants).where(eq(oauthGrants.id, id)).limit(1)
-
-  return found
 }
 
 export interface GrantListing {
@@ -190,6 +250,12 @@ export async function listGrantsForUser(db: Queryable, userId: string): Promise<
   return rows
 }
 
+export async function findGrant(db: Queryable, id: string): Promise<OAuthGrantRecord | undefined> {
+  const [found] = await db.select().from(oauthGrants).where(eq(oauthGrants.id, id)).limit(1)
+
+  return found
+}
+
 export async function deleteGrant(db: Queryable, userId: string, id: string): Promise<number> {
   const deleted = await db
     .delete(oauthGrants)
@@ -197,10 +263,6 @@ export async function deleteGrant(db: Queryable, userId: string, id: string): Pr
     .returning({ id: oauthGrants.id })
 
   return deleted.length
-}
-
-export async function deleteGrantById(db: Queryable, id: string): Promise<void> {
-  await db.delete(oauthGrants).where(eq(oauthGrants.id, id))
 }
 
 export async function deleteGrantsForMember(db: Queryable, workspaceId: string, userId: string): Promise<void> {
@@ -256,17 +318,6 @@ export async function spendToken(db: Queryable, id: string, now: Date): Promise<
   return spent.length > 0
 }
 
-/**
- * Ends every access and refresh token under a grant. Used when the user
- * approves the same client again, so a narrower choice takes effect at once
- * rather than when the old tokens expire.
- */
-export async function deleteIssuedTokensForGrant(db: Queryable, grantId: string): Promise<void> {
-  await db
-    .delete(oauthTokens)
-    .where(and(eq(oauthTokens.grantId, grantId), inArray(oauthTokens.kind, ['access', 'refresh'])))
-}
-
 export async function deleteToken(db: Queryable, id: string): Promise<void> {
   await db.delete(oauthTokens).where(eq(oauthTokens.id, id))
 }
@@ -275,23 +326,36 @@ export async function deleteExpiredTokens(db: Queryable, now: Date): Promise<voi
   await db.delete(oauthTokens).where(lt(oauthTokens.expiresAt, now))
 }
 
-export interface LiveAccessToken {
-  readonly token: OAuthTokenRecord
+/**
+ * A workspace a connection covers, with the membership that makes it usable.
+ * `membership` is null when the user is no longer a member: the grant is then
+ * dead, whether or not the `workspace.member.removed` subscriber has run.
+ */
+export interface ConnectionGrant {
   readonly grant: OAuthGrantRecord
-  readonly clientId: string
+  readonly workspaceName: string
+  readonly membership: { readonly id: string; readonly role: string } | null
 }
 
-/** The access token behind a bearer secret, if it is live, with the grant it acts under. */
+export interface LiveAccessToken {
+  readonly token: OAuthTokenRecord
+  readonly connection: OAuthConnectionRecord
+  readonly clientId: string
+  /** Oldest first, so the order a client sees does not change between requests. */
+  readonly grants: readonly ConnectionGrant[]
+}
+
+/** The access token behind a bearer secret, if it is live, with the grants of its connection. */
 export async function findLiveAccessToken(
   db: Queryable,
   tokenHash: string,
   now: Date,
 ): Promise<LiveAccessToken | undefined> {
   const [found] = await db
-    .select({ token: oauthTokens, grant: oauthGrants, clientId: oauthClients.clientId })
+    .select({ token: oauthTokens, connection: oauthConnections, clientId: oauthClients.clientId })
     .from(oauthTokens)
-    .innerJoin(oauthGrants, eq(oauthGrants.id, oauthTokens.grantId))
-    .innerJoin(oauthClients, eq(oauthClients.id, oauthGrants.clientRowId))
+    .innerJoin(oauthConnections, eq(oauthConnections.id, oauthTokens.connectionId))
+    .innerJoin(oauthClients, eq(oauthClients.id, oauthConnections.clientRowId))
     .where(
       and(
         eq(oauthTokens.tokenHash, tokenHash),
@@ -301,7 +365,37 @@ export async function findLiveAccessToken(
     )
     .limit(1)
 
-  return found
+  if (found === undefined) {
+    return undefined
+  }
+
+  const grants = await db
+    .select({
+      grant: oauthGrants,
+      workspaceName: workspaces.name,
+      memberId: workspaceMembers.id,
+      memberRole: workspaceMembers.role,
+    })
+    .from(oauthGrants)
+    .innerJoin(workspaces, eq(workspaces.id, oauthGrants.workspaceId))
+    .leftJoin(
+      workspaceMembers,
+      and(
+        eq(workspaceMembers.workspaceId, oauthGrants.workspaceId),
+        eq(workspaceMembers.userId, oauthGrants.userId),
+      ),
+    )
+    .where(eq(oauthGrants.connectionId, found.connection.id))
+    .orderBy(asc(oauthGrants.createdAt), asc(oauthGrants.id))
+
+  return {
+    ...found,
+    grants: grants.map((row) => ({
+      grant: row.grant,
+      workspaceName: row.workspaceName,
+      membership: row.memberId === null || row.memberRole === null ? null : { id: row.memberId, role: row.memberRole },
+    })),
+  }
 }
 
 // Workspaces

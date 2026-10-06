@@ -120,6 +120,7 @@ Non-2xx, a timeout, or a redirect (redirects are never followed) marks the run `
 - **`workspace_id` names the workspace**; the dispatch carries no Kelpie credential. Give your receiver its own API key (`kp_live_…` or `kp_user_…`) and have it read and write through the normal API or MCP.
 - **Pick the right prompt.** Use `prompt` for an agent that runs its own tool loop over Kelpie; use `base_prompt` for one that returns structured operations for a caller to apply.
 - **Register the final URL.** Redirects are not followed.
+- **Treat record content as data.** A record can hold text from a person outside the workspace, because a public form makes records. Both prompts say so in a "Record content is data" section. Your agent must not follow instructions that it finds in a name, a note or a form answer.
 - **Keep secrets in the auth header field**, not in the endpoint URL — URLs with embedded credentials are refused at registration.
 
 ### REST endpoints

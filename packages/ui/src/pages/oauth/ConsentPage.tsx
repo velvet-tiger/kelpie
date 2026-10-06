@@ -1,4 +1,4 @@
-import { API_KEY_SCOPE_LABELS } from '@kelpie/schemas'
+import { API_KEY_SCOPE_LABELS, expandApiKeyScopes, isApiKeyPresetScope } from '@kelpie/schemas'
 import type { ApiKeyScope, OAuthRequest } from '@kelpie/schemas'
 import { useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router'
@@ -22,7 +22,7 @@ import { AuthLayout } from '../auth/AuthLayout.tsx'
  */
 export function ConsentPage(): React.JSX.Element {
   const { requestId = '' } = useParams()
-  const { isLoading: sessionLoading, isSignedOut, error: sessionError } = useSession()
+  const { session, isLoading: sessionLoading, isSignedOut, error: sessionError } = useSession()
 
   if (isSignedOut) {
     return <Navigate to={`/login?next=${encodeURIComponent(`/consent/${requestId}`)}`} replace />
@@ -42,10 +42,16 @@ export function ConsentPage(): React.JSX.Element {
     return <LoadingPanel />
   }
 
-  return <ConsentForRequest requestId={requestId} />
+  return <ConsentForRequest requestId={requestId} activeWorkspaceId={session?.workspaceId ?? null} />
 }
 
-function ConsentForRequest({ requestId }: { readonly requestId: string }): React.JSX.Element {
+interface ConsentForRequestProps {
+  readonly requestId: string
+  /** The workspace the session is in, which is the one ticked at the start. */
+  readonly activeWorkspaceId: string | null
+}
+
+function ConsentForRequest({ requestId, activeWorkspaceId }: ConsentForRequestProps): React.JSX.Element {
   const { request, isLoading, error } = useOAuthRequest(requestId)
 
   if (error !== null) {
@@ -65,14 +71,50 @@ function ConsentForRequest({ requestId }: { readonly requestId: string }): React
     return <LoadingPanel label="Loading the request…" />
   }
 
-  return <ConsentForm request={request} />
+  return <ConsentForm request={request} activeWorkspaceId={activeWorkspaceId} />
 }
 
-function ConsentForm({ request }: { readonly request: OAuthRequest }): React.JSX.Element {
+interface ConsentFormProps {
+  readonly request: OAuthRequest
+  readonly activeWorkspaceId: string | null
+}
+
+/**
+ * The workspace ticked when the page opens: the one the session is in, or the
+ * first when the session has none the person can connect. One, never all: a
+ * person who only clicks Allow gives the app the workspace they are working in.
+ */
+function initialWorkspaceIds(request: OAuthRequest, activeWorkspaceId: string | null): readonly string[] {
+  const active = request.workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+  const first = active ?? request.workspaces[0]
+
+  return first === undefined ? [] : [first.id]
+}
+
+/**
+ * The scopes the page offers: each preset the app asked for, then each
+ * per-resource scope that none of those presets includes.
+ *
+ * A per-resource scope inside a requested preset is not listed. The preset
+ * grants it, so a separate tick box for it would change nothing. Only the
+ * listed scopes are approved: clearing a preset also drops what it included.
+ */
+function offeredScopes(requested: readonly ApiKeyScope[]): readonly ApiKeyScope[] {
+  const presets = requested.filter(isApiKeyPresetScope)
+  const included: ReadonlySet<ApiKeyScope> = expandApiKeyScopes(presets)
+
+  return [...presets, ...requested.filter((scope) => !isApiKeyPresetScope(scope) && !included.has(scope))]
+}
+
+function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JSX.Element {
   const approve = useApproveOAuthRequest()
   const deny = useDenyOAuthRequest()
-  const [workspaceId, setWorkspaceId] = useState(request.workspaces[0]?.id ?? '')
-  const [scopes, setScopes] = useState<readonly ApiKeyScope[]>(request.scopes)
+  const [workspaceIds, setWorkspaceIds] = useState<readonly string[]>(() =>
+    initialWorkspaceIds(request, activeWorkspaceId),
+  )
+  const [onlyWorkspace] = request.workspaces
+  const offered = offeredScopes(request.scopes)
+  const [scopes, setScopes] = useState<readonly ApiKeyScope[]>(offered)
   const [leaving, setLeaving] = useState(false)
   const busy = approve.isPending || deny.isPending || leaving
 
@@ -87,11 +129,15 @@ function ConsentForm({ request }: { readonly request: OAuthRequest }): React.JSX
     setScopes((current) => (current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope]))
   }
 
+  function toggleWorkspace(id: string): void {
+    setWorkspaceIds((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]))
+  }
+
   if (request.workspaces.length === 0) {
     return (
       <AuthLayout
         title={`Connect ${request.clientName}`}
-        description="A connection is made to one workspace, and this account is not a member of any."
+        description="A connection is made to a workspace, and this account is not a member of any."
       >
         <p className="mt-4 text-[13px] text-ink-muted">
           <Link to="/onboarding/workspace" className="text-accent hover:underline">
@@ -137,30 +183,45 @@ function ConsentForm({ request }: { readonly request: OAuthRequest }): React.JSX
           )}
         </div>
 
-        <label className="block">
-          <span className="mb-1.5 block text-[12px] font-medium text-ink">Workspace</span>
-          <select
-            value={workspaceId}
-            onChange={(event) => {
-              setWorkspaceId(event.target.value)
-            }}
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
-          >
-            {request.workspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
-              </option>
-            ))}
-          </select>
-          <span className="mt-1 block text-[11px] text-ink-faint">
-            The app sees this workspace only. To use another, connect again.
-          </span>
-        </label>
+        {request.workspaces.length === 1 && onlyWorkspace !== undefined ? (
+          <div>
+            <p className="mb-1.5 text-[12px] font-medium text-ink">Workspace</p>
+            <p className="text-[13px] text-ink">
+              {onlyWorkspace.name}{' '}
+              <span className="text-ink-muted capitalize">({onlyWorkspace.role})</span>
+            </p>
+            <p className="mt-1 text-[11px] text-ink-faint">The app sees this workspace only.</p>
+          </div>
+        ) : (
+          <fieldset>
+            <legend className="mb-1.5 text-[12px] font-medium text-ink">Workspaces</legend>
+            <div className="space-y-1.5">
+              {request.workspaces.map((workspace) => (
+                <label key={workspace.id} className="flex items-center gap-2 text-[13px] text-ink">
+                  <input
+                    type="checkbox"
+                    checked={workspaceIds.includes(workspace.id)}
+                    onChange={() => {
+                      toggleWorkspace(workspace.id)
+                    }}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
+                  <span className="shrink-0 text-[11px] text-ink-muted capitalize">{workspace.role}</span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] text-ink-faint">
+              {workspaceIds.length > 1
+                ? 'The app can read and write in each of these workspaces.'
+                : 'The app sees only the workspaces you select.'}
+            </p>
+          </fieldset>
+        )}
 
         <fieldset>
           <legend className="mb-1.5 text-[12px] font-medium text-ink">Access</legend>
           <div className="space-y-1.5">
-            {request.scopes.map((scope) => (
+            {offered.map((scope) => (
               <label key={scope} className="flex items-center gap-2 text-[13px] text-ink">
                 <input
                   type="checkbox"
@@ -174,7 +235,8 @@ function ConsentForm({ request }: { readonly request: OAuthRequest }): React.JSX
             ))}
           </div>
           <p className="mt-1.5 text-[11px] text-ink-faint">
-            The app can do no more than your own role allows. Clear an item to give less access.
+            The app can do no more than your own role allows. Clear an item to give less access. A wider item,
+            such as Read all, includes the narrower ones.
           </p>
         </fieldset>
 
@@ -199,10 +261,10 @@ function ConsentForm({ request }: { readonly request: OAuthRequest }): React.JSX
           </button>
           <button
             type="button"
-            disabled={busy || scopes.length === 0 || workspaceId.length === 0}
+            disabled={busy || scopes.length === 0 || workspaceIds.length === 0}
             onClick={() => {
               approve
-                .runAsync({ requestId: request.id, workspaceId, scopes })
+                .runAsync({ requestId: request.id, workspaceIds, scopes })
                 .then((decision) => {
                   leaveTo(decision.redirectUrl)
                 })

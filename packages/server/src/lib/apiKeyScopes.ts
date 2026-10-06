@@ -1,7 +1,7 @@
 import type { ApiKeyGranularScope, ApiKeyScope } from '@kelpie/schemas'
 import { expandApiKeyScopes, satisfiesApiKeyScope } from '@kelpie/schemas'
 
-import { isBearerActor } from './actor.ts'
+import { isBearerActor, isOAuthActor } from './actor.ts'
 import type { Actor } from './actor.ts'
 import { AppError } from './errors.ts'
 
@@ -143,7 +143,7 @@ export function hasApiKeyScope(actor: Actor, required: ApiKeyGranularScope): boo
     return true
   }
 
-  if (actor.kind === 'oauth' && actor.scopes.length === 0) {
+  if (isOAuthActor(actor) && actor.scopes.length === 0) {
     return false
   }
 
@@ -155,7 +155,7 @@ export function requireApiKeyScope(actor: Actor, required: ApiKeyGranularScope):
     return
   }
 
-  const credential = actor.kind === 'oauth' ? 'OAuth token' : 'API key'
+  const credential = isOAuthActor(actor) ? 'OAuth token' : 'API key'
 
   throw new AppError('forbidden', `This ${credential} does not have the ${required} scope`)
 }
@@ -175,11 +175,11 @@ export function requireScopesWithinActor(actor: Actor, requested: readonly ApiKe
     return
   }
 
-  if (actor.kind !== 'oauth' && actor.scopes.length === 0) {
+  if (!isOAuthActor(actor) && actor.scopes.length === 0) {
     return
   }
 
-  const credential = actor.kind === 'oauth' ? 'OAuth token' : 'API key'
+  const credential = isOAuthActor(actor) ? 'OAuth token' : 'API key'
 
   if (requested.length === 0) {
     throw new AppError(

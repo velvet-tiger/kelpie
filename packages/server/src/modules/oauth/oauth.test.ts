@@ -5,16 +5,18 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
+import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { TEST_APP_BASE_URL, TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { users } from '../auth/schema.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
+import { WORKSPACE_ACCESS } from '../workspace/capabilities.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
 import type { Fetch } from './clients.ts'
 import { createOAuthModule } from './index.ts'
-import { oauthGrants } from './schema.ts'
+import { oauthConnections, oauthGrants, oauthTokens } from './schema.ts'
 
 /**
  * The authorization server end to end, against real Postgres: discovery, a
@@ -74,6 +76,8 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
   let harness: TestApp
   let metadataDocument: unknown
   let metadata: ReturnType<typeof metadataFetch>
+  /** The workspace the `workspace.access` gate refuses, when a test sets one. */
+  let blockedWorkspaceId: string | undefined
 
   beforeAll(async () => {
     if (connectionString === undefined) {
@@ -96,12 +100,24 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       token_endpoint_auth_method: 'none',
     }
     metadata = metadataFetch(() => metadataDocument)
+    blockedWorkspaceId = undefined
+
+    const entitlements = createEntitlementRegistry()
+
+    entitlements.provide((workspaceId, capability) =>
+      Promise.resolve(
+        capability.name === WORKSPACE_ACCESS.name && workspaceId === blockedWorkspaceId
+          ? { kind: 'flag', granted: false }
+          : undefined,
+      ),
+    )
     harness = await createTestApp({
       modules: coreModules.map((module) =>
         module.id === 'oauth' ? createOAuthModule(coreMigrationsDirectory, { fetch: metadata.fetch }) : module,
       ),
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
+      entitlements,
     })
   })
 
@@ -229,9 +245,14 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
     return match.groups.id
   }
 
-  async function approve(cookie: string, requestId: string, workspaceId: string, scopes: readonly string[]): Promise<URL> {
+  async function approve(
+    cookie: string,
+    requestId: string,
+    workspaces: string | readonly string[],
+    scopes: readonly string[],
+  ): Promise<URL> {
     const response = await send('POST', `/v1/oauth/requests/${requestId}/approve`, {
-      body: { workspace_id: workspaceId, scopes },
+      body: { workspace_ids: typeof workspaces === 'string' ? [workspaces] : workspaces, scopes },
       cookie,
     })
 
@@ -422,7 +443,7 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       const clientId = await registerPublicClient()
       const requestId = await startRequest(clientId, { scope: 'read:objects' })
       const response = await send('POST', `/v1/oauth/requests/${requestId}/approve`, {
-        body: { workspace_id: workspaceId, scopes: ['read:objects', 'admin'] },
+        body: { workspace_ids: [workspaceId], scopes: ['read:objects', 'admin'] },
         cookie,
       })
 
@@ -435,8 +456,22 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       const clientId = await registerPublicClient()
       const requestId = await startRequest(clientId)
       const response = await send('POST', `/v1/oauth/requests/${requestId}/approve`, {
-        body: { workspace_id: second.workspaceId, scopes: ['read:objects'] },
+        body: { workspace_ids: [first.workspaceId, second.workspaceId], scopes: ['read:objects'] },
         cookie: first.cookie,
+      })
+
+      // All or nothing: the workspace the user does belong to is not granted either.
+      expect(response.status).toBe(422)
+      expect(await database.db.select().from(oauthGrants)).toHaveLength(0)
+      expect(await database.db.select().from(oauthConnections)).toHaveLength(0)
+    })
+
+    it('refuses an approval that names no workspace', async () => {
+      const { cookie } = await owner()
+      const requestId = await startRequest(await registerPublicClient())
+      const response = await send('POST', `/v1/oauth/requests/${requestId}/approve`, {
+        body: { workspace_ids: [], scopes: ['read:objects'] },
+        cookie,
       })
 
       expect(response.status).toBe(422)
@@ -592,6 +627,268 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
       expect((await callTool(accessToken, 'people_list')).status).toBe(401)
       expect(await database.db.select().from(oauthGrants)).toHaveLength(1)
+    })
+  })
+
+  describe('several workspaces in one connection', () => {
+    interface TwoWorkspaces extends Tokens {
+      readonly otherWorkspaceId: string
+    }
+
+    /** One user, owner of two workspaces, and one connection that covers both. */
+    async function connectTwo(): Promise<TwoWorkspaces> {
+      const { cookie, workspaceId } = await owner()
+      const created = await send('POST', '/v1/workspaces', {
+        body: { name: 'Globex', timezone: 'Australia/Melbourne' },
+        cookie,
+      })
+      const otherWorkspaceId = readString(await created.json(), 'id')
+      const clientId = await registerPublicClient()
+      const requestId = await startRequest(clientId)
+      const redirect = await approve(cookie, requestId, [workspaceId, otherWorkspaceId], [
+        'read:objects',
+        'write:objects',
+      ])
+      const response = await exchange(clientId, redirect.searchParams.get('code') ?? '')
+
+      expect(response.status).toBe(200)
+
+      const body: unknown = await response.json()
+
+      return {
+        clientId,
+        accessToken: readString(body, 'access_token'),
+        refreshToken: readString(body, 'refresh_token'),
+        cookie,
+        workspaceId,
+        otherWorkspaceId,
+      }
+    }
+
+    /** A tool call's result: whether the tool refused, and the JSON it answered. */
+    async function toolResult(response: Response): Promise<{ isError: boolean; payload: unknown }> {
+      const body: unknown = await response.json()
+
+      if (!isRecord(body) || !isRecord(body.result) || !Array.isArray(body.result.content)) {
+        throw new Error(`Expected a tool result, got ${JSON.stringify(body)}`)
+      }
+
+      const [first]: unknown[] = body.result.content
+
+      return { isError: body.result.isError === true, payload: JSON.parse(readString(first, 'text')) }
+    }
+
+    async function listedTools(bearer: string): Promise<Record<string, unknown>[]> {
+      const response = await mcp(bearer, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
+      const body: unknown = await response.json()
+
+      if (!isRecord(body) || !isRecord(body.result) || !Array.isArray(body.result.tools)) {
+        throw new Error(`Expected a tool listing, got ${JSON.stringify(body)}`)
+      }
+
+      return body.result.tools.filter(isRecord)
+    }
+
+    it('makes one connection with a grant for each workspace', async () => {
+      const { workspaceId, otherWorkspaceId } = await connectTwo()
+      const connections = await database.db.select().from(oauthConnections)
+      const grants = await database.db.select().from(oauthGrants)
+
+      expect(connections).toHaveLength(1)
+      expect(grants.map((grant) => grant.workspaceId).sort()).toEqual([workspaceId, otherWorkspaceId].sort())
+      expect(grants.every((grant) => grant.connectionId === connections[0]?.id)).toBe(true)
+    })
+
+    it('leaves a connection with one workspace as it was: no workspace argument, no workspaces_list', async () => {
+      const { accessToken } = await connect()
+      const tools = await listedTools(accessToken)
+      const peopleList = tools.find((tool) => tool.name === 'people_list')
+
+      expect(tools.some((tool) => tool.name === 'workspaces_list')).toBe(false)
+      expect(JSON.stringify(peopleList?.inputSchema)).not.toContain('workspace_id')
+    })
+
+    it('adds a mandatory workspace_id to each tool, and workspaces_list', async () => {
+      const { accessToken, workspaceId, otherWorkspaceId } = await connectTwo()
+      const tools = await listedTools(accessToken)
+      const others = tools.filter((tool) => tool.name !== 'workspaces_list')
+
+      expect(tools.some((tool) => tool.name === 'workspaces_list')).toBe(true)
+      expect(others.length).toBeGreaterThan(0)
+
+      for (const tool of others) {
+        const schema = tool.inputSchema
+
+        expect(isRecord(schema) && Array.isArray(schema.required) && schema.required.includes('workspace_id')).toBe(true)
+        expect(isRecord(schema) && isRecord(schema.properties) && 'workspace_id' in schema.properties).toBe(true)
+      }
+
+      const listed = await toolResult(await callTool(accessToken, 'workspaces_list'))
+
+      expect(listed.isError).toBe(false)
+      expect(listed.payload).toEqual({
+        data: [
+          { id: workspaceId, name: 'Acme', role: 'owner' },
+          { id: otherWorkspaceId, name: 'Globex', role: 'owner' },
+        ],
+      })
+    })
+
+    it('tells the agent that the connection covers more than one workspace', async () => {
+      const { accessToken } = await connectTwo()
+      const response = await mcp(accessToken, {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-06-18' },
+      })
+      const body: unknown = await response.json()
+
+      expect(isRecord(body) && isRecord(body.result) && String(body.result.instructions)).toContain('workspaces_list')
+    })
+
+    it('refuses a call that names no workspace, and one for a workspace it does not cover', async () => {
+      const { accessToken } = await connectTwo()
+      const outsider = await owner('bea@example.com')
+
+      const unnamed = await toolResult(await callTool(accessToken, 'people_list'))
+
+      expect(unnamed.isError).toBe(true)
+      expect(unnamed.payload).toMatchObject({ error: { code: 'validation_failed' } })
+
+      const outside = await toolResult(
+        await callTool(accessToken, 'people_list', { workspace_id: outsider.workspaceId }),
+      )
+      const missing = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: 'ws_nothing' }))
+
+      expect(outside.isError).toBe(true)
+      expect(outside.payload).toMatchObject({ error: { code: 'not_found' } })
+      // The same answer for a workspace that exists and one that does not.
+      expect(outside.payload).toEqual(missing.payload)
+    })
+
+    it('writes to the workspace the call names, and not to the other', async () => {
+      const { accessToken, workspaceId, otherWorkspaceId } = await connectTwo()
+      const created = await toolResult(
+        await callTool(accessToken, 'people_create', { workspace_id: otherWorkspaceId, name: 'Grace Hopper' }),
+      )
+
+      expect(created.isError).toBe(false)
+
+      const inOther = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: otherWorkspaceId }))
+      const inFirst = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: workspaceId }))
+
+      expect(readList(inOther.payload).map((person) => person.name)).toEqual(['Grace Hopper'])
+      expect(readList(inFirst.payload)).toHaveLength(0)
+    })
+
+    it('records the use on the grant of the named workspace only', async () => {
+      const { accessToken, otherWorkspaceId } = await connectTwo()
+
+      await callTool(accessToken, 'people_list', { workspace_id: otherWorkspaceId })
+
+      const grants = await database.db.select().from(oauthGrants)
+
+      expect(grants.find((grant) => grant.workspaceId === otherWorkspaceId)?.lastUsedAt).not.toBeNull()
+      expect(grants.find((grant) => grant.workspaceId !== otherWorkspaceId)?.lastUsedAt).toBeNull()
+    })
+
+    it('keeps the other workspace when the user disconnects one, and ends the token with the last', async () => {
+      const { accessToken, cookie, workspaceId, otherWorkspaceId } = await connectTwo()
+      const listed = readList(await (await send('GET', '/v1/oauth/grants', { cookie })).json())
+      const first = listed.find((grant) => grant.workspace_id === workspaceId)
+      const other = listed.find((grant) => grant.workspace_id === otherWorkspaceId)
+
+      expect(listed).toHaveLength(2)
+      expect(first?.connection_id).toBe(other?.connection_id)
+
+      await send('DELETE', `/v1/oauth/grants/${String(first?.id)}`, { cookie })
+
+      // A client that listed the tools before still sends the argument.
+      const kept = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: otherWorkspaceId }))
+      const gone = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: workspaceId }))
+
+      expect(kept.isError).toBe(false)
+      expect(gone.payload).toMatchObject({ error: { code: 'not_found' } })
+
+      await send('DELETE', `/v1/oauth/grants/${String(other?.id)}`, { cookie })
+
+      expect((await callTool(accessToken, 'people_list')).status).toBe(401)
+      expect(await database.db.select().from(oauthConnections)).toHaveLength(0)
+      expect(await database.db.select().from(oauthTokens)).toHaveLength(0)
+    })
+
+    it('disconnects every workspace at once', async () => {
+      const { accessToken, cookie } = await connectTwo()
+      const [connection] = await database.db.select().from(oauthConnections)
+      const stranger = await owner('bea@example.com')
+
+      // Another user's connection answers 404, and stays.
+      expect(
+        (await send('DELETE', `/v1/oauth/connections/${String(connection?.id)}`, { cookie: stranger.cookie })).status,
+      ).toBe(404)
+      expect((await send('DELETE', `/v1/oauth/connections/${String(connection?.id)}`, { cookie })).status).toBe(204)
+      expect((await callTool(accessToken, 'workspaces_list')).status).toBe(401)
+      expect(await database.db.select().from(oauthGrants)).toHaveLength(0)
+    })
+
+    it('ends one workspace only when the user leaves it', async () => {
+      const { accessToken, workspaceId, otherWorkspaceId } = await connectTwo()
+      const [grant] = await database.db.select().from(oauthGrants)
+
+      await database.db
+        .delete(workspaceMembers)
+        .where(and(eq(workspaceMembers.workspaceId, otherWorkspaceId), eq(workspaceMembers.userId, grant?.userId ?? '')))
+
+      const left = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: otherWorkspaceId }))
+      const stayed = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: workspaceId }))
+      const listed = await toolResult(await callTool(accessToken, 'workspaces_list'))
+
+      expect(left.payload).toMatchObject({ error: { code: 'not_found' } })
+      expect(stayed.isError).toBe(false)
+      expect(readList(listed.payload).map((workspace) => workspace.id)).toEqual([workspaceId])
+    })
+
+    it('refuses a blocked workspace and leaves the other in operation', async () => {
+      const { accessToken, workspaceId, otherWorkspaceId } = await connectTwo()
+
+      blockedWorkspaceId = otherWorkspaceId
+
+      const blocked = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: otherWorkspaceId }))
+      const open = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: workspaceId }))
+
+      expect(blocked.isError).toBe(true)
+      expect(blocked.payload).toMatchObject({ error: { code: 'entitlement_required' } })
+      expect(open.isError).toBe(false)
+    })
+
+    it('ends every workspace when a refresh token is used twice', async () => {
+      const { accessToken, clientId, refreshToken } = await connectTwo()
+      const fields = { grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId }
+
+      expect((await sendForm('/oauth/token', fields)).status).toBe(200)
+      expect((await sendForm('/oauth/token', fields)).status).toBe(400)
+      expect((await callTool(accessToken, 'workspaces_list')).status).toBe(401)
+      expect(await database.db.select().from(oauthGrants)).toHaveLength(0)
+    })
+
+    it('moves a workspace to the new connection when the user approves it again', async () => {
+      const { accessToken, clientId, cookie, workspaceId, otherWorkspaceId } = await connectTwo()
+      const redirect = await approve(cookie, await startRequest(clientId), workspaceId, ['read:objects'])
+      const renewed = readString(
+        await (await exchange(clientId, redirect.searchParams.get('code') ?? '')).json(),
+        'access_token',
+      )
+
+      // The old token keeps the workspace that was not approved again, and loses the one that was.
+      const kept = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: otherWorkspaceId }))
+      const moved = await toolResult(await callTool(accessToken, 'people_list', { workspace_id: workspaceId }))
+
+      expect(kept.isError).toBe(false)
+      expect(moved.payload).toMatchObject({ error: { code: 'not_found' } })
+      expect((await toolResult(await callTool(renewed, 'people_list'))).isError).toBe(false)
+      expect(await database.db.select().from(oauthConnections)).toHaveLength(2)
+      expect(await database.db.select().from(oauthGrants)).toHaveLength(2)
     })
   })
 

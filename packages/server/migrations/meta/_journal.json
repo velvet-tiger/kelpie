@@ -435,6 +435,13 @@
       "when": 1790486400000,
       "tag": "0061_idempotency_keys_actor",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1790572800000,
+      "tag": "0062_oauth_connections",
+      "breakpoints": true
     }
   ]
 }

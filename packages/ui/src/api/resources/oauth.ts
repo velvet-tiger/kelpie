@@ -16,7 +16,7 @@ import { asMutationResult } from './mutation.ts'
  * `/v1/oauth`: the consent page an MCP client sends a person to, and the
  * "Connected apps" list. Session only; the server refuses a bearer credential.
  *
- * Not workspace-scoped. A request asks which workspace to connect, and the
+ * Not workspace-scoped. A request asks which workspaces to connect, and the
  * list covers every workspace the person belongs to.
  */
 
@@ -103,6 +103,20 @@ export function useRevokeOAuthGrant(): MutationResult<string, void> {
   const queryClient = useQueryClient()
   const mutation = useMutation({
     mutationFn: (id: string) => client.delete(`/oauth/grants/${id}`),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: GRANTS_KEY })
+    },
+  })
+
+  return asMutationResult(mutation)
+}
+
+/** Ends a whole connection: every workspace that was approved together. */
+export function useRevokeOAuthConnection(): MutationResult<string, void> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (id: string) => client.delete(`/oauth/connections/${id}`),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: GRANTS_KEY })
     },

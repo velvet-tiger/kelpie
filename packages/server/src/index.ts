@@ -218,12 +218,22 @@ export type {
 } from './runtime/registry.ts'
 export type { ModuleServices } from './runtime/module.ts'
 
-export type { Actor, ApiKeyActor, BearerActor, OAuthActor, SessionActor } from './modules/auth/actor.ts'
+export type {
+  Actor,
+  AnyOAuthActor,
+  ApiKeyActor,
+  BearerActor,
+  OAuthActor,
+  OAuthConnectionActor,
+  OAuthWorkspaceAccess,
+  SessionActor,
+} from './modules/auth/actor.ts'
 export {
   actorUserId,
   actorWorkspaceId,
   bearerCredentialId,
   isBearerActor,
+  isOAuthActor,
   requireSessionActor,
 } from './modules/auth/actor.ts'
 export { resolveActor, resolveActorFrom } from './modules/auth/credentials.ts'

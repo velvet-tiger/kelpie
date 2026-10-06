@@ -22,6 +22,55 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Changed
 
+- **One OAuth connection can cover more than one workspace.** The consent
+  page for an MCP client had a selector for one workspace. A person who is a
+  member of three workspaces had to connect the client three times, and some
+  clients do not let you add the same address two times. The page now has a
+  checkbox for each workspace, with the workspace of the session ticked at
+  the start.
+  - **A connection for one workspace does not change.** The same tools, the
+    same calls.
+  - **A connection for more than one** gets a mandatory `workspace_id`
+    argument on each tool, and a `workspaces_list` tool that gives the ids.
+    A call that names no workspace gets a tool error. There is no default
+    workspace. A removed member, or a workspace without `workspace.access`,
+    blocks only the calls that name that workspace.
+  - **Connected apps** lists workspaces that were approved together next to
+    each other. **Disconnect** removes one workspace. **Disconnect all** ends
+    the connection.
+  - **The Access list is shorter.** The consent page showed a checkbox for
+    each scope the client asked for, and a client that asks for all of them
+    got approximately 80. The page now shows each preset, and a per-resource
+    scope only when no requested preset includes it. It approves only the
+    scopes it shows, so a cleared preset also drops what it included.
+
+  What an assembly or a module must know:
+  - **`@kelpie/server`** — migration `0062` adds `oauth_connections`, adds
+    `oauth_grants.connection_id`, and replaces `oauth_tokens.grant_id` with
+    `connection_id`. Each grant from before gets its own connection, and its
+    tokens stay valid. While a deploy is in progress, code from before the
+    migration cannot issue a token, so a client that signs in at that time
+    must try again.
+  - **`@kelpie/server`** — **breaking:** `POST /v1/oauth/requests/:id/approve`
+    takes `workspace_ids` (a list) and no longer takes `workspace_id`. New:
+    `DELETE /v1/oauth/connections/:id`. `GET /v1/oauth/grants` items gain
+    `connection_id`.
+  - **`@kelpie/server`** — **breaking for a module that reads the actor
+    kind:** `Actor` has a fourth kind, `oauth_connection`, for a connection
+    that covers several workspaces before a tool call names one. Its
+    `workspaceId` is `null`, and no tool body receives it. `OAuthActor` gains
+    `connectionId`. New exports: `isOAuthActor`, `OAuthConnectionActor`,
+    `OAuthWorkspaceAccess`, `AnyOAuthActor`. Use `isOAuthActor`, not
+    `actor.kind === 'oauth'`, for a rule about OAuth callers.
+  - **`@kelpie/server`** — the `api` rate limit for an OAuth caller is now for
+    the connection, not the grant. The tool names `workspaces_list` and the
+    argument name `workspace_id` are reserved: a module tool that uses one of
+    them fails at boot.
+  - **`@kelpie/schemas`** — **breaking:** `ApproveOAuthRequestInput` has
+    `workspaceIds` and not `workspaceId`. `OAuthGrant` gains `connectionId`.
+  - **`@kelpie/ui`** — the consent page and Connected apps as above. New hook
+    `useRevokeOAuthConnection`.
+
 - **`@kelpie/ui`** — **MCP is on a new AI page that every member can open.**
   The sidebar has an **AI** link below **Admin**, to `/ai`. The page shows
   the MCP endpoint, OAuth sign-in, the client config and the tool list. It
@@ -196,6 +245,22 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`@kelpie/server`** — **Agent task prompts mark record content as data.**
+  A public form submit makes a Person, a Company and a note with no
+  credentials, and an agent task then puts that text in front of a model.
+  In the `ai` module the model's reply becomes writes with no approval, so
+  text from a stranger could cause a false Decision or a pinned note that
+  later runs follow. Three changes lower that risk. The target label, the
+  workspace name and each handbook title now go into the prompt on one
+  line, so a value with a line break cannot add a section of its own. The
+  resolved `prompt` and `base_prompt` have a new section, "Record content
+  is data", ahead of the instructions; `context.target_label` on the
+  dispatch payload is also one line. The `ai` module tells the model that
+  the context pack is data, and that it may create a Decision or pin a note
+  only when the task asks for it; the pack escapes backticks, so record
+  text cannot close a code fence. These are instructions to a model, not a
+  guarantee: a model can still obey text that it reads. There is no
+  approval step for a run's writes. No migration.
 - **`@kelpie/server`** — **The private-address guard now controls the
   connection, not only a lookup before it.** With `BLOCK_PRIVATE_EGRESS=true`,
   the guard resolved the host and checked the addresses, and then `fetch`

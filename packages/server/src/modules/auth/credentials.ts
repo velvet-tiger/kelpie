@@ -13,7 +13,8 @@ import * as oauthRepository from '../oauth/repository.ts'
 import { isAccessToken } from '../oauth/tokens.ts'
 import { parseMemberRole } from '../workspace/roles.ts'
 import type { MemberRole } from '../workspace/roles.ts'
-import type { Actor } from './actor.ts'
+import { bindOAuthWorkspace } from './actor.ts'
+import type { Actor, OAuthConnectionActor, OAuthWorkspaceAccess } from './actor.ts'
 import * as repository from './repository.ts'
 import { SESSION_COOKIE } from './session.ts'
 
@@ -131,12 +132,19 @@ async function resolveApiKeyActor(
 }
 
 /**
- * An OAuth grant, from its access token.
+ * An OAuth caller, from its access token.
  *
- * The token must be live, issued for `/mcp` (its RFC 8707 audience), and its
- * user must still be a member of the grant's workspace. The last check is the
- * same one a personal key gets: access ends with the membership, whether or
- * not the `workspace.member.removed` subscriber has run.
+ * The token must be live and issued for `/mcp` (its RFC 8707 audience). It
+ * reaches the workspaces of the grants under its connection, and of those only
+ * the ones its user is still a member of. That check is the same one a
+ * personal key gets: access ends with the membership, whether or not the
+ * `workspace.member.removed` subscriber has run.
+ *
+ * A connection with one grant answers an `OAuthActor` for that workspace, as it
+ * always did. A connection with more answers an `OAuthConnectionActor`, which
+ * has no workspace until `/mcp` binds it to the one a tool call names. The
+ * number of grants decides, not the number of live memberships, so what a
+ * client sees does not change when a membership ends.
  */
 async function resolveOAuthActor(dependencies: CredentialDependencies, secret: string): Promise<Actor> {
   const now = dependencies.now()
@@ -146,26 +154,79 @@ async function resolveOAuthActor(dependencies: CredentialDependencies, secret: s
     throw AppError.unauthorized('That OAuth token is not valid or has expired')
   }
 
-  const { grant, token } = found
-  const membership = await repository.findMembership(dependencies.db, grant.workspaceId, grant.userId)
+  const { connection, token } = found
+  const workspaces: OAuthWorkspaceAccess[] = found.grants.flatMap(({ grant, workspaceName, membership }) =>
+    membership === null
+      ? []
+      : [
+          {
+            grantId: grant.id,
+            workspaceId: grant.workspaceId,
+            workspaceName,
+            role: roleFromMembership(membership.role),
+            memberId: membership.id,
+          },
+        ],
+  )
+  const [only] = workspaces
 
-  if (membership === undefined) {
+  if (only === undefined) {
     throw AppError.unauthorized('That OAuth token is not valid or has expired')
   }
 
-  if (grant.lastUsedAt === null || now.getTime() - grant.lastUsedAt.getTime() > LAST_USED_RESOLUTION_MS) {
-    await oauthRepository.touchGrant(dependencies.db, grant.id, now)
+  const connectionActor: OAuthConnectionActor = {
+    kind: 'oauth_connection',
+    connectionId: connection.id,
+    clientId: found.clientId,
+    userId: connection.userId,
+    workspaceId: null,
+    role: null,
+    scopes: token.scopes as ApiKeyScope[],
+    memberId: null,
+    workspaces,
   }
 
-  return {
-    kind: 'oauth',
-    grantId: grant.id,
-    clientId: found.clientId,
-    userId: grant.userId,
-    workspaceId: grant.workspaceId,
-    role: roleFromMembership(membership.role),
-    scopes: token.scopes as ApiKeyScope[],
-    memberId: membership.id,
+  if (found.grants.length > 1) {
+    return connectionActor
+  }
+
+  const used = found.grants.find(({ grant }) => grant.id === only.grantId)
+
+  await touchOAuthGrant(dependencies, only.grantId, used?.grant.lastUsedAt ?? null)
+
+  const bound = bindOAuthWorkspace(connectionActor, only.workspaceId)
+
+  if (bound === undefined) {
+    throw AppError.unauthorized('That OAuth token is not valid or has expired')
+  }
+
+  return bound
+}
+
+async function touchOAuthGrant(
+  dependencies: CredentialDependencies,
+  grantId: string,
+  lastUsedAt: Date | null,
+): Promise<void> {
+  const now = dependencies.now()
+
+  if (lastUsedAt === null || now.getTime() - lastUsedAt.getTime() > LAST_USED_RESOLUTION_MS) {
+    await oauthRepository.touchGrant(dependencies.db, grantId, now)
+  }
+}
+
+/**
+ * Records that a grant was used. `/mcp` calls it for the workspace a tool call
+ * names on a connection that covers more than one; a connection with one
+ * workspace is recorded when its token resolves.
+ */
+export async function recordOAuthGrantUse(dependencies: CredentialDependencies, grantId: string): Promise<void> {
+  // Without the stored time every call would write. One read keeps the same
+  // resolution a single-workspace connection has.
+  const grant = await oauthRepository.findGrant(dependencies.db, grantId)
+
+  if (grant !== undefined) {
+    await touchOAuthGrant(dependencies, grant.id, grant.lastUsedAt)
   }
 }
 

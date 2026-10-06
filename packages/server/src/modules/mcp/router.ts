@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 
+import { isOAuthActor } from '../../lib/actor.ts'
 import type { Actor } from '../../lib/actor.ts'
 import { hasApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import { AppError } from '../../lib/errors.ts'
@@ -8,7 +9,7 @@ import { requestOrigin } from '../../lib/http.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { McpAuthorization, McpTool } from '../../runtime/module.ts'
 import { readBearerToken } from '../api-keys/keys.ts'
-import { resolveActor, resolveActorFrom } from '../auth/credentials.ts'
+import { recordOAuthGrantUse, resolveActor, resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import {
   HEADER_MISMATCH,
@@ -28,6 +29,7 @@ import {
   readParamsName,
   unsupportedVersion,
 } from './protocol.ts'
+import { publishForConnection } from './workspaces.ts'
 import type {
   DispatchDependencies,
   JsonRpcMessage,
@@ -91,6 +93,13 @@ export interface McpRouterDependencies extends CredentialDependencies {
    * the request. Undefined counts nothing more.
    */
   readonly chargeMessages?: ((context: Context, actor: Actor, units: number) => Promise<void>) | undefined
+  /**
+   * Refuses a workspace that may not be used. The access gate in front of the
+   * transport checks the workspace a credential is bound to; an OAuth
+   * connection that covers several has none until a tool call names one, so
+   * the transport makes the same check then. Undefined checks nothing.
+   */
+  readonly checkWorkspaceAccess?: ((workspaceId: string) => Promise<void>) | undefined
 }
 
 /**
@@ -138,7 +147,7 @@ function missingOAuthScopes(
   tools: readonly McpTool[],
   messages: readonly (JsonRpcMessage | undefined)[],
 ): string[] {
-  if (actor.kind !== 'oauth') {
+  if (!isOAuthActor(actor)) {
     return []
   }
 
@@ -410,9 +419,12 @@ export function createMcpEndpoint(dependencies: McpRouterDependencies): McpEndpo
   const dispatchDependencies: DispatchDependencies = {
     tools: dependencies.tools,
     published,
+    publishedForConnection: publishForConnection(published),
     serverInfo: dependencies.serverInfo,
     instructions: dependencies.instructions,
     logger: dependencies.logger,
+    checkWorkspaceAccess: dependencies.checkWorkspaceAccess,
+    recordGrantUse: (grantId) => recordOAuthGrantUse(dependencies, grantId),
   }
 
   catalog.get('/mcp/tools', async (context) => {

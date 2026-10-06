@@ -4,6 +4,7 @@ import { and, asc, count, eq, inArray, notExists, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 
+import { singleLine } from '../../lib/normalisation.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
@@ -737,7 +738,8 @@ export async function assemblePromptInputs(
 
   return {
     workspaceName: workspace.name,
-    targetLabel: meta.label,
+    // One line: this value goes into prompts and onto the dispatch payload.
+    targetLabel: singleLine(meta.label),
     deepLink: meta.deepLink,
     handbookPages: await findHandbookPages(db, workspaceId, definition.handbookSlugs),
     pinnedNoteIds: attachable

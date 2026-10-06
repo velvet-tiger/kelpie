@@ -268,7 +268,7 @@ export function createProtocolHandlers(service: OAuthService): OAuthProtocolHand
 // The consent page and connected apps, under /v1
 
 const approveBody = z.object({
-  workspace_id: z.string().min(1).max(MAX_ID_LENGTH),
+  workspace_ids: z.array(z.string().min(1).max(MAX_ID_LENGTH)).min(1).max(MAX_LIST_ITEMS),
   scopes: z.array(z.enum(API_KEY_SCOPES)).max(MAX_LIST_ITEMS),
 })
 
@@ -288,6 +288,7 @@ function requestResponse(view: ConsentView): Record<string, unknown> {
 function grantResponse(grant: GrantView): Record<string, unknown> {
   return {
     id: grant.id,
+    connection_id: grant.connectionId,
     client_name: grant.clientName,
     client_host: grant.clientHost,
     workspace_id: grant.workspaceId,
@@ -322,7 +323,7 @@ export function mountOAuthRoutes(router: Hono, dependencies: OAuthRoutesDependen
     const redirectUrl = await dependencies.service.approve(
       actor,
       context.req.param('id'),
-      body.workspace_id,
+      body.workspace_ids,
       body.scopes,
     )
 
@@ -346,6 +347,12 @@ export function mountOAuthRoutes(router: Hono, dependencies: OAuthRoutesDependen
 
   router.delete('/oauth/grants/:id', async (context) => {
     await dependencies.service.revokeGrant(await requireActor(context), context.req.param('id'))
+
+    return context.body(null, 204)
+  })
+
+  router.delete('/oauth/connections/:id', async (context) => {
+    await dependencies.service.revokeConnection(await requireActor(context), context.req.param('id'))
 
     return context.body(null, 204)
   })

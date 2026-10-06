@@ -43,9 +43,15 @@ export interface OAuthDecision {
   readonly redirectUrl: string
 }
 
-/** One connected app: a client the user approved for one workspace. */
+/**
+ * One workspace of a connected app: a client the user approved for it.
+ *
+ * `connectionId` is the approval it came from. Grants with the same one were
+ * approved together and share their tokens.
+ */
 export interface OAuthGrant {
   readonly id: string
+  readonly connectionId: string
   readonly clientName: string
   readonly clientHost: string
   readonly workspaceId: string
@@ -92,6 +98,7 @@ export const oauthDecisionSchema: z.ZodType<OAuthDecision, unknown> = z
 export const oauthGrantSchema: z.ZodType<OAuthGrant, unknown> = z
   .object({
     id: idSchema,
+    connection_id: idSchema,
     client_name: z.string(),
     client_host: z.string(),
     workspace_id: idSchema,
@@ -103,6 +110,7 @@ export const oauthGrantSchema: z.ZodType<OAuthGrant, unknown> = z
   .transform(
     (wire): OAuthGrant => ({
       id: wire.id,
+      connectionId: wire.connection_id,
       clientName: wire.client_name,
       clientHost: wire.client_host,
       workspaceId: wire.workspace_id,
@@ -114,11 +122,12 @@ export const oauthGrantSchema: z.ZodType<OAuthGrant, unknown> = z
   )
 
 export interface ApproveOAuthRequestInput {
-  readonly workspaceId: string
+  /** At least one. One connection then covers each of them. */
+  readonly workspaceIds: readonly string[]
   /** At least one. The user may remove requested scopes, never add others. */
   readonly scopes: readonly ApiKeyScope[]
 }
 
 export function approveOAuthRequestBody(input: ApproveOAuthRequestInput): unknown {
-  return { workspace_id: input.workspaceId, scopes: input.scopes }
+  return { workspace_ids: input.workspaceIds, scopes: input.scopes }
 }

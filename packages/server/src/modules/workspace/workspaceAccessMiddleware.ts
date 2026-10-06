@@ -48,6 +48,23 @@ export interface WorkspaceAccessMiddlewareDependencies extends CredentialDepende
   readonly entitlements: EntitlementRegistry
 }
 
+/**
+ * The check itself, for one workspace.
+ *
+ * `/mcp` calls it for an OAuth connection that covers several workspaces: the
+ * middleware below finds no workspace on such a caller and lets it through, and
+ * the transport checks the workspace each tool call names.
+ *
+ * @throws AppError 403 `entitlement_required` when the workspace is blocked.
+ */
+export async function requireWorkspaceAccess(entitlements: EntitlementRegistry, workspaceId: string): Promise<void> {
+  const entitlement = await entitlements.check(workspaceId, WORKSPACE_ACCESS.name)
+
+  if (entitlement.kind === 'flag' && !entitlement.granted) {
+    throw new AppError('entitlement_required', 'This workspace does not have access')
+  }
+}
+
 export function createWorkspaceAccessMiddleware(
   dependencies: WorkspaceAccessMiddlewareDependencies,
 ): MiddlewareHandler {
@@ -71,18 +88,15 @@ export function createWorkspaceAccessMiddleware(
 
     // Between signup and a first workspace there is nothing to gate
     // (`POST /v1/workspaces`, `POST /v1/invites/accept`): the same case
-    // `createIdempotencyMiddleware` lets through unscoped.
+    // `createIdempotencyMiddleware` lets through unscoped. An OAuth connection
+    // that covers several workspaces has none either, until a tool call names
+    // one; `/mcp` runs `requireWorkspaceAccess` for it then.
     if (workspaceId === null) {
       await next()
       return
     }
 
-    const entitlement = await dependencies.entitlements.check(workspaceId, WORKSPACE_ACCESS.name)
-
-    if (entitlement.kind === 'flag' && !entitlement.granted) {
-      throw new AppError('entitlement_required', 'This workspace does not have access')
-    }
-
+    await requireWorkspaceAccess(dependencies.entitlements, workspaceId)
     await next()
   }
 }

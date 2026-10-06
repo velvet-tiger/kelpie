@@ -21,6 +21,8 @@ export const idPrefixes = {
    * page's answer. Appears in the consent page's URL.
    */
   oauthRequest: 'oar',
+  /** One approval on the consent page: a client, a user, and one or more grants. */
+  oauthConnection: 'ocn',
   /** One user's approval of one client for one workspace. */
   oauthGrant: 'ogr',
   /** Never returned over the wire: a code or token row is found by its hash. */

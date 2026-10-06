@@ -114,7 +114,7 @@ export function McpPanel(): React.JSX.Element {
             </p>
             <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[13px] text-ink">
               <li>Add a new MCP server in your client, and paste the address.</li>
-              <li>A Kelpie page opens. Select this workspace and approve the access.</li>
+              <li>A Kelpie page opens. Select one or more workspaces and approve the access.</li>
             </ol>
             <p className="mt-3 text-[12px] text-ink-muted">
               You can disconnect a client at any time under{' '}
@@ -174,7 +174,11 @@ export function McpPanel(): React.JSX.Element {
       <details className="rounded-md border border-border px-5 py-3">
         <summary className="cursor-pointer text-[13px] font-semibold text-ink">Good to know</summary>
         <ul className="mt-3 max-w-2xl list-disc space-y-1.5 pb-2 pl-5 text-[13px] text-ink-muted">
-          <li>Your agent sees this workspace only. Each key and each sign-in is for one workspace.</li>
+          <li>
+            A key is for one workspace. With sign-in, you select the workspaces, and your agent sees
+            only those. If you select more than one, the agent must name the workspace on each
+            action.
+          </li>
           <li>
             Your agent reads and writes the same records that you see in the app. A tool follows
             the same rules as the app, and refuses what the app refuses.

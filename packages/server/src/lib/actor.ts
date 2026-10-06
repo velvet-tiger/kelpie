@@ -46,7 +46,11 @@ export interface ApiKeyActor {
 }
 
 /**
- * An OAuth grant: an MCP client the user approved for one workspace.
+ * An OAuth grant: an MCP client the user approved, acting in one workspace.
+ *
+ * A connection that covers one workspace resolves to this at once. One that
+ * covers more resolves to an `OAuthConnectionActor`, and `/mcp` binds it to
+ * the workspace a tool call names, which gives this.
  *
  * It acts as its user in that workspace, as a personal key does, and its scopes
  * narrow what the user's role allows. It is its own kind rather than an
@@ -62,6 +66,8 @@ export interface ApiKeyActor {
 export interface OAuthActor {
   readonly kind: 'oauth'
   readonly grantId: string
+  /** The approval the grant belongs to. Its tokens, and its rate-limit budget, are the connection's. */
+  readonly connectionId: string
   readonly clientId: string
   readonly userId: string
   readonly workspaceId: string
@@ -70,10 +76,73 @@ export interface OAuthActor {
   readonly memberId: string
 }
 
-export type Actor = SessionActor | ApiKeyActor | OAuthActor
+/** One workspace an OAuth connection covers, and the membership the caller acts through there. */
+export interface OAuthWorkspaceAccess {
+  readonly grantId: string
+  readonly workspaceId: string
+  readonly workspaceName: string
+  readonly role: MemberRole
+  readonly memberId: string
+}
+
+/**
+ * An OAuth connection that covers more than one workspace, before a tool call
+ * has named which one.
+ *
+ * It has no workspace, so nothing that reads or writes records can run as it:
+ * `requireWorkspaceId` refuses it, as it refuses an account with no workspace.
+ * `/mcp` answers the protocol methods and `workspaces_list` for it, and turns
+ * it into an `OAuthActor` with `bindOAuthWorkspace` for every other tool call.
+ * No tool body ever receives this kind.
+ */
+export interface OAuthConnectionActor {
+  readonly kind: 'oauth_connection'
+  readonly connectionId: string
+  readonly clientId: string
+  readonly userId: string
+  readonly workspaceId: null
+  readonly role: null
+  readonly scopes: readonly ApiKeyScope[]
+  readonly memberId: null
+  /** Only the workspaces the user is still a member of. Never empty. */
+  readonly workspaces: readonly OAuthWorkspaceAccess[]
+}
+
+export type Actor = SessionActor | ApiKeyActor | OAuthActor | OAuthConnectionActor
 
 /** A caller that presented a bearer credential rather than a session cookie. */
-export type BearerActor = ApiKeyActor | OAuthActor
+export type BearerActor = ApiKeyActor | OAuthActor | OAuthConnectionActor
+
+/** A caller that presented an OAuth access token, bound to a workspace or not yet. */
+export type AnyOAuthActor = OAuthActor | OAuthConnectionActor
+
+export function isOAuthActor(actor: Actor): actor is AnyOAuthActor {
+  return actor.kind === 'oauth' || actor.kind === 'oauth_connection'
+}
+
+/**
+ * The actor for one workspace of a connection, or undefined when the
+ * connection does not cover it.
+ */
+export function bindOAuthWorkspace(actor: OAuthConnectionActor, workspaceId: string): OAuthActor | undefined {
+  const access = actor.workspaces.find((candidate) => candidate.workspaceId === workspaceId)
+
+  if (access === undefined) {
+    return undefined
+  }
+
+  return {
+    kind: 'oauth',
+    grantId: access.grantId,
+    connectionId: actor.connectionId,
+    clientId: actor.clientId,
+    userId: actor.userId,
+    workspaceId: access.workspaceId,
+    role: access.role,
+    scopes: actor.scopes,
+    memberId: access.memberId,
+  }
+}
 
 /**
  * True for an API key or an OAuth grant.
@@ -84,12 +153,16 @@ export type BearerActor = ApiKeyActor | OAuthActor
  * OAuth grant skip it.
  */
 export function isBearerActor(actor: Actor): actor is BearerActor {
-  return actor.kind === 'api_key' || actor.kind === 'oauth'
+  return actor.kind === 'api_key' || isOAuthActor(actor)
 }
 
-/** The id a bearer credential is counted and logged under: the key, or the grant. */
+/**
+ * The id a bearer credential is counted under: the key, or the OAuth
+ * connection. The connection and not the grant, so a connection has one
+ * rate-limit budget whichever workspace a call names.
+ */
 export function bearerCredentialId(actor: BearerActor): string {
-  return actor.kind === 'api_key' ? actor.apiKeyId : actor.grantId
+  return actor.kind === 'api_key' ? actor.apiKeyId : actor.connectionId
 }
 
 /** The workspace an actor is operating in, or null if a fresh account has none yet. */
@@ -109,7 +182,12 @@ export function actorWorkspaceId(actor: Actor): string | null {
  */
 export function requireWorkspaceId(actor: Actor): string {
   if (actor.workspaceId === null) {
-    throw new AppError('forbidden', 'Create or join a workspace before using this endpoint')
+    throw new AppError(
+      'forbidden',
+      actor.kind === 'oauth_connection'
+        ? 'Name a workspace of this connection with workspace_id'
+        : 'Create or join a workspace before using this endpoint',
+    )
   }
 
   return actor.workspaceId

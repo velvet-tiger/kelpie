@@ -40,8 +40,10 @@ import {
  * Kelpie's authorization server for MCP.
  *
  * It issues tokens for one resource, this deployment's `/mcp`, and nothing
- * else. A grant is one user, one workspace, one client and a set of scopes,
- * and acts as that user through `modules/auth/credentials.ts`.
+ * else. A connection is one approval: one user, one client, and a grant for
+ * each workspace the user ticked. A grant is one user, one workspace, one
+ * client and a set of scopes, and acts as that user through
+ * `modules/auth/credentials.ts`.
  */
 
 /**
@@ -184,6 +186,8 @@ export interface ConsentView {
 
 export interface GrantView {
   readonly id: string
+  /** The approval this grant came from. Grants that share it share their tokens. */
+  readonly connectionId: string
   readonly clientName: string
   readonly clientHost: string
   readonly workspaceId: string
@@ -227,13 +231,19 @@ export interface OAuthService {
   readonly endpoints: OAuthEndpoints
   authorize(parameters: Readonly<Record<string, string | undefined>>): Promise<AuthorizeOutcome>
   getRequest(actor: Actor, id: string): Promise<ConsentView>
-  approve(actor: Actor, id: string, workspaceId: string, scopes: readonly ApiKeyScope[]): Promise<string>
+  approve(
+    actor: Actor,
+    id: string,
+    workspaceIds: readonly string[],
+    scopes: readonly ApiKeyScope[],
+  ): Promise<string>
   deny(actor: Actor, id: string): Promise<string>
   token(form: Readonly<Record<string, string | undefined>>, credentials: ClientCredentials): Promise<TokenResponse>
   revoke(form: Readonly<Record<string, string | undefined>>, credentials: ClientCredentials): Promise<void>
   register(body: RegistrationBody): Promise<RegisteredClient>
   listGrants(actor: Actor): Promise<readonly GrantView[]>
   revokeGrant(actor: Actor, id: string): Promise<void>
+  revokeConnection(actor: Actor, id: string): Promise<void>
   removeMemberGrants(workspaceId: string, userId: string): Promise<void>
 }
 
@@ -351,7 +361,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
   }
 
   async function issueTokens(
-    grantId: string,
+    connectionId: string,
     resource: string,
     accessScopes: readonly ApiKeyScope[],
     refreshScopes: readonly ApiKeyScope[],
@@ -363,7 +373,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
     await dependencies.db.transaction(async (tx) => {
       await repository.insertToken(tx, {
         id: dependencies.createId('oauthToken'),
-        grantId,
+        connectionId,
         kind: 'access',
         tokenHash: access.hash,
         resource,
@@ -372,7 +382,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       })
       await repository.insertToken(tx, {
         id: dependencies.createId('oauthToken'),
-        grantId,
+        connectionId,
         kind: 'refresh',
         tokenHash: refresh.hash,
         resource,
@@ -384,6 +394,9 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
     // Housekeeping on the path that creates rows, so the tables stay bounded
     // without a scheduled job.
     await repository.deleteExpiredTokens(dependencies.db, now)
+    // A workspace that was deleted took its grants with it through the cascade,
+    // and nothing here saw that happen.
+    await repository.deleteConnectionsWithoutGrants(dependencies.db)
 
     return {
       access_token: access.secret,
@@ -405,9 +418,10 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
     }
 
     const record = await repository.findTokenByHash(dependencies.db, 'code', hashToken(code))
-    const grant = record === undefined ? undefined : await repository.findGrant(dependencies.db, record.grantId)
+    const connection =
+      record === undefined ? undefined : await repository.findConnection(dependencies.db, record.connectionId)
 
-    if (record === undefined || grant === undefined || grant.clientRowId !== client.id) {
+    if (record === undefined || connection === undefined || connection.clientRowId !== client.id) {
       throw new OAuthError(400, 'invalid_grant', 'The code is not valid')
     }
 
@@ -415,7 +429,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
 
     if (!(await repository.spendToken(dependencies.db, record.id, now))) {
       // A code presented twice was copied. OAuth 2.1 §4.1.3: revoke what it issued.
-      await repository.deleteGrantById(dependencies.db, grant.id)
+      await repository.deleteConnectionById(dependencies.db, connection.id)
 
       throw new OAuthError(400, 'invalid_grant', 'The code has already been used')
     }
@@ -445,7 +459,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
 
     const scopes = record.scopes as ApiKeyScope[]
 
-    return issueTokens(grant.id, record.resource, scopes, scopes)
+    return issueTokens(connection.id, record.resource, scopes, scopes)
   }
 
   async function refresh(
@@ -459,9 +473,10 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
     }
 
     const record = await repository.findTokenByHash(dependencies.db, 'refresh', hashToken(secret))
-    const grant = record === undefined ? undefined : await repository.findGrant(dependencies.db, record.grantId)
+    const connection =
+      record === undefined ? undefined : await repository.findConnection(dependencies.db, record.connectionId)
 
-    if (record === undefined || grant === undefined || grant.clientRowId !== client.id) {
+    if (record === undefined || connection === undefined || connection.clientRowId !== client.id) {
       throw new OAuthError(400, 'invalid_grant', 'The refresh token is not valid')
     }
 
@@ -469,8 +484,9 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
 
     if (!(await repository.spendToken(dependencies.db, record.id, now))) {
       // Rotation means a refresh token is good once. A second use means two
-      // parties hold it; revoking the grant cuts off both.
-      await repository.deleteGrantById(dependencies.db, grant.id)
+      // parties hold it; deleting the connection cuts off both, in every
+      // workspace it covers.
+      await repository.deleteConnectionById(dependencies.db, connection.id)
 
       throw new OAuthError(400, 'invalid_grant', 'The refresh token has already been used')
     }
@@ -497,7 +513,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       accessScopes = requested
     }
 
-    return issueTokens(grant.id, record.resource, accessScopes, held)
+    return issueTokens(connection.id, record.resource, accessScopes, held)
   }
 
   return {
@@ -609,7 +625,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       }
     },
 
-    async approve(actor, id, workspaceId, scopes) {
+    async approve(actor, id, workspaceIds, scopes) {
       const session = requireSessionActor(actor)
       const now = dependencies.now()
       const request = await repository.findLiveRequest(dependencies.db, id, now)
@@ -618,12 +634,24 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         throw AppError.notFound('This connection request has expired or was already answered')
       }
 
-      const membership = await authRepository.findMembership(dependencies.db, workspaceId, session.userId)
+      const workspaces = [...new Set(workspaceIds)]
 
-      if (membership === undefined) {
-        throw AppError.validationFailed('Choose a workspace you belong to', [
-          { field: 'workspace_id', message: 'You are not a member of this workspace' },
+      if (workspaces.length === 0) {
+        throw AppError.validationFailed('Choose at least one workspace', [
+          { field: 'workspace_ids', message: 'Choose at least one workspace' },
         ])
+      }
+
+      // All or nothing: one workspace the user does not belong to refuses the
+      // whole approval, so a page that sent a wrong id grants nothing.
+      for (const workspaceId of workspaces) {
+        const membership = await authRepository.findMembership(dependencies.db, workspaceId, session.userId)
+
+        if (membership === undefined) {
+          throw AppError.validationFailed('Choose workspaces you belong to', [
+            { field: 'workspace_ids', message: 'You are not a member of one of these workspaces' },
+          ])
+        }
       }
 
       const chosen = [...new Set(scopes)]
@@ -649,19 +677,32 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       const code = mintCode(newToken)
 
       await dependencies.db.transaction(async (tx) => {
-        const grant = await repository.upsertGrant(tx, {
-          id: dependencies.createId('oauthGrant'),
-          workspaceId,
+        const connection = await repository.insertConnection(tx, {
+          id: dependencies.createId('oauthConnection'),
           userId: session.userId,
           clientRowId: request.clientRowId,
-          scopes: chosen,
-          updatedAt: now,
         })
 
-        await repository.deleteIssuedTokensForGrant(tx, grant.id)
+        // A grant that exists for the same client and workspace moves here, so
+        // its old connection loses that workspace. An old connection left with
+        // no grant is deleted below, and its tokens with it: approving again
+        // ends the old tokens, and a narrower choice takes effect at once.
+        for (const workspaceId of workspaces) {
+          await repository.upsertGrant(tx, {
+            id: dependencies.createId('oauthGrant'),
+            workspaceId,
+            userId: session.userId,
+            clientRowId: request.clientRowId,
+            connectionId: connection.id,
+            scopes: chosen,
+            updatedAt: now,
+          })
+        }
+
+        await repository.deleteConnectionsWithoutGrants(tx)
         await repository.insertToken(tx, {
           id: dependencies.createId('oauthToken'),
-          grantId: grant.id,
+          connectionId: connection.id,
           kind: 'code',
           tokenHash: code.hash,
           resource: request.resource,
@@ -719,18 +760,19 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       const record =
         (await repository.findTokenByHash(dependencies.db, 'refresh', hash)) ??
         (await repository.findTokenByHash(dependencies.db, 'access', hash))
-      const grant = record === undefined ? undefined : await repository.findGrant(dependencies.db, record.grantId)
+      const connection =
+        record === undefined ? undefined : await repository.findConnection(dependencies.db, record.connectionId)
 
       // RFC 7009 §2.2: an unknown token, or one for another client, still
       // answers 200. Saying otherwise would tell a caller which tokens exist.
-      if (record === undefined || grant === undefined || grant.clientRowId !== client.id) {
+      if (record === undefined || connection === undefined || connection.clientRowId !== client.id) {
         return
       }
 
-      // Revoking a refresh token ends the connection; an access token is just
-      // that one token.
+      // Revoking a refresh token ends the connection, in every workspace it
+      // covers; an access token is just that one token.
       if (record.kind === 'refresh') {
-        await repository.deleteGrantById(dependencies.db, grant.id)
+        await repository.deleteConnectionById(dependencies.db, connection.id)
       } else {
         await repository.deleteToken(dependencies.db, record.id)
       }
@@ -780,6 +822,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
 
       return listings.map(({ grant, client, workspaceName }) => ({
         id: grant.id,
+        connectionId: grant.connectionId,
         clientName: client.clientName,
         clientHost:
           client.kind === 'metadata_document'
@@ -800,10 +843,24 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       if ((await repository.deleteGrant(dependencies.db, session.userId, id)) === 0) {
         throw AppError.notFound('Connected app not found')
       }
+
+      // The other workspaces of the connection stay. If this was the last one,
+      // the connection and its tokens go.
+      await repository.deleteConnectionsWithoutGrants(dependencies.db)
+    },
+
+    async revokeConnection(actor, id) {
+      const session = requireSessionActor(actor)
+
+      // Another user's connection answers 404, the same as one that never existed.
+      if ((await repository.deleteConnection(dependencies.db, session.userId, id)) === 0) {
+        throw AppError.notFound('Connected app not found')
+      }
     },
 
     async removeMemberGrants(workspaceId, userId) {
       await repository.deleteGrantsForMember(dependencies.db, workspaceId, userId)
+      await repository.deleteConnectionsWithoutGrants(dependencies.db)
     },
   }
 }

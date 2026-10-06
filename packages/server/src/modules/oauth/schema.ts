@@ -81,9 +81,32 @@ export const oauthRequests = pgTable(
 )
 
 /**
- * One user's approval of one client for one workspace. Approving the same
- * client for the same workspace again updates this row rather than adding one,
- * so "Connected apps" lists each connection once.
+ * One approval on the consent page: one user, one client, and one or more
+ * grants, one for each workspace the user ticked. Codes and tokens belong to
+ * the connection, so a token reaches each workspace that has a grant under it.
+ *
+ * Not workspace-scoped, like a client: its grants are.
+ */
+export const oauthConnections = pgTable(
+  'oauth_connections',
+  {
+    id: primaryId(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    clientRowId: text('client_row_id')
+      .notNull()
+      .references(() => oauthClients.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (table) => [index('oauth_connections_user_idx').on(table.userId)],
+)
+
+/**
+ * One user's approval of one client for one workspace, under a connection.
+ * Approving the same client for the same workspace again moves this row to the
+ * new connection rather than adding one, so "Connected apps" lists each
+ * workspace once. Deleting it removes that workspace from the connection.
  */
 export const oauthGrants = pgTable(
   'oauth_grants',
@@ -98,6 +121,9 @@ export const oauthGrants = pgTable(
     clientRowId: text('client_row_id')
       .notNull()
       .references(() => oauthClients.id, { onDelete: 'cascade' }),
+    connectionId: text('connection_id')
+      .notNull()
+      .references(() => oauthConnections.id, { onDelete: 'cascade' }),
     /** Never empty: an empty list on an API key means full access, and a grant must never mean that. */
     scopes: text('scopes').array().notNull(),
     lastUsedAt: moment('last_used_at'),
@@ -107,21 +133,24 @@ export const oauthGrants = pgTable(
   (table) => [
     uniqueIndex('oauth_grants_connection_idx').on(table.workspaceId, table.userId, table.clientRowId),
     index('oauth_grants_user_idx').on(table.userId),
+    index('oauth_grants_connection_id_idx').on(table.connectionId),
     check('oauth_grants_scopes_nonempty', sql`cardinality(${table.scopes}) > 0`),
   ],
 )
 
 /**
- * Codes, access tokens and refresh tokens, all under a grant, so revoking the
- * grant revokes every one of them through the cascade.
+ * Codes, access tokens and refresh tokens, all under a connection, so deleting
+ * the connection revokes every one of them through the cascade. Which
+ * workspaces a token reaches is read from the connection's grants on each
+ * request, so removing one grant takes effect at once.
  */
 export const oauthTokens = pgTable(
   'oauth_tokens',
   {
     id: primaryId(),
-    grantId: text('grant_id')
+    connectionId: text('connection_id')
       .notNull()
-      .references(() => oauthGrants.id, { onDelete: 'cascade' }),
+      .references(() => oauthConnections.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull(),
     tokenHash: text('token_hash').notNull().unique(),
     /** The audience (RFC 8707). Always this deployment's `/mcp` URI today. */
@@ -134,14 +163,14 @@ export const oauthTokens = pgTable(
     expiresAt: moment('expires_at').notNull(),
     /**
      * A code or a refresh token is single use. Set when it is spent; a second
-     * spend is a replay and revokes the grant.
+     * spend is a replay and deletes the connection.
      */
     usedAt: moment('used_at'),
     createdAt: createdAt(),
   },
   (table) => [
     checkOneOf('oauth_tokens_kind_check', table.kind, OAUTH_TOKEN_KINDS),
-    index('oauth_tokens_grant_idx').on(table.grantId),
+    index('oauth_tokens_connection_idx').on(table.connectionId),
     index('oauth_tokens_expires_idx').on(table.expiresAt),
   ],
 )

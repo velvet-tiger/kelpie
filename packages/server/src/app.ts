@@ -27,7 +27,10 @@ import {
   createOAuthRateLimitMiddleware,
 } from './modules/rate-limit/middleware.ts'
 import { createIdempotencyMiddleware } from './modules/workspace/idempotencyMiddleware.ts'
-import { createWorkspaceAccessMiddleware } from './modules/workspace/workspaceAccessMiddleware.ts'
+import {
+  createWorkspaceAccessMiddleware,
+  requireWorkspaceAccess,
+} from './modules/workspace/workspaceAccessMiddleware.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 
 /**
@@ -238,6 +241,8 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
     logger: dependencies.logger,
     authorization: dependencies.contributions.mcpAuthorization,
     chargeMessages: createApiBudgetCharger(rateLimitDependencies),
+    checkWorkspaceAccess: (workspaceId) =>
+      requireWorkspaceAccess(dependencies.contributions.entitlements, workspaceId),
   })
 
   // The transport takes bearer keys only, so every call that

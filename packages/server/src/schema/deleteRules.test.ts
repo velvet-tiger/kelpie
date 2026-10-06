@@ -303,9 +303,10 @@ describe.skipIf(connectionString === undefined)('migrations', () => {
       expect(names).toContain('event_associations')
       expect(names).toContain('oauth_clients')
       expect(names).toContain('oauth_requests')
+      expect(names).toContain('oauth_connections')
       expect(names).toContain('oauth_grants')
       expect(names).toContain('oauth_tokens')
-      expect(names).toHaveLength(54)
+      expect(names).toHaveLength(55)
     } finally {
       await database.close()
     }

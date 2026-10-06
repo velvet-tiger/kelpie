@@ -3,7 +3,7 @@ import type { OAuthGrant } from '@kelpie/schemas'
 import { useState } from 'react'
 
 import { useTimezone } from '../../api/resources/account.ts'
-import { useOAuthGrants, useRevokeOAuthGrant } from '../../api/resources/oauth.ts'
+import { useOAuthGrants, useRevokeOAuthConnection, useRevokeOAuthGrant } from '../../api/resources/oauth.ts'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { formatDate } from '../../lib/dates.ts'
@@ -12,20 +12,38 @@ import { formatDate } from '../../lib/dates.ts'
  * MCP clients this person connected through OAuth, across every workspace they
  * belong to. Private to them, as personal API keys are: an admin's control is
  * removing the member, which ends every connection in that workspace.
+ *
+ * One row for each workspace of a connection, so a person can disconnect one
+ * workspace and keep the others. Workspaces that were approved together are
+ * listed together, and the first of them carries the action that ends them all.
  */
+
+/** A connection's rows next to each other, in the order the connections arrived. */
+function byConnection(grants: readonly OAuthGrant[]): readonly (readonly OAuthGrant[])[] {
+  const groups = new Map<string, OAuthGrant[]>()
+
+  for (const grant of grants) {
+    groups.set(grant.connectionId, [...(groups.get(grant.connectionId) ?? []), grant])
+  }
+
+  return [...groups.values()]
+}
+
 export function ConnectedAppsPage(): React.JSX.Element {
   const { grants, isLoading, error } = useOAuthGrants()
   const revoke = useRevokeOAuthGrant()
+  const revokeConnection = useRevokeOAuthConnection()
 
   return (
     <div className="animate-slide-in space-y-4">
       <PageHeader
         title="Connected apps"
-        description="Apps you connected through MCP sign-in. Each one acts as you, in one workspace."
+        description="Apps you connected through MCP sign-in. Each one acts as you, in the workspaces you approved."
       />
 
       {error !== null && <ErrorPanel error={error} />}
       {revoke.error !== null && <ErrorPanel error={revoke.error} />}
+      {revokeConnection.error !== null && <ErrorPanel error={revokeConnection.error} />}
 
       {isLoading ? (
         <LoadingPanel label="Loading connected apps…" />
@@ -47,16 +65,24 @@ export function ConnectedAppsPage(): React.JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {grants.map((grant) => (
-                <GrantRow
-                  key={grant.id}
-                  grant={grant}
-                  onRevoke={(id) => {
-                    revoke.run(id)
-                  }}
-                  isRevoking={revoke.isPending}
-                />
-              ))}
+              {byConnection(grants).flatMap((group) =>
+                group.map((grant, index) => (
+                  <GrantRow
+                    key={grant.id}
+                    grant={grant}
+                    // Only a connection with more than one workspace needs the
+                    // second action: with one, Disconnect already ends it.
+                    connectionSize={index === 0 ? group.length : 0}
+                    onRevoke={(id) => {
+                      revoke.run(id)
+                    }}
+                    onRevokeConnection={(id) => {
+                      revokeConnection.run(id)
+                    }}
+                    isRevoking={revoke.isPending || revokeConnection.isPending}
+                  />
+                )),
+              )}
             </tbody>
           </table>
         </div>
@@ -67,14 +93,20 @@ export function ConnectedAppsPage(): React.JSX.Element {
 
 function GrantRow({
   grant,
+  connectionSize,
   onRevoke,
+  onRevokeConnection,
   isRevoking,
 }: {
   readonly grant: OAuthGrant
+  /** How many workspaces the connection covers, on its first row. Zero on the others. */
+  readonly connectionSize: number
   readonly onRevoke: (id: string) => void
+  readonly onRevokeConnection: (connectionId: string) => void
   readonly isRevoking: boolean
 }): React.JSX.Element {
   const [isConfirming, setIsConfirming] = useState(false)
+  const [isConfirmingAll, setIsConfirmingAll] = useState(false)
   const timezone = useTimezone()
 
   return (
@@ -82,6 +114,40 @@ function GrantRow({
       <td className="px-4 py-3">
         <div className="font-medium">{grant.clientName}</div>
         <div className="font-mono text-[11px] text-ink-muted">{grant.clientHost}</div>
+        {connectionSize > 1 &&
+          (isConfirmingAll ? (
+            <span className="mt-1 inline-flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsConfirmingAll(false)
+                }}
+                className="text-[12px] font-medium text-ink-muted hover:text-ink"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isRevoking}
+                onClick={() => {
+                  onRevokeConnection(grant.connectionId)
+                }}
+                className="text-[12px] font-medium text-danger hover:underline disabled:opacity-50"
+              >
+                Disconnect all {connectionSize} workspaces
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setIsConfirmingAll(true)
+              }}
+              className="mt-1 block text-[12px] font-medium text-danger hover:underline"
+            >
+              Disconnect all
+            </button>
+          ))}
       </td>
       <td className="px-4 py-3 text-ink-muted">{grant.workspaceName}</td>
       <td className="px-4 py-3 text-ink-muted">

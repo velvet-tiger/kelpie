@@ -34,3 +34,13 @@ export function normaliseDomain(raw: string): string | null {
 
   return host === undefined || host.length === 0 ? null : host
 }
+
+/**
+ * Text on one line: each run of whitespace and control characters becomes one
+ * space. For a value that a person typed and that goes into one line of a
+ * prompt or a heading, where a line break would let the value add lines of
+ * its own.
+ */
+export function singleLine(text: string): string {
+  return text.replace(/[\s\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim()
+}
