@@ -1,5 +1,5 @@
 import type { RecordReference } from '@kelpie/schemas'
-import { useMemo } from 'react'
+import { createContext, useContext, useMemo } from 'react'
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import { Link } from 'react-router'
@@ -23,6 +23,13 @@ import { remarkRecordReferences } from '../lib/recordReferences.ts'
  * written by workspace members but read by everyone in the workspace, and an
  * agent with write access to the handbook is another author again.
  *
+ * **Nothing here loads an image.** Markdown image syntax renders as a link to
+ * the image, not as an `<img>`. A browser fetches an `<img>` the moment the
+ * page draws it, with no click, so an image URL in a note or a handbook page
+ * would tell another server who opened the page and when, and can carry data
+ * out in its query string. Kelpie has no image upload, so each image is on
+ * another server.
+ *
  * The class names are the mockup's, element for element, so a page reads the
  * same as it did before the swap.
  *
@@ -33,6 +40,28 @@ import { remarkRecordReferences } from '../lib/recordReferences.ts'
 /** An app path such as `/partnerships/prt_…`. `//host` is another site, so it does not count. */
 function isAppPath(href: string | undefined): href is string {
   return href !== undefined && href.startsWith('/') && !href.startsWith('//')
+}
+
+/** True for what a markdown link holds. A link inside a link is not valid HTML. */
+const InsideLink = createContext(false)
+
+function ImageLink({
+  src,
+  alt,
+}: {
+  readonly src: unknown
+  readonly alt: string | undefined
+}): React.JSX.Element {
+  const insideLink = useContext(InsideLink)
+  const label = alt === undefined || alt === '' ? 'Image' : `Image: ${alt}`
+
+  return typeof src === 'string' && src !== '' && !insideLink ? (
+    <a href={src} className="text-accent hover:underline" target="_blank" rel="noreferrer">
+      {label}
+    </a>
+  ) : (
+    <span>{label}</span>
+  )
 }
 
 const components: Components = {
@@ -56,16 +85,21 @@ const components: Components = {
   ),
   // A path inside the app stays in this tab and in the router; anything else
   // opens beside it.
-  a: ({ href, children }) =>
-    isAppPath(href) ? (
-      <Link to={href} className="text-accent hover:underline">
-        {children}
-      </Link>
-    ) : (
-      <a href={href} className="text-accent hover:underline" target="_blank" rel="noreferrer">
-        {children}
-      </a>
-    ),
+  a: ({ href, children }) => (
+    <InsideLink value={true}>
+      {isAppPath(href) ? (
+        <Link to={href} className="text-accent hover:underline">
+          {children}
+        </Link>
+      ) : (
+        <a href={href} className="text-accent hover:underline" target="_blank" rel="noreferrer">
+          {children}
+        </a>
+      )}
+    </InsideLink>
+  ),
+  // Never an `<img>`: see the note on images above.
+  img: ({ src, alt }) => <ImageLink src={src} alt={alt} />,
   hr: () => <hr className="border-border" />,
   // The wrapper scrolls rather than the page, so a wide table cannot push the
   // sidebar off screen.

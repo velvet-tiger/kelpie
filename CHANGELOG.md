@@ -245,6 +245,14 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`@kelpie/ui`** — **Markdown does not load images.** A note or a handbook
+  page with markdown image syntax made the browser fetch the image when the
+  page opened, with no click. An image on another server thus told that
+  server who opened the page and when, and its address could carry data out.
+  `MarkdownView` now shows an image as a link, "Image: <alt text>", and the
+  browser fetches it only when a person follows the link. This applies to
+  notes, the dashboard and the handbook. Kelpie has no image upload, so no
+  image that was in the app before is lost. No migration.
 - **`@kelpie/server`** — **Agent task prompts mark record content as data.**
   A public form submit makes a Person, a Company and a note with no
   credentials, and an agent task then puts that text in front of a model.

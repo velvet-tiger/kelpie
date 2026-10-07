@@ -10,7 +10,7 @@ Every new workspace starts with a seeded set of starter pages (About us, Product
 
 ## Writing pages
 
-Pages are markdown, edited in place: headings, lists, tables, links, bold, inline code. Case studies, launch notes, and anything narrative belong here rather than in a separate wiki.
+Pages are markdown, edited in place: headings, lists, tables, links, bold, inline code. An image shows as a link to the image, not as a picture: Kelpie does not load content from another server when you open a page. Case studies, launch notes, and anything narrative belong here rather than in a separate wiki.
 
 <!-- screenshot: handbook page editor -->
 
