@@ -15,7 +15,11 @@ WEB_BUNDLE_DIR=./dist npm start
 
 Boot fails if `WEB_BUNDLE_DIR` holds no `index.html`, so a deployment whose build did not run stops with a clear error rather than answering every browser with a blank page. Deep links (`/people/per_…`) get the app shell; unknown `/v1` paths still get the API's JSON 404.
 
+Set `NODE_ENV=production`. A scaffolded project's `.env` says `development`, which is correct on your own machine only: in that mode the session cookie has no `Secure` flag, so a browser sends it over plain http. The service logs a warning at boot when `NODE_ENV` is `development` and `APP_BASE_URL` is not an address on the same machine.
+
 Set `APP_BASE_URL` to the real public origin (`https://crm.example.com`). Every emailed link is built from it; leave it on a localhost value and your invitations point at your laptop.
+
+The `docker-compose.yml` that the scaffolder writes is for local use. Its Postgres password is public, so it publishes the port on `127.0.0.1` only. For a deployment, point `DATABASE_URL` at a database with its own password.
 
 ## Migrations
 

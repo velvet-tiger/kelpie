@@ -245,6 +245,17 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`create-kelpie`, `@kelpie/server`** — **A scaffolded project is safer
+  to deploy.** The scaffolded `.env` says `NODE_ENV=development`, and no
+  document told the operator to change it. In that mode the session cookie
+  has no `Secure` flag. The project README and the production guide now have
+  that step, and the service logs a warning at boot when `NODE_ENV` is
+  `development` and `APP_BASE_URL` is not an address on the same machine.
+  The scaffolded `docker-compose.yml` published Postgres, with its public
+  password, on all network interfaces. It now publishes on `127.0.0.1` only,
+  and so does the `docker-compose.yml` of this repository. A project that is
+  scaffolded already keeps its old file: put `127.0.0.1:` before the port in
+  `ports`. No migration.
 - **`@kelpie/ui`** — **Markdown does not load images.** A note or a handbook
   page with markdown image syntax made the browser fetch the image when the
   page opened, with no click. An image on another server thus told that

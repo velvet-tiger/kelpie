@@ -17,7 +17,7 @@ Every workspace-owned row carries a workspace id, every query is scoped to it se
 
 The rule behind the table: a value the service only checks is hashed; a value it must use again is encrypted. Rotating the encryption key is a supported, four-step procedure — see [Production](production.md#rotating-the-encryption-key).
 
-Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` everywhere except development. Confirming a password reset ends every session on the account.
+Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` everywhere except development, so a deployment must set `NODE_ENV=production` ([Production](production.md#build-and-serve)). Confirming a password reset ends every session on the account.
 
 The cookie is not the only defence against a forged request. A request under `/v1` that changes something and carries no API key must come from a page of your deployment: the browser states the page's origin in the `Origin` header, and Kelpie compares it with the host the request arrived on. Another origin gets `403`. The body must also be `application/json`, which a page on another origin cannot send without permission; another content type gets `415`. A sign-in request is checked the same way, so another site cannot sign a reader in to an account of its choice. For this to work behind a reverse proxy, the proxy must keep the `Host` header ([Production](production.md#a-reverse-proxy-with-tls)).
 

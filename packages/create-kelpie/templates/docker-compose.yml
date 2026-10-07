@@ -1,8 +1,9 @@
 # Postgres for this Kelpie install.
 #
-# The credentials are fixed here and repeated in .env. They are not secret and
-# the container is not reachable from outside this machine. For anything other
-# than local use, point DATABASE_URL at a real database and delete this file.
+# The credentials are fixed here and repeated in .env. They are not secret, so
+# the port below is published on 127.0.0.1 only: no other machine can connect.
+# Do not remove the address. For anything other than local use, point
+# DATABASE_URL at a real database and delete this file.
 services:
   db:
     image: postgres:18-alpine
@@ -11,7 +12,7 @@ services:
       POSTGRES_PASSWORD: kelpie
       POSTGRES_DB: kelpie
     ports:
-      - "__DATABASE_PORT__:5432"
+      - "127.0.0.1:__DATABASE_PORT__:5432"
     # Postgres 18 images want the whole directory mounted, not the data
     # subdirectory, so a later pg_upgrade can cross versions in place.
     volumes:

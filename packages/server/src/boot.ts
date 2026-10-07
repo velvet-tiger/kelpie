@@ -1,6 +1,7 @@
 import type { Environment, KelpieConfig } from './lib/config.ts'
 import { connectDatabase } from './lib/database.ts'
 import type { DatabaseConnection } from './lib/database.ts'
+import { developmentModeWarning } from './lib/deploymentChecks.ts'
 import { createIdFactory } from './lib/ids.ts'
 import type { IdFactory } from './lib/ids.ts'
 import { resolveKelpieConfig } from './lib/kelpieConfigFile.ts'
@@ -68,6 +69,15 @@ export async function bootAssembly(
     level: config.logging.level,
     transports: config.logging.destinations.map(createTransportForDestination),
   })
+  const modeWarning = developmentModeWarning(
+    config.runtimeMode,
+    config.appBaseUrl ?? config.env.APP_BASE_URL,
+  )
+
+  if (modeWarning !== undefined) {
+    logger.warn(modeWarning)
+  }
+
   const database = connectDatabase(config.databaseUrl, logger)
   const events = createEventBus(logger)
   const jobs = createJobsRuntime({ connectionString: config.databaseUrl, logger })

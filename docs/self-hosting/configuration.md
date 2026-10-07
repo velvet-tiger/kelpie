@@ -16,7 +16,7 @@ A scaffolded project reads one file: `.env`, loaded by every script through `--e
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `NODE_ENV` | yes | `development`, `test`, or `production`. |
+| `NODE_ENV` | yes | `development`, `test`, or `production`. A deployment sets `production`; in `development` the session cookie has no `Secure` flag. |
 | `PORT` | yes | The API's listen port. Bound exactly; boot fails if it is taken. |
 | `API_PORT` | dev only | The same number again, read by the Vite dev server's proxy. Not read by the API. |
 | `WEB_PORT` | dev only | The Vite dev server's port. Defaults to 5173. |

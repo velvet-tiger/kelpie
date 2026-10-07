@@ -116,7 +116,18 @@ More detail, including backups and what is sealed under the key:
 passes API calls through to the service, so your browser talks to one address.
 Vite is a development tool and has no part in a deployment.
 
-Build the pages once, then point the service at what it wrote:
+Before the first deployment, change two values that `.env` sets for your own
+machine:
+
+- `NODE_ENV=production`. In `development` mode the session cookie has no
+  `Secure` flag, so a browser sends it over plain http.
+- `APP_BASE_URL` to the address people use, for example
+  `https://crm.example.com`.
+
+The service logs a warning at boot when `NODE_ENV` is `development` and
+`APP_BASE_URL` is not an address on the same machine.
+
+Then build the pages once, and point the service at what it wrote:
 
 ```bash
 npm run build

@@ -158,7 +158,20 @@ describe('scaffold', () => {
 
     scaffold(optionsFor(directory, { databasePort: 55432 }))
 
-    expect(readFileSync(join(directory, 'docker-compose.yml'), 'utf8')).toContain('"55432:5432"')
+    expect(readFileSync(join(directory, 'docker-compose.yml'), 'utf8')).toContain('"127.0.0.1:55432:5432"')
+  })
+
+  it('publishes the bundled Postgres on this machine only', () => {
+    const directory = scratch()
+
+    scaffold(optionsFor(directory))
+
+    const published = readFileSync(join(directory, 'docker-compose.yml'), 'utf8')
+      .split('\n')
+      .filter((line) => line.includes(':5432"'))
+
+    expect(published).toHaveLength(1)
+    expect(published[0]).toContain('"127.0.0.1:')
   })
 
   it('refuses a directory that already holds something', () => {
