@@ -21,29 +21,44 @@ While the major version is `0`, a minor bump may break the API.
   string holds text that a user typed. No migration.
 - **A Note and a Decision say what wrote them.** Each has a new field,
   `origin`: `member` for a signed-in person, `agent` for a caller with an
-  API key or an OAuth token, and `ai` for a run of the hosted AI. The server
-  sets it from the caller. A request cannot send or change it: a create or
-  an update with `origin` answers `422`. The notes panel, the decisions
-  panel, the Decisions page and the dashboard show "Written by an agent" or
-  "Written by AI" on a row that a member did not write.
+  API key or an OAuth token, `ai` for text a model wrote, and `unknown` for
+  a row from before the field. The server sets it from the caller. A request
+  cannot send it: a create or an update with `origin` answers `422`. The
+  notes panel, the decisions panel, the Decisions page and the dashboard
+  show "Written by an agent" or "Written by AI". A row with `member` or
+  `unknown` shows no label.
+  - **An edit can lower the origin and never raises it.** When a caller
+    that is not a signed-in member changes the `body` of a Note, or the
+    `body` or `rationale` of a Decision, the origin becomes `agent`, unless
+    it is `ai`. On a Decision the same edit sets `confirmed_by_id` to null.
+    An edit by a member changes neither. A change to `pinned`, `due_at`,
+    `decided_at` or `owner_id` alone changes neither.
   - **`@kelpie/server`** — migration `0063` adds `notes.origin` and
-    `decisions.origin`, not null, with a check constraint. A note with an
-    author and a decision with an owner become `member`; the rest become
-    `agent`. No row from before becomes `ai`, because nothing recorded which
-    rows a run wrote. The column keeps a default of `agent`, so code from
-    before the migration can write a row while a deploy is in progress.
+    `decisions.origin`, not null, with a check constraint. Every row from
+    before becomes `unknown`: an author or an owner does not show that a
+    person wrote the row, because a personal API key and an OAuth grant
+    carry a member too. The column default is `unknown`, so the migration
+    runs no `UPDATE`, and code from before the migration can write a row
+    while a deploy is in progress.
   - **`@kelpie/server`** — `GET /v1/notes`, `GET /v1/decisions`, their
-    single-record routes, the `notes_*` and `decisions_*` MCP tools, and
-    the `recent_notes` and `recent_decisions` rows of `GET /v1/dashboard`
-    carry `origin`.
+    single-record routes, the `notes_*` and `decisions_*` MCP tools, the
+    `recent_notes` and `recent_decisions` rows of `GET /v1/dashboard`, and
+    a Decision result of `GET /v1/search` and `search_query` carry
+    `origin`.
   - **`@kelpie/schemas`** — new: `WRITE_ORIGINS` and `WriteOrigin`. `Note`,
     `Decision`, `DashboardNote` and `DashboardDecision` gain `origin`, and
-    their schemas need it. **Breaking for a client of an older server:**
-    the schemas refuse a row with no `origin`.
+    their schemas need it. `SearchResult` gains `decision`, which is null
+    for every result that is not a Decision. **Breaking for a client of an
+    older server:** the Note and Decision schemas refuse a row with no
+    `origin`.
   - **`@kelpie/server`** — **for a module that inserts into `notes` or
     `decisions` directly:** the insert must give `origin`. A module that
     writes through the service or the MCP tools needs no change.
-
+  - **`@kelpie/server`** — **for a module that subscribes to events:**
+    `decisions.decision.added` now carries `origin` and `confirmed`. It
+    fires for a proposal too, with `confirmed: false`. New:
+    `decisions.decision.confirmed`, when a member confirms a proposal.
+    Neither is a webhook event.
 ### Changed
 
 - **One OAuth connection can cover more than one workspace.** The consent
@@ -280,35 +295,68 @@ While the major version is `0`, a minor bump may break the API.
     pin. On any other task, `create_decision` and `pin_note` are dropped, and
     a note with `pinned: true` is saved unpinned. The run log reports each
     drop. A run whose task is no longer in the catalog gets neither. The
-    prompt and the JSON schema offer the model only what the task grants.
+    prompt and the JSON schema offer the model only what the task grants,
+    and the prompt rule that names these writes is given only to a task
+    that grants one. `partnership.sharpen_goals` told the model to use
+    "Notes/Decisions" for commitments and grants no Decision; it now says
+    to use a Note.
+  - **A pin is limited to the run's record.** `pin_note` took any note id
+    in the workspace. A run now pins only a note on its own target, and the
+    run log reports any other as skipped.
   - **A Decision from a run is a proposal.** `decisions` has `confirmed_at`
     and `confirmed_by_id`. A Decision with `origin` `ai` starts with both
     null. `POST /v1/decisions/:id/confirm` confirms it, for a signed-in
     member only: an API key gets `403`, an OAuth token gets `401` as on all
-    of `/v1`, and there is no MCP tool. A second confirm changes nothing.
-    No update confirms a Decision, and a request cannot send either field.
-    `GET /v1/decisions` and `decisions_list` take `confirmed` to list
-    commitments only or proposals only.
+    of `/v1`, and there is no MCP tool. The body may carry the `updated_at`
+    the member read; the confirm answers `409` when the proposal was edited
+    after it, so an agent cannot change the text between the read and the
+    click. A second confirm changes nothing. No update confirms a Decision,
+    and a request cannot send either field. `GET /v1/decisions` and
+    `decisions_list` take `confirmed` to list commitments only or proposals
+    only.
   - **Readers are told.** The MCP instructions say that a Decision with
-    `confirmed_at` null is not a commitment, and that `origin` says what
-    wrote a note or a Decision. The context pack of a later run lists
-    Decisions that are not confirmed under their own heading. The decisions
-    panel, the Decisions page and the dashboard show "Proposed by AI — not
-    confirmed", and the first two have a Confirm button.
+    `confirmed_at` null is not a commitment, and what each `origin` means.
+    The resolved task prompt lists only confirmed Decisions under "Open
+    Decisions", and names the others as proposals; `context` has a new
+    `proposed_decision_ids` beside `open_decision_ids`, which now holds
+    confirmed Decisions only. The context pack of a later run puts every
+    Decision that is not confirmed under its own heading, also one from the
+    dashboard snapshot of a workspace task. A Decision result of
+    `GET /v1/search` and `search_query` carries `confirmed_at`, and the
+    search page marks a proposal "Proposed". The decisions panel, the
+    Decisions page and the dashboard show "Proposed by AI — not confirmed",
+    and the first two have a Confirm button.
   - Migration `0064` adds the two columns. Every Decision from before is
     confirmed at its `created_at`, with no member named. `confirmed_at` has
     no default: a Decision that code from before the migration writes while
     a deploy is in progress shows as not confirmed until a member confirms
     it.
   - **`@kelpie/schemas`** — `Decision` gains `confirmedAt` and
-    `confirmedById`, `DashboardDecision` gains `confirmedAt`, and
-    `AgentTaskDefinition` gains `mayCreateDecision` and `mayPin`.
-    **Breaking for a client of an older server:** the Decision schemas need
-    `confirmed_at`.
+    `confirmedById`, `DashboardDecision` gains `confirmedAt`,
+    `AgentTaskDefinition` gains `mayCreateDecision` and `mayPin`, and
+    `AgentTaskContextPack` gains `proposedDecisionIds`. **Breaking for a
+    client of an older server:** the Decision schemas need `confirmed_at`.
   - **For a module that calls a run's tools or reads Decisions:** a
     Decision is a commitment only when `confirmed_at` is set. A module that
     inserts into `decisions` directly must set `confirmed_at`, or the row
-    is a proposal.
+    is a proposal. A receiver of a dispatched task that read
+    `open_decision_ids` as every Decision on the record must now read
+    `proposed_decision_ids` too.
+- **`@kelpie/server`** — **The person intake research note is saved as a
+  model's note.** Intake saved the research note pinned, with the member as
+  its only mark. A member approves the note, but a model wrote it from web
+  pages, and a pin tells later agents to read it first. The note is now
+  saved unpinned with `origin` `ai`, and keeps the member as its author.
+  The route sets this; no field of a request reaches it. The intake page
+  lists it as "Research note". No migration.
+- **`@kelpie/server`** — **Person intake research no longer sends CRM
+  records to a model call that has web search.** With web search on,
+  research now makes two model requests: one searches from the pasted notes
+  and the confirmed person, and one builds the records from the findings and
+  the CRM with no tool. With web search off it still makes one request. A
+  source URL is now the one the search returned or the notes contain, never
+  the model's own spelling of it. A URL in the notes with no scheme counts
+  as a source only when it starts with `www.` or has a path. No migration.
 - **`@kelpie/server`** — **The MCP instructions mark record content as
   data.** The text an MCP client reads on `initialize` now says that names,
   summaries, notes and form answers can hold text from a person outside the

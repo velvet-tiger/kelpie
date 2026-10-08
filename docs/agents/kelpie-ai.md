@@ -32,9 +32,9 @@ Kelpie applies the operations with no approval step. The context can hold text f
 Two writes have a control that does not depend on the model, because agents treat them as facts later:
 
 - **A decision.** Only a task that asks for a decision can record one: the capture-decision and log-transcript tasks, and the raise task that captures a pass. On any other task, Kelpie drops the operation and the run log says so. A decision from a run is a proposal. It shows as "Proposed by AI — not confirmed" with a **Confirm** button, and it is not a commitment until a member confirms it. **Remove** rejects it. Only a signed-in member can confirm. An API key, an MCP client and Kelpie AI cannot.
-- **A pinned note.** Only a task that asks for a pin can pin a note: the distill-notes tasks, the account brief, the interview summary, and the add-a-person task. On any other task, Kelpie saves the note unpinned and drops an operation that pins an existing note.
+- **A pinned note.** Only a task that asks for a pin can pin a note: the distill-notes tasks, the account brief, the interview summary, and the add-a-person task. On any other task, Kelpie saves the note unpinned and drops an operation that pins an existing note. A task that can pin can pin only a note on the record the run is about.
 
-Every note and decision a run writes is labelled "Written by AI". A later run gets decisions that are not confirmed under their own heading, as proposals and not as commitments.
+Every note and decision a run writes is labelled "Written by AI". A later run gets decisions that are not confirmed under their own heading, as proposals and not as commitments. The prompt you copy for your own agent lists them apart from the open decisions in the same way.
 
 With the `ai` module, the **Admin → AI** page has **Settings** and **Run log** tabs before the core **Agents** tab. The run log shows each run: its status, the record it ran on, the model, the token counts, and each operation with its outcome. The record, and any record an operation names, link to their pages. It stores metadata only. The model's reply is never stored, and the prompt and context sent to the model are deleted when the run ends. Each workspace keeps its newest 100 runs, or the number `AI_RUN_LOG_LIMIT` sets. Runs from the current month are always kept.
 
@@ -48,14 +48,14 @@ It opens in the AI drawer, at the right side of the page. The page stays usable 
 
 1. Paste anything about the person: a name, an email, a LinkedIn URL, a signature block, meeting notes.
 2. Kelpie looks the person up and shows up to three matches. Pick the right one. If the person is already in Kelpie, choose **Update** that record or **Create new**.
-3. Kelpie researches the person and lists what it will create: the Person, their Company (or a link to one you already have), a Position with their title, and a pinned research note with its sources. It can also suggest a Partnership, Deal or Enquiry when your notes point to one; those start unticked, with the reason shown. Untick anything you do not want.
+3. Kelpie researches the person and lists what it will create: the Person, their Company (or a link to one you already have), a Position with their title, and a research note with its sources. The note is saved unpinned and labelled "Written by AI": you approve it, but a model wrote it from web pages. Pin it yourself if it should be read first. It can also suggest a Partnership, Deal or Enquiry when your notes point to one; those start unticked, with the reason shown. Untick anything you do not want.
 4. Kelpie creates the ticked items and links to each one.
 
 Updating an existing Person only adds: it fills empty fields and adds new tags, phones and profiles. It does not replace the name, the summary, or anything else that already has a value.
 
 The two AI steps each count as one run in the run log and against any monthly limit. With web search on, each step can take a minute or more.
 
-**Web search.** Kelpie uses your provider's own web search for this, and only for this. Agent-task runs never search. It keeps a source link only when the search really returned that page. To work from your notes and the CRM only, switch **Web search** off on **Admin → AI**.
+**Web search.** Kelpie uses your provider's own web search for this, and only for this. Agent-task runs never search. It keeps a source link only when the search really returned that page or your notes contain it. With web search on, research makes two model requests: the first searches from your pasted notes and the person you confirmed, and never sees CRM records; the second builds the records from the findings and the CRM, with no tool. To work from your notes and the CRM only, switch **Web search** off on **Admin → AI**.
 
 **LinkedIn.** LinkedIn asks every visitor to sign in, so Kelpie cannot open a LinkedIn page. It uses the URL as a hint for the name, and reads what search results show about the profile: usually the headline, the current company and the location. For the full profile, open it in your own browser, select all, copy, and paste it into the notes. Kelpie trusts pasted profile text over search results.
 
