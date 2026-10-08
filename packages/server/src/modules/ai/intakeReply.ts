@@ -33,6 +33,7 @@ const MAX_CANDIDATES = 3
 const MAX_COMPANIES = 5
 const MAX_PIPELINE_ITEMS = 3
 const MAX_SOURCES = 12
+const MAX_FINDINGS_LENGTH = 16_000
 
 const name = z.string().trim().min(1).max(500)
 const optionalText = (max: number): z.ZodType<string | undefined> =>
@@ -108,6 +109,23 @@ const companyReply = z.object({
   tags: stringList(20),
 })
 
+/**
+ * What research's search turn replies: prose, not records. The turn that
+ * builds the records reads it beside the CRM, with no web tool.
+ */
+export const researchFindingsReplySchema = z.object({
+  // Required, with no default: a reply of another shape must get the repair
+  // turn, not pass as "found nothing". Long findings are cut, not refused,
+  // because the searches behind them are already paid for.
+  findings: z
+    .string()
+    .trim()
+    .transform((text) => text.slice(0, MAX_FINDINGS_LENGTH)),
+  sources: sourcesReply,
+})
+
+export type ResearchFindingsReply = z.infer<typeof researchFindingsReplySchema>
+
 const reason = z.string().trim().max(8000).default('')
 
 export const researchReplySchema = z.object({
@@ -151,6 +169,9 @@ export type ResearchReply = z.infer<typeof researchReplySchema>
 
 /** The JSON schemas advertised to the model. Advisory: the Zod parse above is the authority. */
 export const IDENTIFY_REPLY_JSON_SCHEMA = z.toJSONSchema(identifyReplySchema, { io: 'input' }) as Record<string, unknown>
+export const RESEARCH_FINDINGS_REPLY_JSON_SCHEMA = z.toJSONSchema(researchFindingsReplySchema, {
+  io: 'input',
+}) as Record<string, unknown>
 export const RESEARCH_REPLY_JSON_SCHEMA = z.toJSONSchema(researchReplySchema, { io: 'input' }) as Record<string, unknown>
 
 // ---------------------------------------------------------------- normalise
@@ -180,11 +201,14 @@ export function normaliseUrl(raw: string): string | undefined {
   }
 }
 
-/** The key a URL is compared by: no scheme, no `www.`, no trailing slash, no fragment. */
+/**
+ * The key a URL is compared by: no scheme, no `www.`, no trailing slash, no
+ * fragment. The port stays, because another port is another server.
+ */
 function urlKey(url: string): string {
   try {
     const parsed = new URL(url)
-    const host = parsed.hostname.replace(/^www\./u, '')
+    const host = parsed.host.replace(/^www\./u, '')
     const path = parsed.pathname.replace(/\/+$/u, '')
 
     return `${host}${path}${parsed.search}`.toLowerCase()
@@ -194,41 +218,120 @@ function urlKey(url: string): string {
 }
 
 /**
+ * A URL in pasted text. Two shapes count, tried in this order:
+ *
+ * - With a scheme: `http://` or `https://`, then everything up to white
+ *   space, a quote, or a mark that markdown and Slack put round a link
+ *   (`<`, `>`, `|`, `[`, `]`).
+ * - With no scheme: a host that ends in an alphabetic label, an optional
+ *   port, and an optional path. `urlsInText` then keeps it only when it is
+ *   plainly a web address.
+ *
+ * Neither may start in the middle of a word, in any alphabet. The second may
+ * not start after `@`, `.`, `-`, `_`, `/` or `:` either, so it never takes
+ * the domain of an email address or the tail of a longer host. The first
+ * shape consumes its whole URL, so the second never matches inside one.
+ */
+const URL_IN_TEXT =
+  /(?<![\p{L}\p{N}])https?:\/\/[^\s<>"'`|[\]]+|(?<![\p{L}\p{N}@._/:-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?(?:\/[^\s<>"'`|[\]]*)?/giu
+
+/** What may follow a host that has no path: not more of a name, and not the `@` of an email address. */
+const HOST_CONTINUES = /^(?:[\p{L}\p{N}_@-]|[.:][\p{L}\p{N}])/u
+
+/**
+ * A URL match without the prose and markdown that follow it: sentence
+ * punctuation, emphasis marks, and a `)` that closes a bracket opened before
+ * the URL. A `)` that closes a `(` inside the URL stays, as in a Wikipedia
+ * title.
+ */
+function withoutTrailingMarks(match: string, precededByUnderscore: boolean): string {
+  let url = match
+
+  for (;;) {
+    const last = url.at(-1)
+    const unbalanced = last === ')' && url.split(')').length > url.split('(').length
+    const mark = last !== undefined && '.,;:!?*'.includes(last)
+
+    if (!mark && !unbalanced && !(last === '_' && precededByUnderscore)) return url
+    url = url.slice(0, -1)
+  }
+}
+
+/**
+ * Every URL the pasted notes contain, by key, without its fragment.
+ *
+ * A match with no scheme counts only when it starts with `www.` or has a
+ * path, as `linkedin.com/in/dana` does. A bare dotted word (`e.g.`,
+ * `file.txt`, `v1.2`) is not a web address, and a host the user did not
+ * write must never join the allow-list.
+ */
+function urlsInText(text: string): Map<string, string> {
+  const found = new Map<string, string>()
+
+  for (const match of text.matchAll(URL_IN_TEXT)) {
+    const raw = withoutTrailingMarks(match[0], text[match.index - 1] === '_')
+
+    if (!/^https?:\/\//iu.test(raw)) {
+      const path = raw.indexOf('/')
+      const plainlyWeb = /^www\./iu.test(raw) || (path !== -1 && path < raw.length - 1)
+      const continues = path === -1 && HOST_CONTINUES.test(text.slice(match.index + match[0].length))
+
+      if (!plainlyWeb || continues) continue
+    }
+
+    const url = normaliseUrl(raw)
+    if (url === undefined) continue
+
+    const parsed = new URL(url)
+    parsed.hash = ''
+    const key = urlKey(parsed.toString())
+    if (!found.has(key)) found.set(key, parsed.toString())
+  }
+
+  return found
+}
+
+/**
  * The sources worth keeping: valid URLs, no duplicates, and, when the call
  * searched the web, only URLs the search actually returned. A model can cite
  * a plausible page that does not exist; this keeps it out of the note.
  *
  * With no search, the model can only cite what the user pasted, so the
  * pasted text is the allow-list instead.
+ *
+ * The URL kept is the one the search returned or the notes hold, never the
+ * one the model wrote. The key ignores the scheme and the fragment, so the
+ * model's spelling could differ there, and a fragment is room to carry data
+ * out in a link the user may click.
  */
 export function keepSources(
   cited: readonly { readonly url: string; readonly title: string }[],
   searched: readonly AiWebSource[] | undefined,
   pastedText: string,
 ): { url: string; title: string }[] {
-  const allowed = new Map<string, string>()
+  const allowed = new Map<string, { readonly url: string; readonly title: string }>()
 
   for (const source of searched ?? []) {
     const url = normaliseUrl(source.url)
-    if (url !== undefined) {
-      allowed.set(urlKey(url), source.title)
+    if (url !== undefined && !allowed.has(urlKey(url))) {
+      allowed.set(urlKey(url), { url, title: source.title })
     }
   }
 
-  const pasted = pastedText.toLowerCase()
+  const pasted = urlsInText(pastedText)
   const kept = new Map<string, { url: string; title: string }>()
 
   for (const source of cited) {
-    const url = normaliseUrl(source.url)
-    if (url === undefined) continue
+    const citedUrl = normaliseUrl(source.url)
+    if (citedUrl === undefined) continue
 
-    const key = urlKey(url)
-    const searchedTitle = allowed.get(key)
-    const seen = searchedTitle !== undefined || pasted.includes(key)
+    const key = urlKey(citedUrl)
+    const fromSearch = allowed.get(key)
+    const url = fromSearch?.url ?? pasted.get(key)
 
-    if (!seen || kept.has(key)) continue
+    if (url === undefined || kept.has(key)) continue
 
-    const title = source.title.trim() || searchedTitle || url
+    const title = source.title.trim() || fromSearch?.title || url
     kept.set(key, { url, title: title.slice(0, 500) })
   }
 
