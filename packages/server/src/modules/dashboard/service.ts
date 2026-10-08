@@ -1,5 +1,5 @@
 import { PIPELINE_KINDS, isRecordReferenceType } from '@kelpie/schemas'
-import type { PipelineKind, RecordReference } from '@kelpie/schemas'
+import type { PipelineKind, RecordReference, WriteOrigin } from '@kelpie/schemas'
 
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
@@ -110,6 +110,7 @@ export interface NoteSignal extends TargetRef {
   readonly id: string
   readonly body: string
   readonly authorId: string | null
+  readonly origin: WriteOrigin
   readonly pinned: boolean
   readonly references: readonly RecordReference[]
   readonly createdAt: Date
@@ -122,6 +123,7 @@ export interface DecisionSignal extends TargetRef {
   readonly decidedAt: Date
   readonly ownerId: string | null
   readonly dueAt: Date | null
+  readonly origin: WriteOrigin
 }
 
 export interface UpcomingEventSignal {
@@ -469,6 +471,7 @@ function toSnapshot(
       targetName: nameOf(row),
       body: row.body,
       authorId: row.authorId,
+      origin: row.origin,
       pinned: row.pinned,
       references: referencesIn(row.body),
       createdAt: row.createdAt,
@@ -483,6 +486,7 @@ function toSnapshot(
       decidedAt: row.decidedAt,
       ownerId: row.ownerId,
       dueAt: row.dueAt,
+      origin: row.origin,
     })),
   }
 }

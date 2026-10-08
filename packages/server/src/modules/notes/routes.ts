@@ -65,6 +65,7 @@ export function noteResponse(note: NoteView): Record<string, unknown> {
     target_id: note.targetId,
     body: note.body,
     author_id: note.authorId,
+    origin: note.origin,
     pinned: note.pinned,
     references: note.references.map(referenceResponse),
     created_at: note.createdAt.toISOString(),

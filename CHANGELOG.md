@@ -19,6 +19,30 @@ While the major version is `0`, a minor bump may break the API.
   email with them, so the email looks like the ones core sends.
   `renderTextEmail` escapes every string for the HTML part; use it when a
   string holds text that a user typed. No migration.
+- **A Note and a Decision say what wrote them.** Each has a new field,
+  `origin`: `member` for a signed-in person, `agent` for a caller with an
+  API key or an OAuth token, and `ai` for a run of the hosted AI. The server
+  sets it from the caller. A request cannot send or change it: a create or
+  an update with `origin` answers `422`. The notes panel, the decisions
+  panel, the Decisions page and the dashboard show "Written by an agent" or
+  "Written by AI" on a row that a member did not write.
+  - **`@kelpie/server`** — migration `0063` adds `notes.origin` and
+    `decisions.origin`, not null, with a check constraint. A note with an
+    author and a decision with an owner become `member`; the rest become
+    `agent`. No row from before becomes `ai`, because nothing recorded which
+    rows a run wrote. The column keeps a default of `agent`, so code from
+    before the migration can write a row while a deploy is in progress.
+  - **`@kelpie/server`** — `GET /v1/notes`, `GET /v1/decisions`, their
+    single-record routes, the `notes_*` and `decisions_*` MCP tools, and
+    the `recent_notes` and `recent_decisions` rows of `GET /v1/dashboard`
+    carry `origin`.
+  - **`@kelpie/schemas`** — new: `WRITE_ORIGINS` and `WriteOrigin`. `Note`,
+    `Decision`, `DashboardNote` and `DashboardDecision` gain `origin`, and
+    their schemas need it. **Breaking for a client of an older server:**
+    the schemas refuse a row with no `origin`.
+  - **`@kelpie/server`** — **for a module that inserts into `notes` or
+    `decisions` directly:** the insert must give `origin`. A module that
+    writes through the service or the MCP tools needs no change.
 
 ### Changed
 

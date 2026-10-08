@@ -12,6 +12,7 @@ import { ActivityAction } from '../../components/ActivityAction.tsx'
 import { Chip } from '../../components/Chip.tsx'
 import { LinkedText } from '../../components/LinkedText.tsx'
 import { MarkdownView } from '../../components/MarkdownView.tsx'
+import { OriginLabel } from '../../components/OriginLabel.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
 import { formatDate, formatRelativeTime } from '../../lib/dates.ts'
 import { targetHref } from '../../lib/recordLinks.ts'
@@ -251,6 +252,7 @@ export function NotesList({
                 <span>{note.authorId === null ? 'System' : (nameById.get(note.authorId) ?? 'Unknown')}</span>
                 <span>·</span>
                 <span>{formatRelativeTime(note.createdAt, timezone, now)}</span>
+                <OriginLabel origin={note.origin} />
               </div>
             </li>
           ))}
@@ -300,6 +302,7 @@ export function DecisionsList({
                 <span>
                   {decision.ownerId === null ? '—' : (nameById.get(decision.ownerId) ?? 'Unknown')}
                 </span>
+                <OriginLabel origin={decision.origin} />
               </div>
             </li>
           ))}

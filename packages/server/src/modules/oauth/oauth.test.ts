@@ -595,6 +595,50 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
     })
   })
 
+  describe('what an OAuth caller writes', () => {
+    /** The JSON a tool call answered with. */
+    async function toolPayload(response: Response): Promise<unknown> {
+      const body: unknown = await response.json()
+
+      if (!isRecord(body) || !isRecord(body.result) || !Array.isArray(body.result.content)) {
+        throw new Error(`Expected a tool result, got ${JSON.stringify(body)}`)
+      }
+
+      const [first]: unknown[] = body.result.content
+
+      return JSON.parse(readString(first, 'text'))
+    }
+
+    it('records a note and a decision with origin agent, though a member approved the client', async () => {
+      const { accessToken } = await connect()
+      const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
+      const target = { target_type: 'person', target_id: readString(person, 'id') }
+
+      const note = await toolPayload(await callTool(accessToken, 'notes_create', { ...target, body: 'From OAuth' }))
+      const decision = await toolPayload(
+        await callTool(accessToken, 'decisions_create', { ...target, body: 'From OAuth' }),
+      )
+
+      expect(isRecord(note) && note.origin).toBe('agent')
+      expect(isRecord(note) && note.author_id).toMatch(/^mem_/u)
+      expect(isRecord(decision) && decision.origin).toBe('agent')
+    })
+
+    it('refuses a tool call that sends origin', async () => {
+      const { accessToken } = await connect()
+      const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
+      const response = await callTool(accessToken, 'notes_create', {
+        target_type: 'person',
+        target_id: readString(person, 'id'),
+        body: 'From OAuth',
+        origin: 'member',
+      })
+      const body: unknown = await response.json()
+
+      expect(isRecord(body) && isRecord(body.result) && body.result.isError).toBe(true)
+    })
+  })
+
   describe('connected apps', () => {
     it('lists the connection and revokes it', async () => {
       const { accessToken, cookie, workspaceId } = await connect()

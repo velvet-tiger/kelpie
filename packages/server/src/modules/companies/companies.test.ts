@@ -347,6 +347,7 @@ describe.skipIf(connectionString === undefined)('companies', () => {
         targetType: 'company',
         targetId: companyId,
         body: 'Met the board',
+        origin: 'member',
       })
 
       const deleted = await client.send('DELETE', `/v1/companies/${companyId}`, {

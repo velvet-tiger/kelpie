@@ -430,6 +430,104 @@ describe.skipIf(connectionString === undefined)('notes', () => {
     })
   })
 
+  describe('origin', () => {
+    async function mintKey(kind: 'workspace' | 'personal'): Promise<string> {
+      const response = await client.send('POST', '/v1/api-keys', {
+        body: { name: 'agent', kind },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(201)
+
+      return readString(await response.json(), 'secret')
+    }
+
+    it('is member for a note a signed-in member writes', async () => {
+      const created = await noteOn(personId, 'Body')
+
+      expect(created.origin).toBe('member')
+    })
+
+    it('is agent for a note an API key writes, workspace or personal', async () => {
+      for (const kind of ['workspace', 'personal'] as const) {
+        const response = await client.send('POST', '/v1/notes', {
+          body: { target_type: 'person', target_id: personId, body: `From a ${kind} key` },
+          bearer: await mintKey(kind),
+        })
+
+        expect(response.status).toBe(201)
+        expect(readRecord(await response.json()).origin).toBe('agent')
+      }
+    })
+
+    it('refuses a create that sends origin', async () => {
+      const response = await addNote({
+        target_type: 'person',
+        target_id: personId,
+        body: 'Body',
+        origin: 'member',
+      })
+
+      expect(response.status).toBe(422)
+    })
+
+    it('refuses an update that sends origin, with a session or a key', async () => {
+      const created = await noteOn(personId, 'Body')
+      const path = `/v1/notes/${String(created.id)}`
+
+      expect(
+        (await client.send('PATCH', path, { body: { origin: 'ai' }, cookie: acme.cookie })).status,
+      ).toBe(422)
+      expect(
+        (await client.send('PATCH', path, { body: { origin: 'ai' }, bearer: await mintKey('workspace') })).status,
+      ).toBe(422)
+    })
+
+    it('keeps the origin of the first write when another kind of caller edits the note', async () => {
+      const key = await mintKey('workspace')
+      const byKey = readRecord(
+        await (
+          await client.send('POST', '/v1/notes', {
+            body: { target_type: 'person', target_id: personId, body: 'From a key' },
+            bearer: key,
+          })
+        ).json(),
+      )
+      const byMember = await noteOn(personId, 'From a member')
+
+      const keyNoteEdited = readRecord(
+        await (
+          await client.send('PATCH', `/v1/notes/${String(byKey.id)}`, {
+            body: { body: 'Edited by a member', pinned: true },
+            cookie: acme.cookie,
+          })
+        ).json(),
+      )
+      const memberNoteEdited = readRecord(
+        await (
+          await client.send('PATCH', `/v1/notes/${String(byMember.id)}`, {
+            body: { body: 'Edited by a key' },
+            bearer: key,
+          })
+        ).json(),
+      )
+
+      expect(keyNoteEdited.origin).toBe('agent')
+      expect(memberNoteEdited.origin).toBe('member')
+    })
+
+    it('reads back on get and list', async () => {
+      const created = await noteOn(personId, 'Body')
+      const fetched = readRecord(
+        await (await client.send('GET', `/v1/notes/${String(created.id)}`, { cookie: acme.cookie })).json(),
+      )
+      const listed = readList(await (await listNotes(`target_type=person&target_id=${personId}`)).json())
+
+      expect(fetched.origin).toBe('member')
+      expect(listed[0]?.origin).toBe('member')
+    })
+  })
+
   describe('deleting the record a note is attached to', () => {
     it('takes the notes with it', async () => {
       const created = await noteOn(personId, 'Body')

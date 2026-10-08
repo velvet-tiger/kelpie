@@ -134,6 +134,7 @@ function noteBody(note: NoteSignal): Record<string, unknown> {
     target_name: note.targetName,
     body: note.body,
     author_id: note.authorId,
+    origin: note.origin,
     pinned: note.pinned,
     references: note.references.map(referenceResponse),
     created_at: note.createdAt.toISOString(),
@@ -151,6 +152,7 @@ function decisionBody(decision: DecisionSignal): Record<string, unknown> {
     decided_at: decision.decidedAt.toISOString(),
     owner_id: decision.ownerId,
     due_at: decision.dueAt === null ? null : decision.dueAt.toISOString(),
+    origin: decision.origin,
   }
 }
 

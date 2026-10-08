@@ -5,8 +5,15 @@ import {
   PIPELINE_KINDS,
   PLAN_ITEM_STATUSES,
   RECORD_TARGET_TYPES,
+  WRITE_ORIGINS,
 } from './values.ts'
-import type { ActivityKind, PipelineKind, PlanItemStatus, RecordTargetType } from './values.ts'
+import type {
+  ActivityKind,
+  PipelineKind,
+  PlanItemStatus,
+  RecordTargetType,
+  WriteOrigin,
+} from './values.ts'
 import { recordReferenceSchema } from './reference.ts'
 import type { RecordReference } from './reference.ts'
 import { idSchema, nullableTimestampSchema, timestampSchema } from './wire.ts'
@@ -211,6 +218,7 @@ export interface DashboardNote extends TargetRef {
   readonly id: string
   readonly body: string
   readonly authorId: string | null
+  readonly origin: WriteOrigin
   readonly pinned: boolean
   /** The records `body` names by id. */
   readonly references: readonly RecordReference[]
@@ -223,6 +231,7 @@ const dashboardNoteSchema: z.ZodType<DashboardNote, unknown> = z
     id: idSchema,
     body: z.string(),
     author_id: idSchema.nullable(),
+    origin: z.enum(WRITE_ORIGINS),
     pinned: z.boolean(),
     references: z.array(recordReferenceSchema),
     created_at: timestampSchema,
@@ -232,6 +241,7 @@ const dashboardNoteSchema: z.ZodType<DashboardNote, unknown> = z
     id: wire.id,
     body: wire.body,
     authorId: wire.author_id,
+    origin: wire.origin,
     pinned: wire.pinned,
     references: wire.references,
     createdAt: wire.created_at,
@@ -244,6 +254,7 @@ export interface DashboardDecision extends TargetRef {
   readonly decidedAt: Date
   readonly ownerId: string | null
   readonly dueAt: Date | null
+  readonly origin: WriteOrigin
 }
 
 const dashboardDecisionSchema: z.ZodType<DashboardDecision, unknown> = z
@@ -255,6 +266,7 @@ const dashboardDecisionSchema: z.ZodType<DashboardDecision, unknown> = z
     decided_at: timestampSchema,
     owner_id: idSchema.nullable(),
     due_at: nullableTimestampSchema,
+    origin: z.enum(WRITE_ORIGINS),
   })
   .transform((wire) => ({
     ...toTargetRef(wire),
@@ -264,6 +276,7 @@ const dashboardDecisionSchema: z.ZodType<DashboardDecision, unknown> = z
     decidedAt: wire.decided_at,
     ownerId: wire.owner_id,
     dueAt: wire.due_at,
+    origin: wire.origin,
   }))
 
 export interface DashboardUpcomingEvent {

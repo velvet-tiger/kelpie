@@ -13,10 +13,13 @@ export {
   actorWorkspaceId,
   bearerCredentialId,
   bindOAuthWorkspace,
+  createHostedAiActor,
   isBearerActor,
+  isHostedAiActor,
   isOAuthActor,
   requireSessionActor,
   requireWorkspaceId,
+  writeOrigin,
 } from '../../lib/actor.ts'
 export type {
   Actor,

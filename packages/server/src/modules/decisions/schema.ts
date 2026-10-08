@@ -1,4 +1,5 @@
-import { RECORD_TARGET_TYPES } from '@kelpie/schemas'
+import { RECORD_TARGET_TYPES, WRITE_ORIGINS } from '@kelpie/schemas'
+import type { WriteOrigin } from '@kelpie/schemas'
 import { index, pgTable, text } from 'drizzle-orm/pg-core'
 
 import {
@@ -24,6 +25,10 @@ export type { RecordTargetType } from '@kelpie/schemas'
 /**
  * What we decided or promised. These are the commitments agents must not
  * contradict, which is why they are a queryable record rather than note text.
+ *
+ * `origin` is what wrote the row: a member, an agent with a bearer credential,
+ * or a hosted AI run. The column has no default here, so every insert must
+ * say. The service derives it from the actor and never from a request.
  */
 export const decisions = pgTable(
   'decisions',
@@ -39,6 +44,7 @@ export const decisions = pgTable(
     decidedAt: moment('decided_at').notNull().defaultNow(),
     ownerId: text('owner_id').references(() => workspaceMembers.id, { onDelete: 'restrict' }),
     dueAt: moment('due_at'),
+    origin: text('origin').$type<WriteOrigin>().notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     // The body carries weight A because a decision has no name: the body is what
@@ -52,5 +58,6 @@ export const decisions = pgTable(
     index('decisions_target_idx').on(table.workspaceId, table.targetType, table.targetId),
     index('decisions_search_idx').using('gin', table.searchVector),
     checkOneOf('decisions_target_type_check', table.targetType, RECORD_TARGET_TYPES),
+    checkOneOf('decisions_origin_check', table.origin, WRITE_ORIGINS),
   ],
 )

@@ -8,6 +8,7 @@ import { useCreateNote, useDeleteNote, useNotes, useUpdateNote } from '../api/re
 import { formatDateTime } from '../lib/dates.ts'
 import { FRAGMENT_HIGHLIGHT, useFragmentTarget } from '../lib/fragmentTarget.ts'
 import { MarkdownView } from './MarkdownView.tsx'
+import { OriginLabel } from './OriginLabel.tsx'
 import { Paginator } from './Paginator.tsx'
 import { RecordLinkTextarea } from './RecordLinkTextarea.tsx'
 import { ErrorPanel } from './QueryState.tsx'
@@ -126,10 +127,13 @@ export function NotesPanel({ targetType, targetId }: NotesPanelProps): React.JSX
  * A null author is a note written by a workspace API key, which belongs to the
  * workspace rather than to a person. An id with no matching member is one whose
  * membership was removed.
+ *
+ * A hosted AI run has no author and no key either, so it gets no name: the
+ * origin label beside the date says what wrote the note.
  */
-function authorNameFor(note: Note, nameById: ReadonlyMap<string, string>): string {
+function authorNameFor(note: Note, nameById: ReadonlyMap<string, string>): string | undefined {
   if (note.authorId === null) {
-    return 'API key'
+    return note.origin === 'ai' ? undefined : 'API key'
   }
 
   return nameById.get(note.authorId) ?? 'Unknown'
@@ -140,7 +144,7 @@ function NoteItem({
   authorName,
 }: {
   readonly note: Note
-  readonly authorName: string
+  readonly authorName: string | undefined
 }): React.JSX.Element {
   const timezone = useTimezone()
   const updateNote = useUpdateNote()
@@ -275,10 +279,15 @@ function NoteItem({
           )}
         </div>
       </div>
-      <div className="mt-2 flex items-center gap-2 text-[11px] text-ink-faint">
-        <span>{authorName}</span>
-        <span>·</span>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+        {authorName !== undefined && (
+          <>
+            <span>{authorName}</span>
+            <span>·</span>
+          </>
+        )}
         <span>{formatDateTime(note.createdAt, timezone)}</span>
+        <OriginLabel origin={note.origin} />
       </div>
       {deleteNote.error !== null && (
         <div className="mt-2">

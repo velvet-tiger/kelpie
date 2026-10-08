@@ -804,6 +804,7 @@ describe.skipIf(connectionString === undefined)('people', () => {
         targetType: 'person',
         targetId: personId,
         body: 'Met at the Royal Society',
+        origin: 'member',
       })
       await database.db.insert(activities).values({
         id: 'act_test_one',
@@ -852,6 +853,7 @@ describe.skipIf(connectionString === undefined)('people', () => {
         targetType: 'person',
         targetId: personId,
         body: 'Still here afterwards',
+        origin: 'member',
       })
 
       const response = await client.send('DELETE', `/v1/people/${personId}`, { cookie: acme.cookie })

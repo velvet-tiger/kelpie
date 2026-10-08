@@ -25,6 +25,7 @@ function note(id: string, targetId: string, body: string, createdAt: string): un
     target_id: targetId,
     body,
     author_id: 'mem_1',
+    origin: 'member',
     pinned: false,
     references: [],
     created_at: createdAt,

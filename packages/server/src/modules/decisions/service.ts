@@ -7,7 +7,7 @@ import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
-import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
+import { actorMemberId, requireWorkspaceId, writeOrigin } from '../auth/actor.ts'
 import './events.ts'
 import { targetExists } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
@@ -154,6 +154,7 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
           decidedAt: input.decidedAt ?? dependencies.now(),
           ownerId,
           dueAt: input.dueAt,
+          origin: writeOrigin(actor),
         })
 
         // `decision.added` rather than `record.created`: the catalog gives

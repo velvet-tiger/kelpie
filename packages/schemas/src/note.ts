@@ -2,8 +2,8 @@ import { z } from 'zod'
 
 import { recordReferenceSchema } from './reference.ts'
 import type { RecordReference } from './reference.ts'
-import { RECORD_TARGET_TYPES } from './values.ts'
-import type { RecordTargetType } from './values.ts'
+import { RECORD_TARGET_TYPES, WRITE_ORIGINS } from './values.ts'
+import type { RecordTargetType, WriteOrigin } from './values.ts'
 import { definedFields, idSchema, recordTimestamps } from './wire.ts'
 import type { RecordTimestamps } from './wire.ts'
 
@@ -16,6 +16,9 @@ import type { RecordTimestamps } from './wire.ts'
  * against the workspace member list it already holds.
  *
  * `references` are the records `body` names by id. See `RecordReference`.
+ *
+ * `origin` is what wrote the note. The server sets it; no body builder here
+ * sends it. See `WRITE_ORIGINS`.
  */
 
 export interface Note extends RecordTimestamps {
@@ -24,6 +27,7 @@ export interface Note extends RecordTimestamps {
   readonly targetId: string
   readonly body: string
   readonly authorId: string | null
+  readonly origin: WriteOrigin
   readonly pinned: boolean
   readonly references: readonly RecordReference[]
 }
@@ -35,6 +39,7 @@ export const noteSchema: z.ZodType<Note, unknown> = z
     target_id: idSchema,
     body: z.string(),
     author_id: idSchema.nullable(),
+    origin: z.enum(WRITE_ORIGINS),
     pinned: z.boolean(),
     references: z.array(recordReferenceSchema),
     ...recordTimestamps,
@@ -46,6 +51,7 @@ export const noteSchema: z.ZodType<Note, unknown> = z
       targetId: wire.target_id,
       body: wire.body,
       authorId: wire.author_id,
+      origin: wire.origin,
       pinned: wire.pinned,
       references: wire.references,
       createdAt: wire.created_at,

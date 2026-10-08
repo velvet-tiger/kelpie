@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import { RECORD_TARGET_TYPES } from './values.ts'
-import type { RecordTargetType } from './values.ts'
+import { RECORD_TARGET_TYPES, WRITE_ORIGINS } from './values.ts'
+import type { RecordTargetType, WriteOrigin } from './values.ts'
 import {
   definedFields,
   idSchema,
@@ -20,6 +20,9 @@ import type { RecordTimestamps } from './wire.ts'
  * `ownerId` is a workspace member id, null when nobody carries the commitment.
  * `dueAt` is the optional deadline on it; `decidedAt` is when it was made and is
  * never null.
+ *
+ * `origin` is what wrote the decision. The server sets it; no body builder
+ * here sends it. See `WRITE_ORIGINS`.
  */
 
 export interface Decision extends RecordTimestamps {
@@ -31,6 +34,7 @@ export interface Decision extends RecordTimestamps {
   readonly decidedAt: Date
   readonly ownerId: string | null
   readonly dueAt: Date | null
+  readonly origin: WriteOrigin
 }
 
 export const decisionSchema: z.ZodType<Decision, unknown> = z
@@ -43,6 +47,7 @@ export const decisionSchema: z.ZodType<Decision, unknown> = z
     decided_at: timestampSchema,
     owner_id: idSchema.nullable(),
     due_at: nullableTimestampSchema,
+    origin: z.enum(WRITE_ORIGINS),
     ...recordTimestamps,
   })
   .transform(
@@ -55,6 +60,7 @@ export const decisionSchema: z.ZodType<Decision, unknown> = z
       decidedAt: wire.decided_at,
       ownerId: wire.owner_id,
       dueAt: wire.due_at,
+      origin: wire.origin,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),

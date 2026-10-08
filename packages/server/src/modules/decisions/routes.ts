@@ -73,6 +73,7 @@ export function decisionResponse(decision: DecisionView): Record<string, unknown
     decided_at: decision.decidedAt.toISOString(),
     owner_id: decision.ownerId,
     due_at: decision.dueAt === null ? null : decision.dueAt.toISOString(),
+    origin: decision.origin,
     created_at: decision.createdAt.toISOString(),
     updated_at: decision.updatedAt.toISOString(),
   }

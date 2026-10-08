@@ -162,6 +162,7 @@ function decision(overrides: Record<string, unknown> = {}): Record<string, unkno
     decided_at: '2026-08-01T00:00:00.000Z',
     owner_id: 'mem_1',
     due_at: null,
+    origin: 'member',
     created_at: '2026-08-01T00:00:00.000Z',
     updated_at: '2026-08-01T00:00:00.000Z',
     ...overrides,
@@ -175,6 +176,7 @@ function note(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     target_id: 'per_1',
     body: 'Cares about implementation.',
     author_id: 'mem_1',
+    origin: 'member',
     pinned: false,
     references: [],
     created_at: '2026-08-01T00:00:00.000Z',
@@ -525,6 +527,38 @@ describe('NotesPanel', () => {
     await screen.findByText('API key')
   })
 
+  it('shows no origin label on a note a member wrote', async () => {
+    renderWithClient(
+      panelsClient({ notes: [note()] }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Cares about implementation.')
+
+    expect(screen.queryByText(/^Written by/u)).toBeNull()
+  })
+
+  it('labels a note an agent wrote', async () => {
+    renderWithClient(
+      panelsClient({ notes: [note({ author_id: null, origin: 'agent' })] }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Written by an agent')
+    await screen.findByText('API key')
+  })
+
+  it('labels a note the hosted AI wrote, and does not call its author an API key', async () => {
+    renderWithClient(
+      panelsClient({ notes: [note({ author_id: null, origin: 'ai' })] }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Written by AI')
+
+    expect(screen.queryByText('API key')).toBeNull()
+  })
+
   it('sorts pinned notes above the rest', async () => {
     renderWithClient(
       panelsClient({
@@ -825,6 +859,24 @@ describe('DecisionsPanel', () => {
 
     expect(screen.queryByText('Unknown')).toBeNull()
     expect(screen.queryByText('API key')).toBeNull()
+  })
+
+  it('labels a decision an agent or the hosted AI wrote, and not one a member wrote', async () => {
+    renderWithClient(
+      panelsClient({
+        decisions: [
+          decision(),
+          decision({ id: 'dec_2', body: 'From a key', origin: 'agent' }),
+          decision({ id: 'dec_3', body: 'From a run', origin: 'ai' }),
+        ],
+      }),
+      <DecisionsPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('From a run')
+
+    expect(screen.getAllByText('Written by an agent')).toHaveLength(1)
+    expect(screen.getAllByText('Written by AI')).toHaveLength(1)
   })
 
   it('posts a new decision to the record it is showing', async () => {

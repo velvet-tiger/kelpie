@@ -121,6 +121,22 @@ export const RECORD_TARGET_TYPES = [
 
 export type RecordTargetType = (typeof RECORD_TARGET_TYPES)[number]
 
+/**
+ * What wrote a Note or a Decision. The server sets it from the caller and no
+ * request can send or change it.
+ *
+ * - `member`: a signed-in person, in the app.
+ * - `agent`: a caller with an API key or an OAuth token.
+ * - `ai`: a run of the hosted AI, which writes with no person approving it.
+ *
+ * A reader uses it to decide how much weight the text carries: an `ai` row was
+ * written by a model that read record content, and record content can hold
+ * text from outside the workspace.
+ */
+export const WRITE_ORIGINS = ['member', 'agent', 'ai'] as const
+
+export type WriteOrigin = (typeof WRITE_ORIGINS)[number]
+
 /** Human labels for `RECORD_TARGET_TYPES`. Used by any picker that names a type. */
 export const RECORD_TARGET_TYPE_LABELS: Readonly<Record<RecordTargetType, string>> = {
   person: 'Person',

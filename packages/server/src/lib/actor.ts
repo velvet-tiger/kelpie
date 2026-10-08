@@ -1,4 +1,4 @@
-import type { ApiKeyScope, EventActor, MemberRole } from '@kelpie/schemas'
+import type { ApiKeyScope, EventActor, MemberRole, WriteOrigin } from '@kelpie/schemas'
 
 import { AppError } from './errors.ts'
 
@@ -163,6 +163,67 @@ export function isBearerActor(actor: Actor): actor is BearerActor {
  */
 export function bearerCredentialId(actor: BearerActor): string {
   return actor.kind === 'api_key' ? actor.apiKeyId : actor.connectionId
+}
+
+/**
+ * Marks the one actor the hosted AI writes as. The symbol is not exported, so
+ * only `createHostedAiActor` can set it, and no request can carry it: an actor
+ * for a request is built field by field in `modules/auth/credentials.ts`, and
+ * JSON has no way to name a symbol.
+ */
+const hostedAiBrand: unique symbol = Symbol('kelpie.hostedAi')
+
+/**
+ * The actor a hosted AI run writes as, in one workspace.
+ *
+ * It has the shape of a workspace API key with the admin role, so every rule
+ * for a bearer credential still applies to it: it is never a session, and
+ * `requireSessionActor` refuses it. `apiKeyId` names no row in `api_keys`.
+ * Only the per-credential rate limit reads that field, and a run never passes
+ * through that middleware.
+ *
+ * Not exported from the package. A module outside core has no way to make one.
+ */
+export function createHostedAiActor(workspaceId: string): ApiKeyActor {
+  const actor: ApiKeyActor & { readonly [hostedAiBrand]: true } = {
+    kind: 'api_key',
+    apiKeyId: `apik_ai_${workspaceId}`,
+    userId: null,
+    workspaceId,
+    role: 'admin',
+    scopes: [],
+    memberId: null,
+    [hostedAiBrand]: true,
+  }
+
+  return actor
+}
+
+/** True only for an actor that `createHostedAiActor` made. */
+export function isHostedAiActor(actor: Actor): boolean {
+  return hostedAiBrand in actor
+}
+
+/**
+ * What a Note or a Decision written by this actor records as its `origin`.
+ *
+ * The hosted AI is checked first, because its actor has the kind of an API
+ * key. The switch has no default, so a new actor kind does not compile until
+ * it is given an origin here.
+ */
+export function writeOrigin(actor: Actor): WriteOrigin {
+  if (isHostedAiActor(actor)) {
+    return 'ai'
+  }
+
+  switch (actor.kind) {
+    case 'session':
+      return 'member'
+    case 'api_key':
+    case 'oauth':
+    case 'oauth_connection':
+      return 'agent'
+  }
 }
 
 /** The workspace an actor is operating in, or null if a fresh account has none yet. */

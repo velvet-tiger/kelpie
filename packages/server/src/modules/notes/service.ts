@@ -11,7 +11,7 @@ import { describeNote } from '../activities/wording.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
-import { actorMemberId, requireWorkspaceId } from '../auth/actor.ts'
+import { actorMemberId, requireWorkspaceId, writeOrigin } from '../auth/actor.ts'
 import './events.ts'
 import { resolveReferences } from '../recordReferences.ts'
 import { missingTargets } from '../recordTargets.ts'
@@ -172,6 +172,7 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
           targetId: input.targetId,
           body: input.body,
           authorId: actorMemberId(actor),
+          origin: writeOrigin(actor),
           pinned: input.pinned,
         })
 

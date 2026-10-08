@@ -99,6 +99,7 @@ export {
   WEBHOOK_SETTABLE_STATUSES,
   WEBHOOK_STATUS_LABELS,
   WEBHOOK_STATUSES,
+  WRITE_ORIGINS,
 } from './values.ts'
 export type {
   AccountType,
@@ -155,6 +156,7 @@ export type {
   WebhookEvent,
   WebhookSettableStatus,
   WebhookStatus,
+  WriteOrigin,
 } from './values.ts'
 
 export { definedFields, idSchema, nullableTimestampSchema, timestampSchema } from './wire.ts'

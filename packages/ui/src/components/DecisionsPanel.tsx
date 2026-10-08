@@ -8,6 +8,7 @@ import { useCreateDecision, useDecisions, useDeleteDecision } from '../api/resou
 import { useMembers } from '../api/resources/members.ts'
 import { formatDate } from '../lib/dates.ts'
 import { FRAGMENT_HIGHLIGHT, useFragmentTarget } from '../lib/fragmentTarget.ts'
+import { OriginLabel } from './OriginLabel.tsx'
 import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
@@ -226,10 +227,11 @@ function DecisionItem({
       {decision.rationale !== null && (
         <p className="mt-1 text-[12px] text-ink-muted">{decision.rationale}</p>
       )}
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-faint">
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-faint">
         <span>Decided {formatDate(decision.decidedAt, timezone)}</span>
         {decision.dueAt !== null && <span>By {formatDate(decision.dueAt, timezone)}</span>}
         {ownerName !== undefined && <span>{ownerName}</span>}
+        <OriginLabel origin={decision.origin} />
       </div>
     </li>
   )

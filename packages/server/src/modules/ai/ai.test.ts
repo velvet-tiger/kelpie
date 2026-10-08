@@ -1650,6 +1650,41 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(httpDispatches).toEqual([])
     })
 
+    it('records what a run writes with origin ai, and a member cannot be named as its author', async () => {
+      const { cookie } = await enabledWorkspace(h, 'origin@example.com', {
+        provider: 'openai',
+        api_key: 'sk-openai-e2e-key-0013',
+      })
+      const person = await h.client.send('POST', '/v1/people', { cookie, body: { name: 'Grace Hopper' } })
+      const personId = readString(await person.json(), 'id')
+      const agents = readList(await (await h.client.send('GET', '/v1/agents', { cookie })).json())
+      const kelpieAi = agents.find((agent) => agent.name === 'Custom provider')
+
+      h.provider.queue(
+        endTurn(
+          proposal({
+            summary: 'Added a note about Grace.',
+            operations: [{ kind: 'append_note', body: 'Invented the first compiler.', pinned: false }],
+          }),
+        ),
+      )
+
+      const run = await h.client.send('POST', '/v1/agent-tasks/person.enrich/run', {
+        cookie,
+        body: { target_type: 'person', target_id: personId, agent_id: kelpieAi?.id },
+      })
+      expect(run.status).toBe(201)
+
+      const notes = await until(async () => {
+        const listed = readList(
+          await (await h.client.send('GET', `/v1/notes?target_type=person&target_id=${personId}`, { cookie })).json(),
+        )
+        return listed.length > 0 ? listed : undefined
+      })
+
+      expect(notes[0]).toMatchObject({ origin: 'ai', author_id: null })
+    })
+
     it('dispatches in-process even when the row still stores an old loopback URL', async () => {
       const { cookie, workspaceId } = await enabledWorkspace(h, 'legacy-row@example.com', {
         provider: 'openai',

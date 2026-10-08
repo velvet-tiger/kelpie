@@ -9,7 +9,7 @@ import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import type { Actor } from '../auth/actor.ts'
-import { requireWorkspaceId } from '../auth/actor.ts'
+import { requireWorkspaceId, writeOrigin } from '../auth/actor.ts'
 import * as authRepository from '../auth/repository.ts'
 import { companies } from '../companies/schema.ts'
 import { deals } from '../deals/schema.ts'
@@ -699,6 +699,8 @@ export function createSampleDataService(dependencies: SampleDataDependencies): S
               targetType: record.targetType,
               targetId,
               body: record.body,
+              // No author, so the origin is all that says who put the note here.
+              origin: writeOrigin(actor),
               pinned: record.pinned,
               createdAt: now,
               updatedAt: now,

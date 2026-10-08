@@ -15,6 +15,7 @@ import { useRaises } from '../api/resources/raises.ts'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
+import { OriginLabel } from '../components/OriginLabel.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
 import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
@@ -155,6 +156,11 @@ export function DecisionsPage(): React.JSX.Element {
           <div className="font-medium text-ink">{decision.body}</div>
           {decision.rationale !== null && (
             <div className="mt-0.5 text-[12px] text-ink-muted">{decision.rationale}</div>
+          )}
+          {decision.origin !== 'member' && (
+            <div className="mt-1">
+              <OriginLabel origin={decision.origin} />
+            </div>
           )}
         </>
       ),

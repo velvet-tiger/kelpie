@@ -62,6 +62,17 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
     return readRecord(await response.json())
   }
 
+  async function mintKey(kind: 'workspace' | 'personal'): Promise<string> {
+    const response = await client.send('POST', '/v1/api-keys', {
+      body: { name: 'agent', kind },
+      cookie: acme.cookie,
+    })
+
+    expect(response.status).toBe(201)
+
+    return readString(await response.json(), 'secret')
+  }
+
   function listDecisions(query = '', cookie = acme.cookie): Promise<Response> {
     return client.send('GET', `/v1/decisions${query === '' ? '' : `?${query}`}`, { cookie })
   }
@@ -371,6 +382,82 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
           })
         ).status,
       ).toBe(404)
+    })
+  })
+
+  describe('origin', () => {
+    it('is member for a decision a signed-in member records', async () => {
+      const created = await decisionOn(personId, 'Body')
+
+      expect(created.origin).toBe('member')
+    })
+
+    it('is agent for a decision an API key records, workspace or personal', async () => {
+      for (const kind of ['workspace', 'personal'] as const) {
+        const response = await client.send('POST', '/v1/decisions', {
+          body: { target_type: 'person', target_id: personId, body: `From a ${kind} key` },
+          bearer: await mintKey(kind),
+        })
+
+        expect(response.status).toBe(201)
+        expect(readRecord(await response.json()).origin).toBe('agent')
+      }
+    })
+
+    it('refuses a create that sends origin', async () => {
+      const response = await addDecision({
+        target_type: 'person',
+        target_id: personId,
+        body: 'Body',
+        origin: 'member',
+      })
+
+      expect(response.status).toBe(422)
+    })
+
+    it('refuses an update that sends origin, with a session or a key', async () => {
+      const created = await decisionOn(personId, 'Body')
+      const path = `/v1/decisions/${String(created.id)}`
+
+      expect(
+        (await client.send('PATCH', path, { body: { origin: 'ai' }, cookie: acme.cookie })).status,
+      ).toBe(422)
+      expect(
+        (await client.send('PATCH', path, { body: { origin: 'ai' }, bearer: await mintKey('workspace') })).status,
+      ).toBe(422)
+    })
+
+    it('keeps the origin of the first write when another kind of caller edits the decision', async () => {
+      const key = await mintKey('workspace')
+      const byKey = readRecord(
+        await (
+          await client.send('POST', '/v1/decisions', {
+            body: { target_type: 'person', target_id: personId, body: 'From a key' },
+            bearer: key,
+          })
+        ).json(),
+      )
+      const byMember = await decisionOn(personId, 'From a member')
+
+      const keyDecisionEdited = readRecord(
+        await (
+          await client.send('PATCH', `/v1/decisions/${String(byKey.id)}`, {
+            body: { body: 'Edited by a member' },
+            cookie: acme.cookie,
+          })
+        ).json(),
+      )
+      const memberDecisionEdited = readRecord(
+        await (
+          await client.send('PATCH', `/v1/decisions/${String(byMember.id)}`, {
+            body: { body: 'Edited by a key' },
+            bearer: key,
+          })
+        ).json(),
+      )
+
+      expect(keyDecisionEdited.origin).toBe('agent')
+      expect(memberDecisionEdited.origin).toBe('member')
     })
   })
 

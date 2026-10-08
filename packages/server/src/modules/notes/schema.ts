@@ -1,4 +1,5 @@
-import { RECORD_TARGET_TYPES } from '@kelpie/schemas'
+import { RECORD_TARGET_TYPES, WRITE_ORIGINS } from '@kelpie/schemas'
+import type { WriteOrigin } from '@kelpie/schemas'
 import { boolean, index, pgTable, text } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, createdAt, primaryId, searchVector, updatedAt } from '../../lib/columns.ts'
@@ -20,6 +21,10 @@ export type { RecordTargetType } from '@kelpie/schemas'
  * as the parent.
  *
  * Pinned notes are what agents read first.
+ *
+ * `origin` is what wrote the row: a member, an agent with a bearer credential,
+ * or a hosted AI run. The column has no default here, so every insert must
+ * say. The service derives it from the actor and never from a request.
  */
 export const notes = pgTable(
   'notes',
@@ -32,6 +37,7 @@ export const notes = pgTable(
     targetId: text('target_id').notNull(),
     body: text('body').notNull(),
     authorId: text('author_id').references(() => workspaceMembers.id, { onDelete: 'restrict' }),
+    origin: text('origin').$type<WriteOrigin>().notNull(),
     pinned: boolean('pinned').notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -41,5 +47,6 @@ export const notes = pgTable(
     index('notes_target_idx').on(table.workspaceId, table.targetType, table.targetId),
     index('notes_search_idx').using('gin', table.searchVector),
     checkOneOf('notes_target_type_check', table.targetType, RECORD_TARGET_TYPES),
+    checkOneOf('notes_origin_check', table.origin, WRITE_ORIGINS),
   ],
 )
