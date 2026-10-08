@@ -145,7 +145,7 @@ function toKnownTargetType(raw: string): AgentTaskTargetType | undefined {
  * was removed or renamed finds nothing: it then gets no permission, and not
  * the permissions the task had when the run was queued.
  */
-function writePermissionsFor(taskId: string): TaskWritePermissions {
+export function writePermissionsFor(taskId: string): TaskWritePermissions {
   const task = findTask(taskId)
 
   if (task === undefined) {

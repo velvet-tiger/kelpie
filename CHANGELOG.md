@@ -12,6 +12,17 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **A prompt injection evaluation for the `ai` module.**
+  `npm run eval:injection` sends the production prompts, with hostile text
+  in a fixture record, to a real model. It reports what the model tried and
+  what survived the code filter, for 20 cases. It is a tool for a person to
+  run: it needs a provider key in `EVAL_INJECTION_API_KEY`, it costs one
+  model request for each case, and no test or CI job runs it. `--dry-run`
+  prints the prompts and sends nothing. It exits non-zero when a Decision or
+  a pin survives on a task that does not grant it. See
+  `docs/development.md`. Not part of any published package, except the
+  scoring function `injectionScore.ts` in `@kelpie/server`, which is not
+  exported from the package index. No migration.
 - **`@kelpie/server`** — **The email renderer is public.** `renderEmail` and
   `renderTextEmail` are now exports of the package, with the types
   `EmailContent`, `EmailAction`, `EmailHeaderLink` and `RenderedEmail`. An

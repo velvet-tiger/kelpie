@@ -16,6 +16,7 @@
     "dev:processes": "concurrently --names api,web --prefix-colors blue,magenta \"npm run dev --workspace apps/kelpie\" \"npm run dev:web --workspace apps/kelpie\"",
     "build": "npm run build --workspaces --if-present",
     "verify:packaging": "node verify-packaging.ts",
+    "eval:injection": "node --conditions=kelpie-source eval-injection.ts",
     "release": "node release.ts",
     "publish:packages": "node publish.ts",
     "lint": "oxlint",
