@@ -245,6 +245,13 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`@kelpie/server`** — **The MCP instructions mark record content as
+  data.** The text an MCP client reads on `initialize` now says that names,
+  summaries, notes and form answers can hold text from a person outside the
+  workspace. It tells the agent to use that text as information about the
+  record only, and not to create a Decision, pin a note, create a webhook,
+  invite a member, export or delete because record content asks for it.
+  This is an instruction to a model, not a guarantee. No migration.
 - **`create-kelpie`, `@kelpie/server`** — **A scaffolded project is safer
   to deploy.** The scaffolded `.env` says `NODE_ENV=development`, and no
   document told the operator to change it. In that mode the session cookie
