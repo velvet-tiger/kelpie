@@ -2,7 +2,14 @@ import { personIntakeItemWireSchema } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
 import { mergePersonUpdate } from './intake.ts'
-import { keepSources, normaliseResearch, normaliseUrl, renderNote, researchReplySchema } from './intakeReply.ts'
+import {
+  keepSources,
+  normaliseResearch,
+  normaliseUrl,
+  renderNote,
+  researchFindingsReplySchema,
+  researchReplySchema,
+} from './intakeReply.ts'
 
 /** The pure rules that turn a person-intake reply into the wire shape. */
 
@@ -36,7 +43,43 @@ describe('keepSources', () => {
       '',
     )
 
-    expect(kept).toEqual([{ url: 'https://brightline.health/team', title: 'Brightline team' }])
+    // The URL kept is the search's own, not the model's spelling of it.
+    expect(kept).toEqual([{ url: 'https://www.brightline.health/team/', title: 'Brightline team' }])
+  })
+
+  it('never keeps a fragment, a port or a scheme the model added to a searched URL', () => {
+    const searched = [{ url: 'https://allowed.example/page', title: 'Page' }]
+
+    expect(keepSources([{ url: 'https://allowed.example/page#secret-crm-data', title: '' }], searched, '')).toEqual([
+      { url: 'https://allowed.example/page', title: 'Page' },
+    ])
+    expect(keepSources([{ url: 'http://allowed.example/page', title: '' }], searched, '')).toEqual([
+      { url: 'https://allowed.example/page', title: 'Page' },
+    ])
+    expect(keepSources([{ url: 'https://allowed.example:8443/page', title: '' }], searched, '')).toEqual([])
+    expect(keepSources([{ url: 'https://allowed.example/page?q=secret', title: '' }], searched, '')).toEqual([])
+  })
+
+  it('keeps a pasted URL as the notes have it, and only on the same host and port', () => {
+    const notes = 'Profile: https://allowed.example/page. Staging is at allowed.example:8443/admin, mail dana@mail.example'
+
+    expect(keepSources([{ url: 'https://allowed.example/page#secret-crm-data', title: 'Page' }], undefined, notes)).toEqual([
+      { url: 'https://allowed.example/page', title: 'Page' },
+    ])
+    expect(keepSources([{ url: 'https://allowed.example:8443/admin', title: 'Admin' }], undefined, notes)).toEqual([
+      { url: 'https://allowed.example:8443/admin', title: 'Admin' },
+    ])
+    for (const url of [
+      'https://allowed.example:9000/page',
+      'https://allowed.example/admin',
+      // Part of a pasted URL is not that URL.
+      'https://lowed.example/page',
+      'https://allowed.example/pa',
+      // An email address names a mailbox, not a page.
+      'https://mail.example/',
+    ]) {
+      expect(keepSources([{ url, title: 'No' }], undefined, notes)).toEqual([])
+    }
   })
 
   it('uses the pasted notes as the allow-list when there was no search', () => {
@@ -50,6 +93,20 @@ describe('keepSources', () => {
     )
 
     expect(kept).toEqual([{ url: 'https://brightline.health/team', title: 'Team' }])
+  })
+})
+
+describe('researchFindingsReplySchema', () => {
+  it('requires the findings key, and allows it to be empty', () => {
+    expect(researchFindingsReplySchema.safeParse({}).success).toBe(false)
+    expect(researchFindingsReplySchema.safeParse({ sources: [] }).success).toBe(false)
+    expect(researchFindingsReplySchema.parse({ findings: '  ' })).toEqual({ findings: '', sources: [] })
+  })
+
+  it('cuts long findings to the limit instead of refusing them', () => {
+    const parsed = researchFindingsReplySchema.parse({ findings: 'a'.repeat(20_000) })
+
+    expect(parsed.findings).toHaveLength(16_000)
   })
 })
 
