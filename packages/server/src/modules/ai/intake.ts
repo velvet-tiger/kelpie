@@ -18,14 +18,19 @@ import {
   renderIdentifyMessage,
   renderResearchInstructions,
   renderResearchMessage,
+  renderResearchSearchInstructions,
+  renderResearchSearchMessage,
 } from './intakePrompt.ts'
+import type { ResearchFindings } from './intakePrompt.ts'
 import {
   IDENTIFY_REPLY_JSON_SCHEMA,
+  RESEARCH_FINDINGS_REPLY_JSON_SCHEMA,
   RESEARCH_REPLY_JSON_SCHEMA,
   identifyReplySchema,
   keepSources,
   normaliseCandidates,
   normaliseResearch,
+  researchFindingsReplySchema,
   researchReplySchema,
 } from './intakeReply.ts'
 import type { AiCompletionResult, AiMessage, AiProviderPort, AiWebSource } from './provider.ts'
@@ -40,6 +45,12 @@ import type { AiService } from './service.ts'
  * metered like a queued run (`AiService.startSyncRun`), then makes its model
  * call inside the request and settles its own row. The model gets no Kelpie
  * tools, only the provider's web search when the workspace allows it.
+ *
+ * A call that can search never holds a CRM record. A web tool can open a URL,
+ * and text in the notes or on a page can ask for one with data in it. So
+ * `research` searches in one turn, from the notes and the candidate alone,
+ * and reads the CRM in a second turn that has no tool. With web search off
+ * there is one turn, as nothing in it can reach the web.
  *
  * Kelpie reads the CRM for the model (existing People, candidate Companies)
  * through the in-process MCP tools with the **caller's** actor, and `apply`
@@ -120,12 +131,23 @@ const APPLY_ORDER: readonly PersonIntakeItemWire['kind'][] = [
   'enquiry',
 ]
 
-/** What one intake call spent, over its first turn and any repair turn. */
+/** What one intake run spent, over every turn and any repair turn. */
 interface RunUsage {
   readonly inputTokens: number
   readonly outputTokens: number
   readonly modelRequests: number
   readonly webSearches: number
+}
+
+const NO_USAGE: RunUsage = { inputTokens: 0, outputTokens: 0, modelRequests: 0, webSearches: 0 }
+
+function addUsage(left: RunUsage, right: RunUsage): RunUsage {
+  return {
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    modelRequests: left.modelRequests + right.modelRequests,
+    webSearches: left.webSearches + right.webSearches,
+  }
 }
 
 type JsonCall<Value> =
@@ -489,24 +511,56 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
 
       return withSyncRun(workspaceId, 'person_intake.research', input.text, async (sync) => {
         const port = await portFor(workspaceId)
+        let findings: ResearchFindings | null = null
+        let searched: readonly AiWebSource[] | undefined
+        let searchUsage = NO_USAGE
+
+        if (sync.webSearch) {
+          // The only turn that can reach the web. Its prompt takes the notes
+          // and the candidate, and nothing read from the CRM above.
+          const search = await callForJson(port, {
+            model: sync.model,
+            instructions: renderResearchSearchInstructions(),
+            message: renderResearchSearchMessage({ text: input.text, candidate: input.candidate }),
+            schemaName: 'kelpie_person_intake_research_findings',
+            jsonSchema: RESEARCH_FINDINGS_REPLY_JSON_SCHEMA,
+            schema: researchFindingsReplySchema,
+            maxSearches: RESEARCH_MAX_SEARCHES,
+          })
+
+          if (!search.ok) throw new IntakeCallError(search.error, search.usage)
+
+          searched = search.webSources
+          searchUsage = search.usage
+          findings = {
+            text: search.value.findings,
+            sources: keepSources(search.value.sources, searched, input.text),
+          }
+        }
+
         const call = await callForJson(port, {
           model: sync.model,
-          instructions: renderResearchInstructions(sync.webSearch),
+          instructions: renderResearchInstructions(findings !== null),
           message: renderResearchMessage({
             text: input.text,
             candidate: input.candidate,
+            findings,
             existingPerson,
             existingCompanies,
           }),
           schemaName: 'kelpie_person_intake_research',
           jsonSchema: RESEARCH_REPLY_JSON_SCHEMA,
           schema: researchReplySchema,
-          maxSearches: sync.webSearch ? RESEARCH_MAX_SEARCHES : null,
+          // This turn holds CRM records, so it and its repair turn get no web tool.
+          maxSearches: null,
         })
+        const usage = addUsage(searchUsage, call.usage)
 
-        if (!call.ok) throw new IntakeCallError(call.error, call.usage)
+        if (!call.ok) throw new IntakeCallError(call.error, usage)
 
-        const sources = keepSources(call.value.sources, sync.webSearch ? call.webSources : undefined, input.text)
+        // The record turn cannot search, so the pages the search turn was
+        // given are still the allow-list for what it cites.
+        const sources = keepSources(call.value.sources, searched, input.text)
         const items = normaliseResearch({
           reply: call.value,
           existingPersonId: input.existingPersonId,
@@ -524,7 +578,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
 
         return {
           result: response,
-          usage: call.usage,
+          usage,
         }
       })
     },

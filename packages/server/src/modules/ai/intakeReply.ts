@@ -108,6 +108,17 @@ const companyReply = z.object({
   tags: stringList(20),
 })
 
+/**
+ * What research's search turn replies: prose, not records. The turn that
+ * builds the records reads it beside the CRM, with no web tool.
+ */
+export const researchFindingsReplySchema = z.object({
+  findings: z.string().trim().max(16_000).default(''),
+  sources: sourcesReply,
+})
+
+export type ResearchFindingsReply = z.infer<typeof researchFindingsReplySchema>
+
 const reason = z.string().trim().max(8000).default('')
 
 export const researchReplySchema = z.object({
@@ -151,6 +162,9 @@ export type ResearchReply = z.infer<typeof researchReplySchema>
 
 /** The JSON schemas advertised to the model. Advisory: the Zod parse above is the authority. */
 export const IDENTIFY_REPLY_JSON_SCHEMA = z.toJSONSchema(identifyReplySchema, { io: 'input' }) as Record<string, unknown>
+export const RESEARCH_FINDINGS_REPLY_JSON_SCHEMA = z.toJSONSchema(researchFindingsReplySchema, {
+  io: 'input',
+}) as Record<string, unknown>
 export const RESEARCH_REPLY_JSON_SCHEMA = z.toJSONSchema(researchReplySchema, { io: 'input' }) as Record<string, unknown>
 
 // ---------------------------------------------------------------- normalise
