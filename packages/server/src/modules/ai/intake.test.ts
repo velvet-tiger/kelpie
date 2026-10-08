@@ -76,12 +76,14 @@ interface Harness {
   readonly client: TestClient
   readonly provider: ProviderFake
   limit: number | undefined
+  /** True makes the module fail to build a port, as a run that dies before any model request. */
+  portFails: boolean
 }
 
 async function buildHarness(database: TestDatabase): Promise<Harness> {
   const provider = makeProviderFake()
   const entitlements = createEntitlementRegistry()
-  const state: { limit: number | undefined } = { limit: undefined }
+  const state: { limit: number | undefined; portFails: boolean } = { limit: undefined, portFails: false }
 
   entitlements.provide((_workspaceId, capability) =>
     Promise.resolve(
@@ -91,7 +93,10 @@ async function buildHarness(database: TestDatabase): Promise<Harness> {
     ),
   )
 
-  const build = (): AiProviderPort => provider
+  const build = (): AiProviderPort => {
+    if (state.portFails) throw new Error('The provider port could not be built')
+    return provider
+  }
   const app = await createTestApp({
     modules: [...coreModules, createAiModule({ keyMode: 'workspace', providers: { openai: build, anthropic: build } })],
     environment: TEST_ENVIRONMENT,
@@ -114,6 +119,12 @@ async function buildHarness(database: TestDatabase): Promise<Harness> {
     },
     set limit(value) {
       state.limit = value
+    },
+    get portFails() {
+      return state.portFails
+    },
+    set portFails(value) {
+      state.portFails = value
     },
   }
 }
@@ -261,6 +272,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
     settledEvents.length = 0
     h.provider.reset()
     h.limit = undefined
+    h.portFails = false
   })
 
   describe('identify', () => {
@@ -424,6 +436,58 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect(rows.find((row) => row.status === 'failed')?.inputTokens).toBe(200)
       // A port that does not report requests counts one for each call.
       expect(rows.find((row) => row.status === 'failed')?.modelRequests).toBe(2)
+    })
+
+    it('keeps the first request\'s usage when the repair request throws', async () => {
+      const owner = await enabledOwner(h, 'repair-throws@example.com')
+      // One reply only: the repair request finds the fake empty, and it rejects.
+      h.provider.queue({ ...reply('not json at all'), usage: { inputTokens: 100, outputTokens: 50, webSearches: 2 } })
+
+      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
+        cookie: owner.cookie,
+        body: { text: 'Dana Reyes' },
+      })
+
+      expect(response.status).toBe(500)
+      expect(h.provider.requests).toHaveLength(2)
+      const [run] = await runRows(h, owner.workspaceId)
+      expect(run).toMatchObject({
+        status: 'failed',
+        failureReason: 'The AI service was unavailable. Try again shortly.',
+        inputTokens: 100,
+        outputTokens: 50,
+        modelRequests: 1,
+        webSearches: 2,
+      })
+    })
+
+    it('leaves the counts unset on a run that fails before any model request', async () => {
+      const owner = await enabledOwner(h, 'no-request@example.com')
+      // The run is admitted, then no port can be built for it.
+      h.portFails = true
+
+      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
+        cookie: owner.cookie,
+        body: { text: 'Dana Reyes' },
+      })
+
+      expect(response.status).toBe(500)
+      expect(h.provider.requests).toHaveLength(0)
+      const [run] = await runRows(h, owner.workspaceId)
+      expect(run).toMatchObject({
+        status: 'failed',
+        failureReason: 'The AI service was unavailable. Try again shortly.',
+        inputTokens: null,
+        outputTokens: null,
+        modelRequests: null,
+        webSearches: null,
+      })
+
+      await h.app.services.events.drain()
+      expect(settledEvents).toHaveLength(1)
+      expect(settledEvents[0]).toMatchObject({ runId: run?.id, status: 'failed' })
+      expect(settledEvents[0]?.modelRequests ?? null).toBeNull()
+      expect(settledEvents[0]?.inputTokens ?? null).toBeNull()
     })
 
     it('shows a provider failure on a workspace key and settles the run failed', async () => {

@@ -156,13 +156,14 @@ type JsonCall<Value> =
       readonly ok: true
       readonly value: Value
       readonly webSources: readonly AiWebSource[]
-      readonly usage: RunUsage
     }
   | {
       readonly ok: false
       readonly error: AppError
-      readonly usage: RunUsage
     }
+
+/** Adds one provider request's usage to the run it belongs to. */
+type Spend = (usage: RunUsage) => void
 
 function requireWorkspace(actor: Actor): string {
   const workspaceId = actorWorkspaceId(actor)
@@ -222,11 +223,11 @@ interface SyncRun {
   readonly model: string
   readonly webSearch: boolean
   /**
-   * Adds one model call's usage to the run. Called as soon as the call
-   * answers, so a run that fails later, for any reason, still records what
-   * the provider billed.
+   * Adds one provider request's usage to the run. `callForJson` calls it as
+   * soon as each request answers, so a run that fails later, for any reason,
+   * still records what the provider billed.
    */
-  readonly spend: (usage: RunUsage) => void
+  readonly spend: Spend
 }
 
 export function createPersonIntake(dependencies: PersonIntakeDependencies): PersonIntake {
@@ -275,9 +276,14 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
       : { issues: parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`) }
   }
 
-  /** One model call and, when the reply does not parse, one repair turn. The same shape as the executor. */
+  /**
+   * One model call and, when the reply does not parse, one repair turn. The
+   * same shape as the executor. Each request's usage goes to `spend` when it
+   * answers, so a repair request that throws does not lose the first one's.
+   */
   async function callForJson<Value>(
     port: AiProviderPort,
+    spend: Spend,
     request: {
       readonly model: string
       readonly instructions: string
@@ -290,11 +296,6 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
   ): Promise<JsonCall<Value>> {
     const messages: AiMessage[] = [{ role: 'user', text: request.message }]
     const webSources: AiWebSource[] = []
-    let inputTokens = 0
-    let outputTokens = 0
-    let modelRequests = 0
-    let webSearches = 0
-    const usage = (): RunUsage => ({ inputTokens, outputTokens, modelRequests, webSearches })
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const result = await port.complete({
@@ -307,10 +308,12 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
         webSearch: request.maxSearches === null || attempt > 0 ? undefined : { maxUses: request.maxSearches },
       })
 
-      inputTokens += result.usage.inputTokens
-      outputTokens += result.usage.outputTokens
-      modelRequests += result.usage.requests ?? 1
-      webSearches += result.usage.webSearches ?? 0
+      spend({
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        modelRequests: result.usage.requests ?? 1,
+        webSearches: result.usage.webSearches ?? 0,
+      })
       webSources.push(...(result.webSources ?? []))
 
       const failure = failureFor(result)
@@ -321,12 +324,12 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
             error: result.failure?.message ?? 'no message',
           })
         }
-        return { ok: false, error: failure, usage: usage() }
+        return { ok: false, error: failure }
       }
 
       const parsed = parseReply(result.text, request.schema)
       if ('value' in parsed) {
-        return { ok: true, value: parsed.value, webSources, usage: usage() }
+        return { ok: true, value: parsed.value, webSources }
       }
 
       if (attempt === 0) {
@@ -341,13 +344,12 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
         return {
           ok: false,
           error: AppError.conflict(`The model did not return a valid reply: ${parsed.issues.slice(0, 3).join('; ')}`),
-          usage: usage(),
         }
       }
     }
 
     // Unreachable: the loop returns on both attempts.
-    return { ok: false, error: new AppError('internal_error', PROVIDER_FAILURE_MESSAGE), usage: usage() }
+    return { ok: false, error: new AppError('internal_error', PROVIDER_FAILURE_MESSAGE) }
   }
 
   /**
@@ -357,10 +359,11 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
    */
   function searchForResearch(
     port: AiProviderPort,
+    spend: Spend,
     model: string,
     context: ResearchSearchContext,
   ): Promise<JsonCall<ResearchFindingsReply>> {
-    return callForJson(port, {
+    return callForJson(port, spend, {
       model,
       instructions: renderResearchSearchInstructions(),
       message: renderResearchSearchMessage(context),
@@ -374,8 +377,9 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
   /**
    * Runs `body` inside a synchronous AI run: admits it, and settles the row
    * whatever happens, so a thrown error never leaves it `running`. The row
-   * gets every call's usage the body reported through `spend`, on success
-   * and on failure alike.
+   * gets every request's usage reported through `spend`, on success and on
+   * failure alike. A run that made no request has no counts at all, which is
+   * not the same as a request that spent nothing.
    */
   async function withSyncRun<Result>(
     workspaceId: string,
@@ -385,7 +389,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
   ): Promise<Result> {
     const sync = await dependencies.service.startSyncRun(workspaceId, taskId, prompt)
     const runId = sync.run.id
-    let spent = NO_USAGE
+    let spent: RunUsage | undefined
     let settled = false
 
     try {
@@ -394,7 +398,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
         model: sync.model,
         webSearch: sync.webSearch,
         spend: (usage) => {
-          spent = addUsage(spent, usage)
+          spent = addUsage(spent ?? NO_USAGE, usage)
         },
       })
       settled = true
@@ -470,7 +474,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
 
       return withSyncRun(workspaceId, 'person_intake.identify', text, async (sync) => {
         const port = await portFor(workspaceId)
-        const call = await callForJson(port, {
+        const call = await callForJson(port, sync.spend, {
           model: sync.model,
           instructions: renderIdentifyInstructions(sync.webSearch),
           message: renderIdentifyMessage(text),
@@ -479,7 +483,6 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
           schema: identifyReplySchema,
           maxSearches: sync.webSearch ? IDENTIFY_MAX_SEARCHES : null,
         })
-        sync.spend(call.usage)
 
         if (!call.ok) throw call.error
 
@@ -544,8 +547,10 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
         let searched: readonly AiWebSource[] | undefined
 
         if (sync.webSearch) {
-          const search = await searchForResearch(port, sync.model, { text: input.text, candidate: input.candidate })
-          sync.spend(search.usage)
+          const search = await searchForResearch(port, sync.spend, sync.model, {
+            text: input.text,
+            candidate: input.candidate,
+          })
 
           if (!search.ok) throw search.error
 
@@ -556,7 +561,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
           }
         }
 
-        const call = await callForJson(port, {
+        const call = await callForJson(port, sync.spend, {
           model: sync.model,
           instructions: renderResearchInstructions(findings !== null),
           message: renderResearchMessage({
@@ -572,7 +577,6 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
           // This turn holds CRM records, so it and its repair turn get no web tool.
           maxSearches: null,
         })
-        sync.spend(call.usage)
 
         if (!call.ok) throw call.error
 

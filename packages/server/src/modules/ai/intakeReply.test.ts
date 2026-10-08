@@ -96,6 +96,59 @@ describe('keepSources', () => {
   })
 })
 
+describe('keepSources, reading URLs out of the notes', () => {
+  const keptFrom = (notes: string, url: string): string[] =>
+    keepSources([{ url, title: 'T' }], undefined, notes).map((source) => source.url)
+
+  it('never allow-lists a host the user did not write', () => {
+    for (const [notes, url] of [
+      // The local part of an email address, and its domain.
+      ['dana.reyes@brightline.health', 'https://dana.reyes/'],
+      ['dana.reyes@brightline.health', 'https://brightline.health/'],
+      // Credentials before the real host.
+      ['https://allowed.example@evil.example/x', 'https://allowed.example/'],
+      ['https://allowed.example@evil.example/x', 'https://evil.example/x'],
+      // The ASCII tail of a host in another alphabet.
+      ['https://m\u00FCnchen.example/team', 'https://nchen.example/team'],
+      ['m\u00FCnchen.example/team', 'https://nchen.example/team'],
+      // Dotted words that are not web addresses.
+      ['Use a title, e.g. CTO', 'https://e.g/'],
+      ['Upgrade to v1.2 soon', 'https://v1.2/'],
+      ['Release 1.2.3 shipped', 'https://1.2.3/'],
+      ['See file.txt for more', 'https://file.txt/'],
+      ['See brightline.health for more', 'https://brightline.health/'],
+      // A host that goes on is another host.
+      ['www.allowed.example.evil.test', 'https://www.allowed.example/'],
+      ['www.allowed.example@evil.test', 'https://www.allowed.example/'],
+    ] as const) {
+      expect(keptFrom(notes, url), `${notes} must not allow ${url}`).toEqual([])
+    }
+  })
+
+  it('keeps a pasted URL through markdown, Slack and bracket punctuation', () => {
+    for (const notes of [
+      '[https://x.com/a](https://x.com/a)',
+      '[her profile](https://x.com/a)',
+      '**https://x.com/a**',
+      '_https://x.com/a_',
+      '<https://x.com/a|label>',
+      '(see https://x.com/a).',
+      'x.com/a, and more',
+      'www.x.com/a',
+    ]) {
+      expect(keptFrom(notes, 'https://x.com/a'), notes).toHaveLength(1)
+    }
+
+    const wikipedia = 'https://en.wikipedia.org/wiki/Dana_(engineer)'
+    expect(keptFrom(wikipedia, wikipedia)).toEqual([wikipedia])
+    expect(keptFrom(`(her page: ${wikipedia})`, wikipedia)).toEqual([wikipedia])
+    expect(keptFrom('https://m\u00FCnchen.example/team', 'https://m\u00FCnchen.example/team')).toEqual([
+      'https://xn--mnchen-3ya.example/team',
+    ])
+    expect(keptFrom('Site: www.x.com.', 'https://www.x.com/')).toEqual(['https://www.x.com/'])
+  })
+})
+
 describe('researchFindingsReplySchema', () => {
   it('requires the findings key, and allows it to be empty', () => {
     expect(researchFindingsReplySchema.safeParse({}).success).toBe(false)

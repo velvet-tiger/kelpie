@@ -218,19 +218,68 @@ function urlKey(url: string): string {
 }
 
 /**
- * A URL as text has it: an optional scheme, a dotted host, an optional port,
- * and a path. The lookbehind refuses the middle of a longer host and the
- * domain of an email address.
+ * A URL in pasted text. Two shapes count, tried in this order:
+ *
+ * - With a scheme: `http://` or `https://`, then everything up to white
+ *   space, a quote, or a mark that markdown and Slack put round a link
+ *   (`<`, `>`, `|`, `[`, `]`).
+ * - With no scheme: a host that ends in an alphabetic label, an optional
+ *   port, and an optional path. `urlsInText` then keeps it only when it is
+ *   plainly a web address.
+ *
+ * Neither may start in the middle of a word, in any alphabet. The second may
+ * not start after `@`, `.`, `-`, `_`, `/` or `:` either, so it never takes
+ * the domain of an email address or the tail of a longer host. The first
+ * shape consumes its whole URL, so the second never matches inside one.
  */
-const URL_IN_TEXT = /(?<![\w@.-])(?:https?:\/\/)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?:[/?#][^\s<>"'`]*)?/giu
+const URL_IN_TEXT =
+  /(?<![\p{L}\p{N}])https?:\/\/[^\s<>"'`|[\]]+|(?<![\p{L}\p{N}@._/:-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?(?:\/[^\s<>"'`|[\]]*)?/giu
 
-/** Every URL the pasted notes contain, by key, without its fragment. */
+/** What may follow a host that has no path: not more of a name, and not the `@` of an email address. */
+const HOST_CONTINUES = /^(?:[\p{L}\p{N}_@-]|[.:][\p{L}\p{N}])/u
+
+/**
+ * A URL match without the prose and markdown that follow it: sentence
+ * punctuation, emphasis marks, and a `)` that closes a bracket opened before
+ * the URL. A `)` that closes a `(` inside the URL stays, as in a Wikipedia
+ * title.
+ */
+function withoutTrailingMarks(match: string, precededByUnderscore: boolean): string {
+  let url = match
+
+  for (;;) {
+    const last = url.at(-1)
+    const unbalanced = last === ')' && url.split(')').length > url.split('(').length
+    const mark = last !== undefined && '.,;:!?*'.includes(last)
+
+    if (!mark && !unbalanced && !(last === '_' && precededByUnderscore)) return url
+    url = url.slice(0, -1)
+  }
+}
+
+/**
+ * Every URL the pasted notes contain, by key, without its fragment.
+ *
+ * A match with no scheme counts only when it starts with `www.` or has a
+ * path, as `linkedin.com/in/dana` does. A bare dotted word (`e.g.`,
+ * `file.txt`, `v1.2`) is not a web address, and a host the user did not
+ * write must never join the allow-list.
+ */
 function urlsInText(text: string): Map<string, string> {
   const found = new Map<string, string>()
 
   for (const match of text.matchAll(URL_IN_TEXT)) {
-    // Prose punctuation after a URL is not part of it.
-    const url = normaliseUrl(match[0].replace(/[.,;:!?)\]}]+$/u, ''))
+    const raw = withoutTrailingMarks(match[0], text[match.index - 1] === '_')
+
+    if (!/^https?:\/\//iu.test(raw)) {
+      const path = raw.indexOf('/')
+      const plainlyWeb = /^www\./iu.test(raw) || (path !== -1 && path < raw.length - 1)
+      const continues = path === -1 && HOST_CONTINUES.test(text.slice(match.index + match[0].length))
+
+      if (!plainlyWeb || continues) continue
+    }
+
+    const url = normaliseUrl(raw)
     if (url === undefined) continue
 
     const parsed = new URL(url)
