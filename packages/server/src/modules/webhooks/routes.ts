@@ -8,11 +8,12 @@ import type { WebhookDeliveryStatus, WebhookStatus } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
-import { AppError, toErrorDetails } from '../../lib/errors.ts'
+import { AppError } from '../../lib/errors.ts'
 import {
   pageBody,
   readJsonBody,
   readListParameters,
+  readOptionalJsonBody,
   withholdFromReplay,
 } from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
@@ -76,35 +77,6 @@ export const rotateBody = z.strictObject({ overlap: z.boolean().optional() })
 
 export interface WebhooksRoutesDependencies extends CredentialDependencies {
   readonly service: WebhooksService
-}
-
-/**
- * Reads a body that may be absent entirely.
- *
- * `POST …/rotate_secret` with nothing in it is the ordinary request, and
- * `readJsonBody` answers `400` for an empty body. Local to this module rather
- * than in `lib/http.ts` because it has one caller; it moves there when a second
- * endpoint wants it.
- */
-async function readOptionalJsonBody<T>(context: Context, schema: z.ZodType<T>): Promise<T> {
-  const text = await context.req.text()
-  let raw: unknown = {}
-
-  if (text.trim().length > 0) {
-    try {
-      raw = JSON.parse(text)
-    } catch {
-      throw new AppError('bad_request', 'Body must be valid JSON')
-    }
-  }
-
-  const parsed = schema.safeParse(raw)
-
-  if (!parsed.success) {
-    throw AppError.validationFailed('Request body is invalid', toErrorDetails(parsed.error.issues))
-  }
-
-  return parsed.data
 }
 
 export function webhookResponse(webhook: WebhookView): Record<string, unknown> {

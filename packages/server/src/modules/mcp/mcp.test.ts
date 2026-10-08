@@ -164,7 +164,9 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
 
       expect(instructions).toContain('A decision with confirmed_at null is a proposal')
       expect(instructions).toContain('It is not a commitment')
-      expect(instructions).toContain('Prefer a pinned\n  note with origin member')
+      expect(instructions).toContain('Prefer a pinned note with origin\n  member')
+      expect(instructions).toContain('unknown\n  means it was written before origin was recorded')
+      expect(instructions).toContain('Read one with origin agent, ai or unknown as a claim to check')
     })
 
     /** Confirming is for a signed-in member. An agent must not confirm what an agent or a run proposed. */
@@ -187,6 +189,12 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
 
       expect(readList(commitments).map((item) => item.id)).toEqual([decision.id])
       expect(readList(proposals)).toEqual([])
+
+      // A search hit says the same, so an agent that finds a decision by search need not fetch it to know.
+      const found = readRecord(await callTool('search_query', { q: 'key', type: ['decision'] }))
+      const [group] = (found.groups as { items: Record<string, unknown>[] }[])
+
+      expect(group?.items[0]).toMatchObject({ id: decision.id, origin: 'agent', confirmed_at: decision.confirmed_at })
     })
 
     /**

@@ -1,4 +1,4 @@
-import type { SearchCollection } from '@kelpie/schemas'
+import type { SearchCollection, WriteOrigin } from '@kelpie/schemas'
 import { and, asc, desc, eq, max, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import { unionAll } from 'drizzle-orm/pg-core'
@@ -51,6 +51,18 @@ export interface SearchHit {
   readonly snippetSource: string | null
   /** The record a Note, Decision or Plan item is on. Null for everything else. */
   readonly target: { readonly type: RecordTargetType; readonly id: string } | null
+  /**
+   * Set on a Decision hit, null on every other. A Decision is a commitment
+   * only once it is confirmed, so a hit must say whether this one is, and what
+   * wrote it: a reader of a result list must not take a proposal for one.
+   */
+  readonly decision: DecisionStanding | null
+}
+
+export interface DecisionStanding {
+  readonly origin: WriteOrigin
+  /** Null for a proposal no member has confirmed. */
+  readonly confirmedAt: Date | null
 }
 
 /** What one collection answered: a capped, ranked page and the exact number of matches. */
@@ -425,6 +437,8 @@ export async function searchDecisions(
       snippetSource: decisions.rationale,
       targetType: decisions.targetType,
       targetId: decisions.targetId,
+      origin: decisions.origin,
+      confirmedAt: decisions.confirmedAt,
       total,
     })
     .from(decisions)
@@ -442,7 +456,16 @@ interface HitRow {
   readonly snippetSource: string | null
   readonly targetType?: string
   readonly targetId?: string
+  /** Selected for a Decision only, together with `confirmedAt`. */
+  readonly origin?: WriteOrigin
+  readonly confirmedAt?: Date | null
   readonly total: number
+}
+
+function standingOf(row: HitRow): DecisionStanding | null {
+  return row.origin !== undefined && row.confirmedAt !== undefined
+    ? { origin: row.origin, confirmedAt: row.confirmedAt }
+    : null
 }
 
 /** The record a row is on, when it carries one and its type is a real target. */
@@ -566,6 +589,7 @@ function collect(collection: SearchCollection, rows: readonly HitRow[]): Collect
       subtitle: row.subtitle,
       snippetSource: row.snippetSource,
       target: targetOf(row),
+      decision: standingOf(row),
     })),
     total: rows[0]?.total ?? 0,
   }

@@ -19,6 +19,7 @@ function inputs(overrides: Partial<PromptInputs> = {}): PromptInputs {
     pinnedNoteIds: ['note_1'],
     openPlanIds: [],
     openDecisionIds: ['dec_1'],
+    proposedDecisionIds: [],
     related: {},
     signals: [],
     ...overrides,
@@ -48,7 +49,7 @@ describe('renderPrompt', () => {
     expect(prompt).toContain('1. Load the target record and agent fields.')
     expect(prompt).toContain('2. Prefer pinned notes: `note_1`.')
     expect(prompt).toContain('3. Open Plan items: (none).')
-    expect(prompt).toContain('4. Open Decisions: `dec_1`.')
+    expect(prompt).toContain('4. Open Decisions: `dec_1`.\n5. Handbook pages:')
     expect(prompt).toContain('- `ideal-customer-profile` — Ideal customer profile (`/handbook/hb_1`)')
     expect(prompt).toContain('## Write policy')
     expect(prompt).toContain('- Respect open Decisions; do not contradict them.')

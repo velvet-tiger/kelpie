@@ -2,6 +2,7 @@ import type { SearchCollection, SearchResult, SearchResultGroup } from '@kelpie/
 import { Link, useSearchParams } from 'react-router'
 
 import { useSearch } from '../api/resources/search.ts'
+import { Chip } from '../components/Chip.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import { PageHeader } from '../components/PageHeader.tsx'
 import { attachedHref } from '../lib/recordLinks.ts'
@@ -140,6 +141,8 @@ function ResultRow({
     >
       <div className="flex items-center justify-between gap-3">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{item.title}</span>
+        {/* A Decision no member has confirmed is not a commitment yet. */}
+        {item.decision !== null && item.decision.confirmedAt === null && <Chip tone="warning">Proposed</Chip>}
         {item.subtitle !== null && item.subtitle.length > 0 && (
           <span className="max-w-[45%] truncate text-[11px] text-ink-faint">{item.subtitle}</span>
         )}

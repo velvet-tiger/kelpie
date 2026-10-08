@@ -2,8 +2,8 @@ import { decisionSchema } from '@kelpie/schemas'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { createHostedAiActor } from '../../lib/actor.ts'
-import type { OAuthActor } from '../../lib/actor.ts'
+import { asAiAuthor, createHostedAiActor } from '../../lib/actor.ts'
+import type { OAuthActor, SessionActor } from '../../lib/actor.ts'
 import { AppError } from '../../lib/errors.ts'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -434,38 +434,159 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
       ).toBe(422)
     })
 
-    it('keeps the origin of the first write when another kind of caller edits the decision', async () => {
-      const key = await mintKey('workspace')
+    /** A decision as an older writer or a model left it, which no REST caller can make. */
+    async function storedDecision(origin: 'ai' | 'unknown', confirmedAt: Date | null): Promise<string> {
+      const id = harness.services.createId('decision')
+
+      await database.db.insert(decisions).values({
+        id,
+        workspaceId: acme.workspaceId,
+        targetType: 'person',
+        targetId: personId,
+        body: `Stored with origin ${origin}`,
+        origin,
+        confirmedAt,
+        confirmedById: null,
+      })
+
+      return id
+    }
+
+    async function patch(
+      id: string,
+      body: Record<string, unknown>,
+      credentials: { cookie?: string; bearer?: string },
+    ): Promise<Record<string, unknown>> {
+      const response = await client.send('PATCH', `/v1/decisions/${id}`, { body, ...credentials })
+
+      expect(response.status).toBe(200)
+
+      return readRecord(await response.json())
+    }
+
+    /** `decisions_update` over `/mcp`, as an agent with this key calls it. */
+    async function updateOverMcp(key: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+      const response = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'decisions_update', arguments: args },
+        }),
+      })
+      const result = readRecord(readRecord(await response.json()).result)
+      const [content] = result.content as { text: string }[]
+
+      expect(result.isError).not.toBe(true)
+
+      return readRecord(JSON.parse(content?.text ?? 'null'))
+    }
+
+    it('does not make an agent decision a member decision when a member edits it', async () => {
       const byKey = readRecord(
         await (
           await client.send('POST', '/v1/decisions', {
             body: { target_type: 'person', target_id: personId, body: 'From a key' },
-            bearer: key,
-          })
-        ).json(),
-      )
-      const byMember = await decisionOn(personId, 'From a member')
-
-      const keyDecisionEdited = readRecord(
-        await (
-          await client.send('PATCH', `/v1/decisions/${String(byKey.id)}`, {
-            body: { body: 'Edited by a member' },
-            cookie: acme.cookie,
-          })
-        ).json(),
-      )
-      const memberDecisionEdited = readRecord(
-        await (
-          await client.send('PATCH', `/v1/decisions/${String(byMember.id)}`, {
-            body: { body: 'Edited by a key' },
-            bearer: key,
+            bearer: await mintKey('workspace'),
           })
         ).json(),
       )
 
-      expect(keyDecisionEdited.origin).toBe('agent')
-      expect(memberDecisionEdited.origin).toBe('member')
+      const edited = await patch(String(byKey.id), { body: 'Edited by a member' }, { cookie: acme.cookie })
+
+      expect(edited.origin).toBe('agent')
+      expect(edited.confirmed_by_id).toBeNull()
     })
+
+    it('takes the member off a decision when an API key rewrites its body or its rationale', async () => {
+      const key = await mintKey('personal')
+
+      for (const change of [{ body: 'Rewritten by a key' }, { rationale: 'A reason a key wrote' }]) {
+        const created = await decisionOn(personId, 'From a member')
+
+        expect(created.confirmed_by_id).toMatch(/^mem_/u)
+
+        const edited = await patch(String(created.id), change, { bearer: key })
+
+        expect(edited.origin).toBe('agent')
+        expect(edited.confirmed_by_id).toBeNull()
+        // It was a commitment before the edit and no edit changes that, in either direction.
+        expect(edited.confirmed_at).toBe(created.confirmed_at)
+      }
+    })
+
+    it('takes the member off a decision when an agent rewrites its body over MCP', async () => {
+      const created = await decisionOn(personId, 'From a member')
+
+      const edited = await updateOverMcp(await mintKey('workspace'), { id: created.id, body: 'Rewritten over MCP' })
+
+      expect(edited.origin).toBe('agent')
+      expect(edited.confirmed_by_id).toBeNull()
+    })
+
+    it('keeps the origin and the member when an API key changes only the date, the owner, or nothing', async () => {
+      const created = await decisionOn(personId, 'From a member')
+      const key = await mintKey('workspace')
+
+      for (const change of [
+        { due_at: '2026-09-01T00:00:00.000Z' },
+        { owner_id: null },
+        { decided_at: '2026-07-01T09:30:00.000Z' },
+        { body: 'From a member' },
+      ]) {
+        const edited = await patch(String(created.id), change, { bearer: key })
+
+        expect(edited.origin).toBe('member')
+        expect(edited.confirmed_by_id).toBe(created.confirmed_by_id)
+      }
+
+      const overMcp = await updateOverMcp(key, { id: created.id, due_at: null })
+
+      expect(overMcp.origin).toBe('member')
+      expect(overMcp.confirmed_by_id).toBe(created.confirmed_by_id)
+    })
+
+    it('keeps a member decision as it is when a member edits it', async () => {
+      const created = await decisionOn(personId, 'From a member')
+
+      const edited = await patch(String(created.id), { body: 'Edited by the member' }, { cookie: acme.cookie })
+
+      expect(edited.origin).toBe('member')
+      expect(edited.confirmed_by_id).toBe(created.confirmed_by_id)
+    })
+
+    it('keeps a model decision as ai and unconfirmed, whoever rewrites it', async () => {
+      const id = await storedDecision('ai', null)
+
+      const byKey = await patch(id, { body: 'Rewritten by a key' }, { bearer: await mintKey('workspace') })
+      const overMcp = await updateOverMcp(await mintKey('workspace'), { id, rationale: 'Rewritten over MCP' })
+      const byMember = await patch(id, { body: 'Rewritten by a member' }, { cookie: acme.cookie })
+
+      for (const edited of [byKey, overMcp, byMember]) {
+        expect(edited.origin).toBe('ai')
+        expect(edited.confirmed_at).toBeNull()
+        expect(edited.confirmed_by_id).toBeNull()
+      }
+    })
+
+    it('makes a decision from before origin was recorded an agent decision when a key rewrites it, and leaves it for a member', async () => {
+      const byMember = await storedDecision('unknown', new Date('2026-01-02T03:04:05.000Z'))
+      const byKey = await storedDecision('unknown', new Date('2026-01-02T03:04:05.000Z'))
+
+      expect((await patch(byMember, { body: 'Rewritten by a member' }, { cookie: acme.cookie })).origin).toBe('unknown')
+
+      const edited = await patch(byKey, { body: 'Rewritten by a key' }, { bearer: await mintKey('workspace') })
+
+      expect(edited.origin).toBe('agent')
+      expect(edited.confirmed_at).toBe('2026-01-02T03:04:05.000Z')
+    })
+
   })
 
   describe('confirming', () => {
@@ -584,7 +705,7 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
      * service must still refuse them, so that a door added later does not
      * open this.
      */
-    it('refuses an OAuth actor and the hosted AI actor at the service', async () => {
+    it('refuses an OAuth actor, the hosted AI actor and a session marked as a model at the service', async () => {
       const id = await proposal()
       const service = createDecisionsService({
         db: harness.services.db,
@@ -604,14 +725,148 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
         memberId: 'mem_test',
       }
 
-      for (const actor of [oauth, createHostedAiActor(acme.workspaceId)]) {
-        const refusal: unknown = await service.confirm(actor, id).catch((thrown: unknown) => thrown)
+      const member: SessionActor = {
+        kind: 'session',
+        userId: 'usr_test',
+        sessionId: 'ses_test',
+        workspaceId: acme.workspaceId,
+        role: 'owner',
+        memberId: 'mem_test',
+      }
+
+      // The last is a member's session marked for one write of a model's text,
+      // as person intake makes. It must not confirm either.
+      for (const actor of [oauth, createHostedAiActor(acme.workspaceId), asAiAuthor(member)]) {
+        const refusal: unknown = await service
+          .confirm(actor, id, { updatedAt: undefined })
+          .catch((thrown: unknown) => thrown)
 
         expect(refusal).toBeInstanceOf(AppError)
         expect(refusal instanceof AppError && refusal.code).toBe('forbidden')
       }
 
       expect((await read(id)).confirmed_at).toBeNull()
+    })
+
+    describe('with the version the member read', () => {
+      function confirmVersion(id: string, updatedAt: unknown): Promise<Response> {
+        return client.send('POST', `/v1/decisions/${id}/confirm`, {
+          body: { updated_at: updatedAt },
+          cookie: acme.cookie,
+        })
+      }
+
+      it('confirms when the proposal is the one the member read', async () => {
+        const id = await proposal()
+        const shown = await read(id)
+        const response = await confirmVersion(id, shown.updated_at)
+
+        expect(response.status).toBe(200)
+        expect(readRecord(await response.json()).confirmed_at).not.toBeNull()
+      })
+
+      /** The swap: an agent rewrites the proposal between the member's read and the click. */
+      it('answers 409 and confirms nothing when an API key edited the proposal after the read', async () => {
+        const id = await proposal()
+        const shown = await read(id)
+
+        // A later millisecond, as any real edit after a read is.
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        await client.send('PATCH', `/v1/decisions/${id}`, {
+          body: { body: 'We give Acme 90% off for life.' },
+          bearer: await mintKey('workspace'),
+        })
+
+        const response = await confirmVersion(id, shown.updated_at)
+
+        expect(response.status).toBe(409)
+
+        const after = await read(id)
+
+        expect(after.confirmed_at).toBeNull()
+        expect(after.confirmed_by_id).toBeNull()
+        // The member reads the new text and can then confirm that.
+        expect((await confirmVersion(id, after.updated_at)).status).toBe(200)
+      })
+
+      it('stays safe to repeat: a retry with the version from before the confirm answers 200', async () => {
+        const id = await proposal()
+        const shown = await read(id)
+        const first = readRecord(await (await confirmVersion(id, shown.updated_at)).json())
+        const retry = await confirmVersion(id, shown.updated_at)
+
+        expect(retry.status).toBe(200)
+        expect(readRecord(await retry.json())).toEqual(first)
+      })
+
+      it('answers 422 to a version that is not a time, or to another field', async () => {
+        const id = await proposal()
+
+        expect((await confirmVersion(id, 'yesterday')).status).toBe(422)
+        expect(
+          (
+            await client.send('POST', `/v1/decisions/${id}/confirm`, {
+              body: { confirmed_by_id: 'mem_test' },
+              cookie: acme.cookie,
+            })
+          ).status,
+        ).toBe(422)
+        expect((await read(id)).confirmed_at).toBeNull()
+      })
+    })
+
+    describe('events', () => {
+      interface Seen {
+        readonly name: string
+        readonly target: unknown
+        readonly data: unknown
+      }
+
+      function watch(): Seen[] {
+        const seen: Seen[] = []
+
+        harness.services.events.subscribe('decisions.decision.added', (event) => {
+          seen.push({ name: event.name, target: event.target, data: event.data })
+        })
+        harness.services.events.subscribe('decisions.decision.confirmed', (event) => {
+          seen.push({ name: event.name, target: event.target, data: event.data })
+        })
+
+        return seen
+      }
+
+      it('says on decision.added that a member decision is confirmed, and emits no confirmed event for it', async () => {
+        const seen = watch()
+        const created = await decisionOn(personId, 'Body')
+
+        await harness.services.events.drain()
+
+        expect(seen).toEqual([
+          {
+            name: 'decisions.decision.added',
+            target: { type: 'person', id: personId },
+            data: { decisionId: created.id, origin: 'member', confirmed: true },
+          },
+        ])
+      })
+
+      it('emits decision.confirmed once when a member confirms a proposal, and not on a second confirm', async () => {
+        const id = await proposal()
+        const seen = watch()
+
+        await confirm(id, { cookie: acme.cookie })
+        await confirm(id, { cookie: acme.cookie })
+        await confirm(id, { bearer: await mintKey('workspace') })
+        await harness.services.events.drain()
+
+        expect(seen).toEqual([
+          {
+            name: 'decisions.decision.confirmed',
+            target: { type: 'person', id: personId },
+            data: { decisionId: id, origin: 'ai' },
+          },
+        ])
+      })
     })
 
     it('answers 404 across a workspace boundary, and confirms nothing', async () => {

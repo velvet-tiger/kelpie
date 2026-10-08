@@ -9,6 +9,7 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
+import { decisions } from '../decisions/schema.ts'
 
 /**
  * `GET /v1/search` against real Postgres.
@@ -330,6 +331,44 @@ describe.skipIf(connectionString === undefined)('search', () => {
         'We promised a quarterly business review',
       ])
       expect(titles(await search('q=webinar'), 'event')).toEqual(['Demand webinar'])
+    })
+
+    it('says on a decision hit what wrote it and whether a member confirmed it, and on no other hit', async () => {
+      const companyId = await createCompany('Globex')
+
+      await create('/v1/decisions', {
+        target_type: 'company',
+        target_id: companyId,
+        body: 'We promised a quarterly business review',
+      })
+      // As a hosted AI run leaves one: no REST caller can write this row.
+      await database.db.insert(decisions).values({
+        id: 'dec_search_proposal',
+        workspaceId: acme.workspaceId,
+        targetType: 'company',
+        targetId: companyId,
+        body: 'A quarterly discount, proposed by a run',
+        origin: 'ai',
+        confirmedAt: null,
+        confirmedById: null,
+      })
+
+      const payload = await search('q=quarterly')
+      const hits = new Map(items(payload, 'decision').map((item) => [item.title, item]))
+      const commitment = hits.get('We promised a quarterly business review')
+      const proposed = hits.get('A quarterly discount, proposed by a run')
+
+      expect(commitment?.origin).toBe('member')
+      expect(typeof commitment?.confirmed_at).toBe('string')
+      expect(proposed?.origin).toBe('ai')
+      expect(proposed?.confirmed_at).toBeNull()
+
+      // A null `confirmed_at` means a proposal, so a hit that is not a decision has no such key.
+      const [company] = items(await search('q=globex'), 'company')
+
+      expect(company).toBeDefined()
+      expect(company !== undefined && 'confirmed_at' in company).toBe(false)
+      expect(company !== undefined && 'origin' in company).toBe(false)
     })
 
     it('reflects an edit, because the vector is generated rather than written', async () => {

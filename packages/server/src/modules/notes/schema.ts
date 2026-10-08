@@ -23,8 +23,10 @@ export type { RecordTargetType } from '@kelpie/schemas'
  * Pinned notes are what agents read first.
  *
  * `origin` is what wrote the row: a member, an agent with a bearer credential,
- * or a hosted AI run. The column has no default here, so every insert must
- * say. The service derives it from the actor and never from a request.
+ * or a model. `unknown` is a row from before the column. The column has no
+ * default here, so every insert must say. The service derives it from the
+ * actor and never from a request, and lowers it when a caller that is not a
+ * member rewrites the body.
  */
 export const notes = pgTable(
   'notes',

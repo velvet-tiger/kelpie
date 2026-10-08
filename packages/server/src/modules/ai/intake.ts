@@ -10,7 +10,7 @@ import type { z } from 'zod'
 import { AppError, describeThrown } from '../../lib/errors.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { McpTool } from '../../runtime/module.ts'
-import { actorWorkspaceId } from '../auth/actor.ts'
+import { actorWorkspaceId, asAiAuthor } from '../auth/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import type { AiPortResolution } from './executor.ts'
 import {
@@ -821,8 +821,11 @@ async function applyItem(
     case 'note':
       return created(
         await requireTool(tools, 'notes_create').invoke(
-          { target_type: 'person', target_id: idOf(PERSON_INTAKE_PERSON_KEY), body: item.body, pinned: true },
-          actor,
+          { target_type: 'person', target_id: idOf(PERSON_INTAKE_PERSON_KEY), body: item.body, pinned: false },
+          // A model wrote this text from web pages, and the member only
+          // approved it. So it is saved as a model's note and not pinned: a
+          // pin tells later agents to read it first.
+          asAiAuthor(actor),
         ),
         'created',
       )

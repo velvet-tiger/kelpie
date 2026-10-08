@@ -127,13 +127,21 @@ export type RecordTargetType = (typeof RECORD_TARGET_TYPES)[number]
  *
  * - `member`: a signed-in person, in the app.
  * - `agent`: a caller with an API key or an OAuth token.
- * - `ai`: a run of the hosted AI, which writes with no person approving it.
+ * - `ai`: a model wrote the text. A run of the hosted AI, or a research note
+ *   from person intake.
+ * - `unknown`: the row is from before origin was recorded. No caller gets
+ *   this value for a new row.
  *
  * A reader uses it to decide how much weight the text carries: an `ai` row was
  * written by a model that read record content, and record content can hold
- * text from outside the workspace.
+ * text from outside the workspace. `unknown` says nothing either way. An old
+ * row with an author is not shown as a member's, because a personal API key
+ * and an OAuth grant carry a member too.
+ *
+ * A text edit can lower it and never raises it: a caller with a bearer
+ * credential that changes the body makes the row `agent`, unless it is `ai`.
  */
-export const WRITE_ORIGINS = ['member', 'agent', 'ai'] as const
+export const WRITE_ORIGINS = ['member', 'agent', 'ai', 'unknown'] as const
 
 export type WriteOrigin = (typeof WRITE_ORIGINS)[number]
 

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { createHostedAiActor, isBearerActor, isHostedAiActor, requireSessionActor, writeOrigin } from './actor.ts'
+import {
+  asAiAuthor,
+  createHostedAiActor,
+  isAiAuthor,
+  isBearerActor,
+  originAfterTextEdit,
+  requireSessionActor,
+  writeOrigin,
+} from './actor.ts'
 import type { ApiKeyActor, OAuthActor, OAuthConnectionActor, SessionActor } from './actor.ts'
 
 const session: SessionActor = {
@@ -74,7 +82,7 @@ describe('the hosted AI actor', () => {
   it('cannot be copied from its fields: a key with the same id is an agent', () => {
     const lookalike: ApiKeyActor = { ...workspaceKey, apiKeyId: createHostedAiActor('wsp_1').apiKeyId }
 
-    expect(isHostedAiActor(lookalike)).toBe(false)
+    expect(isAiAuthor(lookalike)).toBe(false)
     expect(writeOrigin(lookalike)).toBe('agent')
   })
 
@@ -90,7 +98,48 @@ describe('the hosted AI actor', () => {
     // The cast stands in for a caller that got an object past the type checker.
     const forged = parsed as ApiKeyActor
 
-    expect(isHostedAiActor(forged)).toBe(false)
+    expect(isAiAuthor(forged)).toBe(false)
     expect(writeOrigin(forged)).toBe('agent')
+  })
+})
+
+describe('asAiAuthor', () => {
+  it('gives a copy that writes as ai and keeps the caller, and leaves the caller as it was', () => {
+    const author = asAiAuthor(session)
+
+    expect(writeOrigin(author)).toBe('ai')
+    expect(author.memberId).toBe('mem_1')
+    expect(author.kind).toBe('session')
+    expect(writeOrigin(session)).toBe('member')
+    expect(isAiAuthor(session)).toBe(false)
+  })
+})
+
+describe('originAfterTextEdit', () => {
+  it('leaves the origin alone when a member edits', () => {
+    for (const origin of ['member', 'agent', 'ai', 'unknown'] as const) {
+      expect(originAfterTextEdit(origin, session)).toBe(origin)
+    }
+  })
+
+  it('makes a member row and an unknown row agent when a bearer credential edits', () => {
+    for (const actor of [workspaceKey, oauth]) {
+      expect(originAfterTextEdit('member', actor)).toBe('agent')
+      expect(originAfterTextEdit('unknown', actor)).toBe('agent')
+      expect(originAfterTextEdit('agent', actor)).toBe('agent')
+    }
+  })
+
+  it('never moves a row away from ai', () => {
+    expect(originAfterTextEdit('ai', workspaceKey)).toBe('ai')
+    expect(originAfterTextEdit('ai', oauth)).toBe('ai')
+    expect(originAfterTextEdit('ai', session)).toBe('ai')
+  })
+
+  it('makes any row ai when a model edits', () => {
+    for (const origin of ['member', 'agent', 'unknown'] as const) {
+      expect(originAfterTextEdit(origin, createHostedAiActor('wsp_1'))).toBe('ai')
+      expect(originAfterTextEdit(origin, asAiAuthor(session))).toBe('ai')
+    }
   })
 })

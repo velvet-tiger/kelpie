@@ -524,7 +524,7 @@ export function normaliseResearch(input: ResearchNormaliseInput): PersonIntakeIt
   return items
 }
 
-/** The pinned research note: the model's text, then the sources Kelpie kept. */
+/** The research note: the model's text, then the sources Kelpie kept. */
 export function renderNote(
   body: string,
   sources: readonly { readonly url: string; readonly title: string }[],

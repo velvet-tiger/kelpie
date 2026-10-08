@@ -14,6 +14,7 @@ export interface ContextPackView {
   readonly pinnedNoteIds: readonly string[]
   readonly openPlanIds: readonly string[]
   readonly openDecisionIds: readonly string[]
+  readonly proposedDecisionIds: readonly string[]
   readonly related: Readonly<Record<string, readonly string[]>>
 }
 
@@ -50,6 +51,7 @@ export function resolvedTaskResponse(resolved: ResolvedTaskView): Record<string,
       pinned_note_ids: resolved.context.pinnedNoteIds,
       open_plan_ids: resolved.context.openPlanIds,
       open_decision_ids: resolved.context.openDecisionIds,
+      proposed_decision_ids: resolved.context.proposedDecisionIds,
       related: resolved.context.related,
     },
   }

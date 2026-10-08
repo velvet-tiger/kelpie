@@ -507,7 +507,7 @@ Save as a Note on the Opportunity. Do not invent metrics not in the handbook or 
     targetTypes: ['partnership'],
     placement: 'primary',
     handbookSlugs: ['agent-faq'],
-    instructions: `Tighten goals and successLooksLike from notes. No favour ledger — use Notes/Decisions for commitments.`,
+    instructions: `Tighten goals and successLooksLike from notes. No favour ledger — record a commitment in a Note.`,
   }),
   task({
     id: 'partnership.health_check',

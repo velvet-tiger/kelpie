@@ -27,8 +27,10 @@ export type { RecordTargetType } from '@kelpie/schemas'
  * contradict, which is why they are a queryable record rather than note text.
  *
  * `origin` is what wrote the row: a member, an agent with a bearer credential,
- * or a hosted AI run. The column has no default here, so every insert must
- * say. The service derives it from the actor and never from a request.
+ * or a model. `unknown` is a row from before the column. The column has no
+ * default here, so every insert must say. The service derives it from the
+ * actor and never from a request, and lowers it when a caller that is not a
+ * member rewrites the body or the rationale.
  *
  * `confirmedAt` is null while a Decision is a proposal. Only a hosted AI run
  * makes one: a run writes with no person approving it, so what it writes is

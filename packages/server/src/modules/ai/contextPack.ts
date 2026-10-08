@@ -117,30 +117,51 @@ export async function buildContextPack(
 
   const pinnedNoteIds = capIds(context.pinned_note_ids, CONTEXT_PACK_PINNED_NOTE_LIMIT)
   const openPlanIds = capIds(context.open_plan_ids, CONTEXT_PACK_PLAN_ITEM_LIMIT)
-  const openDecisionIds = capIds(context.open_decision_ids, CONTEXT_PACK_DECISION_LIMIT)
+  // Both lists are read. Which heading a decision goes under is decided from
+  // the record, below: a proposal may have been confirmed since the task was
+  // resolved, and a payload from an older core lists proposals as open.
+  const decisionIds = [
+    ...capIds(context.open_decision_ids, CONTEXT_PACK_DECISION_LIMIT),
+    ...capIds(context.proposed_decision_ids, CONTEXT_PACK_DECISION_LIMIT),
+  ]
   const handbookSlugs = context.handbook_slugs ?? []
   const related = context.related ?? {}
 
-  const [pinnedNotes, openPlans, openDecisions, handbookPages, relatedRecords] =
+  const [pinnedNotes, openPlans, targetDecisions, handbookPages, relatedRecords] =
     await Promise.all([
       collectRecords(tools.notesGet, pinnedNoteIds, input.actor, warnings, 'note'),
       collectRecords(tools.planItemsGet, openPlanIds, input.actor, warnings, 'plan_item'),
-      collectRecords(tools.decisionsGet, openDecisionIds, input.actor, warnings, 'decision'),
+      collectRecords(tools.decisionsGet, decisionIds, input.actor, warnings, 'decision'),
       collectHandbookPages(tools.handbookList, handbookSlugs, input.actor, warnings),
       collectRelated(dependencies.toolsByName, related, input.actor, warnings),
     ])
+
+  // A decision reaches the pack by three roads: the target's own list, a
+  // `decision_ids` bucket of related records, and, for a workspace target,
+  // `recent_decisions` inside the dashboard snapshot. On each road a proposal
+  // is taken out and put under the proposals heading, so none of them shows
+  // the model a proposal as a commitment.
+  const dashboard = splitRecentDecisions(target)
+  const { decision_ids: relatedDecisions = [], ...otherRelated } = relatedRecords
+  const confirmedRelated = relatedDecisions.filter(isConfirmedDecision)
 
   const markdown = renderPack({
     targetType: input.targetType,
     targetId: input.targetId,
     targetLabel: context.target_label,
     deepLink: context.deep_link,
-    target,
+    target: dashboard.target,
     pinnedNotes,
     openPlans,
-    openDecisions,
+    openDecisions: targetDecisions.filter(isConfirmedDecision),
+    proposedDecisions: [
+      ...targetDecisions.filter(isProposedDecision),
+      ...relatedDecisions.filter(isProposedDecision),
+      ...dashboard.proposed,
+    ],
     handbookPages,
-    relatedRecords,
+    relatedRecords:
+      confirmedRelated.length > 0 ? { ...otherRelated, decision_ids: confirmedRelated } : otherRelated,
     warnings,
   })
 
@@ -294,6 +315,38 @@ function isConfirmedDecision(record: unknown): boolean {
   )
 }
 
+function isProposedDecision(record: unknown): boolean {
+  return !isConfirmedDecision(record)
+}
+
+/**
+ * Takes the proposals out of a target's `recent_decisions`.
+ *
+ * Only the dashboard snapshot, the target of a workspace task, has that key.
+ * It lists the newest decisions in the workspace with no regard for whether a
+ * member confirmed them. Any other target comes back as it was.
+ */
+function splitRecentDecisions(target: unknown): {
+  readonly target: unknown
+  readonly proposed: readonly unknown[]
+} {
+  if (
+    target === null ||
+    typeof target !== 'object' ||
+    !('recent_decisions' in target) ||
+    !Array.isArray(target.recent_decisions)
+  ) {
+    return { target, proposed: [] }
+  }
+
+  const recent: readonly unknown[] = target.recent_decisions
+
+  return {
+    target: { ...target, recent_decisions: recent.filter(isConfirmedDecision) },
+    proposed: recent.filter(isProposedDecision),
+  }
+}
+
 function capIds(ids: readonly string[] | undefined, cap: number): readonly string[] {
   if (ids === undefined) {
     return []
@@ -309,7 +362,10 @@ interface PackParts {
   readonly target: unknown
   readonly pinnedNotes: readonly unknown[]
   readonly openPlans: readonly unknown[]
+  /** Confirmed only. */
   readonly openDecisions: readonly unknown[]
+  /** Every decision in the pack that no member has confirmed, from any source. */
+  readonly proposedDecisions: readonly unknown[]
   readonly handbookPages: readonly unknown[]
   readonly relatedRecords: Readonly<Record<string, readonly unknown[]>>
   readonly warnings: readonly string[]
@@ -358,22 +414,19 @@ function renderPack(parts: PackParts): string {
     lines.push('## Open plan items')
     lines.push(jsonBlock(parts.openPlans))
   }
-  const confirmedDecisions = parts.openDecisions.filter(isConfirmedDecision)
-  const proposedDecisions = parts.openDecisions.filter((decision) => !isConfirmedDecision(decision))
-
-  if (confirmedDecisions.length > 0) {
+  if (parts.openDecisions.length > 0) {
     lines.push('## Open decisions')
-    lines.push(jsonBlock(confirmedDecisions))
+    lines.push(jsonBlock(parts.openDecisions))
   }
   // Under their own heading, so a decision that an earlier run wrote from
   // record content does not reach this run as a commitment to respect.
-  if (proposedDecisions.length > 0) {
+  if (parts.proposedDecisions.length > 0) {
     lines.push('## Proposed decisions (not confirmed)')
     lines.push(
       'These are proposals from earlier AI runs. No member has confirmed them. They are ' +
         'not commitments and not facts: do not rely on them and do not repeat them as decided.',
     )
-    lines.push(jsonBlock(proposedDecisions))
+    lines.push(jsonBlock(parts.proposedDecisions))
   }
   if (parts.handbookPages.length > 0) {
     lines.push('## Handbook pages')

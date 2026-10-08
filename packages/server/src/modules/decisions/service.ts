@@ -9,6 +9,8 @@ import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import {
   actorMemberId,
+  isAiAuthor,
+  originAfterTextEdit,
   requireSessionActor,
   requireWorkspaceId,
   writeOrigin,
@@ -74,6 +76,15 @@ export interface UpdateDecisionInput {
   readonly dueAt?: Date | null | undefined
 }
 
+/** What the caller read before it confirmed. */
+export interface ConfirmExpectation {
+  /**
+   * The `updated_at` of the proposal the member read, to the millisecond the
+   * wire carries. Undefined confirms whatever is there now.
+   */
+  readonly updatedAt: Date | undefined
+}
+
 export interface DecisionsService {
   list(
     actor: Actor,
@@ -90,8 +101,11 @@ export interface DecisionsService {
    * @throws AppError 403 for every caller that is not a signed-in member: an
    *   API key, an OAuth token and the hosted AI.
    * @throws AppError 404 when the decision is not in the caller's workspace.
+   * @throws AppError 409 when `expected.updatedAt` is given and the proposal
+   *   was edited after that time. The member confirms the text they read, and
+   *   not one an agent put there between the read and the click.
    */
-  confirm(actor: Actor, id: string): Promise<DecisionView>
+  confirm(actor: Actor, id: string, expected: ConfirmExpectation): Promise<DecisionView>
   remove(actor: Actor, id: string): Promise<void>
 }
 
@@ -192,7 +206,7 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
         events.emit(
           'decisions.decision.added',
           { type: created.targetType, id: created.targetId },
-          { decisionId: created.id },
+          { decisionId: created.id, origin: created.origin, confirmed: created.confirmedAt !== null },
         )
 
         return toView(created)
@@ -222,12 +236,23 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
         return toView(existing)
       }
 
+      // A caller that is not a member and changes what the decision says
+      // takes the member's name off it. The origin drops to the caller's, and
+      // the member who confirmed the old text did not confirm this one.
+      // `confirmedAt` is not touched here: no edit confirms a decision.
+      const textChanged = changed.includes('body') || changed.includes('rationale')
+      const provenance: Partial<repository.DecisionColumns> =
+        textChanged && writeOrigin(actor) !== 'member'
+          ? { origin: originAfterTextEdit(existing.origin, actor), confirmedById: null }
+          : {}
+
       // No event. The catalog carries `decision.added` and nothing for a
       // decision changing, and inventing a name here would add one the webhooks
       // engine has never been told about.
       return dependencies.transaction(async ({ tx }) => {
         const updated = await repository.updateDecision(tx, workspaceId, id, {
           ...columns,
+          ...provenance,
           updatedAt: dependencies.now(),
         })
 
@@ -239,10 +264,15 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
       })
     },
 
-    async confirm(actor, id) {
+    async confirm(actor, id, expected) {
       // Before the lookup, so a bearer caller learns nothing about which ids
-      // exist. The hosted AI actor has the kind of an API key, so this
-      // refuses it too.
+      // exist. The hosted AI actor has the kind of an API key, so the session
+      // check refuses it. An actor marked for one write of a model's text can
+      // have the kind of a session, so it is refused by name.
+      if (isAiAuthor(actor)) {
+        throw new AppError('forbidden', 'Only a signed-in member can confirm a decision')
+      }
+
       const session = requireSessionActor(actor)
       const workspaceId = requireWorkspaceId(session)
       const memberId = actorMemberId(session)
@@ -253,32 +283,47 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
 
       const existing = await require(workspaceId, id)
 
+      // Before the version check, so the call stays safe to repeat: the
+      // first confirm moved `updated_at`, and a retry still holds the old one.
       if (existing.confirmedAt !== null) {
         return toView(existing)
       }
 
       const now = dependencies.now()
 
-      return dependencies.transaction(async ({ tx }) => {
-        const confirmed = await repository.confirmDecision(tx, workspaceId, id, {
-          confirmedAt: now,
-          confirmedById: memberId,
-          updatedAt: now,
-        })
+      return dependencies.transaction(async ({ tx, events }) => {
+        const confirmed = await repository.confirmDecision(
+          tx,
+          workspaceId,
+          id,
+          { confirmedAt: now, confirmedById: memberId, updatedAt: now },
+          expected.updatedAt,
+        )
 
         if (confirmed !== undefined) {
+          events.emit(
+            'decisions.decision.confirmed',
+            { type: confirmed.targetType, id: confirmed.targetId },
+            { decisionId: confirmed.id, origin: confirmed.origin },
+          )
+
           return toView(confirmed)
         }
 
-        // Another request confirmed it, or removed it, after the read above.
+        // Nothing was written. Another request confirmed it or removed it
+        // after the read above, or it is not the version the member read.
         const current = await repository.findDecision(tx, workspaceId, id)
 
         if (current === undefined) {
           throw AppError.notFound('Decision not found')
         }
 
-        return toView(current)
-      })
+        if (current.confirmedAt !== null) {
+          return toView(current)
+        }
+
+        throw AppError.conflict('The decision changed after you read it. Read it again, then confirm it.')
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async remove(actor, id) {

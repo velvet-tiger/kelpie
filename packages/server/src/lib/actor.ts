@@ -166,12 +166,12 @@ export function bearerCredentialId(actor: BearerActor): string {
 }
 
 /**
- * Marks the one actor the hosted AI writes as. The symbol is not exported, so
- * only `createHostedAiActor` can set it, and no request can carry it: an actor
- * for a request is built field by field in `modules/auth/credentials.ts`, and
- * JSON has no way to name a symbol.
+ * Marks an actor whose writes hold text a model wrote. The symbol is not
+ * exported, so only `createHostedAiActor` and `asAiAuthor` can set it, and no
+ * request can carry it: an actor for a request is built field by field in
+ * `modules/auth/credentials.ts`, and JSON has no way to name a symbol.
  */
-const hostedAiBrand: unique symbol = Symbol('kelpie.hostedAi')
+const aiAuthorBrand: unique symbol = Symbol('kelpie.aiAuthor')
 
 /**
  * The actor a hosted AI run writes as, in one workspace.
@@ -185,7 +185,7 @@ const hostedAiBrand: unique symbol = Symbol('kelpie.hostedAi')
  * Not exported from the package. A module outside core has no way to make one.
  */
 export function createHostedAiActor(workspaceId: string): ApiKeyActor {
-  const actor: ApiKeyActor & { readonly [hostedAiBrand]: true } = {
+  const actor: ApiKeyActor & { readonly [aiAuthorBrand]: true } = {
     kind: 'api_key',
     apiKeyId: `apik_ai_${workspaceId}`,
     userId: null,
@@ -193,26 +193,45 @@ export function createHostedAiActor(workspaceId: string): ApiKeyActor {
     role: 'admin',
     scopes: [],
     memberId: null,
-    [hostedAiBrand]: true,
+    [aiAuthorBrand]: true,
   }
 
   return actor
 }
 
-/** True only for an actor that `createHostedAiActor` made. */
-export function isHostedAiActor(actor: Actor): boolean {
-  return hostedAiBrand in actor
+/**
+ * The same caller, for one write of text that a model wrote.
+ *
+ * Person intake is the case: a member approves a research note, but a model
+ * wrote it from web pages. The note keeps the member as its author and gets
+ * `origin: 'ai'`. The route that knows the text came from a model calls this;
+ * a request has no field that reaches it.
+ *
+ * Pass the result to that one write only. It is still the caller's kind, so
+ * a service that needs a person, such as confirming a Decision, must refuse
+ * it with `isAiAuthor`.
+ */
+export function asAiAuthor(actor: Actor): Actor {
+  const marked: Actor & { readonly [aiAuthorBrand]: true } = { ...actor, [aiAuthorBrand]: true }
+
+  return marked
+}
+
+/** True only for an actor that `createHostedAiActor` or `asAiAuthor` made. */
+export function isAiAuthor(actor: Actor): boolean {
+  return aiAuthorBrand in actor
 }
 
 /**
  * What a Note or a Decision written by this actor records as its `origin`.
  *
- * The hosted AI is checked first, because its actor has the kind of an API
- * key. The switch has no default, so a new actor kind does not compile until
- * it is given an origin here.
+ * The model mark is checked first, because an actor that carries it has the
+ * kind of an API key or of a session. The switch has no default, so a new
+ * actor kind does not compile until it is given an origin here. It never
+ * answers `unknown`: that value is for rows from before origin was recorded.
  */
-export function writeOrigin(actor: Actor): WriteOrigin {
-  if (isHostedAiActor(actor)) {
+export function writeOrigin(actor: Actor): Exclude<WriteOrigin, 'unknown'> {
+  if (isAiAuthor(actor)) {
     return 'ai'
   }
 
@@ -224,6 +243,25 @@ export function writeOrigin(actor: Actor): WriteOrigin {
     case 'oauth_connection':
       return 'agent'
   }
+}
+
+/**
+ * The `origin` of a Note or a Decision after this actor changed its text.
+ *
+ * An edit must not raise trust. A row a member wrote, with a body an API key
+ * then replaced, is no longer a member's text, so it becomes `agent`. A row a
+ * model wrote stays `ai` whoever edits it, and a model's edit makes any row
+ * `ai`. A member's edit changes nothing: it does not turn an agent's or a
+ * model's row into a member's.
+ */
+export function originAfterTextEdit(existing: WriteOrigin, actor: Actor): WriteOrigin {
+  const writer = writeOrigin(actor)
+
+  if (writer === 'member') {
+    return existing
+  }
+
+  return existing === 'ai' || writer === 'ai' ? 'ai' : 'agent'
 }
 
 /** The workspace an actor is operating in, or null if a fresh account has none yet. */

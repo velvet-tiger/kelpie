@@ -30,6 +30,7 @@ const contextBody = z
     pinned_note_ids: z.array(z.string()).optional(),
     open_plan_ids: z.array(z.string()).optional(),
     open_decision_ids: z.array(z.string()).optional(),
+    proposed_decision_ids: z.array(z.string()).optional(),
     /** Buckets like `person_ids`, `company_ids`. */
     related: z.record(z.string(), z.array(z.string())).optional(),
   })

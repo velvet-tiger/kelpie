@@ -469,7 +469,7 @@ function itemTitle(item: PersonIntakeItem, companyNames: ReadonlyMap<string, str
       return item.title === '' ? `At ${company}` : `${item.title} at ${company}`
     }
     case 'note':
-      return 'Pinned research note'
+      return 'Research note'
   }
 }
 

@@ -20,6 +20,7 @@ export interface AiRunContext {
   readonly pinned_note_ids?: readonly string[]
   readonly open_plan_ids?: readonly string[]
   readonly open_decision_ids?: readonly string[]
+  readonly proposed_decision_ids?: readonly string[]
   readonly related?: Readonly<Record<string, readonly string[]>>
 }
 

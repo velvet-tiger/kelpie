@@ -617,6 +617,22 @@ async function applyPinNote(
   operation: PinNoteOperation,
   input: ApplyProposalInput,
 ): Promise<OperationOutcome> {
+  // The id comes from the model, and the synthetic actor can read every note
+  // in the workspace. A task about one record must not pin a note on another,
+  // so the note is read first and its target compared with the run's.
+  const note: unknown = await requireTool(input.toolsByName, 'notes_get').invoke(
+    { id: operation.note_id },
+    input.actor,
+  )
+
+  if (!isOnTarget(note, input.run.targetType, input.run.targetId)) {
+    return {
+      kind: 'pin_note',
+      status: 'skipped',
+      detail: `Note ${operation.note_id} is not on this ${input.run.targetType}`,
+    }
+  }
+
   const tool = requireTool(input.toolsByName, 'notes_update')
   await tool.invoke({ id: operation.note_id, pinned: true }, input.actor)
   return { kind: 'pin_note', status: 'applied', detail: `Pinned note ${operation.note_id}` }
@@ -684,6 +700,18 @@ async function applyCreatePosition(
     input.actor,
   )
   return { kind: 'create_position', status: 'applied', detail: detailWithId('position', result) }
+}
+
+/** True when a record a read tool returned is attached to this target. */
+function isOnTarget(record: unknown, targetType: string, targetId: string): boolean {
+  return (
+    record !== null &&
+    typeof record === 'object' &&
+    'target_type' in record &&
+    'target_id' in record &&
+    record.target_type === targetType &&
+    record.target_id === targetId
+  )
 }
 
 /** Extract the created record's id from an MCP tool return, best-effort. */

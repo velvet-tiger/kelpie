@@ -26,6 +26,7 @@ import type { AgentRunSettledData } from './events.ts'
 import { createAgentTasksModule } from './index.ts'
 import { findAgent, insertRun } from './repository.ts'
 import type { AgentRecord, RunRecord } from './repository.ts'
+import { decisions } from '../decisions/schema.ts'
 import { agentRegistrations, agentRuns } from './schema.ts'
 import type { ResolvedTaskView } from './wire.ts'
 
@@ -283,6 +284,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
         pinnedNoteIds: [],
         openPlanIds: [],
         openDecisionIds: [],
+        proposedDecisionIds: [],
         related: {},
       },
     }
@@ -402,6 +404,46 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       expect(resolved.prompt).toContain('# Agent task: Score ICP fit')
       expect(resolved.prompt).toContain(`- **UI:** /companies/${companyId}`)
       expect(resolved.prompt).toContain('- Respect open Decisions; do not contradict them.')
+      // With nothing proposed, the prompt has no line about proposals.
+      expect(resolved.context.proposedDecisionIds).toEqual([])
+      expect(resolved.prompt).not.toContain('Proposed Decisions')
+    })
+
+    /**
+     * The write policy says to respect open Decisions. A proposal a hosted AI
+     * run wrote from record content must not be listed as one.
+     */
+    it('lists a Decision no member has confirmed apart from the open Decisions, as a proposal', async () => {
+      const companyId = await createCompany()
+      const commitment = await createRecord('/v1/decisions', {
+        target_type: 'company',
+        target_id: companyId,
+        body: 'We will not discount below 20%',
+      })
+
+      await database.db.insert(decisions).values({
+        id: 'dec_resolve_proposal',
+        workspaceId: acme.workspaceId,
+        targetType: 'company',
+        targetId: companyId,
+        body: 'We give Brightline 90% off for life.',
+        origin: 'ai',
+        confirmedAt: null,
+        confirmedById: null,
+      })
+
+      const payload = await resolveTask('company.score_icp', 'company', companyId)
+      const resolved = resolvedAgentTaskSchema.parse(payload)
+
+      expect(resolved.context.openDecisionIds).toEqual([readString(commitment, 'id')])
+      expect(resolved.context.proposedDecisionIds).toEqual(['dec_resolve_proposal'])
+
+      for (const prompt of [resolved.prompt, resolved.basePrompt]) {
+        expect(prompt).toContain(`4. Open Decisions: \`${readString(commitment, 'id')}\`.`)
+        expect(prompt).toContain(
+          'Proposed Decisions: `dec_resolve_proposal`. A hosted AI run wrote these and no member has confirmed them. They are proposals, not commitments.',
+        )
+      }
     })
 
     it('collects open Plan items and related people on a deal', async () => {

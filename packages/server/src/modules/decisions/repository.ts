@@ -169,14 +169,20 @@ export async function updateDecision(
  * call, or one that lost a race, changes nothing and gets no row back, so the
  * first confirmation keeps its time and its member.
  *
+ * `expectedUpdatedAt`, when given, is part of the same statement, so an edit
+ * that lands between the caller's read and this write cannot be confirmed by
+ * it. The column holds microseconds and the wire carries milliseconds, so
+ * the comparison is at the millisecond.
+ *
  * @returns The confirmed row, or undefined when the decision is not in this
- *   workspace or was confirmed already.
+ *   workspace, was confirmed already, or is not the expected version.
  */
 export async function confirmDecision(
   db: Queryable,
   workspaceId: string,
   id: string,
   confirmation: { readonly confirmedAt: Date; readonly confirmedById: string; readonly updatedAt: Date },
+  expectedUpdatedAt: Date | undefined,
 ): Promise<DecisionRecord | undefined> {
   const [confirmed] = await db
     .update(decisions)
@@ -186,6 +192,9 @@ export async function confirmDecision(
         eq(decisions.workspaceId, workspaceId),
         eq(decisions.id, id),
         isNull(decisions.confirmedAt),
+        expectedUpdatedAt === undefined
+          ? undefined
+          : sql`date_trunc('milliseconds', ${decisions.updatedAt}) = ${expectedUpdatedAt.toISOString()}::timestamptz`,
       ),
     )
     .returning()

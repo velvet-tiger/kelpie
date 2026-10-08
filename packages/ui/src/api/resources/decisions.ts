@@ -11,7 +11,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { QueryParameters } from '../client.ts'
 import { useApiClient } from '../context.ts'
 import { toError } from '../errors.ts'
-import { createResourceHooks } from '../resource.ts'
+import { cacheRecord, createResourceHooks } from '../resource.ts'
 import type { MutationResult, RecordListResult, UpdateArguments } from '../resource.ts'
 
 /**
@@ -66,31 +66,59 @@ export function useDeleteDecision(): MutationResult<string, void> {
   return decisions.useRemove()
 }
 
+/** The proposal to confirm, as the member read it. */
+export interface ConfirmDecisionArguments {
+  readonly id: string
+  /**
+   * The `updatedAt` of the Decision on screen. The server refuses with `409`
+   * when the Decision was edited after it, so the member confirms the text
+   * they read and not one an agent put there before the click.
+   */
+  readonly updatedAt: Date
+}
+
+export interface ConfirmDecisionResult extends MutationResult<ConfirmDecisionArguments, Decision> {
+  /** The Decision a confirm is in flight for, so only its own button shows as busy. */
+  readonly pendingId: string | undefined
+}
+
 /**
- * Confirms a proposal, by id.
+ * Confirms a proposal.
  *
  * Not optimistic: until the server answers, the Decision is still a proposal,
  * and a page that showed it as a commitment for a moment would say the one
- * thing this field exists to keep true. The dashboard lists recent decisions
- * with the same label, so it goes stale too.
+ * thing this field exists to keep true. The answer is written into the caches
+ * at once, so the row does not stay "not confirmed" while the lists refetch.
+ * The dashboard lists recent decisions with the same label, so it goes stale
+ * too. A refusal refetches the lists: the usual cause is that the text changed.
  */
-export function useConfirmDecision(): MutationResult<string, Decision> {
+export function useConfirmDecision(): ConfirmDecisionResult {
   const client = useApiClient()
   const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: (id: string) => client.post(`/decisions/${id}/confirm`, {}, decisionSchema.parse),
-    onSuccess: () => {
+    mutationFn: ({ id, updatedAt }: ConfirmDecisionArguments) =>
+      client.post(
+        `/decisions/${id}/confirm`,
+        { updated_at: updatedAt.toISOString() },
+        decisionSchema.parse,
+      ),
+    onSuccess: (decision) => {
+      cacheRecord(queryClient, 'decisions', decision)
       void queryClient.invalidateQueries({ queryKey: ['decisions'] })
       void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ['decisions'] })
     },
   })
 
   return {
-    run: (id) => {
-      mutation.mutate(id)
+    run: (input) => {
+      mutation.mutate(input)
     },
-    runAsync: (id) => mutation.mutateAsync(id),
+    runAsync: (input) => mutation.mutateAsync(input),
     isPending: mutation.isPending,
+    pendingId: mutation.isPending ? mutation.variables.id : undefined,
     error: toError(mutation.error),
   }
 }

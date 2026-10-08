@@ -82,6 +82,38 @@ export async function readJsonBody<T>(context: Context, schema: z.ZodType<T>): P
   return parsed.data
 }
 
+/**
+ * Reads a JSON body that may be absent entirely. An absent body is read as
+ * `{}`, so the schema decides whether that is enough.
+ *
+ * For an action whose ordinary request says nothing, such as
+ * `POST …/rotate_secret` or `POST …/confirm`: `readJsonBody` answers `400` to
+ * an empty body.
+ *
+ * @throws AppError 400 when a body is present and is not JSON, 422 when it is
+ *   JSON the schema refuses.
+ */
+export async function readOptionalJsonBody<T>(context: Context, schema: z.ZodType<T>): Promise<T> {
+  const text = await context.req.text()
+  let raw: unknown = {}
+
+  if (text.trim().length > 0) {
+    try {
+      raw = JSON.parse(text)
+    } catch {
+      throw new AppError('bad_request', 'Body must be valid JSON')
+    }
+  }
+
+  const parsed = schema.safeParse(raw)
+
+  if (!parsed.success) {
+    throw AppError.validationFailed('Request body is invalid', toErrorDetails(parsed.error.issues))
+  }
+
+  return parsed.data
+}
+
 /** Lifts `?limit=`, `?sort=` and `?cursor=` off a request. Validated where the sort fields are known. */
 export function readListParameters(context: Context): ListQueryParameters {
   return {

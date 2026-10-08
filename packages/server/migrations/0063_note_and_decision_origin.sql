@@ -1,17 +1,16 @@
 -- `notes` and `decisions` get `origin`: what wrote the row. `member` is a
 -- signed-in person, `agent` is a caller with an API key or an OAuth token, and
 -- `ai` is a run of the hosted AI. The server sets it from the caller.
--- Existing rows: a note with an author, and a decision with an owner, become
--- `member`. The rest become `agent`. No existing row becomes `ai`, because
--- nothing recorded which rows a run wrote; a run's rows have no author and no
--- owner, so they become `agent`.
+-- A fourth value, `unknown`, is for rows from before this migration. Every
+-- existing row gets it. An author or an owner does not show that a person
+-- wrote the row: a personal API key and an OAuth grant carry a member too, and
+-- nothing recorded which rows a run wrote.
+-- The column default is `unknown`, and it does the backfill: no UPDATE runs.
 -- The default stays, so that code from before this migration can still write a
--- row while a deploy is in progress. Such a row is `agent`. Code from this
--- migration on always sends the value.
+-- row while a deploy is in progress. Such a row is `unknown`, which is true:
+-- that code did not say. Code from this migration on always sends the value.
 -- Hand-written: the drizzle-kit snapshot chain is stale.
-ALTER TABLE "notes" ADD COLUMN "origin" text DEFAULT 'agent' NOT NULL;--> statement-breakpoint
-UPDATE "notes" SET "origin" = 'member' WHERE "author_id" IS NOT NULL;--> statement-breakpoint
-ALTER TABLE "notes" ADD CONSTRAINT "notes_origin_check" CHECK ("notes"."origin" in ('member', 'agent', 'ai'));--> statement-breakpoint
-ALTER TABLE "decisions" ADD COLUMN "origin" text DEFAULT 'agent' NOT NULL;--> statement-breakpoint
-UPDATE "decisions" SET "origin" = 'member' WHERE "owner_id" IS NOT NULL;--> statement-breakpoint
-ALTER TABLE "decisions" ADD CONSTRAINT "decisions_origin_check" CHECK ("decisions"."origin" in ('member', 'agent', 'ai'));
+ALTER TABLE "notes" ADD COLUMN "origin" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
+ALTER TABLE "notes" ADD CONSTRAINT "notes_origin_check" CHECK ("notes"."origin" in ('member', 'agent', 'ai', 'unknown'));--> statement-breakpoint
+ALTER TABLE "decisions" ADD COLUMN "origin" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
+ALTER TABLE "decisions" ADD CONSTRAINT "decisions_origin_check" CHECK ("decisions"."origin" in ('member', 'agent', 'ai', 'unknown'));

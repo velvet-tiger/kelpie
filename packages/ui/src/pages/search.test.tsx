@@ -191,6 +191,44 @@ describe('SearchPage', () => {
     })
   })
 
+  it('marks a decision no member has confirmed as proposed, and no other result', async () => {
+    renderPage(
+      'promise',
+      wireResults('promise', [
+        { type: 'company', total: 1, items: [{ id: 'com_1', title: 'Acme', subtitle: null, snippet: '' }] },
+        {
+          type: 'decision',
+          total: 2,
+          items: [
+            {
+              id: 'dec_1',
+              title: 'We promised a review',
+              subtitle: '2026-08-02',
+              snippet: '',
+              origin: 'member',
+              confirmed_at: '2026-08-02T00:00:00.000Z',
+            },
+            {
+              id: 'dec_2',
+              title: 'A run proposed a discount',
+              subtitle: '2026-08-03',
+              snippet: '',
+              origin: 'ai',
+              confirmed_at: null,
+            },
+          ],
+        },
+      ]),
+    )
+
+    await screen.findByText('A run proposed a discount')
+
+    const marks = screen.getAllByText('Proposed')
+
+    expect(marks).toHaveLength(1)
+    expect(marks[0]?.closest('a')?.textContent).toContain('A run proposed a discount')
+  })
+
   it('shows the subtitle and the snippet when the record has them', async () => {
     renderPage(
       'engine',

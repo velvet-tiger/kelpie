@@ -894,8 +894,10 @@ describe('DecisionsPanel', () => {
 
     await screen.findByText('Proposed by AI — not confirmed')
 
-    // One button: the confirmed decision beside it offers none.
-    expect(screen.getAllByRole('button', { name: 'Confirm' })).toHaveLength(1)
+    // One button: the confirmed decision beside it offers none. Its name says
+    // which decision it confirms.
+    expect(screen.getAllByRole('button', { name: /^Confirm decision/u })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Confirm decision: From a run' })).toBeTruthy()
     // Not also "Written by AI": the proposal label already says what wrote it.
     expect(screen.queryByText('Written by AI')).toBeNull()
   })
@@ -903,8 +905,20 @@ describe('DecisionsPanel', () => {
   it('confirms a proposal through the API, and shows it as one until the server answers', async () => {
     const posted: { path?: string; body?: unknown } = {}
     const proposal = decision({ id: 'dec_2', body: 'From a run', origin: 'ai', confirmed_at: null, confirmed_by_id: null })
+    let decisionLists = 0
     const client = panelsClient({
       decisions: [proposal],
+      // The refetch after the confirm fails, so what is on screen afterwards
+      // can only be the answer the confirm itself put in the cache.
+      onList: (path) => {
+        if (path === '/decisions') {
+          decisionLists += 1
+
+          if (decisionLists > 1) {
+            throw new Error('The list is not reachable')
+          }
+        }
+      },
       onPost: (path, body) => {
         posted.path = path
         posted.body = body
@@ -918,15 +932,64 @@ describe('DecisionsPanel', () => {
     await screen.findByText('Proposed by AI — not confirmed')
 
     await act(async () => {
-      screen.getByRole('button', { name: 'Confirm' }).click()
+      screen.getByRole('button', { name: 'Confirm decision: From a run' }).click()
     })
 
     await waitFor(() => {
       expect(posted.path).toBe('/decisions/dec_2/confirm')
     })
 
-    // The route takes no fields: who confirmed is the session, not the body.
-    expect(posted.body).toEqual({})
+    // Only the version the member read. Who confirmed is the session, not the body.
+    expect(posted.body).toEqual({ updated_at: '2026-08-01T00:00:00.000Z' })
+
+    // The answer is on screen without the list: the row no longer shows as a
+    // proposal.
+    await waitFor(() => {
+      expect(screen.queryByText('Proposed by AI — not confirmed')).toBeNull()
+    })
+    expect(screen.getByText('Written by AI')).toBeTruthy()
+  })
+
+  it('shows only the clicked proposal as busy while its confirm is in flight', async () => {
+    let release: (value: unknown) => void = () => undefined
+    const first = decision({ id: 'dec_2', body: 'First proposal', origin: 'ai', confirmed_at: null, confirmed_by_id: null })
+    const second = decision({ id: 'dec_3', body: 'Second proposal', origin: 'ai', confirmed_at: null, confirmed_by_id: null })
+    const client = panelsClient({
+      decisions: [first, second],
+      onPost: () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+    })
+
+    renderWithClient(client, <DecisionsPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('First proposal')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Confirm decision: First proposal' }).click()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Confirm decision: First proposal' }).textContent).toBe('Confirming…')
+    })
+    expect(screen.getByRole('button', { name: 'Confirm decision: Second proposal' }).textContent).toBe('Confirm')
+
+    await act(async () => {
+      release({ ...first, confirmed_at: '2026-08-02T00:00:00.000Z', confirmed_by_id: 'mem_1' })
+    })
+  })
+
+  it('shows no label on a decision from before origin was recorded', async () => {
+    renderWithClient(
+      panelsClient({ decisions: [decision({ origin: 'unknown', confirmed_by_id: null })] }),
+      <DecisionsPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('We will not build a favour ledger.')
+
+    expect(screen.queryByText(/^Written by/u)).toBeNull()
+    expect(screen.queryByText(/not confirmed/iu)).toBeNull()
   })
 
   it('says a confirmed decision from a run was written by AI', async () => {
@@ -937,7 +1000,7 @@ describe('DecisionsPanel', () => {
 
     await screen.findByText('Written by AI')
 
-    expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Confirm/u })).toBeNull()
     expect(screen.queryByText(/not confirmed/iu)).toBeNull()
   })
 

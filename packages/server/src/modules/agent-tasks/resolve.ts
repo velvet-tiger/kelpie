@@ -187,14 +187,19 @@ async function collectPinnedNoteIds(
   return rows.map((row) => row.id)
 }
 
-async function collectOpenDecisionIds(
+/**
+ * The target's Decisions, in two lists. A Decision is a commitment only once
+ * it is confirmed; one a hosted AI run wrote is a proposal until a member
+ * confirms it, and the prompt must not list it as a commitment to respect.
+ */
+async function collectDecisionIds(
   db: Queryable,
   workspaceId: string,
   targetType: string,
   targetId: string,
-): Promise<readonly string[]> {
+): Promise<{ readonly confirmed: readonly string[]; readonly proposed: readonly string[] }> {
   const rows = await db
-    .select({ id: decisions.id })
+    .select({ id: decisions.id, confirmedAt: decisions.confirmedAt })
     .from(decisions)
     .where(
       and(
@@ -205,7 +210,10 @@ async function collectOpenDecisionIds(
     )
     .orderBy(asc(decisions.id))
 
-  return rows.map((row) => row.id)
+  return {
+    confirmed: rows.filter((row) => row.confirmedAt !== null).map((row) => row.id),
+    proposed: rows.filter((row) => row.confirmedAt === null).map((row) => row.id),
+  }
 }
 
 async function collectOpenPlanIds(
@@ -735,6 +743,9 @@ export async function assemblePromptInputs(
   }
 
   const attachable = isRecordTargetType(targetType)
+  const decisionIds = attachable
+    ? await collectDecisionIds(db, workspaceId, targetType, targetId)
+    : { confirmed: [], proposed: [] }
 
   return {
     workspaceName: workspace.name,
@@ -745,9 +756,8 @@ export async function assemblePromptInputs(
     pinnedNoteIds: attachable
       ? await collectPinnedNoteIds(db, workspaceId, targetType, targetId)
       : [],
-    openDecisionIds: attachable
-      ? await collectOpenDecisionIds(db, workspaceId, targetType, targetId)
-      : [],
+    openDecisionIds: decisionIds.confirmed,
+    proposedDecisionIds: decisionIds.proposed,
     openPlanIds: PLAN_TARGET_TYPES.has(targetType)
       ? await collectOpenPlanIds(db, workspaceId, targetType, targetId)
       : [],

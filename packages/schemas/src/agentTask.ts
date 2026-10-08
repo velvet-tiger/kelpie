@@ -85,7 +85,10 @@ export interface AgentTaskContextPack {
   readonly handbookSlugs: readonly string[]
   readonly pinnedNoteIds: readonly string[]
   readonly openPlanIds: readonly string[]
+  /** Confirmed Decisions only: the commitments the write policy says to respect. */
   readonly openDecisionIds: readonly string[]
+  /** Decisions no member has confirmed. Proposals, not commitments. */
+  readonly proposedDecisionIds: readonly string[]
   readonly related: Readonly<Record<string, readonly string[]>>
 }
 
@@ -97,6 +100,9 @@ const contextPackSchema: z.ZodType<AgentTaskContextPack, unknown> = z
     pinned_note_ids: z.array(idSchema),
     open_plan_ids: z.array(idSchema),
     open_decision_ids: z.array(idSchema),
+    // A server from before this field sends none. It also put proposals in
+    // `open_decision_ids`, because it had no proposals to tell apart.
+    proposed_decision_ids: z.array(idSchema).default([]),
     related: z.record(z.string(), z.array(idSchema)),
   })
   .transform(
@@ -107,6 +113,7 @@ const contextPackSchema: z.ZodType<AgentTaskContextPack, unknown> = z
       pinnedNoteIds: wire.pinned_note_ids,
       openPlanIds: wire.open_plan_ids,
       openDecisionIds: wire.open_decision_ids,
+      proposedDecisionIds: wire.proposed_decision_ids,
       related: wire.related,
     }),
   )

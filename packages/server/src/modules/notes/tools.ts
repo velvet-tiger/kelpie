@@ -32,7 +32,9 @@ export function registerNotesTools(mcp: McpToolRegistry, service: NotesService):
       'Freeform markdown attached to any record. A pinned one is what somebody wanted read first. ' +
       'A body cites another record by its id, either bare (prt_01J…) or as a link ' +
       '[[type:id|Label]], for example [[company:com_01J…|Acme]]; get the id from search_query. ' +
-      'Each note comes back with references: the current name of every cited record that exists.',
+      'Each note comes back with references: the current name of every cited record that exists. ' +
+      'origin says what wrote it: member, agent, ai, or unknown for an old note. When you change ' +
+      'the body it becomes agent.',
     service,
     render: noteResponse,
     listArgs,

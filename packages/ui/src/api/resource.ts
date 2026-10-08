@@ -195,6 +195,22 @@ function writeRecordEverywhere<TRecord extends { readonly id: string }>(
   )
 }
 
+/**
+ * Puts a record the server just answered with into every cache of its
+ * resource, by the resource's name.
+ *
+ * For a write that is not one of the five verbs: an action route that answers
+ * with the whole record. Without it the row shows its old state until the
+ * refetch lands.
+ */
+export function cacheRecord<TRecord extends { readonly id: string }>(
+  queryClient: QueryClient,
+  name: string,
+  record: TRecord,
+): void {
+  writeRecordEverywhere(queryClient, keysFor(name), record)
+}
+
 function removeRecordEverywhere<TRecord extends { readonly id: string }>(
   queryClient: QueryClient,
   keys: ResourceKeys,

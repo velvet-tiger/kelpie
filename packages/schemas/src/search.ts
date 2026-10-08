@@ -1,8 +1,8 @@
 import { z } from 'zod'
 
-import { RECORD_TARGET_TYPES, SEARCH_COLLECTIONS } from './values.ts'
-import type { RecordTargetType, SearchCollection } from './values.ts'
-import { idSchema } from './wire.ts'
+import { RECORD_TARGET_TYPES, SEARCH_COLLECTIONS, WRITE_ORIGINS } from './values.ts'
+import type { RecordTargetType, SearchCollection, WriteOrigin } from './values.ts'
+import { idSchema, nullableTimestampSchema } from './wire.ts'
 
 /**
  * Wire shape for `GET /v1/search`. Read-only, so there is no body builder.
@@ -35,6 +35,12 @@ export interface SearchResult {
    * collection.
    */
   readonly target: { readonly type: RecordTargetType; readonly id: string } | null
+  /**
+   * On a Decision result: what wrote it, and when a member confirmed it.
+   * `confirmedAt` null is a proposal, not a commitment. Null for every other
+   * collection, where the wire carries neither key.
+   */
+  readonly decision: { readonly origin: WriteOrigin; readonly confirmedAt: Date | null } | null
 }
 
 export interface SearchResultGroup {
@@ -59,6 +65,8 @@ const resultSchema: z.ZodType<SearchResult, unknown> = z
     snippet: z.string(),
     target_type: z.enum(RECORD_TARGET_TYPES).nullish(),
     target_id: idSchema.nullish(),
+    origin: z.enum(WRITE_ORIGINS).optional(),
+    confirmed_at: nullableTimestampSchema.optional(),
   })
   .transform((wire) => ({
     id: wire.id,
@@ -72,6 +80,10 @@ const resultSchema: z.ZodType<SearchResult, unknown> = z
       wire.target_id === undefined
         ? null
         : { type: wire.target_type, id: wire.target_id },
+    decision:
+      wire.origin === undefined || wire.confirmed_at === undefined
+        ? null
+        : { origin: wire.origin, confirmedAt: wire.confirmed_at },
   }))
 
 const groupSchema: z.ZodType<SearchResultGroup, unknown> = z

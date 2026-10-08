@@ -179,9 +179,9 @@ export function DecisionsPanel({ targetType, targetId }: DecisionsPanelProps): R
                   deleteDecision.run(decision.id)
                 }}
                 onConfirm={() => {
-                  confirmDecision.run(decision.id)
+                  confirmDecision.run({ id: decision.id, updatedAt: decision.updatedAt })
                 }}
-                isConfirming={confirmDecision.isPending}
+                isConfirming={confirmDecision.pendingId === decision.id}
               />
             ))}
           </ul>
@@ -239,7 +239,7 @@ function DecisionItem({
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 flex-1 text-[13px] font-medium text-ink">{decision.body}</p>
         {decision.confirmedAt === null && (
-          <ConfirmDecisionButton onConfirm={onConfirm} isPending={isConfirming} />
+          <ConfirmDecisionButton body={decision.body} onConfirm={onConfirm} isPending={isConfirming} />
         )}
         <button
           type="button"

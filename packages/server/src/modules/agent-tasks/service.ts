@@ -212,6 +212,7 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
         pinnedNoteIds: inputs.pinnedNoteIds,
         openPlanIds: inputs.openPlanIds,
         openDecisionIds: inputs.openDecisionIds,
+        proposedDecisionIds: inputs.proposedDecisionIds,
         related: Object.fromEntries(
           Object.entries(inputs.related)
             .filter(([, list]) => list.ids.length > 0)

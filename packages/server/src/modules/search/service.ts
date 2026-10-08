@@ -43,6 +43,8 @@ export interface SearchItem {
   readonly snippet: string
   /** The record a Note, Decision or Plan item is on. Null for everything else. */
   readonly target: SearchHit['target']
+  /** Whether a Decision is confirmed, and what wrote it. Null for everything else. */
+  readonly decision: SearchHit['decision']
 }
 
 export interface SearchGroup {
@@ -130,6 +132,7 @@ function toGroup(hits: CollectionHits, words: readonly string[]): SearchGroup {
       subtitle: hit.subtitle,
       snippet: hit.snippetSource === null ? '' : snippet(hit.snippetSource, words),
       target: hit.target,
+      decision: hit.decision,
     })),
   }
 }

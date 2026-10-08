@@ -11,7 +11,12 @@ import { describeNote } from '../activities/wording.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
-import { actorMemberId, requireWorkspaceId, writeOrigin } from '../auth/actor.ts'
+import {
+  actorMemberId,
+  originAfterTextEdit,
+  requireWorkspaceId,
+  writeOrigin,
+} from '../auth/actor.ts'
 import './events.ts'
 import { resolveReferences } from '../recordReferences.ts'
 import { missingTargets } from '../recordTargets.ts'
@@ -221,6 +226,9 @@ export function createNotesService(dependencies: NotesDependencies): NotesServic
       const updated = await dependencies.transaction(async ({ tx }) => {
         const row = await repository.updateNote(tx, workspaceId, id, {
           ...columns,
+          // Only a new body moves the origin. A pin says where to look, not
+          // who wrote the text.
+          ...(changed.includes('body') ? { origin: originAfterTextEdit(existing.origin, actor) } : {}),
           updatedAt: dependencies.now(),
         })
 

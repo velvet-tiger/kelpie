@@ -158,15 +158,16 @@ export function DecisionsPage(): React.JSX.Element {
           {decision.rationale !== null && (
             <div className="mt-0.5 text-[12px] text-ink-muted">{decision.rationale}</div>
           )}
-          {(decision.origin !== 'member' || decision.confirmedAt === null) && (
+          {(decision.origin === 'agent' || decision.origin === 'ai' || decision.confirmedAt === null) && (
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <DecisionProvenance origin={decision.origin} confirmedAt={decision.confirmedAt} />
               {decision.confirmedAt === null && (
                 <ConfirmDecisionButton
+                  body={decision.body}
                   onConfirm={() => {
-                    confirmDecision.run(decision.id)
+                    confirmDecision.run({ id: decision.id, updatedAt: decision.updatedAt })
                   }}
-                  isPending={confirmDecision.isPending}
+                  isPending={confirmDecision.pendingId === decision.id}
                 />
               )}
             </div>

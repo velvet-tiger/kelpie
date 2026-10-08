@@ -896,7 +896,11 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       const notes = readList(
         await (await h.client.send('GET', `/v1/notes?target_type=person&target_id=${personId}`, { cookie: owner.cookie })).json(),
       )
-      expect(notes).toMatchObject([{ body: 'Research note body', pinned: true }])
+      // A model wrote the note and a member approved it: the member is the
+      // author, the origin is ai, and it is not pinned.
+      expect(notes).toMatchObject([
+        { body: 'Research note body', pinned: false, origin: 'ai', author_id: expect.stringMatching(/^mem_/u) },
+      ])
 
       const deal = readRecord(
         await (await h.client.send('GET', `/v1/deals/${String(results[4]?.id)}`, { cookie: owner.cookie })).json(),

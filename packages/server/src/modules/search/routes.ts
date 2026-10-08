@@ -95,6 +95,15 @@ function itemBody(item: SearchItem): Record<string, unknown> {
     snippet: item.snippet,
     target_type: item.target?.type ?? null,
     target_id: item.target?.id ?? null,
+    // On a Decision only. The keys are absent elsewhere, not null: a null
+    // `confirmed_at` means a proposal, and a Person is not one.
+    ...(item.decision === null
+      ? {}
+      : {
+          origin: item.decision.origin,
+          confirmed_at:
+            item.decision.confirmedAt === null ? null : item.decision.confirmedAt.toISOString(),
+        }),
   }
 }
 

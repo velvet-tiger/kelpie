@@ -51,7 +51,10 @@ export interface PromptInputs {
   readonly handbookPages: readonly HandbookPageReference[]
   readonly pinnedNoteIds: readonly string[]
   readonly openPlanIds: readonly string[]
+  /** Confirmed Decisions only. */
   readonly openDecisionIds: readonly string[]
+  /** Decisions a hosted AI run wrote that no member has confirmed. */
+  readonly proposedDecisionIds: readonly string[]
   readonly related: Readonly<Record<string, RelatedIdList>>
   readonly signals: readonly WorkspaceSignal[]
 }
@@ -99,6 +102,20 @@ function signalsSection(signals: readonly WorkspaceSignal[]): string {
   })
 
   return `\n## Workspace signals\n${lines.join('\n')}\n`
+}
+
+/**
+ * The line for Decisions that no member has confirmed, or nothing when there
+ * are none. It is apart from "Open Decisions" because the write policy says
+ * to respect open Decisions, and a proposal a run wrote from record content
+ * must not get that weight.
+ */
+function proposedDecisionsLine(ids: readonly string[]): string {
+  if (ids.length === 0) {
+    return ''
+  }
+
+  return `\n   Proposed Decisions: ${codeList(ids, '(none)')}. A hosted AI run wrote these and no member has confirmed them. They are proposals, not commitments. Do not treat them as decided.`
 }
 
 /**
@@ -156,7 +173,7 @@ export function renderBasePrompt(
 1. ${firstRead(targetType)}
 2. Prefer pinned notes: ${codeList(inputs.pinnedNoteIds, '(none pinned)')}.
 3. Open Plan items: ${codeList(inputs.openPlanIds, '(none)')}.
-4. Open Decisions: ${codeList(inputs.openDecisionIds, '(none)')}.
+4. Open Decisions: ${codeList(inputs.openDecisionIds, '(none)')}.${proposedDecisionsLine(inputs.proposedDecisionIds)}
 5. Handbook pages:
 ${handbookLines(inputs.handbookPages)}
 ${relatedSection(inputs.related)}${signalsSection(inputs.signals)}

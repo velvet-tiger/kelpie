@@ -2,7 +2,13 @@ import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
 import { AppError } from '../../lib/errors.ts'
-import { pageBody, readIdFilter, readJsonBody, readListParameters } from '../../lib/http.ts'
+import {
+  pageBody,
+  readIdFilter,
+  readJsonBody,
+  readListParameters,
+  readOptionalJsonBody,
+} from '../../lib/http.ts'
 import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -58,6 +64,13 @@ export const createBody = z.strictObject({
 
 /** The target never moves. Re-filing a decision under another record is a delete and a create. */
 export const updateBody = z.strictObject(decisionShape).partial()
+
+/**
+ * `updated_at` is the value the caller read on the proposal. With it, a
+ * proposal that was edited since is refused instead of confirmed. It is
+ * optional, so a caller with no copy of the decision can still confirm.
+ */
+const confirmBody = z.strictObject({ updated_at: z.iso.datetime().optional() })
 
 export interface DecisionsRoutesDependencies extends CredentialDependencies {
   readonly service: DecisionsService
@@ -214,10 +227,11 @@ export function mountDecisionsRoutes(
    * run proposed. The service refuses every caller but a signed-in member.
    */
   router.post('/decisions/:id/confirm', async (context) => {
-    const decision = await dependencies.service.confirm(
-      await requireActor(context),
-      context.req.param('id'),
-    )
+    const actor = await requireActor(context)
+    const body = await readOptionalJsonBody(context, confirmBody)
+    const decision = await dependencies.service.confirm(actor, context.req.param('id'), {
+      updatedAt: body.updated_at === undefined ? undefined : new Date(body.updated_at),
+    })
 
     return context.json(decisionResponse(decision))
   })

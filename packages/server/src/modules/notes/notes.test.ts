@@ -9,6 +9,7 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
+import { notes } from './schema.ts'
 
 /** `/v1/notes` against real Postgres. Notes attach to any CRM record. */
 
@@ -483,7 +484,59 @@ describe.skipIf(connectionString === undefined)('notes', () => {
       ).toBe(422)
     })
 
-    it('keeps the origin of the first write when another kind of caller edits the note', async () => {
+    /** A note as an older writer or a model left it, which no REST caller can make. */
+    async function storedNote(origin: 'ai' | 'unknown'): Promise<string> {
+      const id = harness.services.createId('note')
+
+      await database.db.insert(notes).values({
+        id,
+        workspaceId: acme.workspaceId,
+        targetType: 'person',
+        targetId: personId,
+        body: `Stored with origin ${origin}`,
+        origin,
+      })
+
+      return id
+    }
+
+    async function patch(
+      id: string,
+      body: Record<string, unknown>,
+      credentials: { cookie?: string; bearer?: string },
+    ): Promise<Record<string, unknown>> {
+      const response = await client.send('PATCH', `/v1/notes/${id}`, { body, ...credentials })
+
+      expect(response.status).toBe(200)
+
+      return readRecord(await response.json())
+    }
+
+    /** `notes_update` over `/mcp`, as an agent with this key calls it. */
+    async function updateOverMcp(key: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+      const response = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'notes_update', arguments: args },
+        }),
+      })
+      const result = readRecord(readRecord(await response.json()).result)
+      const [content] = result.content as { text: string }[]
+
+      expect(result.isError).not.toBe(true)
+
+      return readRecord(JSON.parse(content?.text ?? 'null'))
+    }
+
+    it('does not make an agent note a member note when a member edits it', async () => {
       const key = await mintKey('workspace')
       const byKey = readRecord(
         await (
@@ -493,27 +546,52 @@ describe.skipIf(connectionString === undefined)('notes', () => {
           })
         ).json(),
       )
-      const byMember = await noteOn(personId, 'From a member')
 
-      const keyNoteEdited = readRecord(
-        await (
-          await client.send('PATCH', `/v1/notes/${String(byKey.id)}`, {
-            body: { body: 'Edited by a member', pinned: true },
-            cookie: acme.cookie,
-          })
-        ).json(),
-      )
-      const memberNoteEdited = readRecord(
-        await (
-          await client.send('PATCH', `/v1/notes/${String(byMember.id)}`, {
-            body: { body: 'Edited by a key' },
-            bearer: key,
-          })
-        ).json(),
-      )
+      const edited = await patch(String(byKey.id), { body: 'Edited by a member', pinned: true }, { cookie: acme.cookie })
 
-      expect(keyNoteEdited.origin).toBe('agent')
-      expect(memberNoteEdited.origin).toBe('member')
+      expect(edited.origin).toBe('agent')
+    })
+
+    it('makes a member note an agent note when an API key rewrites its body', async () => {
+      const created = await noteOn(personId, 'From a member')
+
+      const edited = await patch(String(created.id), { body: 'Rewritten by a key' }, { bearer: await mintKey('personal') })
+
+      expect(edited.origin).toBe('agent')
+      // Who first wrote the row is still recorded. The origin is what says the text is not theirs.
+      expect(edited.author_id).toBe(created.author_id)
+    })
+
+    it('makes a member note an agent note when an agent rewrites its body over MCP', async () => {
+      const created = await noteOn(personId, 'From a member')
+
+      const edited = await updateOverMcp(await mintKey('workspace'), { id: created.id, body: 'Rewritten over MCP' })
+
+      expect(edited.origin).toBe('agent')
+    })
+
+    it('keeps the origin when an API key only pins, or sends the body it already has', async () => {
+      const created = await noteOn(personId, 'From a member')
+      const key = await mintKey('workspace')
+
+      expect((await patch(String(created.id), { pinned: true }, { bearer: key })).origin).toBe('member')
+      expect((await patch(String(created.id), { body: 'From a member' }, { bearer: key })).origin).toBe('member')
+      expect((await updateOverMcp(key, { id: created.id, pinned: false })).origin).toBe('member')
+    })
+
+    it('keeps a model note as ai, whoever rewrites its body', async () => {
+      const id = await storedNote('ai')
+
+      expect((await patch(id, { body: 'Rewritten by a key' }, { bearer: await mintKey('workspace') })).origin).toBe('ai')
+      expect((await patch(id, { body: 'Rewritten by a member' }, { cookie: acme.cookie })).origin).toBe('ai')
+    })
+
+    it('makes a note from before origin was recorded an agent note when a key rewrites it, and leaves it for a member', async () => {
+      const byMember = await storedNote('unknown')
+      const byKey = await storedNote('unknown')
+
+      expect((await patch(byMember, { body: 'Rewritten by a member' }, { cookie: acme.cookie })).origin).toBe('unknown')
+      expect((await patch(byKey, { body: 'Rewritten by a key' }, { bearer: await mintKey('workspace') })).origin).toBe('agent')
     })
 
     it('reads back on get and list', async () => {
