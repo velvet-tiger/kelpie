@@ -74,6 +74,8 @@ export function decisionResponse(decision: DecisionView): Record<string, unknown
     owner_id: decision.ownerId,
     due_at: decision.dueAt === null ? null : decision.dueAt.toISOString(),
     origin: decision.origin,
+    confirmed_at: decision.confirmedAt === null ? null : decision.confirmedAt.toISOString(),
+    confirmed_by_id: decision.confirmedById,
     created_at: decision.createdAt.toISOString(),
     updated_at: decision.updatedAt.toISOString(),
   }
@@ -127,6 +129,30 @@ function readTargetType(context: Context): RecordTargetType | undefined {
 }
 
 /**
+ * `?confirmed=`, true or false.
+ *
+ * @throws AppError 422 for any other word. A caller that asked for commitments
+ *   only must not get proposals back because the filter was misspelt.
+ */
+function readConfirmed(raw: string | undefined): boolean | undefined {
+  if (raw === undefined) {
+    return undefined
+  }
+
+  if (raw === 'true') {
+    return true
+  }
+
+  if (raw === 'false') {
+    return false
+  }
+
+  throw AppError.validationFailed('"confirmed" filters on true or false', [
+    { field: 'confirmed', message: `Expected true or false, got "${raw}"` },
+  ])
+}
+
+/**
  * Unlike a note list, a decision list stands on its own: `/decisions` is a
  * workspace page, so every filter here is optional.
  */
@@ -135,6 +161,7 @@ function readFilters(context: Context): DecisionFilters {
     targetType: readTargetType(context),
     targetIds: readIdFilter(context, 'target_id'),
     term: context.req.query('q'),
+    confirmed: readConfirmed(context.req.query('confirmed')),
   }
 }
 
@@ -176,6 +203,20 @@ export function mountDecisionsRoutes(
       await requireActor(context),
       context.req.param('id'),
       toUpdateInput(body),
+    )
+
+    return context.json(decisionResponse(decision))
+  })
+
+  /**
+   * An action rather than a PATCH field, so no update body can confirm a
+   * decision. It has no MCP tool: an agent must not confirm what an agent or a
+   * run proposed. The service refuses every caller but a signed-in member.
+   */
+  router.post('/decisions/:id/confirm', async (context) => {
+    const decision = await dependencies.service.confirm(
+      await requireActor(context),
+      context.req.param('id'),
     )
 
     return context.json(decisionResponse(decision))

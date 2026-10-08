@@ -23,6 +23,12 @@ import type { RecordTimestamps } from './wire.ts'
  *
  * `origin` is what wrote the decision. The server sets it; no body builder
  * here sends it. See `WRITE_ORIGINS`.
+ *
+ * `confirmedAt` is null for a proposal: a decision a hosted AI run wrote that
+ * no member has confirmed. A proposal is not a commitment. `confirmedById` is
+ * the member who confirmed it, and is null for a decision that was confirmed
+ * when an agent wrote it or before the field existed. Neither is writable;
+ * `POST /v1/decisions/:id/confirm` is the only way to confirm.
  */
 
 export interface Decision extends RecordTimestamps {
@@ -35,6 +41,8 @@ export interface Decision extends RecordTimestamps {
   readonly ownerId: string | null
   readonly dueAt: Date | null
   readonly origin: WriteOrigin
+  readonly confirmedAt: Date | null
+  readonly confirmedById: string | null
 }
 
 export const decisionSchema: z.ZodType<Decision, unknown> = z
@@ -48,6 +56,8 @@ export const decisionSchema: z.ZodType<Decision, unknown> = z
     owner_id: idSchema.nullable(),
     due_at: nullableTimestampSchema,
     origin: z.enum(WRITE_ORIGINS),
+    confirmed_at: nullableTimestampSchema,
+    confirmed_by_id: idSchema.nullable(),
     ...recordTimestamps,
   })
   .transform(
@@ -61,6 +71,8 @@ export const decisionSchema: z.ZodType<Decision, unknown> = z
       ownerId: wire.owner_id,
       dueAt: wire.due_at,
       origin: wire.origin,
+      confirmedAt: wire.confirmed_at,
+      confirmedById: wire.confirmed_by_id,
       createdAt: wire.created_at,
       updatedAt: wire.updated_at,
     }),

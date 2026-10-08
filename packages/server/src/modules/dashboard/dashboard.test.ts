@@ -365,6 +365,7 @@ describe.skipIf(connectionString === undefined)('dashboard', () => {
       expect(decisions[0]?.target_name).toBe('Ada Lovelace')
       expect(notes[0]?.origin).toBe('member')
       expect(decisions[0]?.origin).toBe('member')
+      expect(decisions[0]?.confirmed_at).toBe(decisions[0]?.decided_at)
       expect(activity.every((row) => row.target_name === 'Ada Lovelace')).toBe(true)
     })
 

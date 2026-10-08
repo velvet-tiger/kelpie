@@ -153,6 +153,7 @@ function decisionBody(decision: DecisionSignal): Record<string, unknown> {
     owner_id: decision.ownerId,
     due_at: decision.dueAt === null ? null : decision.dueAt.toISOString(),
     origin: decision.origin,
+    confirmed_at: decision.confirmedAt === null ? null : decision.confirmedAt.toISOString(),
   }
 }
 

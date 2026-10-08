@@ -163,6 +163,8 @@ function decision(overrides: Record<string, unknown> = {}): Record<string, unkno
     owner_id: 'mem_1',
     due_at: null,
     origin: 'member',
+    confirmed_at: '2026-08-01T00:00:00.000Z',
+    confirmed_by_id: 'mem_1',
     created_at: '2026-08-01T00:00:00.000Z',
     updated_at: '2026-08-01T00:00:00.000Z',
     ...overrides,
@@ -877,6 +879,66 @@ describe('DecisionsPanel', () => {
 
     expect(screen.getAllByText('Written by an agent')).toHaveLength(1)
     expect(screen.getAllByText('Written by AI')).toHaveLength(1)
+  })
+
+  it('shows a decision from a run as a proposal, with a way to confirm it', async () => {
+    renderWithClient(
+      panelsClient({
+        decisions: [
+          decision(),
+          decision({ id: 'dec_2', body: 'From a run', origin: 'ai', confirmed_at: null, confirmed_by_id: null }),
+        ],
+      }),
+      <DecisionsPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Proposed by AI — not confirmed')
+
+    // One button: the confirmed decision beside it offers none.
+    expect(screen.getAllByRole('button', { name: 'Confirm' })).toHaveLength(1)
+    // Not also "Written by AI": the proposal label already says what wrote it.
+    expect(screen.queryByText('Written by AI')).toBeNull()
+  })
+
+  it('confirms a proposal through the API, and shows it as one until the server answers', async () => {
+    const posted: { path?: string; body?: unknown } = {}
+    const proposal = decision({ id: 'dec_2', body: 'From a run', origin: 'ai', confirmed_at: null, confirmed_by_id: null })
+    const client = panelsClient({
+      decisions: [proposal],
+      onPost: (path, body) => {
+        posted.path = path
+        posted.body = body
+
+        return { ...proposal, confirmed_at: '2026-08-02T00:00:00.000Z', confirmed_by_id: 'mem_1' }
+      },
+    })
+
+    renderWithClient(client, <DecisionsPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('Proposed by AI — not confirmed')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Confirm' }).click()
+    })
+
+    await waitFor(() => {
+      expect(posted.path).toBe('/decisions/dec_2/confirm')
+    })
+
+    // The route takes no fields: who confirmed is the session, not the body.
+    expect(posted.body).toEqual({})
+  })
+
+  it('says a confirmed decision from a run was written by AI', async () => {
+    renderWithClient(
+      panelsClient({ decisions: [decision({ origin: 'ai' })] }),
+      <DecisionsPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Written by AI')
+
+    expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull()
+    expect(screen.queryByText(/not confirmed/iu)).toBeNull()
   })
 
   it('posts a new decision to the record it is showing', async () => {

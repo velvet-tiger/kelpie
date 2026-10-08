@@ -269,6 +269,46 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`@kelpie/server`** — **A hosted AI run cannot make a commitment or a
+  pin that its task did not ask for.** A run's reply becomes writes with no
+  approval, and later agents treat a Decision and a pinned note as facts.
+  The only control was text in the prompt, and a model can obey text in a
+  record instead. The control is now in code.
+  - **Each task says what it grants.** A task definition has
+    `may_create_decision` and `may_pin`, both false unless the task's
+    instructions ask for that write. 14 tasks grant a Decision and 9 grant a
+    pin. On any other task, `create_decision` and `pin_note` are dropped, and
+    a note with `pinned: true` is saved unpinned. The run log reports each
+    drop. A run whose task is no longer in the catalog gets neither. The
+    prompt and the JSON schema offer the model only what the task grants.
+  - **A Decision from a run is a proposal.** `decisions` has `confirmed_at`
+    and `confirmed_by_id`. A Decision with `origin` `ai` starts with both
+    null. `POST /v1/decisions/:id/confirm` confirms it, for a signed-in
+    member only: an API key gets `403`, an OAuth token gets `401` as on all
+    of `/v1`, and there is no MCP tool. A second confirm changes nothing.
+    No update confirms a Decision, and a request cannot send either field.
+    `GET /v1/decisions` and `decisions_list` take `confirmed` to list
+    commitments only or proposals only.
+  - **Readers are told.** The MCP instructions say that a Decision with
+    `confirmed_at` null is not a commitment, and that `origin` says what
+    wrote a note or a Decision. The context pack of a later run lists
+    Decisions that are not confirmed under their own heading. The decisions
+    panel, the Decisions page and the dashboard show "Proposed by AI — not
+    confirmed", and the first two have a Confirm button.
+  - Migration `0064` adds the two columns. Every Decision from before is
+    confirmed at its `created_at`, with no member named. `confirmed_at` has
+    no default: a Decision that code from before the migration writes while
+    a deploy is in progress shows as not confirmed until a member confirms
+    it.
+  - **`@kelpie/schemas`** — `Decision` gains `confirmedAt` and
+    `confirmedById`, `DashboardDecision` gains `confirmedAt`, and
+    `AgentTaskDefinition` gains `mayCreateDecision` and `mayPin`.
+    **Breaking for a client of an older server:** the Decision schemas need
+    `confirmed_at`.
+  - **For a module that calls a run's tools or reads Decisions:** a
+    Decision is a commitment only when `confirmed_at` is set. A module that
+    inserts into `decisions` directly must set `confirmed_at`, or the row
+    is a proposal.
 - **`@kelpie/server`** — **The MCP instructions mark record content as
   data.** The text an MCP client reads on `initialize` now says that names,
   summaries, notes and form answers can hold text from a person outside the

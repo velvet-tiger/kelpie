@@ -11,6 +11,7 @@ import { Link } from 'react-router'
 import { ActivityAction } from '../../components/ActivityAction.tsx'
 import { Chip } from '../../components/Chip.tsx'
 import { LinkedText } from '../../components/LinkedText.tsx'
+import { DecisionProvenance } from '../../components/DecisionProvenance.tsx'
 import { MarkdownView } from '../../components/MarkdownView.tsx'
 import { OriginLabel } from '../../components/OriginLabel.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
@@ -302,7 +303,7 @@ export function DecisionsList({
                 <span>
                   {decision.ownerId === null ? '—' : (nameById.get(decision.ownerId) ?? 'Unknown')}
                 </span>
-                <OriginLabel origin={decision.origin} />
+                <DecisionProvenance origin={decision.origin} confirmedAt={decision.confirmedAt} />
               </div>
             </li>
           ))}

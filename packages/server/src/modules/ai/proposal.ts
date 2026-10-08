@@ -148,6 +148,50 @@ export const OPERATIONS_BY_TARGET: Readonly<Record<AgentTaskTargetType, readonly
   workspace: ['append_note'],
 }
 
+/**
+ * What the run's task lets the model write, beyond what the target accepts.
+ *
+ * A Decision and a pinned note are the two writes later readers treat as
+ * facts. The prompt tells the model to make one only when the task asks, but
+ * a model can obey text it reads in a record. So the task itself must grant
+ * each one (`AgentTaskDefinition.mayCreateDecision`, `mayPin`), and
+ * {@link validateProposal} removes what the task did not grant, whatever the
+ * model returned.
+ */
+export interface TaskWritePermissions {
+  readonly mayCreateDecision: boolean
+  readonly mayPin: boolean
+}
+
+/** For a run whose task is not in the catalog: nothing beyond the ordinary writes. */
+export const NO_TASK_WRITE_PERMISSIONS: TaskWritePermissions = {
+  mayCreateDecision: false,
+  mayPin: false,
+}
+
+function taskAllows(kind: OperationKind, permissions: TaskWritePermissions): boolean {
+  if (kind === 'create_decision') {
+    return permissions.mayCreateDecision
+  }
+
+  if (kind === 'pin_note') {
+    return permissions.mayPin
+  }
+
+  return true
+}
+
+/**
+ * The operation kinds a run may use: what the target accepts, less what the
+ * task does not grant. The prompt and the JSON schema advertise this list.
+ */
+export function operationKindsFor(
+  targetType: AgentTaskTargetType,
+  permissions: TaskWritePermissions,
+): readonly OperationKind[] {
+  return OPERATIONS_BY_TARGET[targetType].filter((kind) => taskAllows(kind, permissions))
+}
+
 /** ISO 8601 date-only (`YYYY-MM-DD`), the same shape core's `isoDateSchema` accepts. */
 const isoDate = z
   .string()
@@ -248,6 +292,17 @@ export interface ValidateProposalSuccess {
    * target. Also not fatal — they are dropped and reported.
    */
   readonly droppedOperationKinds: readonly OperationKind[]
+  /**
+   * `create_decision` and `pin_note` operations the run's task does not
+   * grant. Dropped and reported, one entry per operation.
+   */
+  readonly deniedOperationKinds: readonly OperationKind[]
+  /**
+   * How many `append_note` operations asked for `pinned: true` on a task that
+   * may not pin. Each note is kept and saved unpinned: the text is still
+   * useful, and only the pin is the claim that it carries the signal.
+   */
+  readonly unpinnedNoteCount: number
 }
 
 export interface ValidateProposalFailure {
@@ -260,17 +315,20 @@ export type ValidateProposalResult = ValidateProposalSuccess | ValidateProposalF
 
 /**
  * Parses raw JSON from the model against {@link proposalSchema} and applies
- * the per-target allowlists.
+ * the per-target allowlists and the task's write permissions.
  *
  * Zod is the authority: the model's JSON schema tells OpenAI what to aim
  * for, but the reply must still parse here or the executor issues one
  * repair turn. On success the returned proposal has every off-limits
  * operation removed and every off-limits field inside `update_target`
- * stripped; both drops are reported so the applier records them.
+ * stripped; both drops are reported so the applier records them. It also has
+ * no `create_decision`, no `pin_note` and no pinned `append_note` unless
+ * `permissions` grants it.
  */
 export function validateProposal(
   targetType: AgentTaskTargetType,
   raw: unknown,
+  permissions: TaskWritePermissions,
 ): ValidateProposalResult {
   const parsed = proposalSchema.safeParse(raw)
 
@@ -285,12 +343,25 @@ export function validateProposal(
   const allowedFields = new Set(UPDATE_FIELD_ALLOWLIST[targetType])
 
   const droppedOperationKinds: OperationKind[] = []
+  const deniedOperationKinds: OperationKind[] = []
   const droppedFields: string[] = []
+  let unpinnedNoteCount = 0
 
   const operations: Operation[] = []
   for (const operation of parsed.data.operations) {
     if (!allowedKinds.has(operation.kind)) {
       droppedOperationKinds.push(operation.kind)
+      continue
+    }
+
+    if (!taskAllows(operation.kind, permissions)) {
+      deniedOperationKinds.push(operation.kind)
+      continue
+    }
+
+    if (operation.kind === 'append_note' && operation.pinned && !permissions.mayPin) {
+      unpinnedNoteCount += 1
+      operations.push({ ...operation, pinned: false })
       continue
     }
 
@@ -320,25 +391,31 @@ export function validateProposal(
     proposal: { summary: parsed.data.summary, operations },
     droppedFields,
     droppedOperationKinds,
+    deniedOperationKinds,
+    unpinnedNoteCount,
   }
 }
 
 /**
  * Renders the JSON schema handed to the OpenAI Responses API for structured
- * output. Reflects the same operations {@link OPERATIONS_BY_TARGET} allows
- * for the target, so the model is nudged at the schema layer as well as
- * the prose layer.
+ * output. Reflects the same operations {@link operationKindsFor} allows for
+ * the target and the task, so the model is nudged at the schema layer as well
+ * as the prose layer. A task that may not pin gets an `append_note` with no
+ * `pinned` key.
  *
  * `strict: false` at the provider call — `z.toJSONSchema` does not meet
  * OpenAI's strict subset (open records, defaults, unions with defaults) —
  * so this shape is advisory. The Zod re-parse in {@link validateProposal}
  * is the authority.
  */
-export function proposalJsonSchemaFor(targetType: AgentTaskTargetType): Record<string, unknown> {
-  const allowedKinds = new Set(OPERATIONS_BY_TARGET[targetType])
+export function proposalJsonSchemaFor(
+  targetType: AgentTaskTargetType,
+  permissions: TaskWritePermissions,
+): Record<string, unknown> {
+  const allowedKinds = new Set(operationKindsFor(targetType, permissions))
   const kindSchemas: Record<OperationKind, z.ZodTypeAny> = {
     update_target: updateTargetOperation,
-    append_note: appendNoteOperation,
+    append_note: permissions.mayPin ? appendNoteOperation : appendNoteOperation.omit({ pinned: true }),
     pin_note: pinNoteOperation,
     create_plan: createPlanOperation,
     create_decision: createDecisionOperation,

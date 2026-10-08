@@ -71,6 +71,8 @@ export function taskDefinitionResponse(definition: AgentTaskDefinition): Record<
     handbook_slugs: definition.handbookSlugs,
     instructions: definition.instructions,
     write_policy: definition.writePolicy,
+    may_create_decision: definition.mayCreateDecision,
+    may_pin: definition.mayPin,
   }
 }
 

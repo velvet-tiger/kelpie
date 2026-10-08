@@ -449,6 +449,13 @@
       "when": 1790659200000,
       "tag": "0063_note_and_decision_origin",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1790745600000,
+      "tag": "0064_decision_confirmation",
+      "breakpoints": true
     }
   ]
 }

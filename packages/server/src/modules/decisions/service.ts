@@ -7,7 +7,12 @@ import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
-import { actorMemberId, requireWorkspaceId, writeOrigin } from '../auth/actor.ts'
+import {
+  actorMemberId,
+  requireSessionActor,
+  requireWorkspaceId,
+  writeOrigin,
+} from '../auth/actor.ts'
 import './events.ts'
 import { targetExists } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
@@ -27,6 +32,11 @@ import type { DecisionFilters, DecisionRecord } from './repository.ts'
  * and filing one under `updated` would put a sentence on a timeline about a
  * record the timeline is not for. Adding a kind is a check-constraint migration
  * and belongs to whichever feature decides decision history is worth keeping.
+ *
+ * A decision a hosted AI run writes starts as a proposal: `confirmedAt` is
+ * null until a signed-in member confirms it. Every other decision is
+ * confirmed when it is written. No update confirms one; `confirm` is the only
+ * way, and it takes a session.
  */
 
 export interface DecisionsDependencies {
@@ -73,6 +83,15 @@ export interface DecisionsService {
   get(actor: Actor, id: string): Promise<DecisionView>
   create(actor: Actor, input: CreateDecisionInput): Promise<DecisionView>
   update(actor: Actor, id: string, changes: UpdateDecisionInput): Promise<DecisionView>
+  /**
+   * Turns a proposal into a commitment. Confirming a decision that is
+   * confirmed already changes nothing and answers with it.
+   *
+   * @throws AppError 403 for every caller that is not a signed-in member: an
+   *   API key, an OAuth token and the hosted AI.
+   * @throws AppError 404 when the decision is not in the caller's workspace.
+   */
+  confirm(actor: Actor, id: string): Promise<DecisionView>
   remove(actor: Actor, id: string): Promise<void>
 }
 
@@ -142,6 +161,13 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
       }
 
       const id = dependencies.createId('decision')
+      const origin = writeOrigin(actor)
+      const now = dependencies.now()
+      // A run's decision waits for a member. A member's own decision names
+      // that member; an agent's is confirmed with nobody named, because no
+      // person looked at it.
+      const confirmedAt = origin === 'ai' ? null : now
+      const confirmedById = origin === 'member' ? actorMemberId(actor) : null
 
       return dependencies.transaction(async ({ tx, events }) => {
         const created = await repository.insertDecision(tx, {
@@ -151,10 +177,12 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
           targetId: input.targetId,
           body: input.body,
           rationale: input.rationale,
-          decidedAt: input.decidedAt ?? dependencies.now(),
+          decidedAt: input.decidedAt ?? now,
           ownerId,
           dueAt: input.dueAt,
-          origin: writeOrigin(actor),
+          origin,
+          confirmedAt,
+          confirmedById,
         })
 
         // `decision.added` rather than `record.created`: the catalog gives
@@ -208,6 +236,48 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
         }
 
         return toView(updated)
+      })
+    },
+
+    async confirm(actor, id) {
+      // Before the lookup, so a bearer caller learns nothing about which ids
+      // exist. The hosted AI actor has the kind of an API key, so this
+      // refuses it too.
+      const session = requireSessionActor(actor)
+      const workspaceId = requireWorkspaceId(session)
+      const memberId = actorMemberId(session)
+
+      if (memberId === null) {
+        throw new AppError('forbidden', 'Only a member of this workspace can confirm a decision')
+      }
+
+      const existing = await require(workspaceId, id)
+
+      if (existing.confirmedAt !== null) {
+        return toView(existing)
+      }
+
+      const now = dependencies.now()
+
+      return dependencies.transaction(async ({ tx }) => {
+        const confirmed = await repository.confirmDecision(tx, workspaceId, id, {
+          confirmedAt: now,
+          confirmedById: memberId,
+          updatedAt: now,
+        })
+
+        if (confirmed !== undefined) {
+          return toView(confirmed)
+        }
+
+        // Another request confirmed it, or removed it, after the read above.
+        const current = await repository.findDecision(tx, workspaceId, id)
+
+        if (current === undefined) {
+          throw AppError.notFound('Decision not found')
+        }
+
+        return toView(current)
       })
     },
 

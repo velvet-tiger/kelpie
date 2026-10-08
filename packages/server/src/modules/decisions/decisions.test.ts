@@ -1,5 +1,10 @@
 import { decisionSchema } from '@kelpie/schemas'
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+
+import { createHostedAiActor } from '../../lib/actor.ts'
+import type { OAuthActor } from '../../lib/actor.ts'
+import { AppError } from '../../lib/errors.ts'
 
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
@@ -10,6 +15,8 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
+import { decisions } from './schema.ts'
+import { createDecisionsService } from './service.ts'
 
 /**
  * `/v1/decisions` against real Postgres. Decisions attach to any CRM record and,
@@ -458,6 +465,211 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
 
       expect(keyDecisionEdited.origin).toBe('agent')
       expect(memberDecisionEdited.origin).toBe('member')
+    })
+  })
+
+  describe('confirming', () => {
+    /**
+     * A decision as a hosted AI run leaves it. Written to the table because
+     * core has no caller that makes one: the `ai` module is not in
+     * `coreModules`, and its own suite covers the run that writes this row.
+     */
+    async function proposal(workspaceId = acme.workspaceId, targetId = personId): Promise<string> {
+      const id = harness.services.createId('decision')
+
+      await database.db.insert(decisions).values({
+        id,
+        workspaceId,
+        targetType: 'person',
+        targetId,
+        body: 'Proposed by a run',
+        origin: 'ai',
+        confirmedAt: null,
+        confirmedById: null,
+      })
+
+      return id
+    }
+
+    function confirm(id: string, credentials: { cookie?: string; bearer?: string }): Promise<Response> {
+      return client.send('POST', `/v1/decisions/${id}/confirm`, credentials)
+    }
+
+    async function read(id: string): Promise<Record<string, unknown>> {
+      return readRecord(await (await client.send('GET', `/v1/decisions/${id}`, { cookie: acme.cookie })).json())
+    }
+
+    it('confirms a decision a member records as it is written, naming the member', async () => {
+      const created = await decisionOn(personId, 'Body')
+
+      expect(created.confirmed_at).toBe(created.decided_at)
+      expect(created.confirmed_by_id).toBe(created.owner_id)
+    })
+
+    it('confirms a decision an API key records as it is written, naming nobody', async () => {
+      const response = await client.send('POST', '/v1/decisions', {
+        body: { target_type: 'person', target_id: personId, body: 'From a key' },
+        bearer: await mintKey('personal'),
+      })
+      const created = readRecord(await response.json())
+
+      expect(created.confirmed_at).toBe(created.decided_at)
+      expect(created.confirmed_by_id).toBeNull()
+    })
+
+    it('lets a signed-in member confirm a proposal, and records who and when', async () => {
+      const id = await proposal()
+
+      expect((await read(id)).confirmed_at).toBeNull()
+
+      const response = await confirm(id, { cookie: acme.cookie })
+      const confirmed = readRecord(await response.json())
+
+      expect(response.status).toBe(200)
+      expect(new Date(readString(confirmed, 'confirmed_at')).toISOString()).toBe(confirmed.confirmed_at)
+      expect(confirmed.confirmed_by_id).toMatch(/^mem_/u)
+      // Confirming says who checked it. It does not rewrite what wrote it.
+      expect(confirmed.origin).toBe('ai')
+      expect(decisionSchema.parse(confirmed).confirmedAt).toBeInstanceOf(Date)
+    })
+
+    it('changes nothing on a second confirm, also by another member', async () => {
+      const id = await proposal()
+      const first = readRecord(await (await confirm(id, { cookie: acme.cookie })).json())
+
+      const again = await confirm(id, { cookie: acme.cookie })
+
+      expect(again.status).toBe(200)
+      expect(readRecord(await again.json())).toEqual(first)
+
+      const [stored] = await database.db.select().from(decisions).where(eq(decisions.id, id))
+
+      expect(stored?.confirmedAt?.toISOString()).toBe(first.confirmed_at)
+      expect(stored?.updatedAt.toISOString()).toBe(first.updated_at)
+    })
+
+    it('changes nothing when a member confirms a decision that was confirmed as it was written', async () => {
+      const created = await decisionOn(personId, 'Body')
+      const response = await confirm(String(created.id), { cookie: acme.cookie })
+
+      expect(response.status).toBe(200)
+      expect(readRecord(await response.json())).toEqual(created)
+    })
+
+    it('answers 403 to an API key, workspace or personal, and leaves the proposal as it was', async () => {
+      const id = await proposal()
+
+      for (const kind of ['workspace', 'personal'] as const) {
+        const response = await confirm(id, { bearer: await mintKey(kind) })
+
+        expect(response.status).toBe(403)
+      }
+
+      expect((await read(id)).confirmed_at).toBeNull()
+    })
+
+    it('answers 403 to an API key for an id that does not exist, the same as for one that does', async () => {
+      const response = await confirm('dec_01M1DDZFG3N7TWB3F3X4AV4S96', { bearer: await mintKey('workspace') })
+
+      expect(response.status).toBe(403)
+    })
+
+    it('answers 401 to no credential', async () => {
+      expect((await confirm(await proposal(), {})).status).toBe(401)
+    })
+
+    /**
+     * No HTTP door leads an OAuth token or the hosted AI here: `/v1` answers
+     * `401` to an OAuth token, and there is no confirm tool on `/mcp`. The
+     * service must still refuse them, so that a door added later does not
+     * open this.
+     */
+    it('refuses an OAuth actor and the hosted AI actor at the service', async () => {
+      const id = await proposal()
+      const service = createDecisionsService({
+        db: harness.services.db,
+        transaction: harness.services.transaction,
+        createId: harness.services.createId,
+        now: harness.services.now,
+      })
+      const oauth: OAuthActor = {
+        kind: 'oauth',
+        grantId: 'ogr_test',
+        connectionId: 'ocn_test',
+        clientId: 'client',
+        userId: 'usr_test',
+        workspaceId: acme.workspaceId,
+        role: 'owner',
+        scopes: ['decisions:write'],
+        memberId: 'mem_test',
+      }
+
+      for (const actor of [oauth, createHostedAiActor(acme.workspaceId)]) {
+        const refusal: unknown = await service.confirm(actor, id).catch((thrown: unknown) => thrown)
+
+        expect(refusal).toBeInstanceOf(AppError)
+        expect(refusal instanceof AppError && refusal.code).toBe('forbidden')
+      }
+
+      expect((await read(id)).confirmed_at).toBeNull()
+    })
+
+    it('answers 404 across a workspace boundary, and confirms nothing', async () => {
+      const id = await proposal()
+      const other = await client.owner('grace@example.com')
+
+      expect((await confirm(id, { cookie: other.cookie })).status).toBe(404)
+      expect((await read(id)).confirmed_at).toBeNull()
+    })
+
+    it('does not confirm a proposal when an API key or a member edits it', async () => {
+      const id = await proposal()
+      const byKey = await client.send('PATCH', `/v1/decisions/${id}`, {
+        body: { body: 'Edited by a key', owner_id: null },
+        bearer: await mintKey('workspace'),
+      })
+      const byMember = await client.send('PATCH', `/v1/decisions/${id}`, {
+        body: { rationale: 'Edited by a member' },
+        cookie: acme.cookie,
+      })
+
+      expect(byKey.status).toBe(200)
+      expect(readRecord(await byKey.json()).confirmed_at).toBeNull()
+      expect(byMember.status).toBe(200)
+      expect(readRecord(await byMember.json()).confirmed_at).toBeNull()
+    })
+
+    it('refuses a create or an update that sends confirmed_at or confirmed_by_id', async () => {
+      const id = await proposal()
+      const now = '2026-07-01T09:30:00.000Z'
+
+      for (const field of [{ confirmed_at: now }, { confirmed_by_id: 'mem_test' }]) {
+        const created = await addDecision({ target_type: 'person', target_id: personId, body: 'Body', ...field })
+        const patched = await client.send('PATCH', `/v1/decisions/${id}`, {
+          body: field,
+          bearer: await mintKey('workspace'),
+        })
+
+        expect(created.status).toBe(422)
+        expect(patched.status).toBe(422)
+      }
+
+      expect((await read(id)).confirmed_at).toBeNull()
+    })
+
+    it('filters the list on ?confirmed=', async () => {
+      const proposed = await proposal()
+      const committed = await decisionOn(personId, 'A commitment')
+      const ids = async (query: string): Promise<unknown[]> =>
+        readList(await (await listDecisions(query)).json()).map((decision) => decision.id)
+
+      expect(await ids('confirmed=true')).toEqual([committed.id])
+      expect(await ids('confirmed=false')).toEqual([proposed])
+      expect((await ids('')).sort()).toEqual([committed.id, proposed].sort())
+    })
+
+    it('answers 422 to a ?confirmed= that is not true or false', async () => {
+      expect((await listDecisions('confirmed=yes')).status).toBe(422)
     })
   })
 

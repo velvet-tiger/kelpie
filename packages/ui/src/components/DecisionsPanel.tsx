@@ -4,11 +4,16 @@ import type { FormEvent } from 'react'
 import { Link } from 'react-router'
 
 import { useTimezone } from '../api/resources/account.ts'
-import { useCreateDecision, useDecisions, useDeleteDecision } from '../api/resources/decisions.ts'
+import {
+  useConfirmDecision,
+  useCreateDecision,
+  useDecisions,
+  useDeleteDecision,
+} from '../api/resources/decisions.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { formatDate } from '../lib/dates.ts'
 import { FRAGMENT_HIGHLIGHT, useFragmentTarget } from '../lib/fragmentTarget.ts'
-import { OriginLabel } from './OriginLabel.tsx'
+import { ConfirmDecisionButton, DecisionProvenance } from './DecisionProvenance.tsx'
 import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
@@ -19,6 +24,9 @@ import { SectionHeader } from './SectionHeader.tsx'
  * Ports the mockup's panel: add, remove, and the workspace-list link. The
  * decision's owner defaults server-side to whoever records it, which is what
  * the mockup's `members[0]` stood in for, so the form does not send one.
+ *
+ * A Decision a hosted AI run wrote is a proposal until a member confirms it.
+ * It is labelled as one and carries a Confirm button; Remove rejects it.
  */
 
 export interface DecisionsPanelProps {
@@ -31,6 +39,7 @@ export function DecisionsPanel({ targetType, targetId }: DecisionsPanelProps): R
   const members = useMembers()
   const createDecision = useCreateDecision()
   const deleteDecision = useDeleteDecision()
+  const confirmDecision = useConfirmDecision()
   const [adding, setAdding] = useState(false)
   const [body, setBody] = useState('')
   const [rationale, setRationale] = useState('')
@@ -93,6 +102,11 @@ export function DecisionsPanel({ targetType, targetId }: DecisionsPanelProps): R
       {deleteDecision.error !== null && (
         <div className="mb-3">
           <ErrorPanel error={deleteDecision.error} />
+        </div>
+      )}
+      {confirmDecision.error !== null && (
+        <div className="mb-3">
+          <ErrorPanel error={confirmDecision.error} />
         </div>
       )}
       {decisions.error !== null && <ErrorPanel error={decisions.error} />}
@@ -164,6 +178,10 @@ export function DecisionsPanel({ targetType, targetId }: DecisionsPanelProps): R
                 onRemove={() => {
                   deleteDecision.run(decision.id)
                 }}
+                onConfirm={() => {
+                  confirmDecision.run(decision.id)
+                }}
+                isConfirming={confirmDecision.isPending}
               />
             ))}
           </ul>
@@ -198,10 +216,14 @@ function DecisionItem({
   decision,
   ownerName,
   onRemove,
+  onConfirm,
+  isConfirming,
 }: {
   readonly decision: Decision
   readonly ownerName: string | undefined
   readonly onRemove: () => void
+  readonly onConfirm: () => void
+  readonly isConfirming: boolean
 }): React.JSX.Element {
   const timezone = useTimezone()
   const target = useFragmentTarget<HTMLLIElement>(decision.id)
@@ -216,6 +238,9 @@ function DecisionItem({
     >
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 flex-1 text-[13px] font-medium text-ink">{decision.body}</p>
+        {decision.confirmedAt === null && (
+          <ConfirmDecisionButton onConfirm={onConfirm} isPending={isConfirming} />
+        )}
         <button
           type="button"
           onClick={onRemove}
@@ -231,7 +256,7 @@ function DecisionItem({
         <span>Decided {formatDate(decision.decidedAt, timezone)}</span>
         {decision.dueAt !== null && <span>By {formatDate(decision.dueAt, timezone)}</span>}
         {ownerName !== undefined && <span>{ownerName}</span>}
-        <OriginLabel origin={decision.origin} />
+        <DecisionProvenance origin={decision.origin} confirmedAt={decision.confirmedAt} />
       </div>
     </li>
   )

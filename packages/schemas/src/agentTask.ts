@@ -23,7 +23,15 @@ import type { RecordTimestamps } from './wire.ts'
  * thing to a registered agent.
  */
 
-/** A catalog entry. `id` is a stable string like `company.enrich`, not a ULID. */
+/**
+ * A catalog entry. `id` is a stable string like `company.enrich`, not a ULID.
+ *
+ * `mayCreateDecision` and `mayPin` say what a hosted AI run of the task may
+ * write. A run of a task without the permission cannot create a Decision or
+ * pin a note, whatever the model returns: later readers treat both as facts,
+ * so the task's own instructions must ask for them. They do not limit an
+ * agent that calls the API itself.
+ */
 export interface AgentTaskDefinition {
   readonly id: string
   readonly label: string
@@ -33,6 +41,8 @@ export interface AgentTaskDefinition {
   readonly handbookSlugs: readonly string[]
   readonly instructions: string
   readonly writePolicy: string
+  readonly mayCreateDecision: boolean
+  readonly mayPin: boolean
 }
 
 export const agentTaskDefinitionSchema: z.ZodType<AgentTaskDefinition, unknown> = z
@@ -45,6 +55,10 @@ export const agentTaskDefinitionSchema: z.ZodType<AgentTaskDefinition, unknown> 
     handbook_slugs: z.array(z.string()),
     instructions: z.string(),
     write_policy: z.string(),
+    // A server from before these fields sends neither. No permission is the
+    // safe reading, and the server that applies a run decides, not this value.
+    may_create_decision: z.boolean().default(false),
+    may_pin: z.boolean().default(false),
   })
   .transform(
     (wire): AgentTaskDefinition => ({
@@ -56,6 +70,8 @@ export const agentTaskDefinitionSchema: z.ZodType<AgentTaskDefinition, unknown> 
       handbookSlugs: wire.handbook_slugs,
       instructions: wire.instructions,
       writePolicy: wire.write_policy,
+      mayCreateDecision: wire.may_create_decision,
+      mayPin: wire.may_pin,
     }),
   )
 

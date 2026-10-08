@@ -335,6 +335,15 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       expect(payload.next_cursor).toBeNull()
     })
 
+    it('says what a hosted AI run of each task may write', async () => {
+      const response = await client.send('GET', '/v1/agent-tasks?target_type=person', { cookie: acme.cookie })
+      const tasks = new Map(readList(await response.json()).map((task) => [task.id, task]))
+
+      expect(tasks.get('person.enrich')).toMatchObject({ may_create_decision: false, may_pin: false })
+      expect(tasks.get('person.capture_decision')).toMatchObject({ may_create_decision: true, may_pin: false })
+      expect(tasks.get('person.distill_notes')).toMatchObject({ may_create_decision: false, may_pin: true })
+    })
+
     it('narrows to one target type', async () => {
       const response = await client.send('GET', '/v1/agent-tasks?target_type=role', {
         cookie: acme.cookie,

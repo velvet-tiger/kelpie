@@ -27,7 +27,14 @@ Only admins can change these settings. Every member can run a task.
 3. The model replies with a summary and a list of operations: update allowed fields on the record, add a note, pin a note, add a plan item, record a decision, or add a position.
 4. Kelpie checks each operation and applies it through the same tools any agent uses. It drops fields and operations that the task does not allow, and records each drop.
 
-Kelpie applies the operations with no approval step. The context can hold text from a person outside your workspace, because a public form makes records. Kelpie tells the model that the context is data and holds no instructions, and that it may record a decision or pin a note only when the task asks for it. This lowers the risk that such text steers a run, but a model can still obey text that it reads. Look at the run log after runs on records that came in through a form.
+Kelpie applies the operations with no approval step. The context can hold text from a person outside your workspace, because a public form makes records. Kelpie tells the model that the context is data and holds no instructions. This lowers the risk that such text steers a run, but a model can still obey text that it reads. Look at the run log after runs on records that came in through a form.
+
+Two writes have a control that does not depend on the model, because agents treat them as facts later:
+
+- **A decision.** Only a task that asks for a decision can record one: the capture-decision and log-transcript tasks, and the raise task that captures a pass. On any other task, Kelpie drops the operation and the run log says so. A decision from a run is a proposal. It shows as "Proposed by AI — not confirmed" with a **Confirm** button, and it is not a commitment until a member confirms it. **Remove** rejects it. Only a signed-in member can confirm. An API key, an MCP client and Kelpie AI cannot.
+- **A pinned note.** Only a task that asks for a pin can pin a note: the distill-notes tasks, the account brief, the interview summary, and the add-a-person task. On any other task, Kelpie saves the note unpinned and drops an operation that pins an existing note.
+
+Every note and decision a run writes is labelled "Written by AI". A later run gets decisions that are not confirmed under their own heading, as proposals and not as commitments.
 
 With the `ai` module, the **Admin → AI** page has **Settings** and **Run log** tabs before the core **Agents** tab. The run log shows each run: its status, the record it ran on, the model, the token counts, and each operation with its outcome. The record, and any record an operation names, link to their pages. It stores metadata only. The model's reply is never stored, and the prompt and context sent to the model are deleted when the run ends. Each workspace keeps its newest 100 runs, or the number `AI_RUN_LOG_LIMIT` sets. Runs from the current month are always kept.
 

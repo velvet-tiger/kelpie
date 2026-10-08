@@ -13,6 +13,12 @@ const listArgs = z.strictObject({
   q: termArg,
   target_type: z.enum(RECORD_TARGET_TYPES).optional().describe('Decisions on this kind of record.'),
   target_id: idSetArg.optional().describe('The decisions on these records.'),
+  confirmed: z
+    .boolean()
+    .optional()
+    .describe(
+      'True for commitments only. False for proposals from the hosted AI that no member has confirmed.',
+    ),
 })
 
 export function registerDecisionsTools(mcp: McpToolRegistry, service: DecisionsService): void {
@@ -22,7 +28,9 @@ export function registerDecisionsTools(mcp: McpToolRegistry, service: DecisionsS
     scopes: { read: 'decisions:read', write: 'decisions:write' },
     about:
       'A commitment this company has already made. Read the open ones before proposing ' +
-      'anything; contradicting one is worse than saying nothing.',
+      'anything; contradicting one is worse than saying nothing. One with confirmed_at null ' +
+      'is a proposal from the hosted AI that no member has confirmed: it is not a commitment. ' +
+      'Only a signed-in member can confirm one, in the app. origin says what wrote it.',
     service,
     render: decisionResponse,
     listArgs,
@@ -30,6 +38,7 @@ export function registerDecisionsTools(mcp: McpToolRegistry, service: DecisionsS
       term: args.q,
       targetType: args.target_type,
       targetIds: toSet(args.target_id),
+      confirmed: args.confirmed,
     }),
     createArgs: createBody,
     toCreateInput,

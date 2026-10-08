@@ -18,12 +18,27 @@ export const SHARED_WRITE_POLICY = `- Prefer appending a Note over inventing fac
 - Prefer dated Plan items over a free-text next-step field.
 - Draft outreach is draft-only; do not send email.`
 
+/**
+ * A task may create a Decision or pin a note in a hosted AI run only when it
+ * says so here. Set a flag only when the task's `instructions` ask for that
+ * write: later readers treat a Decision and a pinned note as facts, so a task
+ * that does not ask for one must not be able to make one.
+ */
 function task(
-  definition: Omit<AgentTaskDefinition, 'writePolicy'> & { readonly writePolicy?: string },
+  definition: Omit<AgentTaskDefinition, 'writePolicy' | 'mayCreateDecision' | 'mayPin'> & {
+    readonly writePolicy?: string
+    readonly mayCreateDecision?: boolean
+    readonly mayPin?: boolean
+  },
 ): AgentTaskDefinition {
-  const { writePolicy, ...rest } = definition
+  const { writePolicy, mayCreateDecision, mayPin, ...rest } = definition
 
-  return { ...rest, writePolicy: writePolicy ?? SHARED_WRITE_POLICY }
+  return {
+    ...rest,
+    writePolicy: writePolicy ?? SHARED_WRITE_POLICY,
+    mayCreateDecision: mayCreateDecision ?? false,
+    mayPin: mayPin ?? false,
+  }
 }
 
 export const AGENT_TASK_DEFINITIONS: readonly AgentTaskDefinition[] = [
@@ -97,6 +112,7 @@ Each suggestion needs a title. Create Positions only when evidence is strong; ot
     targetTypes: ['person'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayPin: true,
     instructions: `Review notes on this Person. Pin high-signal items. Optionally append one distilled Note and refresh the summary if it is stale.`,
   }),
   task({
@@ -106,6 +122,7 @@ Each suggestion needs a title. Create Positions only when evidence is strong; ot
     targetTypes: ['person'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `From recent notes or the human's instruction, create a Decision linked to this Person (body, rationale, owner, optional due date).`,
   }),
   task({
@@ -115,6 +132,7 @@ Each suggestion needs a title. Create Positions only when evidence is strong; ot
     targetTypes: ['person'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `The human will paste a call transcript or notes after this prompt.
 Append a Note, update summary only when clearly supported, propose Plan items on linked pipeline records, and extract Decisions when commitments appear.`,
   }),
@@ -166,6 +184,7 @@ Create records only with strong evidence; otherwise list gaps in a Note.`,
     targetTypes: ['company'],
     placement: 'primary',
     handbookSlugs: ['agent-faq'],
+    mayPin: true,
     instructions: `Produce a read-only account brief across related deals, opportunities, partnerships, and raises.
 Optionally save as a pinned Note.`,
   }),
@@ -185,6 +204,7 @@ Optionally save as a pinned Note.`,
     targetTypes: ['company'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayPin: true,
     instructions: `Review notes on this Company. Pin high-signal items. Optionally refresh summary.`,
   }),
   task({
@@ -194,6 +214,7 @@ Optionally save as a pinned Note.`,
     targetTypes: ['company'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `Create a Decision linked to this Company from recent commitments or the human's instruction.`,
   }),
 
@@ -282,6 +303,7 @@ Optionally save as a Note.`,
     targetTypes: ['deal'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayPin: true,
     instructions: `Review notes on this Deal. Pin high-signal items. Optionally refresh summary.`,
   }),
   task({
@@ -291,6 +313,7 @@ Optionally save as a Note.`,
     targetTypes: ['deal'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `Create a Decision linked to this Deal.`,
   }),
   task({
@@ -300,6 +323,7 @@ Optionally save as a Note.`,
     targetTypes: ['deal'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `The human will paste a call transcript after this prompt.
 Append a Note, propose Plan items, update summary/whyWin/risks only with clear evidence, extract Decisions.`,
   }),
@@ -354,6 +378,7 @@ Enquiry's summary or notes signal a match. Save the draft as a Note. Do not send
     targetTypes: ['enquiry'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `Create a Decision linked to this Enquiry from recent commitments or the human's instruction.`,
   }),
   task({
@@ -363,6 +388,7 @@ Enquiry's summary or notes signal a match. Save the draft as a Note. Do not send
     targetTypes: ['enquiry'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `The human will paste a call or chat transcript after this prompt.
 Append a Note, propose Plan items, update the summary only with clear evidence, extract Decisions.`,
   }),
@@ -431,6 +457,7 @@ Save as a Note on the Opportunity. Do not invent metrics not in the handbook or 
     targetTypes: ['opportunity'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayPin: true,
     instructions: `Review notes. Pin high-signal items. Optionally refresh summary.`,
   }),
   task({
@@ -440,6 +467,7 @@ Save as a Note on the Opportunity. Do not invent metrics not in the handbook or 
     targetTypes: ['opportunity'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `Create a Decision linked to this Opportunity.`,
   }),
   task({
@@ -449,6 +477,7 @@ Save as a Note on the Opportunity. Do not invent metrics not in the handbook or 
     targetTypes: ['opportunity'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `The human will paste notes after this prompt. Append a Note; propose Plan items; extract Decisions.`,
   }),
 
@@ -514,6 +543,7 @@ Save as a Note on the Opportunity. Do not invent metrics not in the handbook or 
     targetTypes: ['partnership'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayPin: true,
     instructions: `Review notes. Pin high-signal items. Optionally refresh summary.`,
   }),
   task({
@@ -523,6 +553,7 @@ Save as a Note on the Opportunity. Do not invent metrics not in the handbook or 
     targetTypes: ['partnership'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `Create a Decision linked to this Partnership.`,
   }),
   task({
@@ -532,6 +563,7 @@ Save as a Note on the Opportunity. Do not invent metrics not in the handbook or 
     targetTypes: ['partnership'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `The human will paste notes after this prompt. Append a Note; propose Plan items; extract Decisions.`,
   }),
 
@@ -582,6 +614,7 @@ Do not invent a graph product — list concrete existing contacts and why they h
     targetTypes: ['raise'],
     placement: 'primary',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `If this raise is a pass (or the human is recording one), set passReason, update summary, append a Note, and optionally a Decision.
 Ask before setting stage to passed.`,
   }),
@@ -601,6 +634,7 @@ Ask before setting stage to passed.`,
     targetTypes: ['raise'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayPin: true,
     instructions: `Review notes. Pin high-signal items. Optionally refresh summary.`,
   }),
   task({
@@ -610,6 +644,7 @@ Ask before setting stage to passed.`,
     targetTypes: ['raise'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `Create a Decision linked to this Raise.`,
   }),
   task({
@@ -619,6 +654,7 @@ Ask before setting stage to passed.`,
     targetTypes: ['raise'],
     placement: 'overflow',
     handbookSlugs: ['agent-faq'],
+    mayCreateDecision: true,
     instructions: `The human will paste notes after this prompt. Append a Note; propose Plan items; extract Decisions.`,
   }),
 
@@ -662,6 +698,7 @@ Do not put hiring pipeline fields on Person.`,
     targetTypes: ['candidate'],
     placement: 'primary',
     handbookSlugs: ['agent-faq'],
+    mayPin: true,
     instructions: `Distill Candidate notes into a clear interview summary Note. Pin high-signal feedback.`,
   }),
   task({
@@ -802,6 +839,7 @@ Prioritise open pipeline. Suggest Enrich / Score / Refresh tasks per record.`,
     targetTypes: ['workspace'],
     placement: 'overflow',
     handbookSlugs: ['ideal-customer-profile', 'agent-faq'],
+    mayPin: true,
     instructions: `The human will paste notes about one person after this prompt: names, emails, profile URLs, a signature block, meeting notes.
 Work out who they are. If the notes fit more than one person, ask the human which one before you write anything.
 Search People first (by email, then by name) and Companies (by name and email domain), and add to what exists rather than creating a duplicate.

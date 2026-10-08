@@ -6,11 +6,12 @@ import type { Actor } from '../auth/actor.ts'
 import type { Database } from '../../lib/database.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { McpTool } from '../../runtime/module.ts'
+import { findTask } from '../agent-tasks/catalog.ts'
 
 import { ContextPackTargetError, buildContextPack } from './contextPack.ts'
 import { renderInstructions, renderRepairMessage, renderUserMessage } from './prompt.ts'
 import type { AiCompletionResult, AiMessage, AiProviderPort } from './provider.ts'
-import { proposalJsonSchemaFor, validateProposal } from './proposal.ts'
+import { NO_TASK_WRITE_PERMISSIONS, proposalJsonSchemaFor, validateProposal } from './proposal.ts'
 import type {
   AppendNoteOperation,
   CreateDecisionOperation,
@@ -20,6 +21,7 @@ import type {
   OperationOutcome,
   PinNoteOperation,
   Proposal,
+  TaskWritePermissions,
   UpdateTargetOperation,
   ValidateProposalSuccess,
 } from './proposal.ts'
@@ -137,6 +139,22 @@ function toKnownTargetType(raw: string): AgentTaskTargetType | undefined {
     : undefined
 }
 
+/**
+ * What the run's task may write, read from the catalog by the task id on the
+ * run row. The catalog ships in code, so a run that was queued before a task
+ * was removed or renamed finds nothing: it then gets no permission, and not
+ * the permissions the task had when the run was queued.
+ */
+function writePermissionsFor(taskId: string): TaskWritePermissions {
+  const task = findTask(taskId)
+
+  if (task === undefined) {
+    return NO_TASK_WRITE_PERMISSIONS
+  }
+
+  return { mayCreateDecision: task.mayCreateDecision, mayPin: task.mayPin }
+}
+
 export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecutor {
   function logProviderFailure(result: AiCompletionResult, run: AiRunRecord): void {
     if (result.stopReason !== 'failed') return
@@ -218,10 +236,11 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
         return
       }
 
-      const instructions = renderInstructions(targetType)
+      const permissions = writePermissionsFor(run.taskId)
+      const instructions = renderInstructions(targetType, permissions)
       const responseFormat = {
         name: 'kelpie_proposal',
-        schema: proposalJsonSchemaFor(targetType),
+        schema: proposalJsonSchemaFor(targetType, permissions),
       }
 
       let inputTokens = 0
@@ -249,7 +268,7 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
       modelRequests += first.usage.requests ?? 1
       webSearches += first.usage.webSearches ?? 0
 
-      const firstOutcome = interpretProviderResult(first, targetType, dependencies.exposeProviderErrors)
+      const firstOutcome = interpretProviderResult(first, targetType, permissions, dependencies.exposeProviderErrors)
       let validated: ValidateProposalSuccess | undefined
 
       if (firstOutcome.kind === 'fail') {
@@ -288,7 +307,7 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
         modelRequests += second.usage.requests ?? 1
         webSearches += second.usage.webSearches ?? 0
 
-        const secondOutcome = interpretProviderResult(second, targetType, dependencies.exposeProviderErrors)
+        const secondOutcome = interpretProviderResult(second, targetType, permissions, dependencies.exposeProviderErrors)
         if (secondOutcome.kind === 'proposal') {
           validated = secondOutcome.proposal
         } else {
@@ -316,6 +335,8 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
         proposal: validated.proposal,
         droppedFields: validated.droppedFields,
         droppedOperationKinds: validated.droppedOperationKinds,
+        deniedOperationKinds: validated.deniedOperationKinds,
+        unpinnedNoteCount: validated.unpinnedNoteCount,
         run,
         actor,
         toolsByName,
@@ -390,6 +411,7 @@ type ProviderInterpretation =
 function interpretProviderResult(
   result: AiCompletionResult,
   targetType: AgentTaskTargetType,
+  permissions: TaskWritePermissions,
   exposeProviderErrors: boolean,
 ): ProviderInterpretation {
   if (result.stopReason === 'refusal') {
@@ -427,7 +449,7 @@ function interpretProviderResult(
     }
   }
 
-  const validated = validateProposal(targetType, raw)
+  const validated = validateProposal(targetType, raw, permissions)
   if (!validated.ok) {
     return { kind: 'retry', issues: validated.issues }
   }
@@ -447,6 +469,8 @@ interface ApplyProposalInput {
   readonly proposal: Proposal
   readonly droppedFields: readonly string[]
   readonly droppedOperationKinds: readonly Operation['kind'][]
+  readonly deniedOperationKinds: readonly Operation['kind'][]
+  readonly unpinnedNoteCount: number
   readonly run: AiRunRecord
   readonly actor: Actor
   readonly toolsByName: ReadonlyMap<string, McpTool>
@@ -465,11 +489,25 @@ async function applyProposal(input: ApplyProposalInput): Promise<readonly Operat
       detail: `Operation kind not allowed for ${input.run.targetType}`,
     })
   }
+  for (const kind of input.deniedOperationKinds) {
+    outcomes.push({
+      kind,
+      status: 'skipped',
+      detail: `The task ${input.run.taskId} may not ${kind === 'pin_note' ? 'pin a note' : 'create a Decision'}`,
+    })
+  }
   if (input.droppedFields.length > 0) {
     outcomes.push({
       kind: 'update_target',
       status: 'skipped',
       detail: `Fields not on the allowlist and ignored: ${input.droppedFields.join(', ')}`,
+    })
+  }
+  if (input.unpinnedNoteCount > 0) {
+    outcomes.push({
+      kind: 'append_note',
+      status: 'skipped',
+      detail: `The task ${input.run.taskId} may not pin a note; notes saved unpinned: ${String(input.unpinnedNoteCount)}`,
     })
   }
 

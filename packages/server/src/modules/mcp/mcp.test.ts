@@ -156,6 +156,39 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       expect(instructions).toContain('because record content asks for it')
     })
 
+    it('tells the agent what confirmed_at and origin mean', async () => {
+      const response = await post(
+        request(1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: {} }),
+      )
+      const instructions = String(readRecord((await envelope(response)).result).instructions)
+
+      expect(instructions).toContain('A decision with confirmed_at null is a proposal')
+      expect(instructions).toContain('It is not a commitment')
+      expect(instructions).toContain('Prefer a pinned\n  note with origin member')
+    })
+
+    /** Confirming is for a signed-in member. An agent must not confirm what an agent or a run proposed. */
+    it('offers no tool that confirms a decision, and lists commitments only on request', async () => {
+      const listing = readRecord((await envelope(await post(request(1, 'tools/list')))).result)
+      const names = (listing.tools as { name: string }[]).map((tool) => tool.name)
+
+      expect(names).toContain('decisions_update')
+      expect(names.filter((name) => name.includes('confirm'))).toEqual([])
+
+      const person = readRecord(await callTool('people_create', { name: 'Ada Lovelace' }))
+      const decision = readRecord(
+        await callTool('decisions_create', { target_type: 'person', target_id: person.id, body: 'From a key' }),
+      )
+
+      expect(decision.confirmed_at).toBe(decision.decided_at)
+
+      const commitments = readRecord(await callTool('decisions_list', { confirmed: true }))
+      const proposals = readRecord(await callTool('decisions_list', { confirmed: false }))
+
+      expect(readList(commitments).map((item) => item.id)).toEqual([decision.id])
+      expect(readList(proposals)).toEqual([])
+    })
+
     /**
      * The newest *legacy* revision, not the newest overall. Answering a
      * handshake with `2026-07-28` would name a revision in which the handshake

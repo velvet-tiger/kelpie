@@ -70,6 +70,9 @@ const ROUTE_SCOPE_RULES: readonly RouteScopeRule[] = [
   { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/attendances(?:\/[^/]+)?$/u, scope: 'attendances:write' },
   { methods: ['GET'], pattern: /^\/v1\/decisions(?:\/[^/]+)?$/u, scope: 'decisions:read' },
   { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/decisions(?:\/[^/]+)?$/u, scope: 'decisions:write' },
+  // The service refuses every bearer credential with 403. The scope is here so
+  // that a key without `decisions:write` is refused for that reason first.
+  { methods: ['POST'], pattern: /^\/v1\/decisions\/[^/]+\/confirm$/u, scope: 'decisions:write' },
   { methods: ['GET'], pattern: /^\/v1\/plan_items(?:\/[^/]+)?$/u, scope: 'plan_items:read' },
   { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/plan_items(?:\/[^/]+)?$/u, scope: 'plan_items:write' },
   { methods: ['GET'], pattern: /^\/v1\/notes(?:\/[^/]+)?$/u, scope: 'notes:read' },

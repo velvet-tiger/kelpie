@@ -54,6 +54,10 @@ describe('resolveRestScope', () => {
     expect(resolveRestScope('GET', '/v1/auth/me')).toBeNull()
   })
 
+  it('needs decisions write to confirm a decision', () => {
+    expect(resolveRestScope('POST', '/v1/decisions/dec_1/confirm')).toBe('decisions:write')
+  })
+
   it('needs forms write to delete submissions, one or several', () => {
     expect(resolveRestScope('DELETE', '/v1/forms/frm_1/submissions/sub_1')).toBe('forms:write')
     expect(resolveRestScope('POST', '/v1/forms/frm_1/submissions/delete')).toBe('forms:write')

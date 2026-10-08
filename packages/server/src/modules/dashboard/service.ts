@@ -124,6 +124,8 @@ export interface DecisionSignal extends TargetRef {
   readonly ownerId: string | null
   readonly dueAt: Date | null
   readonly origin: WriteOrigin
+  /** Null for a proposal no member has confirmed. See the decisions schema. */
+  readonly confirmedAt: Date | null
 }
 
 export interface UpcomingEventSignal {
@@ -487,6 +489,7 @@ function toSnapshot(
       ownerId: row.ownerId,
       dueAt: row.dueAt,
       origin: row.origin,
+      confirmedAt: row.confirmedAt,
     })),
   }
 }

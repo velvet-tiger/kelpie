@@ -27,6 +27,8 @@ A decision records what you decided or promised: the decision itself, the ration
 
 Decisions are separate from notes on purpose. A note is information; a decision is a commitment. Agents are instructed not to contradict open decisions, and "what did we decide about Acme?" is a question the Decisions tab answers directly.
 
+A decision shows what wrote it when a member did not: "Written by an agent" for an API key or an MCP client, and "Written by AI" for a Kelpie AI run. A decision from a Kelpie AI run starts as a proposal. It shows as "Proposed by AI — not confirmed", and agents are told that it is not a commitment. Select **Confirm** to make it one, or **Remove** to reject it. Only a signed-in member can confirm. Notes carry the same "Written by" labels.
+
 <!-- screenshot: decisions page -->
 
 ## The dashboard reads all of it

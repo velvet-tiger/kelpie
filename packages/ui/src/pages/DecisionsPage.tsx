@@ -5,7 +5,7 @@ import { Link } from 'react-router'
 import { useTimezone } from '../api/resources/account.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
-import { useDecisions } from '../api/resources/decisions.ts'
+import { useConfirmDecision, useDecisions } from '../api/resources/decisions.ts'
 import { useEvents } from '../api/resources/events.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useOpportunities } from '../api/resources/opportunities.ts'
@@ -15,7 +15,7 @@ import { useRaises } from '../api/resources/raises.ts'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
-import { OriginLabel } from '../components/OriginLabel.tsx'
+import { ConfirmDecisionButton, DecisionProvenance } from '../components/DecisionProvenance.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
 import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
@@ -142,6 +142,7 @@ export function DecisionsPage(): React.JSX.Element {
     term: term.trim().length > 0 ? term.trim() : undefined,
     sort: serverSortOnly(sort, SERVER_SORT_KEYS),
   })
+  const confirmDecision = useConfirmDecision()
   const directory = useTargetDirectory()
   const members = useMembers()
   const timezone = useTimezone()
@@ -157,9 +158,17 @@ export function DecisionsPage(): React.JSX.Element {
           {decision.rationale !== null && (
             <div className="mt-0.5 text-[12px] text-ink-muted">{decision.rationale}</div>
           )}
-          {decision.origin !== 'member' && (
-            <div className="mt-1">
-              <OriginLabel origin={decision.origin} />
+          {(decision.origin !== 'member' || decision.confirmedAt === null) && (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <DecisionProvenance origin={decision.origin} confirmedAt={decision.confirmedAt} />
+              {decision.confirmedAt === null && (
+                <ConfirmDecisionButton
+                  onConfirm={() => {
+                    confirmDecision.run(decision.id)
+                  }}
+                  isPending={confirmDecision.isPending}
+                />
+              )}
             </div>
           )}
         </>
@@ -248,6 +257,12 @@ export function DecisionsPage(): React.JSX.Element {
         }
       />
       <FilterBar value={term} onChange={setTerm} placeholder="Filter decisions…" />
+
+      {confirmDecision.error !== null && (
+        <div className="mb-3">
+          <ErrorPanel error={confirmDecision.error} />
+        </div>
+      )}
 
       {decisions.error !== null ? (
         <ErrorPanel error={decisions.error} />

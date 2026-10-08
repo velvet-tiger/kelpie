@@ -1,4 +1,4 @@
-import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { and, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
@@ -41,6 +41,11 @@ export interface DecisionFilters {
   /** `?target_id=`, repeatable: a panel asks with one, a roll-up with a set. */
   readonly targetIds?: readonly string[] | undefined
   readonly term?: string | undefined
+  /**
+   * `?confirmed=`. True lists commitments, false lists proposals that no member
+   * has confirmed. Absent returns both.
+   */
+  readonly confirmed?: boolean | undefined
 }
 
 /**
@@ -95,6 +100,11 @@ function conditionsFor(workspaceId: string, filters: DecisionFilters): (SQL | un
     filters.targetType === undefined ? undefined : eq(decisions.targetType, filters.targetType),
     filters.targetIds === undefined ? undefined : inArray(decisions.targetId, filters.targetIds),
     filters.term === undefined ? undefined : matchesTerm(filters.term),
+    filters.confirmed === undefined
+      ? undefined
+      : filters.confirmed
+        ? isNotNull(decisions.confirmedAt)
+        : isNull(decisions.confirmedAt),
   ]
 }
 
@@ -150,6 +160,37 @@ export async function updateDecision(
     .returning()
 
   return updated
+}
+
+/**
+ * Confirms a decision that is still a proposal.
+ *
+ * The `confirmed_at is null` term makes the write safe to repeat: a second
+ * call, or one that lost a race, changes nothing and gets no row back, so the
+ * first confirmation keeps its time and its member.
+ *
+ * @returns The confirmed row, or undefined when the decision is not in this
+ *   workspace or was confirmed already.
+ */
+export async function confirmDecision(
+  db: Queryable,
+  workspaceId: string,
+  id: string,
+  confirmation: { readonly confirmedAt: Date; readonly confirmedById: string; readonly updatedAt: Date },
+): Promise<DecisionRecord | undefined> {
+  const [confirmed] = await db
+    .update(decisions)
+    .set(confirmation)
+    .where(
+      and(
+        eq(decisions.workspaceId, workspaceId),
+        eq(decisions.id, id),
+        isNull(decisions.confirmedAt),
+      ),
+    )
+    .returning()
+
+  return confirmed
 }
 
 export async function deleteDecision(

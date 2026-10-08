@@ -29,6 +29,15 @@ export type { RecordTargetType } from '@kelpie/schemas'
  * `origin` is what wrote the row: a member, an agent with a bearer credential,
  * or a hosted AI run. The column has no default here, so every insert must
  * say. The service derives it from the actor and never from a request.
+ *
+ * `confirmedAt` is null while a Decision is a proposal. Only a hosted AI run
+ * makes one: a run writes with no person approving it, so what it writes is
+ * not a commitment until a member says so. `confirmedById` is the member who
+ * said so, and is null for a row that was confirmed when it was written by an
+ * agent or before the column existed. It is `ON DELETE SET NULL`, not
+ * `RESTRICT` like `ownerId`: a confirmation cannot be handed to another
+ * member, so a restriction would make the member impossible to remove. The
+ * time of the confirmation stays.
  */
 export const decisions = pgTable(
   'decisions',
@@ -45,6 +54,10 @@ export const decisions = pgTable(
     ownerId: text('owner_id').references(() => workspaceMembers.id, { onDelete: 'restrict' }),
     dueAt: moment('due_at'),
     origin: text('origin').$type<WriteOrigin>().notNull(),
+    confirmedAt: moment('confirmed_at'),
+    confirmedById: text('confirmed_by_id').references(() => workspaceMembers.id, {
+      onDelete: 'set null',
+    }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     // The body carries weight A because a decision has no name: the body is what

@@ -255,6 +255,8 @@ export interface DashboardDecision extends TargetRef {
   readonly ownerId: string | null
   readonly dueAt: Date | null
   readonly origin: WriteOrigin
+  /** Null for a proposal that no member has confirmed. See `Decision`. */
+  readonly confirmedAt: Date | null
 }
 
 const dashboardDecisionSchema: z.ZodType<DashboardDecision, unknown> = z
@@ -267,6 +269,7 @@ const dashboardDecisionSchema: z.ZodType<DashboardDecision, unknown> = z
     owner_id: idSchema.nullable(),
     due_at: nullableTimestampSchema,
     origin: z.enum(WRITE_ORIGINS),
+    confirmed_at: nullableTimestampSchema,
   })
   .transform((wire) => ({
     ...toTargetRef(wire),
@@ -277,6 +280,7 @@ const dashboardDecisionSchema: z.ZodType<DashboardDecision, unknown> = z
     ownerId: wire.owner_id,
     dueAt: wire.due_at,
     origin: wire.origin,
+    confirmedAt: wire.confirmed_at,
   }))
 
 export interface DashboardUpcomingEvent {

@@ -70,8 +70,8 @@ These attach to a record with `target_type` and `target_id`.
 
 | Record | Role | Main fields | Attaches to |
 | --- | --- | --- | --- |
-| **Note** | Information. Markdown. | `body`, `pinned` | person, company, enquiry, deal, opportunity, raise, partnership, candidate, event, attendance |
-| **Decision** | A commitment or a promise. | `body`, `rationale`, `decided_at`, `owner_id`, `due_at` | the same types as a Note |
+| **Note** | Information. Markdown. | `body`, `pinned`, `origin` (read-only) | person, company, enquiry, deal, opportunity, raise, partnership, candidate, event, attendance |
+| **Decision** | A commitment or a promise. A proposal while `confirmed_at` is null. | `body`, `rationale`, `decided_at`, `owner_id`, `due_at`, `origin` and `confirmed_at` (read-only) | the same types as a Note |
 | **Plan item** | A dated action. | `date`, `title`, `owner_id`, `status` (`todo`, `in_progress`, `done`) | enquiry, deal, opportunity, raise, partnership, event |
 | **Activity** | The timeline. Read-only; the server writes it. | `kind`, `action`, `detail`, `actor_label` | the same types as a Note |
 

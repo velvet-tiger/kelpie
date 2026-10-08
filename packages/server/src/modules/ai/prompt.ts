@@ -3,8 +3,9 @@ import type { AgentTaskTargetType } from '@kelpie/schemas'
 import {
   OPERATIONS_BY_TARGET,
   UPDATE_FIELD_ALLOWLIST,
+  operationKindsFor,
 } from './proposal.ts'
-import type { OperationKind } from './proposal.ts'
+import type { OperationKind, TaskWritePermissions } from './proposal.ts'
 
 /**
  * The prompt wrapper.
@@ -20,7 +21,10 @@ import type { OperationKind } from './proposal.ts'
  * submit makes records). The instructions therefore say that the pack is
  * data, and name the two operations whose results later runs treat as facts.
  * This lowers the risk; it does not remove it, because a model can still
- * obey text that it reads.
+ * obey text that it reads. The control that does not depend on the model is
+ * in `proposal.ts`: a task that does not grant a Decision or a pin cannot
+ * make one. The instructions list only the operations the task grants, so the
+ * model is not told about a write that Kelpie would drop.
  *
  * The wrapper is deliberately minimal. It no longer has to override
  * language the base does not contain — the "operating via MCP/API" opening
@@ -29,8 +33,11 @@ import type { OperationKind } from './proposal.ts'
  */
 
 /** Renders the system-level instructions handed to the provider. */
-export function renderInstructions(targetType: AgentTaskTargetType): string {
-  const kinds = OPERATIONS_BY_TARGET[targetType]
+export function renderInstructions(
+  targetType: AgentTaskTargetType,
+  permissions: TaskWritePermissions,
+): string {
+  const kinds = operationKindsFor(targetType, permissions)
   const fields = UPDATE_FIELD_ALLOWLIST[targetType]
 
   const lines: string[] = []
@@ -70,6 +77,21 @@ export function renderInstructions(targetType: AgentTaskTargetType): string {
   lines.push('')
   lines.push(`Allowed operation kinds for this ${targetType}: ${describeKinds(kinds)}`)
   lines.push(`Allowed \`update_target.fields\` keys for this ${targetType}: ${describeFields(fields)}`)
+
+  const targetKinds = OPERATIONS_BY_TARGET[targetType]
+  if (targetKinds.includes('create_decision')) {
+    lines.push(
+      permissions.mayCreateDecision
+        ? 'A Decision you create is a proposal. It is not a commitment until a member confirms it.'
+        : 'This task may not create a Decision. Kelpie drops a `create_decision` operation.',
+    )
+  }
+  if (!permissions.mayPin && targetKinds.includes('append_note')) {
+    lines.push(
+      'This task may not pin a note. Kelpie drops a `pin_note` operation and saves a note ' +
+        'with `pinned: true` unpinned. Do not send `pinned`.',
+    )
+  }
 
   return lines.join('\n')
 }

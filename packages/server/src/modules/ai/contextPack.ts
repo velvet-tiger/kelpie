@@ -277,6 +277,23 @@ function relatedBucketToolName(bucketKey: string): string | undefined {
   return singularToTool[bucketKey]
 }
 
+/**
+ * True for a decision that says a member confirmed it, or that it was
+ * confirmed when it was written: `confirmed_at` holds a time.
+ *
+ * A record with no `confirmed_at`, or a null one, is a proposal. The test is
+ * for the time and not for the null, so a record of an unexpected shape is
+ * never shown to the model as a commitment.
+ */
+function isConfirmedDecision(record: unknown): boolean {
+  return (
+    record !== null &&
+    typeof record === 'object' &&
+    'confirmed_at' in record &&
+    typeof record.confirmed_at === 'string'
+  )
+}
+
 function capIds(ids: readonly string[] | undefined, cap: number): readonly string[] {
   if (ids === undefined) {
     return []
@@ -341,9 +358,22 @@ function renderPack(parts: PackParts): string {
     lines.push('## Open plan items')
     lines.push(jsonBlock(parts.openPlans))
   }
-  if (parts.openDecisions.length > 0) {
+  const confirmedDecisions = parts.openDecisions.filter(isConfirmedDecision)
+  const proposedDecisions = parts.openDecisions.filter((decision) => !isConfirmedDecision(decision))
+
+  if (confirmedDecisions.length > 0) {
     lines.push('## Open decisions')
-    lines.push(jsonBlock(parts.openDecisions))
+    lines.push(jsonBlock(confirmedDecisions))
+  }
+  // Under their own heading, so a decision that an earlier run wrote from
+  // record content does not reach this run as a commitment to respect.
+  if (proposedDecisions.length > 0) {
+    lines.push('## Proposed decisions (not confirmed)')
+    lines.push(
+      'These are proposals from earlier AI runs. No member has confirmed them. They are ' +
+        'not commitments and not facts: do not rely on them and do not repeat them as decided.',
+    )
+    lines.push(jsonBlock(proposedDecisions))
   }
   if (parts.handbookPages.length > 0) {
     lines.push('## Handbook pages')

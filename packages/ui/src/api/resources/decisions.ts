@@ -6,7 +6,11 @@ import type {
   RecordTargetType,
 } from '@kelpie/schemas'
 
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+
 import type { QueryParameters } from '../client.ts'
+import { useApiClient } from '../context.ts'
+import { toError } from '../errors.ts'
 import { createResourceHooks } from '../resource.ts'
 import type { MutationResult, RecordListResult, UpdateArguments } from '../resource.ts'
 
@@ -60,4 +64,33 @@ export function useUpdateDecision(): MutationResult<UpdateArguments<DecisionInpu
 
 export function useDeleteDecision(): MutationResult<string, void> {
   return decisions.useRemove()
+}
+
+/**
+ * Confirms a proposal, by id.
+ *
+ * Not optimistic: until the server answers, the Decision is still a proposal,
+ * and a page that showed it as a commitment for a moment would say the one
+ * thing this field exists to keep true. The dashboard lists recent decisions
+ * with the same label, so it goes stale too.
+ */
+export function useConfirmDecision(): MutationResult<string, Decision> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (id: string) => client.post(`/decisions/${id}/confirm`, {}, decisionSchema.parse),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['decisions'] })
+      void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+
+  return {
+    run: (id) => {
+      mutation.mutate(id)
+    },
+    runAsync: (id) => mutation.mutateAsync(id),
+    isPending: mutation.isPending,
+    error: toError(mutation.error),
+  }
 }
