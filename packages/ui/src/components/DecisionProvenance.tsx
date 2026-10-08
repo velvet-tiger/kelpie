@@ -7,10 +7,10 @@ import { OriginLabel } from './OriginLabel.tsx'
  * What a reader must know before trusting a Decision: whether a member has
  * confirmed it, and what wrote it.
  *
- * A Decision with no `confirmedAt` is a proposal. A hosted AI run wrote it with
- * no person approving the write, so it is shown as not confirmed until a member
- * confirms it. A confirmed one shows only its origin, and nothing at all when a
- * member wrote it.
+ * A Decision with no `confirmedAt` is a proposal. The usual case is one a hosted
+ * AI run wrote, with no person approving the write. It is shown as not confirmed
+ * until a member confirms it. A confirmed one shows only its origin, and nothing
+ * at all when a member wrote it.
  */
 
 const NAME_EXCERPT_LENGTH = 60
@@ -19,6 +19,19 @@ function excerpt(body: string): string {
   const line = body.replace(/\s+/gu, ' ').trim()
 
   return line.length <= NAME_EXCERPT_LENGTH ? line : `${line.slice(0, NAME_EXCERPT_LENGTH)}…`
+}
+
+/**
+ * Says that a confirm succeeded, for a screen reader. A sighted reader sees the
+ * row lose its "not confirmed" label; nothing else would tell a reader who
+ * cannot. Always in the page, so that the change of its text is announced.
+ */
+export function ConfirmedAnnouncement({ count }: { readonly count: number }): React.JSX.Element {
+  return (
+    <p role="status" className="sr-only">
+      {count === 0 ? '' : count === 1 ? 'Decision confirmed.' : `${String(count)} decisions confirmed.`}
+    </p>
+  )
 }
 
 export interface DecisionProvenanceProps {
@@ -57,7 +70,10 @@ export function ConfirmDecisionButton({
       disabled={isPending}
       // A page can hold several of these. A screen reader lists buttons by
       // name, and "Confirm" five times does not say what each one confirms.
-      aria-label={`Confirm decision: ${excerpt(body)}`}
+      // The name replaces the visible text for a screen reader, so it has to
+      // change with it while the confirm is in flight.
+      aria-label={`${isPending ? 'Confirming' : 'Confirm'} decision: ${excerpt(body)}`}
+      aria-busy={isPending}
       className="shrink-0 rounded-md bg-accent px-2 py-0.5 text-[11px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
     >
       {isPending ? 'Confirming…' : 'Confirm'}

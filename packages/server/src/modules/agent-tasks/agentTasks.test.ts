@@ -441,7 +441,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       for (const prompt of [resolved.prompt, resolved.basePrompt]) {
         expect(prompt).toContain(`4. Open Decisions: \`${readString(commitment, 'id')}\`.`)
         expect(prompt).toContain(
-          'Proposed Decisions: `dec_resolve_proposal`. A hosted AI run wrote these and no member has confirmed them. They are proposals, not commitments.',
+          'Proposed Decisions: `dec_resolve_proposal`. No member has confirmed these; `origin` on each says what wrote it. They are proposals, not commitments.',
         )
       }
     })

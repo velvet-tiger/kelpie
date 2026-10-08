@@ -151,12 +151,19 @@ describe.skipIf(connectionString === undefined)('the origin and confirmation mig
   })
 
   it('leaves the tables as they were', async () => {
-    const columns = await database.db.execute<{ column_name: string }>(sql`
-      select column_name from information_schema.columns
-      where table_name = 'decisions' and column_name in ('origin', 'confirmed_at', 'confirmed_by_id')
-      order by column_name
+    const columns = await database.db.execute<{ table_name: string; column_name: string }>(sql`
+      select table_name, column_name from information_schema.columns
+      where table_schema = current_schema()
+        and table_name in ('decisions', 'notes')
+        and column_name in ('origin', 'confirmed_at', 'confirmed_by_id')
+      order by table_name, column_name
     `)
 
-    expect([...columns].map((row) => row.column_name)).toEqual(['confirmed_at', 'confirmed_by_id', 'origin'])
+    expect([...columns].map((row) => `${row.table_name}.${row.column_name}`)).toEqual([
+      'decisions.confirmed_at',
+      'decisions.confirmed_by_id',
+      'decisions.origin',
+      'notes.origin',
+    ])
   })
 })

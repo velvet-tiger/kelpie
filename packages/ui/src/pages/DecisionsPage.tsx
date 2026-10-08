@@ -15,7 +15,11 @@ import { useRaises } from '../api/resources/raises.ts'
 import { ColumnPicker } from '../components/ColumnPicker.tsx'
 import { DataTable } from '../components/DataTable.tsx'
 import type { Column } from '../components/DataTable.tsx'
-import { ConfirmDecisionButton, DecisionProvenance } from '../components/DecisionProvenance.tsx'
+import {
+  ConfirmDecisionButton,
+  ConfirmedAnnouncement,
+  DecisionProvenance,
+} from '../components/DecisionProvenance.tsx'
 import { FilterBar, PageHeader } from '../components/PageHeader.tsx'
 import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
@@ -167,7 +171,7 @@ export function DecisionsPage(): React.JSX.Element {
                   onConfirm={() => {
                     confirmDecision.run({ id: decision.id, updatedAt: decision.updatedAt })
                   }}
-                  isPending={confirmDecision.pendingId === decision.id}
+                  isPending={confirmDecision.pendingIds.has(decision.id)}
                 />
               )}
             </div>
@@ -259,6 +263,7 @@ export function DecisionsPage(): React.JSX.Element {
       />
       <FilterBar value={term} onChange={setTerm} placeholder="Filter decisions…" />
 
+      <ConfirmedAnnouncement count={confirmDecision.confirmedCount} />
       {confirmDecision.error !== null && (
         <div className="mb-3">
           <ErrorPanel error={confirmDecision.error} />

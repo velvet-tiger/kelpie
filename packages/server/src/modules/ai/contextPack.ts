@@ -423,8 +423,8 @@ function renderPack(parts: PackParts): string {
   if (parts.proposedDecisions.length > 0) {
     lines.push('## Proposed decisions (not confirmed)')
     lines.push(
-      'These are proposals from earlier AI runs. No member has confirmed them. They are ' +
-        'not commitments and not facts: do not rely on them and do not repeat them as decided.',
+      'No member has confirmed these. `origin` on each says what wrote it. They are ' +
+        'proposals, not commitments and not facts: do not rely on them and do not repeat them as decided.',
     )
     lines.push(jsonBlock(parts.proposedDecisions))
   }

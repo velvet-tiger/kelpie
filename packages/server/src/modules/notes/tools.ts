@@ -34,7 +34,7 @@ export function registerNotesTools(mcp: McpToolRegistry, service: NotesService):
       '[[type:id|Label]], for example [[company:com_01J…|Acme]]; get the id from search_query. ' +
       'Each note comes back with references: the current name of every cited record that exists. ' +
       'origin says what wrote it: member, agent, ai, or unknown for an old note. When you change ' +
-      'the body it becomes agent.',
+      'the body it becomes agent, unless it is ai, which it stays.',
     service,
     render: noteResponse,
     listArgs,

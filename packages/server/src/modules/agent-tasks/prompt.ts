@@ -53,7 +53,7 @@ export interface PromptInputs {
   readonly openPlanIds: readonly string[]
   /** Confirmed Decisions only. */
   readonly openDecisionIds: readonly string[]
-  /** Decisions a hosted AI run wrote that no member has confirmed. */
+  /** Decisions that no member has confirmed, whatever wrote them. */
   readonly proposedDecisionIds: readonly string[]
   readonly related: Readonly<Record<string, RelatedIdList>>
   readonly signals: readonly WorkspaceSignal[]
@@ -115,7 +115,7 @@ function proposedDecisionsLine(ids: readonly string[]): string {
     return ''
   }
 
-  return `\n   Proposed Decisions: ${codeList(ids, '(none)')}. A hosted AI run wrote these and no member has confirmed them. They are proposals, not commitments. Do not treat them as decided.`
+  return `\n   Proposed Decisions: ${codeList(ids, '(none)')}. No member has confirmed these; \`origin\` on each says what wrote it. They are proposals, not commitments. Do not treat them as decided.`
 }
 
 /**

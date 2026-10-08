@@ -207,9 +207,9 @@ export function createHostedAiActor(workspaceId: string): ApiKeyActor {
  * `origin: 'ai'`. The route that knows the text came from a model calls this;
  * a request has no field that reaches it.
  *
- * Pass the result to that one write only. It is still the caller's kind, so
- * a service that needs a person, such as confirming a Decision, must refuse
- * it with `isAiAuthor`.
+ * Pass the result to that one write only. It is still the caller's kind.
+ * `requireSessionActor` refuses it, so no action kept for a signed-in person
+ * can be reached with it.
  */
 export function asAiAuthor(actor: Actor): Actor {
   const marked: Actor & { readonly [aiAuthorBrand]: true } = { ...actor, [aiAuthorBrand]: true }
@@ -295,12 +295,20 @@ export function requireWorkspaceId(actor: Actor): string {
 /**
  * Narrows to a signed-in human.
  *
+ * A session actor that `asAiAuthor` marked is refused as well. The mark is for
+ * one write of a model's text, and that copy still has the kind of a session;
+ * without this, every action kept for a person could be reached with it.
+ *
  * @throws AppError 403 for a key, which has no session to manage and no password
- *   to change.
+ *   to change, and for an actor marked as writing a model's text.
  */
 export function requireSessionActor(actor: Actor): SessionActor {
   if (actor.kind !== 'session') {
     throw new AppError('forbidden', 'This endpoint needs a signed-in user, not an API key or OAuth token')
+  }
+
+  if (isAiAuthor(actor)) {
+    throw new AppError('forbidden', 'This endpoint needs a signed-in user')
   }
 
   return actor

@@ -13,7 +13,7 @@ import {
 import { useMembers } from '../api/resources/members.ts'
 import { formatDate } from '../lib/dates.ts'
 import { FRAGMENT_HIGHLIGHT, useFragmentTarget } from '../lib/fragmentTarget.ts'
-import { ConfirmDecisionButton, DecisionProvenance } from './DecisionProvenance.tsx'
+import { ConfirmDecisionButton, ConfirmedAnnouncement, DecisionProvenance } from './DecisionProvenance.tsx'
 import { Paginator } from './Paginator.tsx'
 import { ErrorPanel } from './QueryState.tsx'
 import { SectionHeader } from './SectionHeader.tsx'
@@ -104,6 +104,7 @@ export function DecisionsPanel({ targetType, targetId }: DecisionsPanelProps): R
           <ErrorPanel error={deleteDecision.error} />
         </div>
       )}
+      <ConfirmedAnnouncement count={confirmDecision.confirmedCount} />
       {confirmDecision.error !== null && (
         <div className="mb-3">
           <ErrorPanel error={confirmDecision.error} />
@@ -181,7 +182,7 @@ export function DecisionsPanel({ targetType, targetId }: DecisionsPanelProps): R
                 onConfirm={() => {
                   confirmDecision.run({ id: decision.id, updatedAt: decision.updatedAt })
                 }}
-                isConfirming={confirmDecision.pendingId === decision.id}
+                isConfirming={confirmDecision.pendingIds.has(decision.id)}
               />
             ))}
           </ul>

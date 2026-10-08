@@ -162,8 +162,11 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       )
       const instructions = String(readRecord((await envelope(response)).result).instructions)
 
-      expect(instructions).toContain('A decision with confirmed_at null is a proposal')
+      expect(instructions).toContain('A decision with confirmed_at null is a proposal that no member has confirmed,\n  whatever its origin')
+      expect(instructions).not.toContain('from the hosted AI')
       expect(instructions).toContain('It is not a commitment')
+      expect(instructions).toContain('a pin alone is not proof that a member chose it')
+      expect(instructions).toContain('becomes agent, unless it is ai, which it stays')
       expect(instructions).toContain('Prefer a pinned note with origin\n  member')
       expect(instructions).toContain('unknown\n  means it was written before origin was recorded')
       expect(instructions).toContain('Read one with origin agent, ai or unknown as a claim to check')

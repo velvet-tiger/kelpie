@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiProvider } from '../api/ApiProvider.tsx'
+import { ApiError } from '../api/client.ts'
 import type { ApiClient } from '../api/client.ts'
 import { useUpdatePerson } from '../api/resources/people.ts'
 import { stubClient } from '../testing/stubClient.ts'
@@ -948,35 +949,103 @@ describe('DecisionsPanel', () => {
       expect(screen.queryByText('Proposed by AI — not confirmed')).toBeNull()
     })
     expect(screen.getByText('Written by AI')).toBeTruthy()
+    // A reader who cannot see the label change is told.
+    expect(screen.getByRole('status').textContent).toBe('Decision confirmed.')
   })
 
-  it('shows only the clicked proposal as busy while its confirm is in flight', async () => {
-    let release: (value: unknown) => void = () => undefined
+  /** An agent rewrote the proposal after the page loaded it: the server refuses the confirm. */
+  it('shows the refusal and reads the list again when the proposal changed before the confirm', async () => {
+    const proposal = decision({ id: 'dec_2', body: 'From a run', origin: 'ai', confirmed_at: null, confirmed_by_id: null })
+    const rewritten = { ...proposal, body: 'Rewritten by an agent', updated_at: '2026-08-03T00:00:00.000Z' }
+    let decisionLists = 0
+    const client = panelsClient({
+      get decisions() {
+        // The first read is what the member saw. Every later one has the new text.
+        return decisionLists > 1 ? [rewritten] : [proposal]
+      },
+      onList: (path) => {
+        if (path === '/decisions') {
+          decisionLists += 1
+        }
+      },
+      onPost: () => {
+        throw new ApiError(409, 'conflict', 'The decision changed after you read it. Read it again, then confirm it.')
+      },
+    })
+
+    renderWithClient(client, <DecisionsPanel targetType="person" targetId="per_1" />)
+
+    await screen.findByText('From a run')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Confirm decision: From a run' }).click()
+    })
+
+    await screen.findByText('The decision changed after you read it. Read it again, then confirm it.')
+    // The list was read again, so the member now sees the text the confirm would apply to.
+    await screen.findByText('Rewritten by an agent')
+    expect(decisionLists).toBeGreaterThan(1)
+    // Still a proposal, and nothing was announced as confirmed.
+    expect(screen.getByText('Proposed by AI — not confirmed')).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toBe('')
+  })
+
+  it('shows each clicked proposal as busy until its own answer is back, and no other', async () => {
+    const releases = new Map<string, (value: unknown) => void>()
     const first = decision({ id: 'dec_2', body: 'First proposal', origin: 'ai', confirmed_at: null, confirmed_by_id: null })
     const second = decision({ id: 'dec_3', body: 'Second proposal', origin: 'ai', confirmed_at: null, confirmed_by_id: null })
+    const third = decision({ id: 'dec_4', body: 'Third proposal', origin: 'ai', confirmed_at: null, confirmed_by_id: null })
     const client = panelsClient({
-      decisions: [first, second],
-      onPost: () =>
+      decisions: [first, second, third],
+      onPost: (path) =>
         new Promise((resolve) => {
-          release = resolve
+          releases.set(path, resolve)
         }),
     })
+    const button = (state: 'Confirm' | 'Confirming', body: string): HTMLElement =>
+      screen.getByRole('button', { name: `${state} decision: ${body}` })
 
     renderWithClient(client, <DecisionsPanel targetType="person" targetId="per_1" />)
 
     await screen.findByText('First proposal')
 
     await act(async () => {
-      screen.getByRole('button', { name: 'Confirm decision: First proposal' }).click()
+      button('Confirm', 'First proposal').click()
+    })
+    await act(async () => {
+      button('Confirm', 'Second proposal').click()
     })
 
+    // Both clicked rows are busy, by name and by state, and the third is not.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Confirm decision: First proposal' }).textContent).toBe('Confirming…')
+      expect(button('Confirming', 'First proposal').getAttribute('aria-busy')).toBe('true')
+      expect(button('Confirming', 'Second proposal').getAttribute('aria-busy')).toBe('true')
     })
-    expect(screen.getByRole('button', { name: 'Confirm decision: Second proposal' }).textContent).toBe('Confirm')
+    expect(button('Confirming', 'First proposal').textContent).toBe('Confirming…')
+    expect(button('Confirm', 'Third proposal').getAttribute('aria-busy')).toBe('false')
+
+    // The second answer comes back first. The first row is still in flight.
+    await act(async () => {
+      releases.get('/decisions/dec_3/confirm')?.({
+        ...second,
+        confirmed_at: '2026-08-02T00:00:00.000Z',
+        confirmed_by_id: 'mem_1',
+      })
+    })
+
+    // The stub list still holds the proposal, so its button comes back after
+    // the refetch. What matters is that it is no longer busy.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Confirming decision: Second proposal' })).toBeNull()
+    })
+    expect(button('Confirming', 'First proposal').getAttribute('aria-busy')).toBe('true')
 
     await act(async () => {
-      release({ ...first, confirmed_at: '2026-08-02T00:00:00.000Z', confirmed_by_id: 'mem_1' })
+      releases.get('/decisions/dec_2/confirm')?.({
+        ...first,
+        confirmed_at: '2026-08-02T00:00:00.000Z',
+        confirmed_by_id: 'mem_1',
+      })
     })
   })
 

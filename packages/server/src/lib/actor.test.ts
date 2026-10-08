@@ -10,6 +10,7 @@ import {
   writeOrigin,
 } from './actor.ts'
 import type { ApiKeyActor, OAuthActor, OAuthConnectionActor, SessionActor } from './actor.ts'
+import { AppError } from './errors.ts'
 
 const session: SessionActor = {
   kind: 'session',
@@ -112,6 +113,31 @@ describe('asAiAuthor', () => {
     expect(author.kind).toBe('session')
     expect(writeOrigin(session)).toBe('member')
     expect(isAiAuthor(session)).toBe(false)
+  })
+})
+
+describe('requireSessionActor', () => {
+  it('returns a session', () => {
+    expect(requireSessionActor(session)).toBe(session)
+  })
+
+  it('refuses a session marked as writing a model\'s text, with 403', () => {
+    const refusal = ((): unknown => {
+      try {
+        return requireSessionActor(asAiAuthor(session))
+      } catch (thrown: unknown) {
+        return thrown
+      }
+    })()
+
+    expect(refusal).toBeInstanceOf(AppError)
+    expect(refusal instanceof AppError && refusal.status).toBe(403)
+  })
+
+  it('refuses every bearer credential and the hosted AI actor, with 403', () => {
+    for (const actor of [workspaceKey, oauth, oauthConnection, createHostedAiActor('wsp_1')]) {
+      expect(() => requireSessionActor(actor)).toThrow(AppError)
+    }
   })
 })
 

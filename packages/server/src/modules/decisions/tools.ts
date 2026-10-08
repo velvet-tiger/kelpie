@@ -17,7 +17,7 @@ const listArgs = z.strictObject({
     .boolean()
     .optional()
     .describe(
-      'True for commitments only. False for proposals from the hosted AI that no member has confirmed.',
+      'True for commitments only. False for proposals that no member has confirmed.',
     ),
 })
 
@@ -29,9 +29,9 @@ export function registerDecisionsTools(mcp: McpToolRegistry, service: DecisionsS
     about:
       'A commitment this company has already made. Read the open ones before proposing ' +
       'anything; contradicting one is worse than saying nothing. One with confirmed_at null ' +
-      'is a proposal from the hosted AI that no member has confirmed: it is not a commitment. ' +
+      'is a proposal that no member has confirmed, whatever its origin: it is not a commitment. ' +
       'Only a signed-in member can confirm one, in the app. origin says what wrote it; ' +
-      'when you change the body or the rationale it becomes agent.',
+      'when you change the body or the rationale it becomes agent, unless it is ai, which it stays.',
     service,
     render: decisionResponse,
     listArgs,

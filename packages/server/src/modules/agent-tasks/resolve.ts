@@ -189,7 +189,7 @@ async function collectPinnedNoteIds(
 
 /**
  * The target's Decisions, in two lists. A Decision is a commitment only once
- * it is confirmed; one a hosted AI run wrote is a proposal until a member
+ * it is confirmed; any other, such as one a hosted AI run wrote, is a proposal until a member
  * confirms it, and the prompt must not list it as a commitment to respect.
  */
 async function collectDecisionIds(

@@ -7,6 +7,7 @@ import type {
 } from '@kelpie/schemas'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 
 import type { QueryParameters } from '../client.ts'
 import { useApiClient } from '../context.ts'
@@ -78,8 +79,14 @@ export interface ConfirmDecisionArguments {
 }
 
 export interface ConfirmDecisionResult extends MutationResult<ConfirmDecisionArguments, Decision> {
-  /** The Decision a confirm is in flight for, so only its own button shows as busy. */
-  readonly pendingId: string | undefined
+  /**
+   * Every Decision a confirm is in flight for, so each row shows its own
+   * state. A set and not one id: a member can click a second row before the
+   * first answer is back, and both are then still in flight.
+   */
+  readonly pendingIds: ReadonlySet<string>
+  /** How many confirms have succeeded on this page, for a status line a screen reader hears. */
+  readonly confirmedCount: number
 }
 
 /**
@@ -95,6 +102,8 @@ export interface ConfirmDecisionResult extends MutationResult<ConfirmDecisionArg
 export function useConfirmDecision(): ConfirmDecisionResult {
   const client = useApiClient()
   const queryClient = useQueryClient()
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set())
+  const [confirmedCount, setConfirmedCount] = useState(0)
   const mutation = useMutation({
     mutationFn: ({ id, updatedAt }: ConfirmDecisionArguments) =>
       client.post(
@@ -102,7 +111,16 @@ export function useConfirmDecision(): ConfirmDecisionResult {
         { updated_at: updatedAt.toISOString() },
         decisionSchema.parse,
       ),
+    // The mutation's own state follows only the newest call. These two run
+    // for every call, so the set holds each id until its own answer is back.
+    onMutate: ({ id }) => {
+      setPendingIds((current) => new Set(current).add(id))
+    },
+    onSettled: (_decision, _error, { id }) => {
+      setPendingIds((current) => new Set([...current].filter((pending) => pending !== id)))
+    },
     onSuccess: (decision) => {
+      setConfirmedCount((count) => count + 1)
       cacheRecord(queryClient, 'decisions', decision)
       void queryClient.invalidateQueries({ queryKey: ['decisions'] })
       void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
@@ -117,8 +135,9 @@ export function useConfirmDecision(): ConfirmDecisionResult {
       mutation.mutate(input)
     },
     runAsync: (input) => mutation.mutateAsync(input),
-    isPending: mutation.isPending,
-    pendingId: mutation.isPending ? mutation.variables.id : undefined,
+    isPending: pendingIds.size > 0,
+    pendingIds,
+    confirmedCount,
     error: toError(mutation.error),
   }
 }

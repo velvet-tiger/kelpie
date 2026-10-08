@@ -2006,7 +2006,7 @@ describe.skipIf(connectionString === undefined)('ai', () => {
 
       expect(commitments).toBeGreaterThan(-1)
       expect(proposals).toBeGreaterThan(commitments)
-      expect(pack).toContain('No member has confirmed them. They are not commitments')
+      expect(pack).toContain('No member has confirmed these. `origin` on each says what wrote it. They are proposals, not commitments')
       // Each decision is under its own heading and nowhere else.
       expect(pack.indexOf('A member decided this.')).toBeGreaterThan(commitments)
       expect(pack.indexOf('A member decided this.')).toBeLessThan(proposals)
