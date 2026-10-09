@@ -75,13 +75,19 @@ export const CONSENT_EXTRA_SCOPES: readonly ApiKeyScope[] = API_KEY_OPT_IN_SCOPE
  * True when a scope set gives everything `scope` gives. A preset is covered
  * when each scope it expands to is. An empty set covers nothing: an OAuth
  * grant with no scopes has no access.
+ *
+ * Exported for its unit test only.
  */
-function scopesCover(held: readonly ApiKeyScope[], scope: ApiKeyScope): boolean {
-  if (held.length === 0) {
+export function scopesCover(held: readonly ApiKeyScope[], scope: ApiKeyScope): boolean {
+  const needed = [...expandApiKeyScopes([scope])]
+
+  // A scope that expands to nothing is one this version does not know, read
+  // from a row. Nothing covers it: `every` over an empty list would say yes.
+  if (held.length === 0 || needed.length === 0) {
     return false
   }
 
-  return [...expandApiKeyScopes([scope])].every((granular) => satisfiesApiKeyScope(held, granular))
+  return needed.every((granular) => satisfiesApiKeyScope(held, granular))
 }
 
 /**
@@ -235,6 +241,13 @@ export interface ConsentView {
     readonly id: string
     readonly name: string
     readonly role: MemberRole
+    /**
+     * True when this person has a grant to this client in this workspace. An
+     * authorize request comes from a browser and carries no token, so it
+     * cannot name the connection that asked. Every workspace the client has
+     * is marked, and the page opens with those ticked.
+     */
+    readonly connected: boolean
     /**
      * The `extraScopes` that this person's grant to this client in this
      * workspace gives already. The page starts those ticked, so an approval
@@ -693,6 +706,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
             id: membership.id,
             name: membership.name,
             role: parseRole(membership.role),
+            connected: held !== undefined,
             heldScopes:
               held === undefined ? [] : extraScopes.filter((extra) => scopesCover(held as ApiKeyScope[], extra)),
           }

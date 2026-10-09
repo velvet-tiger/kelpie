@@ -27,13 +27,13 @@ const REQUEST = {
   logo_uri: null,
   scopes: ['read:objects', 'write:objects'],
   extra_scopes: ['decisions:commit'],
-  workspaces: [{ id: 'ws_1', name: 'Acme', role: 'owner', held_scopes: [] }],
+  workspaces: [{ id: 'ws_1', name: 'Acme', role: 'owner', connected: false, held_scopes: [] }],
   expires_at: '2026-09-25T02:10:00.000Z',
 }
 
 const TWO_WORKSPACES = [
-  { id: 'ws_1', name: 'Acme', role: 'owner', held_scopes: [] },
-  { id: 'ws_2', name: 'Globex', role: 'member', held_scopes: [] },
+  { id: 'ws_1', name: 'Acme', role: 'owner', connected: false, held_scopes: [] },
+  { id: 'ws_2', name: 'Globex', role: 'member', connected: false, held_scopes: [] },
 ]
 
 const ALL_EXTRAS = ['decisions:commit', 'handbook:write', 'delete:objects']
@@ -399,7 +399,10 @@ describe('ConsentPage', () => {
 
     expect(box(/^Write all/u).checked).toBe(false)
     expect(box(/^Read all/u).checked).toBe(true)
-    expect(screen.getByText(/Includes changing handbook pages, and every workspace admin write/u)).toBeTruthy()
+    // It says that the preset is also the ordinary record write.
+    expect(
+      screen.getByText('Lets it change every record, the handbook and workspace settings: members, API keys and webhooks.'),
+    ).toBeTruthy()
 
     cleanup()
 
@@ -416,7 +419,9 @@ describe('ConsentPage', () => {
   it('starts an extra ticked only when the app has it already, and says so', async () => {
     const stubs = {
       extraScopes: ALL_EXTRAS,
-      workspaces: [{ id: 'ws_1', name: 'Acme', role: 'owner', held_scopes: ['handbook:write', 'delete:objects'] }],
+      workspaces: [
+        { id: 'ws_1', name: 'Acme', role: 'owner', connected: true, held_scopes: ['handbook:write', 'delete:objects'] },
+      ],
     }
 
     renderPage(stubs)
@@ -447,8 +452,8 @@ describe('ConsentPage', () => {
     const stubs = {
       extraScopes: ALL_EXTRAS,
       workspaces: [
-        { id: 'ws_1', name: 'Acme', role: 'owner', held_scopes: ['delete:objects'] },
-        { id: 'ws_2', name: 'Globex', role: 'member', held_scopes: [] },
+        { id: 'ws_1', name: 'Acme', role: 'owner', connected: true, held_scopes: ['delete:objects'] },
+        { id: 'ws_2', name: 'Globex', role: 'member', connected: false, held_scopes: [] },
       ],
     }
 
@@ -477,6 +482,100 @@ describe('ConsentPage', () => {
     expect(await approveAfter(stubs, [/^Decisions \(commit/u, /Globex/u])).toEqual({
       workspace_ids: ['ws_1', 'ws_2'],
       scopes: ['read:objects', 'write:objects', 'decisions:commit'],
+    })
+  })
+
+  /**
+   * The app is connected to Globex and asks for more. The person's session is
+   * in Acme. An approval for Acme would make a new connection there and end
+   * the one that asked.
+   */
+  it('opens on the workspaces the app is connected to, not on the one the session is in', async () => {
+    const stubs = {
+      activeWorkspaceId: 'ws_1',
+      extraScopes: ALL_EXTRAS,
+      workspaces: [
+        { id: 'ws_1', name: 'Acme', role: 'owner', connected: false, held_scopes: [] },
+        { id: 'ws_2', name: 'Globex', role: 'member', connected: true, held_scopes: ['delete:objects'] },
+        { id: 'ws_3', name: 'Initech', role: 'member', connected: true, held_scopes: ['delete:objects'] },
+      ],
+    }
+
+    renderPage(stubs)
+    await screen.findByText('Connect Example Agent')
+
+    expect(box(/Acme/u).checked).toBe(false)
+    expect(box(/Globex/u).checked).toBe(true)
+    expect(box(/Initech/u).checked).toBe(true)
+    // So what the connection holds is found, and kept by a person who only clicks Allow.
+    expect(box(/^Delete objects/u).checked).toBe(true)
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [])).toEqual({
+      workspace_ids: ['ws_2', 'ws_3'],
+      scopes: ['read:objects', 'write:objects', 'delete:objects'],
+    })
+  })
+
+  it('opens on the workspace of the session for an app that is not connected yet', async () => {
+    renderPage({ workspaces: TWO_WORKSPACES, activeWorkspaceId: 'ws_2' })
+
+    expect((await screen.findByRole('checkbox', { name: /Globex/u }) as HTMLInputElement).checked).toBe(true)
+    expect(box(/Acme/u).checked).toBe(false)
+  })
+
+  it('shows a narrower extra as ticked and locked while a wider ticked one gives it, and sends only what was ticked', async () => {
+    const stubs = {
+      scopes: ['read:all', 'write:all', 'people:delete'],
+      extraScopes: ['write:all', 'people:delete', ...ALL_EXTRAS],
+    }
+
+    renderPage(stubs)
+    await screen.findByText('Connect Example Agent')
+
+    expect(box(/^People \(delete\)/u).checked).toBe(false)
+    expect(box(/^People \(delete\)/u).disabled).toBe(false)
+
+    await act(async () => {
+      box(/^Delete objects/u).click()
+    })
+    await act(async () => {
+      box(/^Write all/u).click()
+    })
+
+    // The two rows cannot say that the app does not get what the wider rows give it.
+    expect(box(/^People \(delete\)/u).checked).toBe(true)
+    expect(box(/^People \(delete\)/u).disabled).toBe(true)
+    expect(box(/^Handbook \(write\)/u).checked).toBe(true)
+    expect(box(/^Handbook \(write\)/u).disabled).toBe(true)
+    expect(screen.getByText('· included in Delete objects')).toBeTruthy()
+    expect(screen.getByText('· included in Write all')).toBeTruthy()
+    // A scope that no ticked row gives stays the person's to choose.
+    expect(box(/^Decisions \(commit/u).checked).toBe(false)
+    expect(box(/^Decisions \(commit/u).disabled).toBe(false)
+
+    await act(async () => {
+      box(/^Delete objects/u).click()
+    })
+
+    // Clearing the wider row gives the narrower one back, clear as it was.
+    expect(box(/^People \(delete\)/u).checked).toBe(false)
+    expect(box(/^People \(delete\)/u).disabled).toBe(false)
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [/^Delete objects/u, /^Write all/u])).toEqual({
+      workspace_ids: ['ws_1'],
+      scopes: ['read:all', 'write:all', 'delete:objects'],
+    })
+
+    cleanup()
+
+    // A narrower row the person ticked first is sent with the wider one: the union, no more.
+    expect(await approveAfter(stubs, [/^People \(delete\)/u, /^Delete objects/u])).toEqual({
+      workspace_ids: ['ws_1'],
+      scopes: ['read:all', 'people:delete', 'delete:objects'],
     })
   })
 

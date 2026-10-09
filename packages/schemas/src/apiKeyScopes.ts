@@ -303,7 +303,7 @@ export function apiKeyScopeRisk(scope: ApiKeyRiskScope): string {
     case 'delete:objects':
       return 'Lets it delete records and handbook pages. A deleted record cannot be restored.'
     case 'write:all':
-      return 'Includes changing handbook pages, and every workspace admin write: members, API keys, webhooks and settings.'
+      return 'Lets it change every record, the handbook and workspace settings: members, API keys and webhooks.'
     default: {
       const deleted: `${ObjectDataResource}:delete` = scope
       const kind = API_KEY_SCOPE_LABELS[deleted].replace(' (delete)', '')

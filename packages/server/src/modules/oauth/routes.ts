@@ -285,6 +285,7 @@ function requestResponse(view: ConsentView): Record<string, unknown> {
       id: workspace.id,
       name: workspace.name,
       role: workspace.role,
+      connected: workspace.connected,
       held_scopes: workspace.heldScopes,
     })),
     expires_at: view.expiresAt.toISOString(),

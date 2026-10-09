@@ -1,3 +1,4 @@
+import { API_KEY_OBJECT_DATA_RESOURCES } from '@kelpie/schemas'
 import { QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
@@ -126,6 +127,39 @@ describe('ConnectedAppsPage', () => {
     )
     // The preset stays in the access list; the chip says what it holds.
     expect(within(rowFor('Umbrella')).getByText('Read all, Write all')).toBeTruthy()
+  })
+
+  it('shows one chip, and no list of names, for a connection that holds every delete scope by name', async () => {
+    const deletes = API_KEY_OBJECT_DATA_RESOURCES.map((resource) => `${resource}:delete`)
+    const client = stubClient({
+      list: () => ({
+        items: [
+          {
+            ...grant('ogr_6', 'ocn_6', 'Soylent'),
+            scopes: ['read:objects', ...deletes],
+            extra_scopes: ['delete:objects'],
+          },
+        ],
+        nextCursor: null,
+      }),
+    })
+
+    render(
+      <MemoryRouter>
+        <ApiProvider
+          client={client}
+          queryClient={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}
+        >
+          <ConnectedAppsPage />
+        </ApiProvider>
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Soylent')
+
+    expect(within(rowFor('Soylent')).getByRole('list', { name: 'Extra permissions' }).textContent).toBe('Delete objects')
+    expect(within(rowFor('Soylent')).queryByText(/\(delete\)/u)).toBeNull()
+    expect(within(rowFor('Soylent')).getByText('Read objects')).toBeTruthy()
   })
 
   it('offers Disconnect all only on a connection with more than one workspace', async () => {

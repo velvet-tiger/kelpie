@@ -86,11 +86,24 @@ interface ConsentFormProps {
 }
 
 /**
- * The workspace ticked when the page opens: the one the session is in, or the
- * first when the session has none the person can connect. One, never all: a
- * person who only clicks Allow gives the app the workspace they are working in.
+ * The workspaces ticked when the page opens.
+ *
+ * When the app is connected already, they are the workspaces it is connected
+ * to, whichever workspace the session is in. The app is then asking for more
+ * access, and an approval that named another workspace would make a new
+ * connection there and end the one that asked.
+ *
+ * For an app that is new to this person: the workspace the session is in, or
+ * the first when the session has none the person can connect. One, never all:
+ * a person who only clicks Allow gives the app the workspace they are working in.
  */
 function initialWorkspaceIds(request: OAuthRequest, activeWorkspaceId: string | null): readonly string[] {
+  const connected = request.workspaces.filter((workspace) => workspace.connected)
+
+  if (connected.length > 0) {
+    return connected.map((workspace) => workspace.id)
+  }
+
   const active = request.workspaces.find((workspace) => workspace.id === activeWorkspaceId)
   const first = active ?? request.workspaces[0]
 
@@ -148,6 +161,24 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
     return extraChoices.get(scope) ?? alreadyAllowed(scope)
   }
 
+  /**
+   * The ticked extra that gives everything this one gives and more, if there
+   * is one: "Delete objects" for `people:delete`, "Write all" for "Handbook
+   * (write)". The narrower row is then shown ticked and locked. Clear, it
+   * would say the app does not get a power that the wider row gives it.
+   */
+  function widerTickedExtra(scope: ApiKeyScope): ApiKeyScope | undefined {
+    const needed = [...expandApiKeyScopes([scope])]
+
+    return request.extraScopes.find((other) => {
+      const given = expandApiKeyScopes([other])
+
+      return other !== scope && extraTicked(other) && given.size > needed.length && needed.every((entry) => given.has(entry))
+    })
+  }
+
+  // Only the rows the person ticked, or left ticked. A row that is shown
+  // ticked because a wider one covers it is not sent: the wider one gives it.
   const extras = request.extraScopes.filter(extraTicked)
   const nothingTicked = scopes.length + extras.length === 0
   const [leaving, setLeaving] = useState(false)
@@ -287,30 +318,38 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
               Not part of the access above. Tick one only if you want this app to have it.
             </p>
             <div className="space-y-2">
-              {request.extraScopes.map((scope) => (
-                <label key={scope} className="flex items-start gap-2 text-[13px] text-ink">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={extraTicked(scope)}
-                    onChange={() => {
-                      toggleExtra(scope)
-                    }}
-                  />
-                  <span>
-                    {API_KEY_SCOPE_LABELS[scope]}
-                    {request.scopes.includes(scope) && (
-                      <span className="text-[11px] text-ink-muted"> · this app asks for it</span>
-                    )}
-                    {alreadyAllowed(scope) && (
-                      <span className="text-[11px] text-ink-muted"> · already allowed</span>
-                    )}
-                    {isApiKeyRiskScope(scope) && (
-                      <span className="block text-[11px] text-ink-muted">{apiKeyScopeRisk(scope)}</span>
-                    )}
-                  </span>
-                </label>
-              ))}
+              {request.extraScopes.map((scope) => {
+                const wider = widerTickedExtra(scope)
+
+                return (
+                  <label key={scope} className="flex items-start gap-2 text-[13px] text-ink">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={wider !== undefined || extraTicked(scope)}
+                      disabled={wider !== undefined}
+                      onChange={() => {
+                        toggleExtra(scope)
+                      }}
+                    />
+                    <span>
+                      {API_KEY_SCOPE_LABELS[scope]}
+                      {request.scopes.includes(scope) && (
+                        <span className="text-[11px] text-ink-muted"> · this app asks for it</span>
+                      )}
+                      {alreadyAllowed(scope) && (
+                        <span className="text-[11px] text-ink-muted"> · already allowed</span>
+                      )}
+                      {wider !== undefined && (
+                        <span className="text-[11px] text-ink-muted"> · included in {API_KEY_SCOPE_LABELS[wider]}</span>
+                      )}
+                      {isApiKeyRiskScope(scope) && (
+                        <span className="block text-[11px] text-ink-muted">{apiKeyScopeRisk(scope)}</span>
+                      )}
+                    </span>
+                  </label>
+                )
+              })}
             </div>
             <p className="mt-2 text-[11px] text-ink-faint">
               What you allow here replaces what this app had. Clear an item that is already allowed to take

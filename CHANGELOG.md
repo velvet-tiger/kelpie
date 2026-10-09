@@ -88,6 +88,17 @@ While the major version is `0`, a minor bump may break the API.
     marks it "already allowed". The server reads this from the stored grant
     of this person and this client, for each workspace. It is ticked only
     when each selected workspace has it.
+  - **The page opens on the workspaces the app is connected to.** When this
+    person has a grant to this client, those workspaces are ticked at the
+    start, and not the workspace of the session. An authorize request
+    carries no token, so the server cannot tell which connection asked; it
+    marks every workspace that the client has. An app that is new to the
+    person still opens on the workspace of the session.
+  - **A wider ticked row locks the narrower ones.** While "Delete objects"
+    is ticked, a row such as "People (delete)" shows ticked and cannot be
+    changed, with "included in Delete objects". The same is so for "Write
+    all" and "Handbook (write)". The approval holds only the rows that the
+    person ticked.
   - **Changed behaviour for an existing integration:** an approval sets the
     scopes of the connection to what the person approves that time. This was
     so before, and matters more now: a client that connects again, or asks
@@ -95,14 +106,19 @@ While the major version is `0`, a minor bump may break the API.
     `insufficient_scope` answer of `/mcp` now names the scopes the token
     holds and then the missing one, so a client that asks for that list
     keeps what it had. A scope that is not sensitive and that the client
-    does not ask for again is gone after the approval.
+    does not ask for again is gone after the approval. So is a sensitive
+    scope that the page does not offer: a connection that holds
+    `people:delete` loses it when the client connects again with a request
+    that does not name it, because the page then offers only
+    `decisions:commit`, `handbook:write` and `delete:objects`.
   - Allow is off only when nothing at all is ticked. A request for sensitive
     scopes only can be approved.
   - Connected apps shows a warning chip for each sensitive power of a
     connection, under any name that gives it: `write:all` shows "Handbook
     (write)".
   - **`@kelpie/server`** — `GET /v1/oauth/requests/:id` carries
-    `extra_scopes`, and each of its `workspaces` carries `held_scopes`. Each
+    `extra_scopes`, and each of its `workspaces` carries `connected` and
+    `held_scopes`. Each
     row of `GET /v1/oauth/grants` carries `extra_scopes`: the sensitive
     powers of the grant. `POST /v1/oauth/requests/:id/approve` accepts the
     requested scopes and the three scopes that are always offered, and
@@ -110,9 +126,9 @@ While the major version is `0`, a minor bump may break the API.
     and each token carry what the person approved. A refresh can narrow
     that set and cannot widen it. No migration.
   - **`@kelpie/schemas`** — `OAuthRequest` and `OAuthGrant` gain
-    `extraScopes`, and `OAuthWorkspaceChoice` gains `heldScopes`.
-    **Breaking for a client of an older server:** the schemas need
-    `extra_scopes` and `held_scopes`. New: `API_KEY_SENSITIVE_SCOPES`,
+    `extraScopes`, and `OAuthWorkspaceChoice` gains `connected` and
+    `heldScopes`. **Breaking for a client of an older server:** the schemas
+    need `extra_scopes`, `connected` and `held_scopes`. New: `API_KEY_SENSITIVE_SCOPES`,
     `API_KEY_SENSITIVE_PRESET_SCOPES`, `API_KEY_OPT_IN_SCOPES`,
     `isSensitiveApiKeyScope`, `sensitiveApiKeyScopesHeld`,
     `isApiKeyRiskScope` and `apiKeyScopeRisk`, with the types
@@ -469,7 +485,9 @@ While the major version is `0`, a minor bump may break the API.
     "Delete objects" under "Extra permissions", beside "Decisions (commit
     without confirmation)", each with what it risks. These are the same
     three as on the consent page. The custom grid has a delete tick box for
-    each object-data resource. The key list names each sensitive power of a
+    each object-data resource, and stays open while it holds a tick, so the
+    form never sends a scope that is not on the page. The key list names
+    each sensitive power of a
     key as a warning chip and does not count it into "Custom (N scopes)". A
     full-access key shows as a "Full access" warning chip.
   - The MCP instructions tell an agent to say that the connection does not

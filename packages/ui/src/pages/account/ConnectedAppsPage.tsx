@@ -1,4 +1,4 @@
-import { API_KEY_SCOPE_LABELS } from '@kelpie/schemas'
+import { API_KEY_SCOPE_LABELS, isSensitiveApiKeyScope } from '@kelpie/schemas'
 import type { OAuthGrant } from '@kelpie/schemas'
 import { useState } from 'react'
 
@@ -153,7 +153,9 @@ function GrantRow({
       <td className="px-4 py-3 text-ink-muted">{grant.workspaceName}</td>
       <td className="px-4 py-3 text-ink-muted">
         {grant.scopes
-          .filter((scope) => !grant.extraScopes.includes(scope))
+          // A sensitive scope is named by its chip below, under whatever
+          // names gave it. "Write all" stays here: it is more than its chip.
+          .filter((scope) => !isSensitiveApiKeyScope(scope) || scope === 'write:all')
           .map((scope) => API_KEY_SCOPE_LABELS[scope])
           .join(', ')}
         {grant.extraScopes.length > 0 && (

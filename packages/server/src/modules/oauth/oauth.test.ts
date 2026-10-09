@@ -803,6 +803,11 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       // is asked for and not held. The other workspace has no grant.
       expect(held.get(workspaceId)).toEqual(['people:delete', 'handbook:write'])
       expect(held.get(otherWorkspaceId)).toEqual([])
+      // Which workspaces the client has is said apart: a grant can hold no sensitive scope.
+      expect(isRecord(body) && body.workspaces).toMatchObject([
+        { id: workspaceId, connected: true },
+        { id: otherWorkspaceId, connected: false },
+      ])
 
       // Another client of the same person holds nothing.
       const otherClient = await registerPublicClient()
@@ -810,7 +815,29 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
         await send('GET', `/v1/oauth/requests/${await startRequest(otherClient)}`, { cookie })
       ).json()
 
-      expect(isRecord(fresh) && fresh.workspaces).toMatchObject([{ held_scopes: [] }, { held_scopes: [] }])
+      expect(isRecord(fresh) && fresh.workspaces).toMatchObject([
+        { connected: false, held_scopes: [] },
+        { connected: false, held_scopes: [] },
+      ])
+    })
+
+    it('marks a workspace as connected when its grant holds no sensitive scope, and for that person only', async () => {
+      const { clientId, cookie, workspaceId } = await connect()
+      const mine: unknown = await (
+        await send('GET', `/v1/oauth/requests/${await startRequest(clientId)}`, { cookie })
+      ).json()
+
+      expect(isRecord(mine) && mine.workspaces).toMatchObject([{ id: workspaceId, connected: true, held_scopes: [] }])
+
+      // Another person asks about the same client. They have their own workspace and no grant.
+      const other = await owner('grace@example.com')
+      const theirs: unknown = await (
+        await send('GET', `/v1/oauth/requests/${await startRequest(clientId)}`, { cookie: other.cookie })
+      ).json()
+
+      expect(isRecord(theirs) && theirs.workspaces).toMatchObject([
+        { id: other.workspaceId, connected: false, held_scopes: [] },
+      ])
     })
 
     it('counts a scope as held when a wider scope of the grant gives it', async () => {

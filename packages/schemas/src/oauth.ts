@@ -21,6 +21,12 @@ export interface OAuthWorkspaceChoice {
   readonly name: string
   readonly role: MemberRole
   /**
+   * True when this person already approved this client for this workspace.
+   * The consent page opens with these workspaces ticked, so an approval for
+   * more access is for the connection that the client has.
+   */
+  readonly connected: boolean
+  /**
    * The request's `extraScopes` that this client already has in this
    * workspace, from an earlier approval by the same person. The server
    * decides this. Empty when the client is not connected to the workspace.
@@ -90,6 +96,7 @@ const oauthRequestWireSchema = z.object({
       id: idSchema,
       name: z.string(),
       role: z.enum(MEMBER_ROLES),
+      connected: z.boolean(),
       held_scopes: z.array(z.enum(API_KEY_SCOPES)),
     }),
   ),
@@ -109,6 +116,7 @@ export const oauthRequestSchema: z.ZodType<OAuthRequest, unknown> = oauthRequest
       id: workspace.id,
       name: workspace.name,
       role: workspace.role,
+      connected: workspace.connected,
       heldScopes: workspace.held_scopes,
     })),
     expiresAt: wire.expires_at,
