@@ -26,7 +26,7 @@ const response = await fetch('https://example.com/v1/people/per_01J.../', {
 const person = personSchema.parse(await response.json())
 ```
 
-API keys accept optional scopes on create:
+API keys accept optional scopes on create. With none, the server gives `API_KEY_DEFAULT_SCOPES`; `fullAccess: true` asks for a key with every scope:
 
 ```ts
 import { createApiKeyBody } from '@kelpie/schemas'

@@ -27,6 +27,13 @@ export const API_KEY_PRESET_SCOPES = [
 
 export type ApiKeyPresetScope = (typeof API_KEY_PRESET_SCOPES)[number]
 
+/**
+ * What a new API key gets when the request names no scopes: enough to read
+ * and write CRM records. Nothing administrative, no delete, no write to the
+ * handbook. Full access is asked for by name, with `full_access`.
+ */
+export const API_KEY_DEFAULT_SCOPES: readonly ApiKeyPresetScope[] = ['read:objects', 'write:objects']
+
 /** Resources that hold CRM and content data (not workspace admin). */
 export const API_KEY_OBJECT_DATA_RESOURCES = [
   'people',

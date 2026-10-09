@@ -126,8 +126,13 @@ describe('PersonalApiKeysPage', () => {
       screen.getByRole('button', { name: 'Create' }).click()
     })
 
+    // The form opens on the default scopes and sends them by name.
     await waitFor(() => {
-      expect(posted.body).toEqual({ name: 'Desktop Claude', kind: 'personal' })
+      expect(posted.body).toEqual({
+        name: 'Desktop Claude',
+        kind: 'personal',
+        scopes: ['read:objects', 'write:objects'],
+      })
     })
 
     expect(await screen.findByText('kp_user_realsecretvalue')).toBeTruthy()
@@ -169,10 +174,6 @@ describe('PersonalApiKeysPage', () => {
       setInputValue(await screen.findByPlaceholderText('Laptop Claude'), 'Agent')
     })
 
-    await act(async () => {
-      screen.getByRole('checkbox', { name: 'Write objects' }).click()
-    })
-
     const commit = screen.getByRole('checkbox', { name: /^Decisions \(commit without confirmation\)/u })
 
     // No preset includes it, so it starts clear.
@@ -190,7 +191,7 @@ describe('PersonalApiKeysPage', () => {
       expect(posted.body).toEqual({
         name: 'Agent',
         kind: 'personal',
-        scopes: ['write:objects', 'decisions:commit'],
+        scopes: ['read:objects', 'write:objects', 'decisions:commit'],
       })
     })
 
@@ -204,11 +205,9 @@ describe('PersonalApiKeysPage', () => {
     await act(async () => {
       screen.getByRole('button', { name: 'Create key' }).click()
     })
-    await act(async () => {
-      screen.getByRole('checkbox', { name: 'Write objects' }).click()
-    })
 
-    // The grid under the presets shows what the ticked presets include.
+    // The grid under the presets shows what the ticked presets include, and
+    // the form opens with Read objects and Write objects ticked.
     const scope = (name: string): HTMLInputElement => screen.getByRole('checkbox', { name }) as HTMLInputElement
 
     expect(scope('People (write)').checked).toBe(true)
@@ -222,6 +221,115 @@ describe('PersonalApiKeysPage', () => {
     expect(scope('People (delete)').checked).toBe(true)
     expect(scope('Handbook (delete)').checked).toBe(true)
     expect(scope('Handbook (write)').checked).toBe(false)
+  })
+
+  it('opens on the default scopes, with full access clear and a warning beside it', async () => {
+    renderPage({ keys: [] })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create key' }).click()
+    })
+
+    const box = (name: string): HTMLInputElement => screen.getByRole('checkbox', { name }) as HTMLInputElement
+
+    expect(box('Read objects').checked).toBe(true)
+    expect(box('Write objects').checked).toBe(true)
+    expect(box('Delete objects').checked).toBe(false)
+    expect(box('Admin').checked).toBe(false)
+    expect(box('Full access').checked).toBe(false)
+    expect(screen.getByText(/A full-access key can do everything your role can/u)).toBeTruthy()
+  })
+
+  it('sends full_access only when the person ticks Full access, and no scopes with it', async () => {
+    const posted: { body?: unknown } = {}
+    renderPage({
+      keys: [],
+      onPost: (body) => {
+        posted.body = body
+
+        return {
+          id: 'key_12',
+          name: 'Everything',
+          kind: 'personal',
+          scopes: [],
+          display_prefix: 'kp_user_…c3a3',
+          last_used_at: null,
+          created_at: '2026-08-12T00:00:00.000Z',
+          secret: 'kp_user_fullsecret',
+        }
+      },
+    })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create key' }).click()
+    })
+    await act(async () => {
+      setInputValue(await screen.findByPlaceholderText('Laptop Claude'), 'Everything')
+    })
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'Full access' }).click()
+    })
+
+    // The scoped choices go away: full access is not a preset among others.
+    expect(screen.queryByRole('checkbox', { name: 'Write objects' })).toBeNull()
+    expect(screen.queryByRole('checkbox', { name: /^Decisions \(commit/u })).toBeNull()
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create' }).click()
+    })
+
+    await waitFor(() => {
+      expect(posted.body).toEqual({ name: 'Everything', kind: 'personal', full_access: true })
+    })
+
+    // A key with no scopes reads as full access in the list.
+    expect(await screen.findByRole('cell', { name: 'Full access' })).toBeTruthy()
+  })
+
+  it('goes back to the default scopes when Full access is cleared', async () => {
+    renderPage({ keys: [] })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create key' }).click()
+    })
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'Full access' }).click()
+    })
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'Full access' }).click()
+    })
+
+    expect((screen.getByRole('checkbox', { name: 'Read objects' }) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByRole('checkbox', { name: 'Write objects' }) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('does not create a key with nothing ticked', async () => {
+    const posted: unknown[] = []
+    renderPage({
+      keys: [],
+      onPost: (body) => {
+        posted.push(body)
+
+        return {}
+      },
+    })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create key' }).click()
+    })
+    await act(async () => {
+      setInputValue(await screen.findByPlaceholderText('Laptop Claude'), 'Nothing')
+    })
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'Read objects' }).click()
+    })
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'Write objects' }).click()
+    })
+
+    expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText('Choose at least one permission, or full access.')).toBeTruthy()
+    expect(posted).toEqual([])
   })
 
   it('asks before revoking, and removes the key once confirmed', async () => {

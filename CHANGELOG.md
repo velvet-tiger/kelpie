@@ -353,6 +353,30 @@ While the major version is `0`, a minor bump may break the API.
   - The MCP instructions, the `decisions_*` tool descriptions and the
     `kelpie` skill tell an agent that its Decision is a proposal and that it
     must say so to the user. No migration.
+- **A new API key does not have full access unless the request asks for
+  it.** `POST /v1/api-keys` with no `scopes` created a key that could do
+  everything, so a caller that left the field out got the most dangerous
+  key there is.
+  - **Changed behaviour for an existing integration:** a create with
+    `scopes` omitted or empty now gives `read:objects` and `write:objects`:
+    the key reads and writes CRM records, and cannot delete, write the
+    handbook, or reach workspace administration. The response shows the
+    scopes it got.
+  - **Full access is `full_access: true`.** The key is stored with an empty
+    scope list, which still means every scope. `full_access: true` together
+    with a non-empty `scopes` answers `422`.
+  - **Not changed.** Keys from before keep what they have: a stored key
+    with no scopes is a full-access key. A scoped key still cannot create a
+    full-access key, and cannot give a scope it does not hold; with no
+    `scopes` in the request it must hold the two default scopes. No
+    migration.
+  - **`@kelpie/schemas`** — new: `API_KEY_DEFAULT_SCOPES`.
+    `CreateApiKeyInput` gains `fullAccess`, and `createApiKeyBody` sends
+    `full_access: true` for it.
+  - **`@kelpie/ui`** — the key form opens with "Read objects" and "Write
+    objects" ticked. "Full access" is a separate tick box with a warning,
+    and the form sends the scopes it shows. A key with no scopes shows as
+    "Full access" in the list, as before.
 - **Deleting a record and writing the handbook need their own scopes.** A
   scoped API key or an OAuth connection that could write records could also
   delete them, and could rewrite the handbook, which agents read as the

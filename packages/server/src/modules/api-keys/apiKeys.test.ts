@@ -112,6 +112,7 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
     return { cookie, workspaceId: readString(await created.json(), 'id') }
   }
 
+  /** A key with the scopes given, or a full-access key when none are. */
   async function mint(
     cookie: string,
     kind: string,
@@ -119,7 +120,7 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
     scopes?: readonly string[],
   ): Promise<string> {
     const response = await send('POST', '/v1/api-keys', {
-      body: { name, kind, ...(scopes === undefined ? {} : { scopes }) },
+      body: { name, kind, ...(scopes === undefined ? { full_access: true } : { scopes }) },
       cookie,
     })
     expect(response.status).toBe(201)
@@ -581,11 +582,159 @@ describe.skipIf(connectionString === undefined)('api keys', () => {
       expect(response.status).toBe(403)
     })
 
-    it('keeps empty scopes as full access', async () => {
+    it('keeps a stored key with no scopes as full access', async () => {
       const { cookie, workspaceId } = await owner()
-      const secret = await mint(cookie, 'workspace')
+      const secret = await mint(cookie, 'workspace', 'Old', ['read:objects'])
+
+      // A key from before the default changed: its row holds no scopes.
+      await database.db.update(apiKeys).set({ scopes: [] })
 
       expect((await send('GET', `/v1/workspaces/${workspaceId}`, { bearer: secret })).status).toBe(200)
+      expect((await send('GET', '/v1/webhooks', { bearer: secret })).status).toBe(200)
+
+      const listed = readList(await (await send('GET', '/v1/api-keys?kind=workspace', { cookie })).json())
+
+      expect(listed[0]?.scopes).toEqual([])
+    })
+  })
+
+  describe('what a new key can reach', () => {
+    const DEFAULT = ['read:objects', 'write:objects']
+
+    async function create(
+      body: Record<string, unknown>,
+      credentials: { cookie?: string; bearer?: string },
+      kind = 'workspace',
+    ): Promise<Response> {
+      return send('POST', '/v1/api-keys', { body: { name: 'New', kind, ...body }, ...credentials })
+    }
+
+    async function created(
+      body: Record<string, unknown>,
+      cookie: string,
+      kind = 'workspace',
+    ): Promise<Record<string, unknown>> {
+      const response = await create(body, { cookie }, kind)
+      const payload: unknown = await response.json()
+
+      expect(response.status).toBe(201)
+
+      if (!isRecord(payload)) {
+        throw new Error(`Expected a key, got ${JSON.stringify(payload)}`)
+      }
+
+      return payload
+    }
+
+    it('gives the default scopes when the body names none, for a workspace key and a personal key', async () => {
+      const { cookie, workspaceId } = await owner()
+
+      for (const kind of ['workspace', 'personal']) {
+        for (const body of [{}, { scopes: [] }, { full_access: false }, { scopes: [], full_access: false }]) {
+          const key = await created(body, cookie, kind)
+          const secret = readString(key, 'secret')
+
+          expect(key.scopes).toEqual(DEFAULT)
+          expect((await send('GET', `/v1/workspaces/${workspaceId}`, { bearer: secret })).status).toBe(403)
+        }
+      }
+
+      const stored = await database.db.select().from(apiKeys)
+
+      expect(stored).toHaveLength(8)
+      expect(stored.every((row) => row.scopes.join(' ') === DEFAULT.join(' '))).toBe(true)
+    })
+
+    it('lets a default key read and write records, and nothing administrative or destructive', async () => {
+      const { cookie } = await owner()
+      const secret = readString(await created({}, cookie), 'secret')
+      const person = await send('POST', '/v1/people', { bearer: secret, body: { name: 'Alex' } })
+
+      expect(person.status).toBe(201)
+      expect((await send('GET', '/v1/people', { bearer: secret })).status).toBe(200)
+
+      const personId = readString(await person.json(), 'id')
+
+      expect((await send('DELETE', `/v1/people/${personId}`, { bearer: secret })).status).toBe(403)
+      expect((await send('GET', '/v1/webhooks', { bearer: secret })).status).toBe(403)
+      expect((await send('GET', '/v1/api-keys?kind=workspace', { bearer: secret })).status).toBe(403)
+      expect(
+        (await send('POST', '/v1/handbook_pages', { bearer: secret, body: { title: 'Pricing', body: 'Text' } })).status,
+      ).toBe(403)
+      expect((await create({}, { bearer: secret })).status).toBe(403)
+    })
+
+    it('gives full access only when the body asks for it by name', async () => {
+      const { cookie, workspaceId } = await owner()
+
+      for (const body of [{ full_access: true }, { full_access: true, scopes: [] }]) {
+        const key = await created(body, cookie)
+        const secret = readString(key, 'secret')
+
+        expect(key.scopes).toEqual([])
+        expect((await send('GET', `/v1/workspaces/${workspaceId}`, { bearer: secret })).status).toBe(200)
+        expect((await send('GET', '/v1/webhooks', { bearer: secret })).status).toBe(200)
+      }
+    })
+
+    it('answers 422 to full access together with scopes, and creates no key', async () => {
+      const { cookie } = await owner()
+      const response = await create({ full_access: true, scopes: ['read:objects'] }, { cookie })
+      const body: unknown = await response.json()
+
+      expect(response.status).toBe(422)
+      expect(isRecord(body) && isRecord(body.error) && body.error.code).toBe('validation_failed')
+      expect(await database.db.select().from(apiKeys)).toHaveLength(0)
+    })
+
+    it('answers 422 to a full_access that is not true or false', async () => {
+      const { cookie } = await owner()
+
+      for (const value of ['true', 1, null]) {
+        expect((await create({ full_access: value }, { cookie })).status).toBe(422)
+      }
+
+      expect(await database.db.select().from(apiKeys)).toHaveLength(0)
+    })
+
+    it('gives the scopes the body names, with or without full_access false', async () => {
+      const { cookie } = await owner()
+
+      expect((await created({ scopes: ['read:objects'] }, cookie)).scopes).toEqual(['read:objects'])
+      expect((await created({ scopes: ['people:read'], full_access: false }, cookie)).scopes).toEqual(['people:read'])
+    })
+
+    it('still stops a scoped key from minting full access', async () => {
+      const { cookie } = await owner()
+      const minter = await mint(cookie, 'workspace', 'Key manager', ['api_keys:write', 'read:objects', 'write:objects'])
+
+      expect((await create({ full_access: true }, { bearer: minter })).status).toBe(403)
+      // With no scopes named, the new key gets the default ones, which this caller holds.
+      const child = await create({}, { bearer: minter })
+      const body: unknown = await child.json()
+
+      expect(child.status).toBe(201)
+      expect(isRecord(body) && body.scopes).toEqual(DEFAULT)
+    })
+
+    it('refuses the default scopes to a scoped key that does not hold them', async () => {
+      const { cookie } = await owner()
+      const minter = await mint(cookie, 'workspace', 'Key manager', ['api_keys:write', 'people:read'])
+      const response = await create({}, { bearer: minter })
+      const body: unknown = await response.json()
+
+      expect(response.status).toBe(403)
+      expect(isRecord(body) && isRecord(body.error) && String(body.error.message)).toContain('people:write')
+    })
+
+    it('lets a full-access key mint a full-access key', async () => {
+      const { cookie } = await owner()
+      const minter = await mint(cookie, 'workspace')
+      const response = await create({ full_access: true }, { bearer: minter })
+      const body: unknown = await response.json()
+
+      expect(response.status).toBe(201)
+      expect(isRecord(body) && body.scopes).toEqual([])
     })
   })
 })

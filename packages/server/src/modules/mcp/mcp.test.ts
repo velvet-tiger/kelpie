@@ -52,9 +52,10 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
     await database.close()
   })
 
+  /** A key with the scopes given, or a full-access key when none are. */
   async function mintKey(cookie: string, scopes?: readonly string[]): Promise<string> {
     const response = await client.send('POST', '/v1/api-keys', {
-      body: { name: 'agent', kind: 'workspace', ...(scopes === undefined ? {} : { scopes }) },
+      body: { name: 'agent', kind: 'workspace', ...(scopes === undefined ? { full_access: true } : { scopes }) },
       cookie,
     })
 

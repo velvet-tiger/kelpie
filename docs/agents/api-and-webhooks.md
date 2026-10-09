@@ -9,7 +9,7 @@ Authorization: Bearer kp_live_…    # workspace key
 Authorization: Bearer kp_user_…    # personal key, acts as its user
 ```
 
-Keys come from Admin → API keys (workspace) or Account → API keys (personal), are shown once, and are each bound to one workspace. Cookie sessions exist for browsers; integrations use keys.
+Keys come from Admin → API keys (workspace) or Account → API keys (personal), are shown once, and are each bound to one workspace. A key has scopes. `POST /v1/api-keys` with no `scopes` gives `read:objects` and `write:objects`; send `full_access: true` for a key with every scope. Cookie sessions exist for browsers; integrations use keys.
 
 ## Conventions in sixty seconds
 

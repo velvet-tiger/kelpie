@@ -1,5 +1,6 @@
 import type { ApiKey, ApiKeyGranularScope, ApiKeyKind, ApiKeyScope, CreatedApiKey } from '@kelpie/schemas'
 import {
+  API_KEY_DEFAULT_SCOPES,
   API_KEY_EXTRA_SCOPES,
   API_KEY_PRESET_SCOPES,
   API_KEY_SCOPE_GROUPS,
@@ -119,8 +120,10 @@ function CreateKeyModal({
 }): React.JSX.Element {
   const createApiKey = useCreateApiKey()
   const [name, setName] = useState('')
-  const [accessMode, setAccessMode] = useState<AccessMode>('full')
-  const [selectedPresets, setSelectedPresets] = useState<readonly ApiKeyScope[]>([])
+  // The form opens on the scopes the server gives a key that names none, so
+  // what a person sees ticked is what a person who only clicks Create gets.
+  const [accessMode, setAccessMode] = useState<AccessMode>('presets')
+  const [selectedPresets, setSelectedPresets] = useState<readonly ApiKeyScope[]>(API_KEY_DEFAULT_SCOPES)
   const [selectedCustom, setSelectedCustom] = useState<readonly ApiKeyScope[]>([])
   // Apart from the presets and the custom grid: no preset includes one, so a
   // person adds it to either.
@@ -136,15 +139,13 @@ function CreateKeyModal({
     (accessMode === 'custom' && showCustom) ||
     (accessMode === 'presets' && selectedPresets.length > 0)
 
-  function scopesForCreate(): readonly ApiKeyScope[] | undefined {
-    if (accessMode === 'full') {
-      return undefined
-    }
-
-    const chosen = [...(accessMode === 'presets' ? selectedPresets : selectedCustom), ...selectedExtras]
-
-    return chosen.length === 0 ? undefined : chosen
-  }
+  const chosenScopes: readonly ApiKeyScope[] =
+    accessMode === 'full'
+      ? []
+      : [...(accessMode === 'presets' ? selectedPresets : selectedCustom), ...selectedExtras]
+  // A request with no scopes gets the server's default ones. The form never
+  // sends that: it would create a key that differs from what is ticked.
+  const nothingChosen = accessMode !== 'full' && chosenScopes.length === 0
 
   function toggleExtra(scope: ApiKeyScope): void {
     setSelectedExtras((current) =>
@@ -154,16 +155,35 @@ function CreateKeyModal({
 
   function submit(event: FormEvent): void {
     event.preventDefault()
-    const scopes = scopesForCreate()
+
+    if (nothingChosen) {
+      return
+    }
 
     createApiKey
       .runAsync({
         name: name.trim(),
         kind,
-        ...(scopes === undefined ? {} : { scopes }),
+        ...(accessMode === 'full' ? { fullAccess: true } : { scopes: chosenScopes }),
       })
       .then(onCreated)
       .catch(() => undefined)
+  }
+
+  function toggleFullAccess(): void {
+    setSelectedCustom([])
+    setSelectedExtras([])
+    setShowCustom(false)
+
+    if (accessMode === 'full') {
+      setAccessMode('presets')
+      setSelectedPresets(API_KEY_DEFAULT_SCOPES)
+
+      return
+    }
+
+    setAccessMode('full')
+    setSelectedPresets([])
   }
 
   function togglePreset(scope: ApiKeyScope): void {
@@ -217,41 +237,28 @@ function CreateKeyModal({
           <fieldset className="mt-4">
             <legend className="mb-2 text-[12px] font-medium text-ink">Access</legend>
             <div className="space-y-2">
-              <label className="flex items-center gap-2 text-[13px] text-ink">
-                <input
-                  type="radio"
-                  name="access"
-                  checked={accessMode === 'full'}
-                  onChange={() => {
-                    setAccessMode('full')
-                    setSelectedPresets([])
-                    setSelectedCustom([])
-                    setSelectedExtras([])
-                    setShowCustom(false)
-                  }}
-                />
-                Full access
-              </label>
-              <div className="rounded-md border border-border p-3">
-                <p className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
-                  Presets
-                </p>
-                <div className="space-y-1.5">
-                  {PRESET_OPTIONS.map((scope) => (
-                    <label key={scope} className="flex items-center gap-2 text-[13px] text-ink">
-                      <input
-                        type="checkbox"
-                        checked={accessMode === 'presets' && selectedPresets.includes(scope)}
-                        onChange={() => {
-                          togglePreset(scope)
-                        }}
-                      />
-                      {API_KEY_SCOPE_LABELS[scope]}
-                    </label>
-                  ))}
+              {accessMode !== 'full' && (
+                <div className="rounded-md border border-border p-3">
+                  <p className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                    Presets
+                  </p>
+                  <div className="space-y-1.5">
+                    {PRESET_OPTIONS.map((scope) => (
+                      <label key={scope} className="flex items-center gap-2 text-[13px] text-ink">
+                        <input
+                          type="checkbox"
+                          checked={accessMode === 'presets' && selectedPresets.includes(scope)}
+                          onChange={() => {
+                            togglePreset(scope)
+                          }}
+                        />
+                        {API_KEY_SCOPE_LABELS[scope]}
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              {accessMode !== 'presets' && (
+              )}
+              {(accessMode === 'custom' || (accessMode === 'presets' && selectedPresets.length === 0)) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -341,10 +348,22 @@ function CreateKeyModal({
                   </div>
                 </div>
               )}
+              <div className="rounded-md border border-warning/40 bg-warning-soft p-3">
+                <label className="flex items-center gap-2 text-[13px] font-medium text-ink">
+                  <input type="checkbox" checked={accessMode === 'full'} onChange={toggleFullAccess} />
+                  Full access
+                </label>
+                <p className="mt-1 text-[11px] text-warning">
+                  A full-access key can do everything your role can in this workspace: delete records,
+                  change the handbook, and manage members, keys and webhooks. Choose it only for a
+                  program that you control completely.
+                </p>
+              </div>
             </div>
             <p className="mt-2 text-[11px] text-ink-faint">
-              Write includes read for the same resource. Presets cover many scopes at once. No preset
-              includes an extra permission.
+              {nothingChosen
+                ? 'Choose at least one permission, or full access.'
+                : 'Write includes read for the same resource, and does not include delete. Presets cover many scopes at once. No preset includes an extra permission.'}
             </p>
           </fieldset>
 
@@ -364,7 +383,7 @@ function CreateKeyModal({
             </button>
             <button
               type="submit"
-              disabled={createApiKey.isPending}
+              disabled={createApiKey.isPending || nothingChosen}
               className="rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
             >
               {createApiKey.isPending ? 'Creating…' : 'Create'}

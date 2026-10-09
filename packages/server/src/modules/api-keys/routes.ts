@@ -1,4 +1,3 @@
-import type { ApiKeyScope } from '@kelpie/schemas'
 import { API_KEY_SCOPES } from '@kelpie/schemas'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
@@ -17,10 +16,15 @@ import {
 
 /** Wire shapes for `/v1/api-keys`. */
 
+/**
+ * `scopes` absent or empty gives the default scopes. `full_access: true`
+ * gives every scope, and the service refuses it together with `scopes`.
+ */
 const createBody = z.object({
   name: z.string().min(1).max(MAX_SHORT_TEXT_LENGTH),
   kind: z.enum(KEY_KINDS),
   scopes: z.array(z.enum(API_KEY_SCOPES)).max(MAX_LIST_ITEMS).optional(),
+  full_access: z.boolean().optional(),
 })
 
 const listQuery = z.object({ kind: z.enum(KEY_KINDS) })
@@ -64,7 +68,7 @@ export function mountApiKeyRoutes(router: Hono, dependencies: ApiKeyRoutesDepend
       await requireActor(context),
       body.name,
       body.kind,
-      body.scopes as ApiKeyScope[] | undefined,
+      { scopes: body.scopes, fullAccess: body.full_access === true },
     )
 
     withholdFromReplay(context)

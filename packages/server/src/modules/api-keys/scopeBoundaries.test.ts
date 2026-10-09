@@ -235,10 +235,10 @@ describe.skipIf(connectionString === undefined)('delete and handbook scopes', ()
       }
     })
 
-    it('lets a key with no scopes delete, as it has every scope', async () => {
+    it('lets a full-access key delete, as it has every scope', async () => {
       const personId = await createPerson()
       const created = await client.send('POST', '/v1/api-keys', {
-        body: { name: 'full', kind: 'workspace' },
+        body: { name: 'full', kind: 'workspace', full_access: true },
         cookie: acme.cookie,
       })
       const response = await client.send('DELETE', `/v1/people/${personId}`, {

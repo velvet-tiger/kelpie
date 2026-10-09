@@ -1,5 +1,5 @@
 import type { ApiKeyScope } from '@kelpie/schemas'
-import { API_KEY_SCOPES, dedupeApiKeyScopes } from '@kelpie/schemas'
+import { API_KEY_DEFAULT_SCOPES, API_KEY_SCOPES, dedupeApiKeyScopes } from '@kelpie/schemas'
 
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
@@ -43,8 +43,22 @@ export interface MintedApiKey extends ApiKeyView {
   readonly secret: string
 }
 
+/** What a new key may reach, as the request asked for it. */
+export interface ApiKeyAccess {
+  /** Absent or empty means the default scopes, unless `fullAccess` is true. */
+  readonly scopes: readonly ApiKeyScope[] | undefined
+  /** True asks for every scope. It is stored as an empty scope list. */
+  readonly fullAccess: boolean
+}
+
 export interface ApiKeyService {
-  create(actor: Actor, name: string, kind: KeyKind, scopes?: readonly ApiKeyScope[]): Promise<MintedApiKey>
+  /**
+   * @throws AppError 422 when `access` asks for full access and names scopes,
+   *   or names a scope that does not exist.
+   * @throws AppError 403 when a scoped bearer caller asks for full access, or
+   *   for a scope it does not hold.
+   */
+  create(actor: Actor, name: string, kind: KeyKind, access: ApiKeyAccess): Promise<MintedApiKey>
   list(actor: Actor, kind: KeyKind): Promise<readonly ApiKeyView[]>
   revoke(actor: Actor, id: string): Promise<void>
 }
@@ -61,9 +75,27 @@ function toView(record: repository.ApiKeyRecord): ApiKeyView {
   }
 }
 
-function parseScopes(scopes: readonly ApiKeyScope[] | undefined): ApiKeyScope[] {
-  if (scopes === undefined || scopes.length === 0) {
+/**
+ * The scope list to store for a new key. An empty list is full access, so it
+ * is the answer only to a request that asked for full access by name. A
+ * request that names no scopes gets the default ones: a caller that forgot
+ * the field must not get a key that can do everything.
+ */
+function parseAccess(access: ApiKeyAccess): ApiKeyScope[] {
+  const scopes = access.scopes ?? []
+
+  if (access.fullAccess) {
+    if (scopes.length > 0) {
+      throw AppError.validationFailed('Ask for full access or for scopes, not both', [
+        { field: 'full_access', message: 'Remove scopes, or send full_access false' },
+      ])
+    }
+
     return []
+  }
+
+  if (scopes.length === 0) {
+    return [...API_KEY_DEFAULT_SCOPES]
   }
 
   const deduped = dedupeApiKeyScopes(scopes)
@@ -117,10 +149,10 @@ export function createApiKeyService(dependencies: ApiKeyDependencies): ApiKeySer
   }
 
   return {
-    async create(actor, name, kind, scopes) {
+    async create(actor, name, kind, access) {
       const workspaceId = requireWorkspace(actor)
       const userId = kind === 'workspace' ? null : requireUser(actor)
-      const storedScopes = parseScopes(scopes)
+      const storedScopes = parseAccess(access)
 
       if (kind === 'workspace') {
         requireAdmin(actor)

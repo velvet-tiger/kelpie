@@ -199,6 +199,9 @@ export function requireApiKeyScope(actor: Actor, required: ApiKeyGranularScope):
  * key in two requests: it creates a key with no scopes, and no scopes means
  * everything. A session and an unscoped API key can give any scopes.
  *
+ * `requested` is the list to store, so an empty one is a request for full
+ * access. The default scopes of a request that named none are in it already.
+ *
  * Write implies read here as it does at enforcement, so a caller with
  * `people:write` can give `people:read`. Nothing implies delete, so a caller
  * gives `people:delete` only when it holds that scope, by name or through

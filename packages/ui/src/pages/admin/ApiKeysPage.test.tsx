@@ -159,7 +159,11 @@ describe('ApiKeysPage', () => {
     })
 
     await waitFor(() => {
-      expect(posted.body).toEqual({ name: 'Release bot', kind: 'workspace' })
+      expect(posted.body).toEqual({
+        name: 'Release bot',
+        kind: 'workspace',
+        scopes: ['read:objects', 'write:objects'],
+      })
     })
 
     expect(await screen.findByText('kp_live_realsecretvalue')).toBeTruthy()
@@ -206,8 +210,10 @@ describe('ApiKeysPage', () => {
       ;(await screen.findByRole('button', { name: 'Create key' })).click()
     })
 
+    // The form opens with Read objects and Write objects ticked. Clearing the
+    // second leaves the first as the one selected preset.
     await act(async () => {
-      screen.getByRole('checkbox', { name: 'Read objects' }).click()
+      screen.getByRole('checkbox', { name: 'Write objects' }).click()
     })
 
     expect(await screen.findByText(/Included in the selected preset/u)).toBeTruthy()

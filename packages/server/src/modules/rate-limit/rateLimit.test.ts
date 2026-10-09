@@ -131,9 +131,10 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
     })
   }
 
+  /** A full-access key: the budget test below reads the workspace, which the default scopes do not reach. */
   async function mintApiKey(client: TestClient, cookie: string): Promise<string> {
     const response = await client.send('POST', '/v1/api-keys', {
-      body: { name: 'CI', kind: 'workspace' },
+      body: { name: 'CI', kind: 'workspace', full_access: true },
       cookie,
     })
 

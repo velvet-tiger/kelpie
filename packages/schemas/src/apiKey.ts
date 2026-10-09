@@ -65,8 +65,13 @@ export const createdApiKeySchema: z.ZodType<CreatedApiKey, unknown> = z
 export interface CreateApiKeyInput {
   readonly name: string
   readonly kind: ApiKeyKind
-  /** Omitted or empty means full access. */
+  /** Omitted or empty means `API_KEY_DEFAULT_SCOPES`, unless `fullAccess` is true. */
   readonly scopes?: readonly ApiKeyScope[]
+  /**
+   * True asks for a key with every scope, which the server stores as an empty
+   * scope list. The server refuses it together with `scopes`.
+   */
+  readonly fullAccess?: boolean
 }
 
 export function createApiKeyBody(input: CreateApiKeyInput): unknown {
@@ -74,5 +79,6 @@ export function createApiKeyBody(input: CreateApiKeyInput): unknown {
     name: input.name,
     kind: input.kind,
     ...(input.scopes === undefined || input.scopes.length === 0 ? {} : { scopes: input.scopes }),
+    ...(input.fullAccess === true ? { full_access: true } : {}),
   }
 }

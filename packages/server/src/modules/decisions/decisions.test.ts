@@ -69,9 +69,10 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
     return readRecord(await response.json())
   }
 
+  /** A full-access key: it has every scope, `decisions:commit` among them. */
   async function mintKey(kind: 'workspace' | 'personal'): Promise<string> {
     const response = await client.send('POST', '/v1/api-keys', {
-      body: { name: 'agent', kind },
+      body: { name: 'agent', kind, full_access: true },
       cookie: acme.cookie,
     })
 
