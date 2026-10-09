@@ -99,14 +99,22 @@ While the major version is `0`, a minor bump may break the API.
   - **Some of the ticked workspaces have a permission and some do not.**
     The row then starts clear, and it says where the permission is allowed
     now and that leaving it clear removes it there.
-  - **An app that redirects to a loopback address gets nothing from an
-    earlier approval.** Any program on the person's computer can start a
-    request with the `client_id` of a native client and a loopback port of
-    its own. So for such a request the server reports no workspace as
-    connected and no sensitive scope as held. The page opens on the
-    workspace of the session with every sensitive scope clear, and says
-    why. The test is the one the redirect match uses. The person can still
-    tick everything again.
+  - **Changed behaviour for an existing integration:** an app on the
+    person's computer gets nothing ticked from an earlier approval. Such an
+    app is a local client: its redirect is not HTTPS. It is a loopback
+    address such as `http://127.0.0.1:…`, or a private-use scheme such as
+    `cursor://…`. Most desktop MCP clients are local clients. Another
+    program on the same computer can open a request in the name of one,
+    with a loopback port of its own or the same scheme, so the redirect
+    does not prove which program asked. Every reconnect and every request
+    for more access from a local client opens on the workspace of the
+    session, with every sensitive permission clear. The person ticks the
+    workspaces and the permissions again. The page says this above the
+    workspace list. It marks the workspaces the client is connected to as
+    "connected now" and each sensitive permission as "allowed now in" its
+    workspaces, as words only: no tick comes from them. An earlier
+    connection stays in place, with its tokens, until the person revokes it
+    or an approval for the same workspace replaces it.
   - **A wider ticked row locks the narrower ones.** While "Delete objects"
     is ticked, a row such as "People (delete)" shows ticked and cannot be
     changed, with "included in Delete objects". The same is so for "Write
@@ -131,7 +139,9 @@ While the major version is `0`, a minor bump may break the API.
     (write)".
   - **`@kelpie/server`** — `GET /v1/oauth/requests/:id` carries
     `extra_scopes` and `local_client`, and each of its `workspaces` carries
-    `connected` and `held_scopes`. Each
+    `connected` and `held_scopes`, which a page may tick from, and
+    `display_connected` and `display_held_scopes`, which it may only show.
+    For a local client the first two are false and empty. Each
     row of `GET /v1/oauth/grants` carries `extra_scopes`: the sensitive
     powers of the grant. `POST /v1/oauth/requests/:id/approve` accepts the
     requested scopes and the three scopes that are always offered, and
@@ -140,9 +150,10 @@ While the major version is `0`, a minor bump may break the API.
     that set and cannot widen it. No migration.
   - **`@kelpie/schemas`** — `OAuthRequest` and `OAuthGrant` gain
     `extraScopes`, and `OAuthWorkspaceChoice` gains `connected` and
-    `heldScopes`, and `OAuthRequest` gains `localClient`. **Breaking for a
-    client of an older server:** the schemas need `extra_scopes`,
-    `local_client`, `connected` and `held_scopes`. New: `API_KEY_SENSITIVE_SCOPES`,
+    `heldScopes`, `displayConnected` and `displayHeldScopes`, and
+    `OAuthRequest` gains `localClient`. **Breaking for a client of an older
+    server:** the schemas need `extra_scopes`, `local_client`, `connected`,
+    `held_scopes`, `display_connected` and `display_held_scopes`. New: `API_KEY_SENSITIVE_SCOPES`,
     `API_KEY_SENSITIVE_PRESET_SCOPES`, `API_KEY_OPT_IN_SCOPES`,
     `isSensitiveApiKeyScope`, `sensitiveApiKeyScopesHeld`,
     `isApiKeyRiskScope` and `apiKeyScopeRisk`, with the types
@@ -395,9 +406,14 @@ While the major version is `0`, a minor bump may break the API.
     again. With the scope the edit is written and the Decision stays
     confirmed, with `confirmed_by_id` null, as before. A signed-in member is
     not affected.
-  - The check reads the Decision under a row lock in the same transaction
-    as the write. A confirm that lands between an agent's read and its
-    write cannot leave rewritten text confirmed.
+  - An update reads the Decision once, under a row lock, in the same
+    transaction as the write, for every caller. What the request changes is
+    judged against that row, and only the fields that differ from it are
+    written. A confirm or a member's edit that lands between an agent's
+    read and its write cannot leave rewritten text confirmed, and a value
+    that the request sends back unchanged is not written over a newer one.
+    Text is compared exactly: a difference in white space alone is a
+    change.
   - Deleting is not part of this rule. A delete of a Decision, confirmed or
     not, needs `decisions:delete`, which a default key and a default OAuth
     connection do not have.

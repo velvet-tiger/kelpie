@@ -23,7 +23,7 @@ import {
   OAuthClientError,
   describeRedirectHost,
   fetchClientMetadata,
-  isLoopbackRedirectUri,
+  isLocalRedirectUri,
   isMetadataDocumentClientId,
   redirectUriMatches,
   validateRegistration,
@@ -239,9 +239,10 @@ export interface ConsentView {
   /** The scopes shown apart and clear: the sensitive ones requested, then `CONSENT_EXTRA_SCOPES`. */
   readonly extraScopes: readonly ApiKeyScope[]
   /**
-   * True when the request redirects to a loopback address. No workspace is
-   * then reported as connected and none holds a scope, whatever the grants
-   * say, and the page tells the person why nothing is ticked for them.
+   * True when the request does not redirect to an HTTPS address. `connected`
+   * is then false and `heldScopes` empty for every workspace, whatever the
+   * grants say, so the page ticks nothing from an earlier approval. The
+   * `display…` fields still say what the client has, for the person to read.
    */
   readonly localClient: boolean
   readonly workspaces: readonly {
@@ -261,6 +262,16 @@ export interface ConsentView {
      * for one more scope does not take away what the connection has.
      */
     readonly heldScopes: readonly ApiKeyScope[]
+    /**
+     * The same two facts for every request, a local one too, to be shown and
+     * never to tick a box. The consent page goes to the browser of the
+     * signed-in person and not to the program that opened the request, so a
+     * program that only names the client learns nothing from them. Under
+     * their own names, so that code which ticks from `connected` and
+     * `heldScopes` cannot read these by mistake.
+     */
+    readonly displayConnected: boolean
+    readonly displayHeldScopes: readonly ApiKeyScope[]
   }[]
   readonly expiresAt: Date
 }
@@ -689,20 +700,20 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
 
       const memberships = await repository.listMembershipsForUser(dependencies.db, session.userId)
       const extraScopes = offeredExtraScopes(request.scopes as ApiKeyScope[])
-      // A loopback redirect does not prove which program asked, so such a
-      // request gets nothing from an earlier approval: no ticked sensitive
-      // scope, and no ticked workspace either. A ticked workspace gives no
-      // sensitive scope, but with one click it would give a program that only
-      // names the client every workspace the client has, and not the one
-      // workspace a new app gets.
-      const localClient = isLoopbackRedirectUri(request.redirectUri)
+      // A local redirect does not prove which program asked, so such a
+      // request gets nothing ticked from an earlier approval: no sensitive
+      // scope, and no workspace either. A ticked workspace gives no sensitive
+      // scope, but with one click it would give a program that only names the
+      // client every workspace the client has, and not the one workspace a
+      // new app gets.
+      const localClient = isLocalRedirectUri(request.redirectUri)
       // Read here and never taken from the request: what a connection holds
       // already is for the server to say, not for the client that wants more.
-      const grants = localClient
-        ? []
-        : (await repository.listGrantsForUser(dependencies.db, session.userId)).filter(
-            ({ grant }) => grant.clientRowId === client.id,
-          )
+      // Only the grants of the signed-in person, and of those only the ones
+      // to this client.
+      const grants = (await repository.listGrantsForUser(dependencies.db, session.userId)).filter(
+        ({ grant }) => grant.clientRowId === client.id,
+      )
 
       return {
         id: request.id,
@@ -719,13 +730,17 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         workspaces: memberships.map((membership) => {
           const held = grants.find(({ grant }) => grant.workspaceId === membership.id)?.grant.scopes
 
+          const heldScopes =
+            held === undefined ? [] : extraScopes.filter((extra) => scopesCover(held as ApiKeyScope[], extra))
+
           return {
             id: membership.id,
             name: membership.name,
             role: parseRole(membership.role),
-            connected: held !== undefined,
-            heldScopes:
-              held === undefined ? [] : extraScopes.filter((extra) => scopesCover(held as ApiKeyScope[], extra)),
+            connected: !localClient && held !== undefined,
+            heldScopes: localClient ? [] : heldScopes,
+            displayConnected: held !== undefined,
+            displayHeldScopes: heldScopes,
           }
         }),
         expiresAt: request.expiresAt,

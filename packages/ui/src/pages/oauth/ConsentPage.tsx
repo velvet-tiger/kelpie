@@ -173,6 +173,25 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
   }
 
   /**
+   * For an app on this computer: every workspace where it has this extra
+   * now, ticked on this page or not. Read from the display fields and shown
+   * as words. No tick on this page is ever taken from them.
+   */
+  function shownAsAllowedIn(scope: ApiKeyScope): readonly string[] {
+    if (!request.localClient) {
+      return []
+    }
+
+    return request.workspaces
+      .filter((workspace) => workspace.displayHeldScopes.includes(scope))
+      .map((workspace) => workspace.name)
+  }
+
+  function connectedNow(workspace: OAuthRequest['workspaces'][number]): boolean {
+    return request.localClient && workspace.displayConnected
+  }
+
+  /**
    * The ticked extra that gives everything this one gives and more, if there
    * is one: "Delete objects" for `people:delete`, "Write all" for "Handbook
    * (write)". The narrower row is then shown ticked and locked. Clear, it
@@ -264,12 +283,21 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
           )}
         </div>
 
+        {request.localClient && (
+          <p className="rounded-md border border-border bg-surface px-3 py-2.5 text-[12px] text-ink-muted">
+            This app runs on your computer, so Kelpie does not use what you allowed it before. Tick each
+            workspace and each extra permission that it needs. What it has now is marked, and stays in
+            place for the workspaces you do not tick.
+          </p>
+        )}
+
         {request.workspaces.length === 1 && onlyWorkspace !== undefined ? (
           <div>
             <p className="mb-1.5 text-[12px] font-medium text-ink">Workspace</p>
             <p className="text-[13px] text-ink">
               {onlyWorkspace.name}{' '}
               <span className="text-ink-muted capitalize">({onlyWorkspace.role})</span>
+              {connectedNow(onlyWorkspace) && <span className="text-[11px] text-ink-muted"> · connected now</span>}
             </p>
             <p className="mt-1 text-[11px] text-ink-faint">The app sees this workspace only.</p>
           </div>
@@ -286,7 +314,10 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
                       toggleWorkspace(workspace.id)
                     }}
                   />
-                  <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {workspace.name}
+                    {connectedNow(workspace) && <span className="text-[11px] text-ink-muted"> · connected now</span>}
+                  </span>
                   <span className="shrink-0 text-[11px] text-ink-muted capitalize">{workspace.role}</span>
                 </label>
               ))}
@@ -328,16 +359,11 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
             <p className="mb-2 text-[11px] text-ink-muted">
               Not part of the access above. Tick one only if you want this app to have it.
             </p>
-            {request.localClient && (
-              <p className="mb-2 text-[11px] text-ink-muted">
-                This app runs on your computer, so Kelpie does not use what you allowed it before. It asks
-                again for each workspace and each of these permissions.
-              </p>
-            )}
             <div className="space-y-2">
               {request.extraScopes.map((scope) => {
                 const wider = widerTickedExtra(scope)
                 const partly = allowedOnlyIn(scope)
+                const shown = shownAsAllowedIn(scope)
 
                 return (
                   <label key={scope} className="flex items-start gap-2 text-[13px] text-ink">
@@ -363,6 +389,11 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
                       )}
                       {isApiKeyRiskScope(scope) && (
                         <span className="block text-[11px] text-ink-muted">{apiKeyScopeRisk(scope)}</span>
+                      )}
+                      {shown.length > 0 && (
+                        <span className="block text-[11px] text-warning">
+                          Allowed now in {shown.join(', ')}. Tick it to allow it in the workspaces you select.
+                        </span>
                       )}
                       {partly.length > 0 && (
                         <span className="block text-[11px] text-warning">

@@ -46,20 +46,24 @@ function isLoopback(url: URL): boolean {
 }
 
 /**
- * True when a redirect URI is one that `redirectUriMatches` accepts on any
- * port: plain HTTP on a loopback address.
+ * True when a redirect URI goes to a program on the person's computer and not
+ * to a site: every redirect that is not `https:`.
  *
- * Such a redirect does not say which program asked. Any program on the
- * person's computer can open an authorize request with the `client_id` of a
- * native client and a port of its own, and the request matches. So a request
- * with this kind of redirect is told nothing about what the client was
- * allowed before. It is the same test as the match uses, so the two cannot
- * come apart.
+ * `redirectUriProblem` allows two kinds besides HTTPS, and neither says which
+ * program asked. A loopback redirect matches on any port
+ * (`redirectUriMatches`), so any program can open an authorize request with
+ * the `client_id` of a native client and a port of its own. A private-use
+ * scheme such as `cursor://callback` belongs to whichever program registered
+ * it with the operating system, and a second program can do that too. An
+ * HTTPS redirect is the only kind that one party controls.
+ *
+ * A request with a local redirect is told nothing that would tick a box for
+ * it. Written as "not HTTPS" and not as a list of the local kinds, so a kind
+ * that `redirectUriProblem` allows later is local until somebody decides
+ * otherwise. A value that is not a URL is local for the same reason.
  */
-export function isLoopbackRedirectUri(value: string): boolean {
-  const url = parseUrl(value)
-
-  return url !== undefined && isLoopback(url)
+export function isLocalRedirectUri(value: string): boolean {
+  return parseUrl(value)?.protocol !== 'https:'
 }
 
 /**

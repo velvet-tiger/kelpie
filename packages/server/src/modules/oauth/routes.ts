@@ -288,6 +288,8 @@ function requestResponse(view: ConsentView): Record<string, unknown> {
       role: workspace.role,
       connected: workspace.connected,
       held_scopes: workspace.heldScopes,
+      display_connected: workspace.displayConnected,
+      display_held_scopes: workspace.displayHeldScopes,
     })),
     expires_at: view.expiresAt.toISOString(),
   }

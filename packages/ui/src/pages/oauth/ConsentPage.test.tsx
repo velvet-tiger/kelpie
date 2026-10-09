@@ -50,7 +50,7 @@ function LoginProbe(): React.JSX.Element {
 interface PageStubs {
   readonly signedOut?: boolean
   readonly onApprove?: (body: unknown) => void
-  readonly workspaces?: readonly unknown[]
+  readonly workspaces?: readonly Record<string, unknown>[]
   /** The scopes the app asked for. Read and write objects unless a test says otherwise. */
   readonly scopes?: readonly string[]
   /** The extra permissions the server offers. `decisions:commit` unless a test says otherwise. */
@@ -79,7 +79,12 @@ function renderPage(stubs: PageStubs = {}): void {
           scopes: stubs.scopes ?? REQUEST.scopes,
           extra_scopes: stubs.extraScopes ?? REQUEST.extra_scopes,
           local_client: stubs.localClient ?? REQUEST.local_client,
-          workspaces: stubs.workspaces ?? REQUEST.workspaces,
+          // The display fields say nothing unless a test gives them.
+          workspaces: (stubs.workspaces ?? REQUEST.workspaces).map((workspace) => ({
+            display_connected: false,
+            display_held_scopes: [],
+            ...workspace,
+          })),
         }
       }
 
@@ -598,9 +603,15 @@ describe('ConsentPage', () => {
     renderPage(stubs)
     await screen.findByText('Connect Example Agent')
 
+    const explanation = screen.getByText(
+      /This app runs on your computer, so Kelpie does not use what you allowed it before/u,
+    )
+
+    // Above the workspaces, which are the first thing it explains.
     expect(
-      screen.getByText(/This app runs on your computer, so Kelpie does not use what you allowed it before/u),
-    ).toBeTruthy()
+      explanation.compareDocumentPosition(screen.getByRole('group', { name: 'Workspaces' })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
     // The workspace of the session, as for an app that is new.
     expect(box(/Globex/u).checked).toBe(true)
     expect(box(/Acme/u).checked).toBe(false)
@@ -614,6 +625,108 @@ describe('ConsentPage', () => {
     cleanup()
 
     expect(await approveAfter(stubs, [])).toEqual({ workspace_ids: ['ws_2'], scopes: ['read:objects', 'write:objects'] })
+  })
+
+  /**
+   * A desktop agent connected to Globex and Initech, with delete, asks for
+   * more while the person's session is in Acme. The page must say what the
+   * agent has, and must not tick any of it.
+   */
+  it('shows what an app on this computer has now, and ticks nothing from it', async () => {
+    const stubs = {
+      localClient: true,
+      activeWorkspaceId: 'ws_1',
+      extraScopes: ALL_EXTRAS,
+      workspaces: [
+        { id: 'ws_1', name: 'Acme', role: 'owner', connected: false, held_scopes: [] },
+        {
+          id: 'ws_2',
+          name: 'Globex',
+          role: 'member',
+          connected: false,
+          held_scopes: [],
+          display_connected: true,
+          display_held_scopes: ['delete:objects'],
+        },
+        {
+          id: 'ws_3',
+          name: 'Initech',
+          role: 'member',
+          connected: false,
+          held_scopes: [],
+          display_connected: true,
+          display_held_scopes: ['delete:objects', 'handbook:write'],
+        },
+      ],
+    }
+
+    renderPage(stubs)
+    await screen.findByText('Connect Example Agent')
+
+    // The facts, as words.
+    expect(screen.getAllByText('· connected now')).toHaveLength(2)
+    expect(box(/^Globex/u).closest('label')?.textContent).toContain('connected now')
+    expect(box(/^Acme/u).closest('label')?.textContent).not.toContain('connected now')
+    expect(
+      screen.getByText('Allowed now in Globex, Initech. Tick it to allow it in the workspaces you select.'),
+    ).toBeTruthy()
+    expect(screen.getByText('Allowed now in Initech. Tick it to allow it in the workspaces you select.')).toBeTruthy()
+
+    // The ticks, as for an app that is new: the workspace of the session, and no extra.
+    expect(box(/^Acme/u).checked).toBe(true)
+    expect(box(/^Globex/u).checked).toBe(false)
+    expect(box(/^Initech/u).checked).toBe(false)
+
+    for (const name of [/^Decisions \(commit/u, /^Handbook \(write\)/u, /^Delete objects/u]) {
+      expect(box(name).checked).toBe(false)
+      expect(box(name).disabled).toBe(false)
+    }
+
+    expect(screen.queryByText(/· already allowed/u)).toBeNull()
+
+    // Ticking the connected workspaces does not tick what they hold either.
+    await act(async () => {
+      box(/^Globex/u).click()
+    })
+    await act(async () => {
+      box(/^Initech/u).click()
+    })
+
+    expect(box(/^Delete objects/u).checked).toBe(false)
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [])).toEqual({ workspace_ids: ['ws_1'], scopes: ['read:objects', 'write:objects'] })
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [/^Globex/u, /^Delete objects/u])).toEqual({
+      workspace_ids: ['ws_1', 'ws_2'],
+      scopes: ['read:objects', 'write:objects', 'delete:objects'],
+    })
+  })
+
+  it('shows the display fields of an app that does not run on this computer in no place of their own', async () => {
+    renderPage({
+      extraScopes: ALL_EXTRAS,
+      workspaces: [
+        {
+          id: 'ws_1',
+          name: 'Acme',
+          role: 'owner',
+          connected: true,
+          held_scopes: ['delete:objects'],
+          display_connected: true,
+          display_held_scopes: ['delete:objects'],
+        },
+      ],
+    })
+    await screen.findByText('Connect Example Agent')
+
+    // The tick and its "already allowed" mark say it. The local-client words are not used.
+    expect(box(/^Delete objects/u).checked).toBe(true)
+    expect(screen.queryByText('· connected now')).toBeNull()
+    expect(screen.queryByText(/^Allowed now in/u)).toBeNull()
   })
 
   it('does not show that line for an app that does not run on this computer', async () => {

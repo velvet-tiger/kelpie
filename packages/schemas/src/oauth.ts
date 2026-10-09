@@ -32,6 +32,13 @@ export interface OAuthWorkspaceChoice {
    * decides this. Empty when the client is not connected to the workspace.
    */
   readonly heldScopes: readonly ApiKeyScope[]
+  /**
+   * The same two facts, for showing only. For a local client `connected` is
+   * false and `heldScopes` is empty, so that nothing is ticked, and these
+   * still say what the app has. A page must never tick a box from them.
+   */
+  readonly displayConnected: boolean
+  readonly displayHeldScopes: readonly ApiKeyScope[]
 }
 
 /** A pending authorization request, as the consent page shows it. */
@@ -55,8 +62,8 @@ export interface OAuthRequest {
    */
   readonly extraScopes: readonly ApiKeyScope[]
   /**
-   * True when the app runs on the person's computer: it redirects to a
-   * loopback address. The server then reports no workspace as `connected`
+   * True when the app runs on the person's computer: it does not redirect to
+   * an HTTPS address. The server then reports no workspace as `connected`
    * and no `heldScopes`, because such a redirect does not prove which
    * program asked.
    */
@@ -106,6 +113,8 @@ const oauthRequestWireSchema = z.object({
       role: z.enum(MEMBER_ROLES),
       connected: z.boolean(),
       held_scopes: z.array(z.enum(API_KEY_SCOPES)),
+      display_connected: z.boolean(),
+      display_held_scopes: z.array(z.enum(API_KEY_SCOPES)),
     }),
   ),
   expires_at: timestampSchema,
@@ -127,6 +136,8 @@ export const oauthRequestSchema: z.ZodType<OAuthRequest, unknown> = oauthRequest
       role: workspace.role,
       connected: workspace.connected,
       heldScopes: workspace.held_scopes,
+      displayConnected: workspace.display_connected,
+      displayHeldScopes: workspace.display_held_scopes,
     })),
     expiresAt: wire.expires_at,
   }),

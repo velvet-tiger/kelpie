@@ -892,27 +892,69 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
      * same grant is reported to a request from the web redirect and not to
      * one from a loopback redirect, on the registered port or on another.
      */
-    it('reports nothing held, and no workspace connected, to a request that redirects to a loopback address', async () => {
+    it('reports nothing that ticks a box to a request that does not redirect to HTTPS, and still says what the client has', async () => {
       const scopes = [...DEFAULT, 'delete:objects']
-      const { clientId, cookie, workspaceId } = await connect(scopes, DEFAULT.join(' '), [REDIRECT, WEB_REDIRECT])
+      const custom = 'cursor://kelpie/callback'
+      const { clientId, cookie, workspaceId } = await connect(scopes, DEFAULT.join(' '), [
+        REDIRECT,
+        WEB_REDIRECT,
+        custom,
+      ])
       const read = async (overrides: Record<string, string>): Promise<unknown> =>
         (await send('GET', `/v1/oauth/requests/${await startRequest(clientId, overrides)}`, { cookie })).json()
+      const facts = { display_connected: true, display_held_scopes: ['delete:objects'] }
 
+      // An HTTPS redirect belongs to one party: both pairs of fields say the same.
       expect(await read(FROM_WEB)).toMatchObject({
         local_client: false,
-        workspaces: [{ id: workspaceId, connected: true, held_scopes: ['delete:objects'] }],
+        workspaces: [{ id: workspaceId, connected: true, held_scopes: ['delete:objects'], ...facts }],
       })
 
-      for (const redirect of [REDIRECT, 'http://127.0.0.1:50999/callback']) {
+      // A loopback redirect on the registered port and on another, and a
+      // private-use scheme, which a second program can register too.
+      for (const redirect of [REDIRECT, 'http://127.0.0.1:50999/callback', custom]) {
         const body = await read({ redirect_uri: redirect })
 
-        expect(body).toMatchObject({
+        expect(body, redirect).toMatchObject({
           local_client: true,
-          workspaces: [{ id: workspaceId, connected: false, held_scopes: [] }],
+          workspaces: [{ id: workspaceId, connected: false, held_scopes: [], ...facts }],
         })
         // The scopes are still offered. They only start clear.
         expect(isRecord(body) && body.extra_scopes).toEqual(['decisions:commit', 'handbook:write', 'delete:objects'])
       }
+    })
+
+    it('shows what a client has only to the person whose grants they are, and only for that client', async () => {
+      const scopes = [...DEFAULT, 'delete:objects']
+      const { clientId, cookie } = await connect(scopes)
+      const nothing = { connected: false, held_scopes: [], display_connected: false, display_held_scopes: [] }
+
+      // Another person asks about the same client.
+      const other = await owner('grace@example.com')
+      const theirs: unknown = await (
+        await send('GET', `/v1/oauth/requests/${await startRequest(clientId)}`, { cookie: other.cookie })
+      ).json()
+
+      expect(isRecord(theirs) && theirs.workspaces).toMatchObject([{ id: other.workspaceId, ...nothing }])
+
+      // The same person asks about another client.
+      const otherClient = await registerPublicClient()
+      const fresh: unknown = await (
+        await send('GET', `/v1/oauth/requests/${await startRequest(otherClient)}`, { cookie })
+      ).json()
+
+      expect(isRecord(fresh) && fresh.workspaces).toMatchObject([nothing])
+
+      // A bearer credential cannot read a consent request at all.
+      const minted = await send('POST', '/v1/api-keys', {
+        body: { name: 'CI', kind: 'workspace', full_access: true },
+        cookie,
+      })
+      const refused = await send('GET', `/v1/oauth/requests/${await startRequest(clientId)}`, {
+        bearer: readString(await minted.json(), 'secret'),
+      })
+
+      expect(refused.status).toBe(403)
     })
 
     it('still lets a person give a loopback client a sensitive scope again by ticking it', async () => {
