@@ -1,8 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { API_KEY_SCOPES, expandApiKeyScopes } from '@kelpie/schemas'
-import type { ApiKeyScope } from '@kelpie/schemas'
+import {
+  API_KEY_OBJECT_DATA_RESOURCES,
+  API_KEY_SCOPES,
+  expandApiKeyScopes,
+  isApiKeyGranularScope,
+  satisfiesApiKeyScope,
+} from '@kelpie/schemas'
+import type { ApiKeyGranularScope, ApiKeyScope } from '@kelpie/schemas'
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -265,47 +271,94 @@ describe.skipIf(connectionString === undefined)('the delete and handbook scope m
   })
 
   /**
-   * The rule the migration must keep: no stored list gets a power it did not
-   * have. Under the old meaning a write scope on an object-data resource also
-   * allowed the delete, and `write:objects` included `handbook:write`. So
-   * every scope the migration adds must come from a scope the list held.
+   * The two rules the migration must keep, checked on what it wrote and not
+   * on a list written by hand. Every stored list still gives everything it
+   * gave under the old meaning, and gives nothing that it did not.
+   *
+   * The lists are built from the code: each scope that existed before, alone,
+   * and every object-data write scope together. A resource that is missing
+   * from the array in the SQL, or misspelt there, loses its delete and fails
+   * the first rule.
    */
-  it('adds only scopes that the list already gave under the old meaning', () => {
-    const known = new Set<string>(API_KEY_SCOPES)
+  it('keeps every power of every old scope, and adds none, for lists built from the scope vocabulary', async () => {
+    const everyWrite = API_KEY_OBJECT_DATA_RESOURCES.map((resource): ApiKeyScope => `${resource}:write`)
+    const lists: readonly (readonly ApiKeyScope[])[] = [
+      ...OLD_SCOPES.map((scope) => [scope]),
+      everyWrite,
+      ['read:objects', 'write:objects'],
+      ['read:all', 'write:all'],
+      ['write:objects', ...everyWrite],
+    ]
+    const after = await inRolledBackTransaction(async (tx) => {
+      for (const [index, before] of lists.entries()) {
+        await tx.execute(sql`
+          insert into api_keys (id, workspace_id, name, secret_hash, display_prefix, scopes)
+          values (${`apik_gen_${String(index)}`}, ${fixture.workspaceId}, 'generated', ${`hash_gen_${String(index)}`}, 'kp_live_…test', ${textArray(before)})
+        `)
+      }
 
-    for (const { name, before, after } of CASES) {
-      const added = after.filter((scope) => !before.includes(scope))
+      await tx.execute(sql.raw(MIGRATION))
 
-      expect(added.every((scope) => known.has(scope)), name).toBe(true)
-      expect(after.slice(0, before.length), name).toEqual(before)
+      return readScopes(tx, 'api_keys')
+    })
 
+    expect(after[`apik_gen_${String(OLD_SCOPES.length)}`]).toEqual([
+      ...everyWrite,
+      ...API_KEY_OBJECT_DATA_RESOURCES.map((resource) => `${resource}:delete`),
+    ])
+
+    for (const [index, before] of lists.entries()) {
+      const stored = (after[`apik_gen_${String(index)}`] ?? []).filter(isKnownScope)
       const heldBefore = oldMeaning(before)
+      const label = before.join(' ')
 
-      for (const scope of expandApiKeyScopes(added.filter((entry): entry is ApiKeyScope => known.has(entry)))) {
-        expect(heldBefore.has(scope), `${name}: ${scope}`).toBe(true)
+      expect(stored.slice(0, before.length), label).toEqual(before)
+
+      for (const power of heldBefore) {
+        expect(satisfiesApiKeyScope(stored, power), `${label} lost ${power}`).toBe(true)
+      }
+
+      for (const power of expandApiKeyScopes(stored)) {
+        expect(heldBefore.has(power), `${label} gained ${power}`).toBe(true)
       }
     }
   })
 })
 
+const KNOWN_SCOPES = new Set<string>(API_KEY_SCOPES)
+
+function isKnownScope(scope: string): scope is ApiKeyScope {
+  return KNOWN_SCOPES.has(scope)
+}
+
+/** The scopes that existed before this release: no delete scope, and no `decisions:commit`. */
+const OLD_SCOPES = API_KEY_SCOPES.filter(
+  (scope) => !scope.endsWith(':delete') && scope !== 'delete:objects' && scope !== 'decisions:commit',
+)
+
 /**
- * What a non-empty scope list allowed before the migration, written in the
- * scopes of today: each object-data write also gave the delete, and
- * `write:objects` also gave `handbook:write`.
+ * What a scope list that is not empty allowed before the migration, in the
+ * per-resource scopes of today. It is computed from the expansion as it is
+ * now plus the three things that changed: `write:objects` gave
+ * `handbook:write`, a write on an object-data resource gave its delete, and
+ * a write gives the read, then as now.
  */
-function oldMeaning(scopes: readonly string[]): ReadonlySet<string> {
-  const known = new Set<string>(API_KEY_SCOPES)
-  const held = new Set<string>(expandApiKeyScopes(scopes.filter((scope): scope is ApiKeyScope => known.has(scope))))
+function oldMeaning(scopes: readonly ApiKeyScope[]): ReadonlySet<ApiKeyGranularScope> {
+  const held = new Set<ApiKeyGranularScope>(expandApiKeyScopes(scopes))
 
   if (scopes.includes('write:objects')) {
     held.add('handbook:write')
   }
 
   for (const scope of [...held]) {
-    const deleteScope = scope.replace(/:write$/u, ':delete')
+    if (!scope.endsWith(':write')) {
+      continue
+    }
 
-    if (scope.endsWith(':write') && known.has(deleteScope)) {
-      held.add(deleteScope)
+    for (const implied of [scope.replace(/:write$/u, ':delete'), scope.replace(/:write$/u, ':read')]) {
+      if (isKnownScope(implied) && isApiKeyGranularScope(implied)) {
+        held.add(implied)
+      }
     }
   }
 
