@@ -129,6 +129,33 @@ export const API_KEY_EXTRA_SCOPES = ['decisions:commit'] as const
 
 export type ApiKeyExtraScope = (typeof API_KEY_EXTRA_SCOPES)[number]
 
+/**
+ * The per-resource scopes that give a power a credential does not get by
+ * default: deleting a record, writing the handbook, and committing a
+ * Decision. A scope is sensitive when it is one of these or is a preset that
+ * expands to one. The key form, the key list, the OAuth consent page and
+ * Connected apps all decide by this list, so a power is treated the same
+ * under every name that gives it.
+ */
+export const API_KEY_SENSITIVE_SCOPES = [...OBJECT_DATA_DELETE_SCOPES, 'handbook:write', 'decisions:commit'] as const
+
+export type ApiKeySensitiveScope = (typeof API_KEY_SENSITIVE_SCOPES)[number]
+
+/**
+ * The presets that expand to a sensitive scope. Written out, so that
+ * `ApiKeyRiskScope` is a type; a test checks it against the expansions.
+ */
+export const API_KEY_SENSITIVE_PRESET_SCOPES = ['delete:objects', 'write:all'] as const
+
+/** Every scope that needs a sentence on what it risks. */
+export type ApiKeyRiskScope = ApiKeySensitiveScope | (typeof API_KEY_SENSITIVE_PRESET_SCOPES)[number]
+
+/**
+ * The sensitive scopes that the key form and the OAuth consent page always
+ * offer, apart from the rest and clear at the start.
+ */
+export const API_KEY_OPT_IN_SCOPES = ['decisions:commit', 'handbook:write', 'delete:objects'] as const
+
 /** Fine-grained per-resource scopes. */
 export const API_KEY_GRANULAR_SCOPES = [
   ...OBJECT_DATA_READ_SCOPES,
@@ -260,21 +287,35 @@ const PRESET_EXPANSIONS: Readonly<Record<ApiKeyPresetScope, readonly ApiKeyGranu
 }
 
 /**
- * One sentence on what a scope lets a credential do, for the scopes a person
- * must give on purpose. Shown beside the checkbox in the key form and on the
- * OAuth consent page.
+ * One sentence on what a sensitive scope lets a credential do. Shown beside
+ * its tick box in the key form and on the OAuth consent page.
+ *
+ * The parameter type is every sensitive scope, and the last branch takes only
+ * a delete scope, so a new sensitive scope does not compile until it has a
+ * sentence here.
  */
-export const API_KEY_SCOPE_RISKS: Readonly<Partial<Record<ApiKeyScope, string>>> = {
-  'decisions:commit':
-    'Lets it record a Decision as a commitment. Without this, a Decision it writes is a proposal until a member confirms it.',
-  'handbook:write':
-    'Lets it create and change handbook pages. Agents read the handbook as the company\'s own guidance.',
-  'delete:objects': 'Lets it delete records and handbook pages. A deleted record cannot be restored.',
+export function apiKeyScopeRisk(scope: ApiKeyRiskScope): string {
+  switch (scope) {
+    case 'decisions:commit':
+      return 'Lets it record a Decision as a commitment. Without this, a Decision it writes is a proposal until a member confirms it.'
+    case 'handbook:write':
+      return "Lets it create and change handbook pages. Agents read the handbook as the company's own guidance."
+    case 'delete:objects':
+      return 'Lets it delete records and handbook pages. A deleted record cannot be restored.'
+    case 'write:all':
+      return 'Includes changing handbook pages, and every workspace admin write: members, API keys, webhooks and settings.'
+    default: {
+      const deleted: `${ObjectDataResource}:delete` = scope
+      const kind = API_KEY_SCOPE_LABELS[deleted].replace(' (delete)', '')
+
+      return `Lets it delete records of this kind: ${kind}. A deleted record cannot be restored.`
+    }
+  }
 }
 
 /**
- * UI groupings for the custom scope picker. `API_KEY_EXTRA_SCOPES` are not in
- * a group: the picker shows them apart, because a preset never includes one.
+ * UI groupings for the custom scope picker. `decisions:commit` is not in a
+ * group: the picker shows it apart, because no resource owns it.
  */
 export const API_KEY_SCOPE_GROUPS: readonly {
   readonly label: string
@@ -300,6 +341,15 @@ export function isApiKeyPresetScope(scope: ApiKeyScope): scope is ApiKeyPresetSc
 
 export function isApiKeyGranularScope(scope: ApiKeyScope): scope is ApiKeyGranularScope {
   return (API_KEY_GRANULAR_SCOPES as readonly string[]).includes(scope)
+}
+
+function isSensitiveGranularScope(scope: ApiKeyScope): scope is ApiKeySensitiveScope {
+  return (API_KEY_SENSITIVE_SCOPES as readonly string[]).includes(scope)
+}
+
+/** True for a scope that has a risk sentence: a sensitive scope, or a preset that expands to one. */
+export function isApiKeyRiskScope(scope: ApiKeyScope): scope is ApiKeyRiskScope {
+  return isSensitiveGranularScope(scope) || (API_KEY_SENSITIVE_PRESET_SCOPES as readonly string[]).includes(scope)
 }
 
 /** Flattens preset tokens to the granular set used for enforcement. */
@@ -349,6 +399,32 @@ export function satisfiesApiKeyScope(
   }
 
   return false
+}
+
+/**
+ * True when a scope gives a sensitive power, by its own name or through what
+ * it expands to. `people:delete`, `delete:objects` and `write:all` all do.
+ */
+export function isSensitiveApiKeyScope(scope: ApiKeyScope): boolean {
+  return [...expandApiKeyScopes([scope])].some(isSensitiveGranularScope)
+}
+
+/**
+ * The sensitive powers a scope list gives, under whatever names it gives
+ * them: `write:all` answers `handbook:write`. Every delete scope together
+ * answers `delete:objects` and not eighteen names.
+ *
+ * For a list that is not empty. An empty list on an API key is full access,
+ * which the caller has to say in its own words.
+ */
+export function sensitiveApiKeyScopesHeld(
+  scopes: readonly ApiKeyScope[],
+): (ApiKeySensitiveScope | 'delete:objects')[] {
+  const held = [...expandApiKeyScopes(scopes)].filter(isSensitiveGranularScope)
+  const deletes = held.filter((scope) => scope.endsWith(':delete'))
+  const others = held.filter((scope) => !scope.endsWith(':delete'))
+
+  return [...others, ...(deletes.length === OBJECT_DATA_DELETE_SCOPES.length ? ['delete:objects' as const] : deletes)]
 }
 
 export function dedupeApiKeyScopes(scopes: readonly ApiKeyScope[]): ApiKeyScope[] {

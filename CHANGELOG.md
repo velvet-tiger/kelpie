@@ -72,25 +72,51 @@ While the major version is `0`, a minor bump may break the API.
     Neither is a webhook event.
 ### Changed
 
-- **The OAuth consent page offers extra permissions.** A person can now give
-  an MCP client a permission that the client did not ask for, from a fixed
-  list on the server: `decisions:commit`, `handbook:write` and
-  `delete:objects`. The page
-  shows these in their own section, each with one sentence on what it lets
-  the app do, and each starts clear. A scope from the list starts clear also
-  when the client asked for it by name. Connected apps shows the extra
-  permissions of each connection.
+- **The OAuth consent page shows sensitive permissions apart, and clear.**
+  A scope is sensitive when it gives a delete, a handbook write or
+  `decisions:commit`, by its own name or through a preset: `people:delete`,
+  `delete:objects` and `write:all` are all sensitive. The page shows each
+  requested sensitive scope in an "Extra permissions" section with one
+  sentence on what it lets the app do. It always offers `decisions:commit`,
+  `handbook:write` and `delete:objects` there too, also when the client did
+  not ask for them. Each one starts clear.
+  - **A requested preset that holds a sensitive scope is shown whole, and
+    clear.** `write:all` is one tick box in that section, not a ticked part
+    and a clear part. A client that asks for `read:all write:all` gets
+    `read:all` from a person who only clicks Allow.
+  - **A scope starts ticked only when the app has it already.** The page
+    marks it "already allowed". The server reads this from the stored grant
+    of this person and this client, for each workspace. It is ticked only
+    when each selected workspace has it.
+  - **Changed behaviour for an existing integration:** an approval sets the
+    scopes of the connection to what the person approves that time. This was
+    so before, and matters more now: a client that connects again, or asks
+    for one more scope, must ask for every scope it wants to keep. The
+    `insufficient_scope` answer of `/mcp` now names the scopes the token
+    holds and then the missing one, so a client that asks for that list
+    keeps what it had. A scope that is not sensitive and that the client
+    does not ask for again is gone after the approval.
+  - Allow is off only when nothing at all is ticked. A request for sensitive
+    scopes only can be approved.
+  - Connected apps shows a warning chip for each sensitive power of a
+    connection, under any name that gives it: `write:all` shows "Handbook
+    (write)".
   - **`@kelpie/server`** — `GET /v1/oauth/requests/:id` carries
-    `extra_scopes`, and each row of `GET /v1/oauth/grants` carries
-    `extra_scopes`: the listed permissions that the grant gives.
-    `POST /v1/oauth/requests/:id/approve` accepts the requested scopes and
-    the listed extras, and answers `422` to any other scope, as before. The
-    token response, the stored grant and each token carry what the person
-    approved. A refresh can narrow that set and cannot widen it. No
-    migration.
+    `extra_scopes`, and each of its `workspaces` carries `held_scopes`. Each
+    row of `GET /v1/oauth/grants` carries `extra_scopes`: the sensitive
+    powers of the grant. `POST /v1/oauth/requests/:id/approve` accepts the
+    requested scopes and the three scopes that are always offered, and
+    answers `422` to any other scope. The token response, the stored grant
+    and each token carry what the person approved. A refresh can narrow
+    that set and cannot widen it. No migration.
   - **`@kelpie/schemas`** — `OAuthRequest` and `OAuthGrant` gain
-    `extraScopes`. **Breaking for a client of an older server:** the two
-    schemas need `extra_scopes`.
+    `extraScopes`, and `OAuthWorkspaceChoice` gains `heldScopes`.
+    **Breaking for a client of an older server:** the schemas need
+    `extra_scopes` and `held_scopes`. New: `API_KEY_SENSITIVE_SCOPES`,
+    `API_KEY_SENSITIVE_PRESET_SCOPES`, `API_KEY_OPT_IN_SCOPES`,
+    `isSensitiveApiKeyScope`, `sensitiveApiKeyScopesHeld`,
+    `isApiKeyRiskScope` and `apiKeyScopeRisk`, with the types
+    `ApiKeySensitiveScope` and `ApiKeyRiskScope`.
 
 - **One OAuth connection can cover more than one workspace.** The consent
   page for an MCP client had a selector for one workspace. A person who is a
@@ -339,7 +365,7 @@ While the major version is `0`, a minor bump may break the API.
   - `POST /v1/decisions/:id/confirm` is as before: a signed-in member only,
     whatever scopes a key has.
   - **`@kelpie/schemas`** — new: the scope `decisions:commit`,
-    `API_KEY_EXTRA_SCOPES`, `ApiKeyExtraScope` and `API_KEY_SCOPE_RISKS`.
+    `API_KEY_EXTRA_SCOPES` and `ApiKeyExtraScope`.
     `API_KEY_GRANULAR_SCOPES` and `API_KEY_SCOPES` include the new scope. No
     preset expands to it.
   - **`@kelpie/server`** — **for a module that subscribes to events:**
@@ -421,15 +447,31 @@ While the major version is `0`, a minor bump may break the API.
     names no scope gets `read:objects write:objects`, which now has no
     delete and no handbook write. The consent page offers `handbook:write`
     and `delete:objects` as extra permissions. A tool call without the scope
-    answers `403` with `insufficient_scope` and the scope.
+    answers `403` with `insufficient_scope`, the scopes the token holds and
+    the missing scope.
+  - **Changed behaviour for an existing integration:** `write:objects`
+    alone no longer gives `handbook:read`. Before, it held
+    `handbook:write`, and write implies read. `read:objects` gives
+    `handbook:read`, and the default of a new key and of an OAuth client
+    has both, so only a key with `write:objects` and no read scope loses
+    the handbook read. Migration `0065` gives such a key `handbook:write`,
+    so a key from before keeps it.
+  - **`POST /v1/workspaces/:id/handbook/seed` with `replace: true` needs
+    `handbook:delete` too.** It deletes every page before it writes the new
+    ones. Without `replace` it needs `handbook:write` only.
   - **`@kelpie/schemas`** — new scopes as above in `API_KEY_SCOPES`,
     `API_KEY_GRANULAR_SCOPES`, `API_KEY_PRESET_SCOPES` and the "Object data"
     group of `API_KEY_SCOPE_GROUPS`. `expandApiKeyScopes(['write:objects'])`
     no longer holds `handbook:write`. **Breaking for a client of a newer
     server:** an older `apiKeySchema` or `oauthGrantSchema` refuses a list
     that holds a new scope.
-  - **`@kelpie/ui`** — the API key form has the "Delete objects" preset and
-    a delete tick box for each object-data resource.
+  - **`@kelpie/ui`** — the API key form offers "Handbook (write)" and
+    "Delete objects" under "Extra permissions", beside "Decisions (commit
+    without confirmation)", each with what it risks. These are the same
+    three as on the consent page. The custom grid has a delete tick box for
+    each object-data resource. The key list names each sensitive power of a
+    key as a warning chip and does not count it into "Custom (N scopes)". A
+    full-access key shows as a "Full access" warning chip.
   - The MCP instructions tell an agent to say that the connection does not
     allow a delete or a handbook write, and not to look for another way.
 - **`@kelpie/server`** — **A hosted AI run cannot make a commitment or a

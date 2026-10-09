@@ -1,5 +1,13 @@
 import type { ApiKeyScope, MemberRole } from '@kelpie/schemas'
-import { API_KEY_SCOPES, MEMBER_ROLES, expandApiKeyScopes, satisfiesApiKeyScope } from '@kelpie/schemas'
+import {
+  API_KEY_OPT_IN_SCOPES,
+  API_KEY_SCOPES,
+  MEMBER_ROLES,
+  expandApiKeyScopes,
+  isSensitiveApiKeyScope,
+  satisfiesApiKeyScope,
+  sensitiveApiKeyScopesHeld,
+} from '@kelpie/schemas'
 
 import { requireSessionActor } from '../../lib/actor.ts'
 import type { Actor } from '../../lib/actor.ts'
@@ -59,8 +67,9 @@ export const DEFAULT_SCOPES: readonly ApiKeyScope[] = ['read:objects', 'write:ob
  * for it. Each one is a power that a client does not get by default, so the
  * person gives it on purpose or not at all. The page reads this list from the
  * request; an approval accepts these and the requested scopes, nothing else.
+ * The same list as the key form offers, so the two cannot differ.
  */
-export const CONSENT_EXTRA_SCOPES: readonly ApiKeyScope[] = ['decisions:commit', 'handbook:write', 'delete:objects']
+export const CONSENT_EXTRA_SCOPES: readonly ApiKeyScope[] = API_KEY_OPT_IN_SCOPES
 
 /**
  * True when a scope set gives everything `scope` gives. A preset is covered
@@ -76,15 +85,21 @@ function scopesCover(held: readonly ApiKeyScope[], scope: ApiKeyScope): boolean 
 }
 
 /**
- * The extras the consent page offers for a request. One that the client asked
- * for by name is offered here too, so it starts clear like the others. One
- * that the other requested scopes include already is left out: a tick box for
- * it would change nothing.
+ * The scopes the consent page shows apart, clear at the start and each with
+ * what it risks.
+ *
+ * First every requested scope that gives a sensitive power, under whatever
+ * name: `people:delete`, `delete:objects` and `write:all` are all here. A
+ * preset that holds a sensitive scope is here whole. Showing part of it
+ * ticked would need a row for each scope it expands to, and a row that says
+ * "Write all" must not give less than that. Then the scopes that are always
+ * offered. The rule is by power and not by name, so no spelling of a request
+ * gets a delete or a handbook write ticked.
  */
 function offeredExtraScopes(requested: readonly ApiKeyScope[]): ApiKeyScope[] {
-  const others = requested.filter((scope) => !CONSENT_EXTRA_SCOPES.includes(scope))
+  const sensitive = requested.filter(isSensitiveApiKeyScope)
 
-  return CONSENT_EXTRA_SCOPES.filter((extra) => !scopesCover(others, extra))
+  return [...sensitive, ...CONSENT_EXTRA_SCOPES.filter((extra) => !sensitive.includes(extra))]
 }
 
 /** Registered clients that never connected are removed after this long. */
@@ -214,9 +229,19 @@ export interface ConsentView {
   readonly clientUri: string | null
   readonly logoUri: string | null
   readonly scopes: readonly ApiKeyScope[]
-  /** From `CONSENT_EXTRA_SCOPES`: what the person may add to this request. */
+  /** The scopes shown apart and clear: the sensitive ones requested, then `CONSENT_EXTRA_SCOPES`. */
   readonly extraScopes: readonly ApiKeyScope[]
-  readonly workspaces: readonly { readonly id: string; readonly name: string; readonly role: MemberRole }[]
+  readonly workspaces: readonly {
+    readonly id: string
+    readonly name: string
+    readonly role: MemberRole
+    /**
+     * The `extraScopes` that this person's grant to this client in this
+     * workspace gives already. The page starts those ticked, so an approval
+     * for one more scope does not take away what the connection has.
+     */
+    readonly heldScopes: readonly ApiKeyScope[]
+  }[]
   readonly expiresAt: Date
 }
 
@@ -229,7 +254,7 @@ export interface GrantView {
   readonly workspaceId: string
   readonly workspaceName: string
   readonly scopes: readonly ApiKeyScope[]
-  /** The entries of `CONSENT_EXTRA_SCOPES` that `scopes` gives, by name or through a preset. */
+  /** The sensitive powers `scopes` gives, under whatever names it gives them. */
   readonly extraScopes: readonly ApiKeyScope[]
   readonly lastUsedAt: Date | null
   readonly createdAt: Date
@@ -643,6 +668,12 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       }
 
       const memberships = await repository.listMembershipsForUser(dependencies.db, session.userId)
+      const extraScopes = offeredExtraScopes(request.scopes as ApiKeyScope[])
+      // Read here and never taken from the request: what a connection holds
+      // already is for the server to say, not for the client that wants more.
+      const grants = (await repository.listGrantsForUser(dependencies.db, session.userId)).filter(
+        ({ grant }) => grant.clientRowId === client.id,
+      )
 
       return {
         id: request.id,
@@ -654,12 +685,18 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         clientUri: client.clientUri,
         logoUri: client.logoUri,
         scopes: request.scopes as ApiKeyScope[],
-        extraScopes: offeredExtraScopes(request.scopes as ApiKeyScope[]),
-        workspaces: memberships.map((membership) => ({
-          id: membership.id,
-          name: membership.name,
-          role: parseRole(membership.role),
-        })),
+        extraScopes,
+        workspaces: memberships.map((membership) => {
+          const held = grants.find(({ grant }) => grant.workspaceId === membership.id)?.grant.scopes
+
+          return {
+            id: membership.id,
+            name: membership.name,
+            role: parseRole(membership.role),
+            heldScopes:
+              held === undefined ? [] : extraScopes.filter((extra) => scopesCover(held as ApiKeyScope[], extra)),
+          }
+        }),
         expiresAt: request.expiresAt,
       }
     },
@@ -875,7 +912,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         workspaceId: grant.workspaceId,
         workspaceName,
         scopes: grant.scopes as ApiKeyScope[],
-        extraScopes: CONSENT_EXTRA_SCOPES.filter((extra) => scopesCover(grant.scopes as ApiKeyScope[], extra)),
+        extraScopes: sensitiveApiKeyScopesHeld(grant.scopes as ApiKeyScope[]),
         lastUsedAt: grant.lastUsedAt,
         createdAt: grant.createdAt,
       }))

@@ -281,7 +281,12 @@ function requestResponse(view: ConsentView): Record<string, unknown> {
     logo_uri: view.logoUri,
     scopes: view.scopes,
     extra_scopes: view.extraScopes,
-    workspaces: view.workspaces,
+    workspaces: view.workspaces.map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      role: workspace.role,
+      held_scopes: workspace.heldScopes,
+    })),
     expires_at: view.expiresAt.toISOString(),
   }
 }

@@ -27,14 +27,16 @@ const REQUEST = {
   logo_uri: null,
   scopes: ['read:objects', 'write:objects'],
   extra_scopes: ['decisions:commit'],
-  workspaces: [{ id: 'ws_1', name: 'Acme', role: 'owner' }],
+  workspaces: [{ id: 'ws_1', name: 'Acme', role: 'owner', held_scopes: [] }],
   expires_at: '2026-09-25T02:10:00.000Z',
 }
 
 const TWO_WORKSPACES = [
-  { id: 'ws_1', name: 'Acme', role: 'owner' },
-  { id: 'ws_2', name: 'Globex', role: 'member' },
+  { id: 'ws_1', name: 'Acme', role: 'owner', held_scopes: [] },
+  { id: 'ws_2', name: 'Globex', role: 'member', held_scopes: [] },
 ]
+
+const ALL_EXTRAS = ['decisions:commit', 'handbook:write', 'delete:objects']
 
 const SESSION = { user_id: 'usr_1', session_id: 'ses_1', workspace_id: 'ws_1', role: 'owner', email_verified: true }
 
@@ -285,6 +287,196 @@ describe('ConsentPage', () => {
         workspace_ids: ['ws_1'],
         scopes: ['read:objects', 'write:objects', 'delete:objects'],
       })
+    })
+  })
+
+  /** Renders the page, clicks what the test names, clicks Allow, and answers the approved body. */
+  async function approveAfter(stubs: PageStubs, clicks: readonly RegExp[]): Promise<unknown> {
+    const approved: { body?: unknown } = {}
+
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign: vi.fn() })
+    renderPage({
+      ...stubs,
+      onApprove: (body) => {
+        approved.body = body
+      },
+    })
+
+    await screen.findByText('Connect Example Agent')
+
+    for (const name of clicks) {
+      await act(async () => {
+        screen.getByRole('checkbox', { name }).click()
+      })
+    }
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Allow' }).click()
+    })
+    await waitFor(() => {
+      expect(approved.body).toBeDefined()
+    })
+
+    return approved.body
+  }
+
+  function box(name: RegExp): HTMLInputElement {
+    return screen.getByRole('checkbox', { name }) as HTMLInputElement
+  }
+
+  /**
+   * The request the server's own `insufficient_scope` answer leads to when a
+   * token holds nothing else: every scope in it is an extra.
+   */
+  it('allows a request whose scopes are all extras once one is ticked, and not before', async () => {
+    const stubs = { scopes: ['handbook:write'], extraScopes: ALL_EXTRAS.toSorted() }
+
+    renderPage(stubs)
+
+    const allow = (await screen.findByRole('button', { name: 'Allow' })) as HTMLButtonElement
+
+    expect(allow.disabled).toBe(true)
+    expect(box(/^Handbook \(write\)/u).checked).toBe(false)
+    expect(screen.getByText(/this app asks for it/u)).toBeTruthy()
+
+    await act(async () => {
+      box(/^Handbook \(write\)/u).click()
+    })
+
+    expect(allow.disabled).toBe(false)
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [/^Handbook \(write\)/u])).toEqual({
+      workspace_ids: ['ws_1'],
+      scopes: ['handbook:write'],
+    })
+  })
+
+  it('allows an approval of one extra with every requested scope cleared', async () => {
+    const body = await approveAfter({}, [/^Read objects/u, /^Write objects/u, /^Decisions \(commit/u])
+
+    expect(body).toEqual({ workspace_ids: ['ws_1'], scopes: ['decisions:commit'] })
+  })
+
+  it('does not allow an approval with nothing ticked at all', async () => {
+    renderPage()
+
+    for (const name of [/^Read objects/u, /^Write objects/u]) {
+      await act(async () => {
+        ;(await screen.findByRole('checkbox', { name })).click()
+      })
+    }
+
+    expect((screen.getByRole('button', { name: 'Allow' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('shows a requested delete scope of one resource apart and clear, with what it risks', async () => {
+    const stubs = {
+      scopes: ['read:objects', 'write:objects', 'people:delete'],
+      extraScopes: ['people:delete', ...ALL_EXTRAS],
+    }
+
+    renderPage(stubs)
+    await screen.findByText('Connect Example Agent')
+
+    expect(box(/^People \(delete\)/u).checked).toBe(false)
+    expect(screen.getByRole('group', { name: 'Extra permissions' }).contains(box(/^People \(delete\)/u))).toBe(true)
+    expect(screen.getByText('Lets it delete records of this kind: People. A deleted record cannot be restored.')).toBeTruthy()
+    // Delete objects is still offered beside it.
+    expect(box(/^Delete objects/u).checked).toBe(false)
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [])).toEqual({ workspace_ids: ['ws_1'], scopes: ['read:objects', 'write:objects'] })
+  })
+
+  it('shows a requested preset that holds a sensitive scope apart and clear, whole', async () => {
+    const stubs = { scopes: ['read:all', 'write:all'], extraScopes: ['write:all', ...ALL_EXTRAS] }
+
+    renderPage(stubs)
+    await screen.findByText('Connect Example Agent')
+
+    expect(box(/^Write all/u).checked).toBe(false)
+    expect(box(/^Read all/u).checked).toBe(true)
+    expect(screen.getByText(/Includes changing handbook pages, and every workspace admin write/u)).toBeTruthy()
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [])).toEqual({ workspace_ids: ['ws_1'], scopes: ['read:all'] })
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [/^Write all/u])).toEqual({
+      workspace_ids: ['ws_1'],
+      scopes: ['read:all', 'write:all'],
+    })
+  })
+
+  it('starts an extra ticked only when the app has it already, and says so', async () => {
+    const stubs = {
+      extraScopes: ALL_EXTRAS,
+      workspaces: [{ id: 'ws_1', name: 'Acme', role: 'owner', held_scopes: ['handbook:write', 'delete:objects'] }],
+    }
+
+    renderPage(stubs)
+    await screen.findByText('Connect Example Agent')
+
+    expect(box(/^Handbook \(write\)/u).checked).toBe(true)
+    expect(box(/^Delete objects/u).checked).toBe(true)
+    expect(box(/^Decisions \(commit/u).checked).toBe(false)
+    expect(screen.getAllByText(/· already allowed/u)).toHaveLength(2)
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [])).toEqual({
+      workspace_ids: ['ws_1'],
+      scopes: ['read:objects', 'write:objects', 'handbook:write', 'delete:objects'],
+    })
+
+    cleanup()
+
+    // Clearing one that is already allowed takes it away.
+    expect(await approveAfter(stubs, [/^Delete objects/u])).toEqual({
+      workspace_ids: ['ws_1'],
+      scopes: ['read:objects', 'write:objects', 'handbook:write'],
+    })
+  })
+
+  it('clears an extra again when a selected workspace does not have it yet', async () => {
+    const stubs = {
+      extraScopes: ALL_EXTRAS,
+      workspaces: [
+        { id: 'ws_1', name: 'Acme', role: 'owner', held_scopes: ['delete:objects'] },
+        { id: 'ws_2', name: 'Globex', role: 'member', held_scopes: [] },
+      ],
+    }
+
+    renderPage(stubs)
+
+    expect((await screen.findByRole('checkbox', { name: /^Delete objects/u }) as HTMLInputElement).checked).toBe(true)
+
+    await act(async () => {
+      box(/Globex/u).click()
+    })
+
+    // Globex would get a delete that nobody ticked.
+    expect(box(/^Delete objects/u).checked).toBe(false)
+    expect(screen.queryByText(/· already allowed/u)).toBeNull()
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [/Globex/u])).toEqual({
+      workspace_ids: ['ws_1', 'ws_2'],
+      scopes: ['read:objects', 'write:objects'],
+    })
+
+    cleanup()
+
+    // A tick the person made stays when the workspaces change.
+    expect(await approveAfter(stubs, [/^Decisions \(commit/u, /Globex/u])).toEqual({
+      workspace_ids: ['ws_1', 'ws_2'],
+      scopes: ['read:objects', 'write:objects', 'decisions:commit'],
     })
   })
 

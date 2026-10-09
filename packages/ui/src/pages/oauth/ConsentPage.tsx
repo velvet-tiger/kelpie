@@ -1,4 +1,10 @@
-import { API_KEY_SCOPE_LABELS, API_KEY_SCOPE_RISKS, expandApiKeyScopes, isApiKeyPresetScope } from '@kelpie/schemas'
+import {
+  API_KEY_SCOPE_LABELS,
+  apiKeyScopeRisk,
+  expandApiKeyScopes,
+  isApiKeyPresetScope,
+  isApiKeyRiskScope,
+} from '@kelpie/schemas'
 import type { ApiKeyScope, OAuthRequest } from '@kelpie/schemas'
 import { useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router'
@@ -99,8 +105,9 @@ function initialWorkspaceIds(request: OAuthRequest, activeWorkspaceId: string | 
  * grants it, so a separate tick box for it would change nothing. Only the
  * listed scopes are approved: clearing a preset also drops what it included.
  *
- * An extra permission is not listed here, also when the app asked for it by
- * name. It is in its own section and starts clear.
+ * A scope that gives a sensitive power is not listed here, also when the app
+ * asked for it. The server names those in `extraScopes`; they are in their
+ * own section and start clear.
  */
 function offeredScopes(request: OAuthRequest): readonly ApiKeyScope[] {
   const requested = request.scopes.filter((scope) => !request.extraScopes.includes(scope))
@@ -119,8 +126,30 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
   const [onlyWorkspace] = request.workspaces
   const offered = offeredScopes(request)
   const [scopes, setScopes] = useState<readonly ApiKeyScope[]>(offered)
-  // Clear at the start: a person who only clicks Allow gives none of them.
-  const [extras, setExtras] = useState<readonly ApiKeyScope[]>([])
+  // Only what the person changed by hand. An extra they did not touch is
+  // ticked when the app has it already in every selected workspace, and
+  // clear otherwise, so it follows the workspaces as they are ticked.
+  const [extraChoices, setExtraChoices] = useState<ReadonlyMap<ApiKeyScope, boolean>>(new Map())
+  const selectedWorkspaces = request.workspaces.filter((workspace) => workspaceIds.includes(workspace.id))
+
+  /**
+   * True when an approval with this extra ticked gives nothing new: each
+   * selected workspace has it from an earlier approval. The server says what
+   * each workspace holds. One workspace that lacks it makes this false, so a
+   * tick that nobody made never gives a new power anywhere.
+   */
+  function alreadyAllowed(scope: ApiKeyScope): boolean {
+    return (
+      selectedWorkspaces.length > 0 && selectedWorkspaces.every((workspace) => workspace.heldScopes.includes(scope))
+    )
+  }
+
+  function extraTicked(scope: ApiKeyScope): boolean {
+    return extraChoices.get(scope) ?? alreadyAllowed(scope)
+  }
+
+  const extras = request.extraScopes.filter(extraTicked)
+  const nothingTicked = scopes.length + extras.length === 0
   const [leaving, setLeaving] = useState(false)
   const busy = approve.isPending || deny.isPending || leaving
 
@@ -136,7 +165,7 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
   }
 
   function toggleExtra(scope: ApiKeyScope): void {
-    setExtras((current) => (current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope]))
+    setExtraChoices((current) => new Map(current).set(scope, !extraTicked(scope)))
   }
 
   function toggleWorkspace(id: string): void {
@@ -228,7 +257,8 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
           </fieldset>
         )}
 
-        <fieldset>
+        {/* A request for sensitive scopes only has nothing to list here. */}
+        <fieldset hidden={offered.length === 0}>
           <legend className="mb-1.5 text-[12px] font-medium text-ink">Access</legend>
           <div className="space-y-1.5">
             {offered.map((scope) => (
@@ -262,18 +292,30 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
                   <input
                     type="checkbox"
                     className="mt-0.5"
-                    checked={extras.includes(scope)}
+                    checked={extraTicked(scope)}
                     onChange={() => {
                       toggleExtra(scope)
                     }}
                   />
                   <span>
                     {API_KEY_SCOPE_LABELS[scope]}
-                    <span className="block text-[11px] text-ink-muted">{API_KEY_SCOPE_RISKS[scope]}</span>
+                    {request.scopes.includes(scope) && (
+                      <span className="text-[11px] text-ink-muted"> · this app asks for it</span>
+                    )}
+                    {alreadyAllowed(scope) && (
+                      <span className="text-[11px] text-ink-muted"> · already allowed</span>
+                    )}
+                    {isApiKeyRiskScope(scope) && (
+                      <span className="block text-[11px] text-ink-muted">{apiKeyScopeRisk(scope)}</span>
+                    )}
                   </span>
                 </label>
               ))}
             </div>
+            <p className="mt-2 text-[11px] text-ink-faint">
+              What you allow here replaces what this app had. Clear an item that is already allowed to take
+              it away.
+            </p>
           </fieldset>
         )}
 
@@ -298,7 +340,7 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
           </button>
           <button
             type="button"
-            disabled={busy || scopes.length === 0 || workspaceIds.length === 0}
+            disabled={busy || nothingTicked || workspaceIds.length === 0}
             onClick={() => {
               approve
                 .runAsync({ requestId: request.id, workspaceIds, scopes: [...scopes, ...extras] })

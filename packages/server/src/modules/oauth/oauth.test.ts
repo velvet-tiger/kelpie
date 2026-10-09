@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 
+import { API_KEY_OBJECT_DATA_RESOURCES } from '@kelpie/schemas'
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -587,7 +588,9 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
       expect(response.status).toBe(403)
       expect(response.headers.get('WWW-Authenticate')).toContain('error="insufficient_scope"')
-      expect(response.headers.get('WWW-Authenticate')).toContain('scope="people:write"')
+      // What the token holds, then what it lacks: a client that asks for
+      // this list keeps what it had.
+      expect(response.headers.get('WWW-Authenticate')).toContain('scope="read:objects people:write"')
     })
 
     it('allows a tool the grant does cover', async () => {
@@ -740,17 +743,129 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       expect(await named.json()).toMatchObject({ scopes: WITH_COMMIT, extra_scopes: extras })
     })
 
-    it('does not offer an extra that the requested scopes include already', async () => {
+    /** The `extra_scopes` of a request for this `scope` parameter. */
+    async function extrasFor(scope: string): Promise<unknown> {
       const { cookie } = await owner()
       const clientId = await registerPublicClient()
-      const response = await send(
-        'GET',
-        `/v1/oauth/requests/${await startRequest(clientId, { scope: 'read:all write:all people:delete' })}`,
-        { cookie },
+      const response = await send('GET', `/v1/oauth/requests/${await startRequest(clientId, { scope })}`, { cookie })
+      const body: unknown = await response.json()
+
+      return isRecord(body) ? body.extra_scopes : undefined
+    }
+
+    it('shows a requested scope apart when it gives a sensitive power, under any name', async () => {
+      expect(await extrasFor('read:objects write:objects people:delete')).toEqual([
+        'people:delete',
+        'decisions:commit',
+        'handbook:write',
+        'delete:objects',
+      ])
+    })
+
+    it('shows a requested preset apart, whole, when it holds a sensitive scope', async () => {
+      // `write:all` holds `handbook:write`. `write:admin` and `admin` hold nothing sensitive.
+      expect(await extrasFor('read:all write:all write:admin admin')).toEqual([
+        'write:all',
+        'decisions:commit',
+        'handbook:write',
+        'delete:objects',
+      ])
+    })
+
+    it('still offers Delete objects when the client asks for every delete scope by name', async () => {
+      const deletes = API_KEY_OBJECT_DATA_RESOURCES.map((resource) => `${resource}:delete`)
+
+      expect(await extrasFor(['read:objects', ...deletes].join(' '))).toEqual([
+        ...deletes,
+        'decisions:commit',
+        'handbook:write',
+        'delete:objects',
+      ])
+    })
+
+    it('says which sensitive scopes the client holds already, for each workspace, from the stored grant', async () => {
+      const scopes = [...DEFAULT, 'handbook:write', 'people:delete']
+      const { clientId, cookie, workspaceId } = await connect(scopes, scopes.join(' '))
+      const created = await send('POST', '/v1/workspaces', {
+        body: { name: 'Globex', timezone: 'Australia/Melbourne' },
+        cookie,
+      })
+      const otherWorkspaceId = readString(await created.json(), 'id')
+      const requestId = await startRequest(clientId, { scope: 'read:objects write:objects people:delete deals:delete' })
+      const body: unknown = await (await send('GET', `/v1/oauth/requests/${requestId}`, { cookie })).json()
+      const held = new Map(
+        (isRecord(body) && Array.isArray(body.workspaces) ? body.workspaces : [])
+          .filter(isRecord)
+          .map((workspace) => [workspace.id, workspace.held_scopes]),
       )
 
-      // `write:all` includes `handbook:write`. One delete scope is not all of `delete:objects`.
-      expect(await response.json()).toMatchObject({ extra_scopes: ['decisions:commit', 'delete:objects'] })
+      // The connected workspace holds two of the offered scopes. `deals:delete`
+      // is asked for and not held. The other workspace has no grant.
+      expect(held.get(workspaceId)).toEqual(['people:delete', 'handbook:write'])
+      expect(held.get(otherWorkspaceId)).toEqual([])
+
+      // Another client of the same person holds nothing.
+      const otherClient = await registerPublicClient()
+      const fresh: unknown = await (
+        await send('GET', `/v1/oauth/requests/${await startRequest(otherClient)}`, { cookie })
+      ).json()
+
+      expect(isRecord(fresh) && fresh.workspaces).toMatchObject([{ held_scopes: [] }, { held_scopes: [] }])
+    })
+
+    it('counts a scope as held when a wider scope of the grant gives it', async () => {
+      const scopes = [...DEFAULT, 'delete:objects']
+      const { clientId, cookie, workspaceId } = await connect(scopes)
+      const requestId = await startRequest(clientId, { scope: 'read:objects write:objects people:delete' })
+      const body: unknown = await (await send('GET', `/v1/oauth/requests/${requestId}`, { cookie })).json()
+
+      expect(isRecord(body) && body.workspaces).toMatchObject([
+        { id: workspaceId, held_scopes: ['people:delete', 'delete:objects'] },
+      ])
+    })
+
+    it('lets a step-up add one scope and keep the rest of the connection', async () => {
+      const { accessToken, clientId, cookie, workspaceId } = await connect()
+      const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
+      const refused = await callTool(accessToken, 'people_delete', { id: readString(person, 'id') })
+      const challenge = /scope="(?<scope>[^"]+)"/u.exec(refused.headers.get('WWW-Authenticate') ?? '')?.groups?.scope
+
+      expect(challenge).toBe('read:objects write:objects people:delete')
+
+      // The client asks for what the challenge named, and the person allows all of it.
+      const requestId = await startRequest(clientId, { scope: challenge ?? '' })
+      const redirect = await approve(cookie, requestId, workspaceId, (challenge ?? '').split(' '))
+      const tokens: unknown = await (await exchange(clientId, redirect.searchParams.get('code') ?? '')).json()
+      const next = readString(tokens, 'access_token')
+
+      expect(await toolPayload(await callTool(next, 'people_delete', { id: readString(person, 'id') }))).toEqual({
+        id: readString(person, 'id'),
+        deleted: true,
+      })
+      // It can still do what it could before the step-up.
+      expect((await callTool(next, 'people_create', { name: 'Ada Lovelace' })).status).toBe(200)
+      expect((await callTool(next, 'people_list')).status).toBe(200)
+    })
+
+    it('names the sensitive powers of a connection under any name that gives them', async () => {
+      const named = [...DEFAULT, 'people:delete']
+      const first = await connect(named, named.join(' '))
+      const one = readList(await (await send('GET', '/v1/oauth/grants', { cookie: first.cookie })).json())
+
+      expect(one[0]).toMatchObject({ extra_scopes: ['people:delete'] })
+
+      const redirect = await approve(
+        first.cookie,
+        await startRequest(first.clientId, { scope: 'read:all write:all' }),
+        first.workspaceId,
+        ['read:all', 'write:all'],
+      )
+
+      expect(redirect.searchParams.get('code')).not.toBeNull()
+
+      const wide = readList(await (await send('GET', '/v1/oauth/grants', { cookie: first.cookie })).json())
+
+      expect(wide[0]).toMatchObject({ scopes: ['read:all', 'write:all'], extra_scopes: ['handbook:write'] })
     })
 
     it('gives a default connection no delete and no handbook write, and names the scope it lacks', async () => {
@@ -762,9 +877,9 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
       expect(deleted.status).toBe(403)
       expect(deleted.headers.get('WWW-Authenticate')).toContain('error="insufficient_scope"')
-      expect(deleted.headers.get('WWW-Authenticate')).toContain('scope="people:delete"')
+      expect(deleted.headers.get('WWW-Authenticate')).toContain('scope="read:objects write:objects people:delete"')
       expect(written.status).toBe(403)
-      expect(written.headers.get('WWW-Authenticate')).toContain('scope="handbook:write"')
+      expect(written.headers.get('WWW-Authenticate')).toContain('scope="read:objects write:objects handbook:write"')
       // Reading the handbook and the person is still part of the default.
       expect((await callTool(accessToken, 'handbook_pages_list')).status).toBe(200)
       expect((await callTool(accessToken, 'people_get', { id: readString(person, 'id') })).status).toBe(200)

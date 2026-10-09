@@ -495,16 +495,29 @@ export {
   API_KEY_OBJECT_READ_ONLY_RESOURCES,
   API_KEY_PRESET_SCOPES,
   API_KEY_SCOPE_GROUPS,
+  API_KEY_OPT_IN_SCOPES,
   API_KEY_SCOPE_LABELS,
-  API_KEY_SCOPE_RISKS,
   API_KEY_SCOPES,
+  API_KEY_SENSITIVE_PRESET_SCOPES,
+  API_KEY_SENSITIVE_SCOPES,
+  apiKeyScopeRisk,
   dedupeApiKeyScopes,
   expandApiKeyScopes,
   isApiKeyGranularScope,
   isApiKeyPresetScope,
+  isApiKeyRiskScope,
+  isSensitiveApiKeyScope,
   satisfiesApiKeyScope,
+  sensitiveApiKeyScopesHeld,
 } from './apiKeyScopes.ts'
-export type { ApiKeyExtraScope, ApiKeyGranularScope, ApiKeyPresetScope, ApiKeyScope } from './apiKeyScopes.ts'
+export type {
+  ApiKeyExtraScope,
+  ApiKeyGranularScope,
+  ApiKeyPresetScope,
+  ApiKeyRiskScope,
+  ApiKeyScope,
+  ApiKeySensitiveScope,
+} from './apiKeyScopes.ts'
 
 export {
   agentRunSchema,

@@ -226,6 +226,17 @@ describe('ApiKeysPage', () => {
     expect(peopleRead.disabled).toBe(true)
   })
 
+  it('says that a full-access workspace key can do what an admin can', async () => {
+    renderPage({ keys: [] })
+
+    await act(async () => {
+      ;(await screen.findByRole('button', { name: 'Create key' })).click()
+    })
+
+    expect(screen.getByText(/A full-access workspace key can do everything an admin can/u)).toBeTruthy()
+    expect(screen.getByText(/manage members, keys and webhooks/u)).toBeTruthy()
+  })
+
   it('says why the list could not be read', async () => {
     renderPage({ listFails: new ApiError(403, 'forbidden', 'This action needs the admin role', []) })
 

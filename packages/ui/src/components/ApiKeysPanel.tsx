@@ -1,22 +1,24 @@
 import type { ApiKey, ApiKeyGranularScope, ApiKeyKind, ApiKeyScope, CreatedApiKey } from '@kelpie/schemas'
 import {
   API_KEY_DEFAULT_SCOPES,
-  API_KEY_EXTRA_SCOPES,
+  API_KEY_OPT_IN_SCOPES,
   API_KEY_PRESET_SCOPES,
   API_KEY_SCOPE_GROUPS,
   API_KEY_SCOPE_LABELS,
-  API_KEY_SCOPE_RISKS,
+  apiKeyScopeRisk,
   expandApiKeyScopes,
-  isApiKeyGranularScope,
   isApiKeyPresetScope,
+  isSensitiveApiKeyScope,
+  sensitiveApiKeyScopesHeld,
 } from '@kelpie/schemas'
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { useTimezone } from '../api/resources/account.ts'
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '../api/resources/apiKeys.ts'
 import { formatDate } from '../lib/dates.ts'
 import { mcpClientConfig, mcpEndpoint } from '../lib/mcpConfig.ts'
+import { Chip } from './Chip.tsx'
 import { CopyButton } from './CopyButton.tsx'
 import { ErrorPanel, LoadingPanel } from './QueryState.tsx'
 
@@ -32,7 +34,25 @@ export interface ApiKeysPanelProps {
   readonly emptyMessage: string
 }
 
-const PRESET_OPTIONS = API_KEY_PRESET_SCOPES.filter((scope) => scope !== 'write:all')
+const OPT_IN_SCOPES: readonly ApiKeyScope[] = API_KEY_OPT_IN_SCOPES
+
+/**
+ * The presets with a tick box in the Presets list. `write:all` is not offered
+ * as a preset, and a preset that is an extra permission has its tick box in
+ * that section, where it is beside what it risks.
+ */
+const PRESET_OPTIONS = API_KEY_PRESET_SCOPES.filter((scope) => scope !== 'write:all' && !OPT_IN_SCOPES.includes(scope))
+
+const GRID_SCOPES: ReadonlySet<ApiKeyScope> = new Set(API_KEY_SCOPE_GROUPS.flatMap((group) => group.scopes))
+
+/**
+ * The extra permissions that the custom grid has no tick box for, by name or
+ * by the scopes they expand to. With custom scopes these are the only extras
+ * shown: a second tick box for a scope in the grid could disagree with it.
+ */
+const EXTRAS_OUTSIDE_GRID = API_KEY_OPT_IN_SCOPES.filter((scope) =>
+  [...expandApiKeyScopes([scope])].some((granular) => !GRID_SCOPES.has(granular)),
+)
 
 export function ApiKeysPanel({
   kind,
@@ -125,15 +145,30 @@ function CreateKeyModal({
   const [accessMode, setAccessMode] = useState<AccessMode>('presets')
   const [selectedPresets, setSelectedPresets] = useState<readonly ApiKeyScope[]>(API_KEY_DEFAULT_SCOPES)
   const [selectedCustom, setSelectedCustom] = useState<readonly ApiKeyScope[]>([])
-  // Apart from the presets and the custom grid: no preset includes one, so a
-  // person adds it to either.
+  // Apart from the presets and the custom grid: no preset in the list above
+  // them includes one, so a person adds it to either.
   const [selectedExtras, setSelectedExtras] = useState<readonly ApiKeyScope[]>([])
   const [showCustom, setShowCustom] = useState(false)
+  const hintId = useId()
+  const offeredExtras = accessMode === 'custom' ? EXTRAS_OUTSIDE_GRID : API_KEY_OPT_IN_SCOPES
 
   const presetExpandedScopes = useMemo(
-    () => expandApiKeyScopes(selectedPresets),
-    [selectedPresets],
+    () => expandApiKeyScopes([...selectedPresets, ...selectedExtras]),
+    [selectedPresets, selectedExtras],
   )
+
+  /**
+   * Moves to the custom grid. Every extra that the grid can show goes into
+   * it, so nothing stays ticked in a place the person can no longer see.
+   */
+  function enterCustomMode(scopes: readonly ApiKeyScope[]): void {
+    const outsideGrid: readonly ApiKeyScope[] = EXTRAS_OUTSIDE_GRID
+
+    setAccessMode('custom')
+    setSelectedPresets([])
+    setSelectedCustom(scopes.filter((scope) => GRID_SCOPES.has(scope)))
+    setSelectedExtras((current) => current.filter((scope) => outsideGrid.includes(scope)))
+  }
 
   const showScopeGrid =
     (accessMode === 'custom' && showCustom) ||
@@ -263,9 +298,8 @@ function CreateKeyModal({
                   type="button"
                   onClick={() => {
                     setShowCustom((open) => !open)
-                    if (!showCustom) {
-                      setAccessMode('custom')
-                      setSelectedPresets([])
+                    if (!showCustom && accessMode !== 'custom') {
+                      enterCustomMode([...presetExpandedScopes])
                     }
                   }}
                   className="text-[12px] font-medium text-accent hover:underline"
@@ -311,9 +345,7 @@ function CreateKeyModal({
                     <button
                       type="button"
                       onClick={() => {
-                        setAccessMode('custom')
-                        setSelectedPresets([])
-                        setSelectedCustom([...presetExpandedScopes])
+                        enterCustomMode([...presetExpandedScopes])
                         setShowCustom(true)
                       }}
                       className="text-[12px] font-medium text-accent hover:underline"
@@ -324,12 +356,12 @@ function CreateKeyModal({
                 </div>
               )}
               {accessMode !== 'full' && (
-                <div className="rounded-md border border-border p-3">
-                  <p className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                <div role="group" aria-label="Extra permissions" className="rounded-md border border-border p-3">
+                  <p aria-hidden className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
                     Extra permissions
                   </p>
                   <div className="space-y-2">
-                    {API_KEY_EXTRA_SCOPES.map((scope) => (
+                    {offeredExtras.map((scope) => (
                       <label key={scope} className="flex items-start gap-2 text-[13px] text-ink">
                         <input
                           type="checkbox"
@@ -341,7 +373,7 @@ function CreateKeyModal({
                         />
                         <span>
                           {API_KEY_SCOPE_LABELS[scope]}
-                          <span className="block text-[11px] text-ink-muted">{API_KEY_SCOPE_RISKS[scope]}</span>
+                          <span className="block text-[11px] text-ink-muted">{apiKeyScopeRisk(scope)}</span>
                         </span>
                       </label>
                     ))}
@@ -354,13 +386,14 @@ function CreateKeyModal({
                   Full access
                 </label>
                 <p className="mt-1 text-[11px] text-warning">
-                  A full-access key can do everything your role can in this workspace: delete records,
-                  change the handbook, and manage members, keys and webhooks. Choose it only for a
-                  program that you control completely.
+                  {kind === 'workspace'
+                    ? 'A full-access workspace key can do everything an admin can in this workspace: delete records, change the handbook, and manage members, keys and webhooks.'
+                    : 'A full-access personal key can do everything you can do in this workspace, now and after your role changes. That includes deleting records.'}{' '}
+                  Choose it only for a program that you control completely.
                 </p>
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-ink-faint">
+            <p id={hintId} className="mt-2 text-[11px] text-ink-faint">
               {nothingChosen
                 ? 'Choose at least one permission, or full access.'
                 : 'Write includes read for the same resource, and does not include delete. Presets cover many scopes at once. No preset includes an extra permission.'}
@@ -384,6 +417,9 @@ function CreateKeyModal({
             <button
               type="submit"
               disabled={createApiKey.isPending || nothingChosen}
+              // The hint says why the button is off. A screen reader reads it
+              // with the button, which is otherwise only greyed out.
+              aria-describedby={nothingChosen ? hintId : undefined}
               className="rounded-md bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
             >
               {createApiKey.isPending ? 'Creating…' : 'Create'}
@@ -440,25 +476,47 @@ function SecretOnce({
   )
 }
 
+/**
+ * The scopes of a key that give no sensitive power, in a few words: each
+ * preset by name, and the per-resource ones as a count.
+ */
 function formatScopeSummary(scopes: readonly ApiKeyScope[]): string {
-  if (scopes.length === 0) {
-    return 'Full access'
-  }
-
-  const extraScopes: readonly ApiKeyScope[] = API_KEY_EXTRA_SCOPES
-  const presets = scopes.filter(isApiKeyPresetScope)
-  // An extra permission is named, never counted into "Custom": it changes
-  // what the key may do on its own authority, and a count would hide it.
-  const extras = scopes.filter((scope) => extraScopes.includes(scope))
-  const granular = scopes.filter((scope) => isApiKeyGranularScope(scope) && !extraScopes.includes(scope))
+  const plain = scopes.filter((scope) => !isSensitiveApiKeyScope(scope) || scope === 'write:all')
+  const presets = plain.filter(isApiKeyPresetScope)
+  const granular = plain.filter((scope) => !isApiKeyPresetScope(scope))
   const custom =
     presets.length === 0 ? `Custom (${String(granular.length)} scopes)` : `Custom (${String(granular.length)})`
 
-  return [
-    ...presets.map((scope) => API_KEY_SCOPE_LABELS[scope]),
-    ...(granular.length === 0 ? [] : [custom]),
-    ...extras.map((scope) => API_KEY_SCOPE_LABELS[scope]),
-  ].join(', ')
+  return [...presets.map((scope) => API_KEY_SCOPE_LABELS[scope]), ...(granular.length === 0 ? [] : [custom])].join(', ')
+}
+
+/**
+ * What a key can reach, for the list. A sensitive power is always named and
+ * never counted into "Custom": a count would hide that a key can delete
+ * records or change the handbook. `write:all` stays in the words, and what it
+ * holds that is sensitive is named beside it.
+ */
+function ScopeSummary({ scopes }: { readonly scopes: readonly ApiKeyScope[] }): React.JSX.Element {
+  if (scopes.length === 0) {
+    return <Chip tone="warning">Full access</Chip>
+  }
+
+  const sensitive = sensitiveApiKeyScopesHeld(scopes)
+
+  return (
+    <>
+      {formatScopeSummary(scopes)}
+      {sensitive.length > 0 && (
+        <ul aria-label="Extra permissions" className="mt-1 flex flex-wrap gap-1">
+          {sensitive.map((scope) => (
+            <li key={scope}>
+              <Chip tone="warning">{API_KEY_SCOPE_LABELS[scope]}</Chip>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
 }
 
 function ApiKeyTable({
@@ -518,7 +576,9 @@ function ApiKeyRow({
   return (
     <tr className="border-b border-border last:border-0">
       <td className="px-4 py-3 font-medium">{apiKey.name}</td>
-      <td className="px-4 py-3 text-ink-muted">{formatScopeSummary(apiKey.scopes)}</td>
+      <td className="px-4 py-3 text-ink-muted">
+        <ScopeSummary scopes={apiKey.scopes} />
+      </td>
       <td className="px-4 py-3 font-mono text-[12px] text-ink-muted">{apiKey.displayPrefix}</td>
       <td className="px-4 py-3 text-ink-muted">{formatDate(apiKey.createdAt, timezone)}</td>
       <td className="px-4 py-3 text-ink-muted">

@@ -20,6 +20,12 @@ export interface OAuthWorkspaceChoice {
   readonly id: string
   readonly name: string
   readonly role: MemberRole
+  /**
+   * The request's `extraScopes` that this client already has in this
+   * workspace, from an earlier approval by the same person. The server
+   * decides this. Empty when the client is not connected to the workspace.
+   */
+  readonly heldScopes: readonly ApiKeyScope[]
 }
 
 /** A pending authorization request, as the consent page shows it. */
@@ -36,9 +42,10 @@ export interface OAuthRequest {
   /** What the client asked for. */
   readonly scopes: readonly ApiKeyScope[]
   /**
-   * What the person may add though the client did not ask for it. The server
-   * fixes the list. Each one starts clear on the consent page. A scope here
-   * may also be in `scopes`, when the client asked for it by name.
+   * The scopes the consent page shows apart, with what each one risks: every
+   * requested scope that gives a sensitive power, then the ones the server
+   * always offers. A scope here may also be in `scopes`. Each starts clear,
+   * unless every selected workspace has it in `heldScopes`.
    */
   readonly extraScopes: readonly ApiKeyScope[]
   readonly workspaces: readonly OAuthWorkspaceChoice[]
@@ -64,7 +71,7 @@ export interface OAuthGrant {
   readonly workspaceId: string
   readonly workspaceName: string
   readonly scopes: readonly ApiKeyScope[]
-  /** The extra permissions `scopes` gives, by name or through a preset. */
+  /** The sensitive powers `scopes` gives, under whatever names it gives them. */
   readonly extraScopes: readonly ApiKeyScope[]
   readonly lastUsedAt: Date | null
   readonly createdAt: Date
@@ -83,6 +90,7 @@ const oauthRequestWireSchema = z.object({
       id: idSchema,
       name: z.string(),
       role: z.enum(MEMBER_ROLES),
+      held_scopes: z.array(z.enum(API_KEY_SCOPES)),
     }),
   ),
   expires_at: timestampSchema,
@@ -97,7 +105,12 @@ export const oauthRequestSchema: z.ZodType<OAuthRequest, unknown> = oauthRequest
     logoUri: wire.logo_uri,
     scopes: wire.scopes,
     extraScopes: wire.extra_scopes,
-    workspaces: wire.workspaces,
+    workspaces: wire.workspaces.map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      role: workspace.role,
+      heldScopes: workspace.held_scopes,
+    })),
     expiresAt: wire.expires_at,
   }),
 )
@@ -139,7 +152,9 @@ export interface ApproveOAuthRequestInput {
   readonly workspaceIds: readonly string[]
   /**
    * At least one. The user may remove requested scopes, and may add any of
-   * the request's `extraScopes`. The server refuses every other scope.
+   * the request's `extraScopes`. The server refuses every other scope. The
+   * connection then has these scopes and no others: an approval replaces
+   * what an earlier one gave.
    */
   readonly scopes: readonly ApiKeyScope[]
 }

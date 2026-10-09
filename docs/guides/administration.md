@@ -49,11 +49,15 @@ Two kinds, managed in two places:
 
 Either kind is shown once at creation and stored hashed; copy it then or make a new one. Every key is bound to one workspace — access to another workspace means another key.
 
-**Access.** The form opens with "Read objects" and "Write objects" ticked: the key reads and writes CRM records, and nothing else. "Full access" is a separate choice. A full-access key can do everything your role can, so choose it only for a program that you control completely.
+**Access.** The form opens with "Read objects" and "Write objects" ticked: the key reads and writes CRM records, and nothing else. "Full access" is a separate choice. A full-access workspace key can do everything an admin can. A full-access personal key can do everything you can. Choose it only for a program that you control completely.
 
-**Write does not include delete.** A key with "Write objects" can create and change records. It can delete them only with "Delete objects" too, or with the delete permission of one resource. "Write objects" also does not include the handbook: give "Handbook (write)" to a key that must change handbook pages.
+**Extra permissions** are three tick boxes under the presets. All start clear, and each says what it risks:
 
-**Extra permissions** are not part of any preset. "Decisions (commit without confirmation)" lets the key record a decision as a commitment. Without it, a decision the key writes is a proposal until a member confirms it. What to pick when connecting an agent: [Connect an agent](../agents/connect-an-agent.md).
+- **Handbook (write)** — "Write objects" does not include the handbook.
+- **Delete objects** — "Write objects" can create and change records, and cannot delete them. With "Custom scopes…" you can give the delete permission of one resource.
+- **Decisions (commit without confirmation)** — without it, a decision the key writes is a proposal until a member confirms it.
+
+The key list shows each of these powers as a marked label beside the key, and marks a full-access key. What to pick when connecting an agent: [Connect an agent](../agents/connect-an-agent.md).
 
 ## Registered agents and Run
 

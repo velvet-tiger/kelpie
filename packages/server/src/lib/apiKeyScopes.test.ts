@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vitest'
 
 import {
   API_KEY_OBJECT_DATA_RESOURCES,
+  API_KEY_OPT_IN_SCOPES,
   API_KEY_PRESET_SCOPES,
+  API_KEY_SCOPES,
+  API_KEY_SENSITIVE_PRESET_SCOPES,
+  apiKeyScopeRisk,
   expandApiKeyScopes,
+  isApiKeyRiskScope,
+  isSensitiveApiKeyScope,
   satisfiesApiKeyScope,
+  sensitiveApiKeyScopesHeld,
 } from '@kelpie/schemas'
 
 import { resolveRestScope } from './apiKeyScopes.ts'
@@ -96,6 +103,49 @@ describe('handbook:write', () => {
     expect(satisfiesApiKeyScope(['write:all'], 'handbook:write')).toBe(true)
     expect(satisfiesApiKeyScope(['handbook:write'], 'handbook:write')).toBe(true)
     expect(satisfiesApiKeyScope(['admin', 'admin:objects'], 'handbook:write')).toBe(false)
+  })
+})
+
+describe('sensitive scopes', () => {
+  it('are every scope that gives a delete, a handbook write or decisions:commit, under any name', () => {
+    for (const scope of ['people:delete', 'handbook:delete', 'handbook:write', 'decisions:commit'] as const) {
+      expect(isSensitiveApiKeyScope(scope), scope).toBe(true)
+    }
+
+    for (const scope of ['read:all', 'read:objects', 'write:objects', 'write:admin', 'admin', 'people:write'] as const) {
+      expect(isSensitiveApiKeyScope(scope), scope).toBe(false)
+    }
+  })
+
+  it('name the presets that hold one, and that list matches what the presets expand to', () => {
+    expect(API_KEY_PRESET_SCOPES.filter(isSensitiveApiKeyScope).toSorted()).toEqual(
+      [...API_KEY_SENSITIVE_PRESET_SCOPES].toSorted(),
+    )
+  })
+
+  it('have a risk sentence each, and every scope the forms always offer is one of them', () => {
+    const sensitive = API_KEY_SCOPES.filter(isSensitiveApiKeyScope)
+
+    expect(sensitive.filter((scope) => !isApiKeyRiskScope(scope))).toEqual([])
+    expect(sensitive.filter(isApiKeyRiskScope).map(apiKeyScopeRisk).filter((sentence) => sentence.length < 20)).toEqual([])
+    expect(API_KEY_OPT_IN_SCOPES.filter((scope) => !isSensitiveApiKeyScope(scope))).toEqual([])
+    expect(apiKeyScopeRisk('plan_items:delete')).toBe(
+      'Lets it delete records of this kind: Plan items. A deleted record cannot be restored.',
+    )
+  })
+
+  it('are found in a scope list by the power and not by the name', () => {
+    expect(sensitiveApiKeyScopesHeld(['read:objects', 'write:objects'])).toEqual([])
+    expect(sensitiveApiKeyScopesHeld(['write:objects', 'people:delete'])).toEqual(['people:delete'])
+    expect(sensitiveApiKeyScopesHeld(['read:all', 'write:all'])).toEqual(['handbook:write'])
+    expect(sensitiveApiKeyScopesHeld(['delete:objects', 'decisions:commit'])).toEqual([
+      'decisions:commit',
+      'delete:objects',
+    ])
+    // Every delete scope by name is the same power as the preset.
+    expect(
+      sensitiveApiKeyScopesHeld(API_KEY_OBJECT_DATA_RESOURCES.map((resource) => `${resource}:delete` as const)),
+    ).toEqual(['delete:objects'])
   })
 })
 

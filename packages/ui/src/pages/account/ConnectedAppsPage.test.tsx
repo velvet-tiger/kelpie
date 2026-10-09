@@ -95,6 +95,39 @@ describe('ConnectedAppsPage', () => {
     expect(within(rowFor('Acme')).queryByRole('list', { name: 'Extra permissions' })).toBeNull()
   })
 
+  it('marks a connection that holds one delete scope, or a preset that holds a sensitive scope', async () => {
+    const client = stubClient({
+      list: () => ({
+        items: [
+          grant('ogr_4', 'ocn_4', 'Hooli', ['people:delete']),
+          // The server names the power: `write:all` holds the handbook write.
+          { ...grant('ogr_5', 'ocn_5', 'Umbrella'), scopes: ['read:all', 'write:all'], extra_scopes: ['handbook:write'] },
+        ],
+        nextCursor: null,
+      }),
+    })
+
+    render(
+      <MemoryRouter>
+        <ApiProvider
+          client={client}
+          queryClient={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}
+        >
+          <ConnectedAppsPage />
+        </ApiProvider>
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Hooli')
+
+    expect(within(rowFor('Hooli')).getByRole('list', { name: 'Extra permissions' }).textContent).toBe('People (delete)')
+    expect(within(rowFor('Umbrella')).getByRole('list', { name: 'Extra permissions' }).textContent).toBe(
+      'Handbook (write)',
+    )
+    // The preset stays in the access list; the chip says what it holds.
+    expect(within(rowFor('Umbrella')).getByText('Read all, Write all')).toBeTruthy()
+  })
+
   it('offers Disconnect all only on a connection with more than one workspace', async () => {
     renderPage([])
 

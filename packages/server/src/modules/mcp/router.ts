@@ -510,12 +510,17 @@ export function createMcpEndpoint(dependencies: McpRouterDependencies): McpEndpo
 
     if (missingScopes.length > 0) {
       const description = `This OAuth token does not have the ${missingScopes.join(', ')} scope`
+      // What the token holds, then what it lacks. A new approval replaces the
+      // scopes of the connection, so a client that asked for the missing
+      // scope alone would come back with that scope and nothing else.
+      const held: readonly string[] = isOAuthActor(actor) ? actor.scopes : []
+      const scope = [...new Set([...held, ...missingScopes])]
 
       // RFC 6750 §3.1 and the MCP step-up flow: a 403 the client can act on by
       // asking the user for more access, rather than a tool error it cannot.
       context.header(
         'WWW-Authenticate',
-        bearerChallenge(dependencies.authorization, { error: 'insufficient_scope', scope: missingScopes, description }),
+        bearerChallenge(dependencies.authorization, { error: 'insufficient_scope', scope, description }),
       )
 
       throw new AppError('forbidden', description)
