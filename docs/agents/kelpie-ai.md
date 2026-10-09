@@ -32,7 +32,7 @@ Kelpie applies the operations with no approval step. The context can hold text f
 Two writes have a control that does not depend on the model, because agents treat them as facts later:
 
 - **A decision.** Only a task that asks for a decision can record one: the capture-decision and log-transcript tasks, and the raise task that captures a pass. On any other task, Kelpie drops the operation and the run log says so. A decision from a run is a proposal. It shows as "Proposed by AI — not confirmed" with a **Confirm** button, and it is not a commitment until a member confirms it. **Remove** rejects it. Only a signed-in member can confirm. An API key, an MCP client and Kelpie AI cannot. The scope `decisions:commit` is for API keys and MCP connections; Kelpie AI never has it.
-- **A pinned note.** Only a task that asks for a pin can pin a note: the distill-notes tasks, the account brief, the interview summary, and the add-a-person task. On any other task, Kelpie saves the note unpinned and drops an operation that pins an existing note. A task that can pin can pin only a note on the record the run is about.
+- **A pinned note.** Only a task that asks for a pin can pin a note: the distill-notes tasks, the account brief, and the interview summary. On any other task, Kelpie saves the note unpinned and drops an operation that pins an existing note. A task that can pin can pin only a note on the record the run is about.
 
 Every note and decision a run writes is labelled "Written by AI". A later run gets decisions that are not confirmed under their own heading, as proposals and not as commitments. The prompt you copy for your own agent lists them apart from the open decisions in the same way.
 

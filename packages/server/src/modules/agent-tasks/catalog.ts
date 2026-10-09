@@ -839,12 +839,11 @@ Prioritise open pipeline. Suggest Enrich / Score / Refresh tasks per record.`,
     targetTypes: ['workspace'],
     placement: 'overflow',
     handbookSlugs: ['ideal-customer-profile', 'agent-faq'],
-    mayPin: true,
     instructions: `The human will paste notes about one person after this prompt: names, emails, profile URLs, a signature block, meeting notes.
 Work out who they are. If the notes fit more than one person, ask the human which one before you write anything.
 Search People first (by email, then by name) and Companies (by name and email domain), and add to what exists rather than creating a duplicate.
 Research them using public sources. LinkedIn pages need a signed-in browser; if you cannot open one, search for the name, company and "LinkedIn" and read the result snippets. Then create or update the Person (summary, socials, tags), the Company they work at, and a Position with their title.
-Append a pinned Note on the Person with what you found and the URLs you used.
+Append a Note on the Person with what you found and the URLs you used. Do not pin it: a member pins it after they read it.
 Create a Partnership, Deal or Enquiry only when the notes suggest one, and say why in its summary.
 Report what you created, with links.`,
   }),

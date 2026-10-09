@@ -76,7 +76,6 @@ describe('agent task catalog', () => {
       'partnership.distill_notes',
       'raise.distill_notes',
       'candidate.summarise_interview',
-      'workspace.add_person',
     ])
 
     for (const task of granted) {

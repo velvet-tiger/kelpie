@@ -540,8 +540,10 @@ While the major version is `0`, a minor bump may break the API.
   record instead. The control is now in code.
   - **Each task says what it grants.** A task definition has
     `may_create_decision` and `may_pin`, both false unless the task's
-    instructions ask for that write. 14 tasks grant a Decision and 9 grant a
-    pin. On any other task, `create_decision` and `pin_note` are dropped, and
+    instructions ask for that write. 14 tasks grant a Decision and 8 grant a
+    pin. `workspace.add_person` does not: its research note is saved
+    unpinned, as person intake saves it, and a member pins it after they
+    read it. On any other task, `create_decision` and `pin_note` are dropped, and
     a note with `pinned: true` is saved unpinned. The run log reports each
     drop. A run whose task is no longer in the catalog gets neither. The
     prompt and the JSON schema offer the model only what the task grants,
