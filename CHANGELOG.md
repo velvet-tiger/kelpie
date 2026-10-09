@@ -295,6 +295,44 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **A Decision from an agent is a proposal until a member confirms it.** An
+  API key or an OAuth token could write a Decision, and it was a commitment
+  at once. Later agents treat a commitment as a fact, so text in a record
+  that an agent obeyed could become one. A credential now needs the new scope
+  `decisions:commit` to write a commitment.
+  - **Changed behaviour for an existing integration:** a Decision that a
+    scoped API key or an OAuth connection creates now has `confirmed_at`
+    null. `write:objects`, `write:all`, `admin` and `decisions:write` do not
+    include `decisions:commit`. Add `decisions:commit` to the key, or have a
+    member confirm the Decision in the app. An API key with no scopes (full
+    access) has every scope, so its Decisions are confirmed as before. A
+    signed-in member's are too.
+  - **Changed behaviour for an existing integration:** when a credential
+    without `decisions:commit` changes the `body` or the `rationale` of a
+    confirmed Decision, the Decision becomes a proposal again: `confirmed_at`
+    and `confirmed_by_id` are null. With the scope it stays confirmed, with
+    `confirmed_by_id` null, as before. A change to another field, or the same
+    text again, changes nothing.
+  - The hosted AI is not given the scope by its empty scope list. Its
+    Decisions are proposals, and its rewrite of a confirmed Decision makes
+    that Decision a proposal.
+  - `POST /v1/decisions/:id/confirm` is as before: a signed-in member only,
+    whatever scopes a key has.
+  - **`@kelpie/schemas`** — new: the scope `decisions:commit`,
+    `API_KEY_EXTRA_SCOPES`, `ApiKeyExtraScope` and `API_KEY_SCOPE_RISKS`.
+    `API_KEY_GRANULAR_SCOPES` and `API_KEY_SCOPES` include the new scope. No
+    preset expands to it.
+  - **`@kelpie/server`** — **for a module that subscribes to events:**
+    `decisions.decision.added` has `confirmed: false` for these proposals.
+    New: `decisions.decision.unconfirmed`, when a commitment becomes a
+    proposal again. `decisions.decision.confirmed` fires again when a member
+    confirms the new text. None is a webhook event.
+  - **`@kelpie/ui`** — a proposal from an agent shows "Proposed by an agent —
+    not confirmed" with the Confirm button. The API key form has an "Extra
+    permissions" section with `decisions:commit`, and the key list names it.
+  - The MCP instructions, the `decisions_*` tool descriptions and the
+    `kelpie` skill tell an agent that its Decision is a proposal and that it
+    must say so to the user. No migration.
 - **`@kelpie/server`** — **A hosted AI run cannot make a commitment or a
   pin that its task did not ask for.** A run's reply becomes writes with no
   approval, and later agents treat a Decision and a pinned note as facts.

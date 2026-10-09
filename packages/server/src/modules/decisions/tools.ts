@@ -30,8 +30,12 @@ export function registerDecisionsTools(mcp: McpToolRegistry, service: DecisionsS
       'A commitment this company has already made. Read the open ones before proposing ' +
       'anything; contradicting one is worse than saying nothing. One with confirmed_at null ' +
       'is a proposal that no member has confirmed, whatever its origin: it is not a commitment. ' +
-      'Only a signed-in member can confirm one, in the app. origin says what wrote it; ' +
-      'when you change the body or the rationale it becomes agent, unless it is ai, which it stays.',
+      'Only a signed-in member can confirm one, in the app. A decision you create is a ' +
+      'proposal, with confirmed_at null, unless your connection has the decisions:commit ' +
+      'scope. Tell the user that a member must confirm it in Kelpie. origin says what wrote ' +
+      'it; when you change the body or the rationale it becomes agent, unless it is ai, ' +
+      'which it stays. Without decisions:commit that change also makes a confirmed decision ' +
+      'a proposal again.',
     service,
     render: decisionResponse,
     listArgs,

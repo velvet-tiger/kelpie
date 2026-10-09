@@ -8,7 +8,7 @@ When a step creates a record, use the id from the result in the next step. Do no
 
 1. Find each person with `search_query`. Find the pipeline record that the meeting was about, if there is one.
 2. Write one note with `notes_create` on the most relevant record. Usually this is the deal or other pipeline record. If there is no pipeline record, use the person or the company. Write for a reader who was not there: who attended, what they said, what changed.
-3. If someone made a commitment, record it with `decisions_create`. Include the `rationale` when it is known.
+3. If someone made a commitment, record it with `decisions_create`. Include the `rationale` when it is known. If the result has `confirmed_at: null`, tell the user that a member must confirm it.
 4. For each agreed next step, call `plan_items_create` with a `date`, a `title`, and an `owner_id`.
 5. Set `last_contacted_at` on each person you spoke to with `people_update`.
 6. Change `relationship` or `influence` on a person only if the meeting clearly showed it.

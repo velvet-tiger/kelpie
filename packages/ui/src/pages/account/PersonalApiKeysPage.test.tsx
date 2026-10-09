@@ -142,6 +142,62 @@ describe('PersonalApiKeysPage', () => {
     })
   })
 
+  it('offers decisions:commit apart from the presets, and sends it with them', async () => {
+    const posted: { body?: unknown } = {}
+    renderPage({
+      keys: [],
+      onPost: (body) => {
+        posted.body = body
+
+        return {
+          id: 'key_11',
+          name: 'Agent',
+          kind: 'personal',
+          scopes: ['write:objects', 'decisions:commit'],
+          display_prefix: 'kp_user_…c3a2',
+          last_used_at: null,
+          created_at: '2026-08-12T00:00:00.000Z',
+          secret: 'kp_user_anothersecret',
+        }
+      },
+    })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create key' }).click()
+    })
+    await act(async () => {
+      setInputValue(await screen.findByPlaceholderText('Laptop Claude'), 'Agent')
+    })
+
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'Write objects' }).click()
+    })
+
+    const commit = screen.getByRole('checkbox', { name: /^Decisions \(commit without confirmation\)/u })
+
+    // No preset includes it, so it starts clear.
+    expect((commit as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByText(/is a proposal until a member confirms it/u)).toBeTruthy()
+
+    await act(async () => {
+      commit.click()
+    })
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create' }).click()
+    })
+
+    await waitFor(() => {
+      expect(posted.body).toEqual({
+        name: 'Agent',
+        kind: 'personal',
+        scopes: ['write:objects', 'decisions:commit'],
+      })
+    })
+
+    // The list names the extra permission; it does not fold it into a count.
+    expect(await screen.findByText('Write objects, Decisions (commit without confirmation)')).toBeTruthy()
+  })
+
   it('asks before revoking, and removes the key once confirmed', async () => {
     renderPage()
 

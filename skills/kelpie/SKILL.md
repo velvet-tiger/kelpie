@@ -43,6 +43,7 @@ These rules come from the product. Do not work around them.
 - **A Deal is not an Opportunity.** A Deal is a sale. An Opportunity is a chance that is not a sale: a grant, an accelerator, a tender, press, or a speaking slot. A Raise is one fundraising process with one firm. The ongoing investor relationship is a Partnership.
 - **Hiring data goes on a Candidate, never on a Person.** A Candidate links a person to a Role. Interview notes attach to the Candidate.
 - **Notes are information. Decisions are commitments.** Put a promise or an agreement in a decision (`decisions_create`) with the `body` and, if known, the `rationale`. Put everything else in a note.
+- **A decision you create is a proposal.** Read `confirmed_at` on the result. When it is null, tell the user that the decision is a proposal and that a member must confirm it in Kelpie. It is a commitment at once only when your connection has the `decisions:commit` scope. Without that scope, a change that you make to the `body` or the `rationale` of a confirmed decision makes it a proposal again. Tell the user that too.
 - **Do not invent facts.** If you do not know a value, leave the field empty. Put uncertain findings in a note and say where they came from.
 
 Full model, field names, and allowed values: [references/domain-model.md](references/domain-model.md).

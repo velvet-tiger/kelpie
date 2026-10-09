@@ -6,6 +6,7 @@ import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import { toEventActor } from '../../lib/actor.ts'
+import { hasApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import type { Actor } from '../auth/actor.ts'
 import {
   actorMemberId,
@@ -35,10 +36,11 @@ import type { DecisionFilters, DecisionRecord } from './repository.ts'
  * record the timeline is not for. Adding a kind is a check-constraint migration
  * and belongs to whichever feature decides decision history is worth keeping.
  *
- * A decision a hosted AI run writes starts as a proposal: `confirmedAt` is
- * null until a signed-in member confirms it. Every other decision is
- * confirmed when it is written. No update confirms one; `confirm` is the only
- * way, and it takes a session.
+ * A decision is a commitment only when `confirmedAt` is set. Who can write
+ * one that is confirmed at once is `commitsDecisions`: a signed-in member, and
+ * an API key or an OAuth token that holds `decisions:commit`. Every other
+ * caller writes a proposal, and a member confirms it. No update confirms one;
+ * `confirm` is the only way, and it takes a session.
  */
 
 export interface DecisionsDependencies {
@@ -109,6 +111,23 @@ export interface DecisionsService {
   remove(actor: Actor, id: string): Promise<void>
 }
 
+/**
+ * True when a decision this caller writes is a commitment without a member
+ * confirming it.
+ *
+ * The model mark is read first. The hosted AI actor has the shape of an API
+ * key with an empty scope list, and an empty list on a key means every scope,
+ * so a scope check alone would let a run commit. A session marked for one
+ * write of a model's text is refused here for the same reason.
+ */
+function commitsDecisions(actor: Actor): boolean {
+  if (isAiAuthor(actor)) {
+    return false
+  }
+
+  return hasApiKeyScope(actor, 'decisions:commit')
+}
+
 function toView(record: DecisionRecord): DecisionView {
   const { workspaceId: _workspaceId, ...view } = record
 
@@ -177,10 +196,10 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
       const id = dependencies.createId('decision')
       const origin = writeOrigin(actor)
       const now = dependencies.now()
-      // A run's decision waits for a member. A member's own decision names
-      // that member; an agent's is confirmed with nobody named, because no
-      // person looked at it.
-      const confirmedAt = origin === 'ai' ? null : now
+      // A decision from a caller that cannot commit waits for a member. A
+      // member's own decision names that member; an agent's that is confirmed
+      // as it is written names nobody, because no person looked at it.
+      const confirmedAt = commitsDecisions(actor) ? now : null
       const confirmedById = origin === 'member' ? actorMemberId(actor) : null
 
       return dependencies.transaction(async ({ tx, events }) => {
@@ -238,18 +257,29 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
 
       // A caller that is not a member and changes what the decision says
       // takes the member's name off it. The origin drops to the caller's, and
-      // the member who confirmed the old text did not confirm this one.
-      // `confirmedAt` is not touched here: no edit confirms a decision.
+      // the member who confirmed the old text did not confirm this one. A
+      // caller that cannot commit also takes the confirmation off: the new
+      // text is that caller's proposal. No edit ever sets `confirmedAt`.
       const textChanged = changed.includes('body') || changed.includes('rationale')
-      const provenance: Partial<repository.DecisionColumns> =
-        textChanged && writeOrigin(actor) !== 'member'
-          ? { origin: originAfterTextEdit(existing.origin, actor), confirmedById: null }
-          : {}
+      const rewritten = textChanged && writeOrigin(actor) !== 'member'
+      const leavesProposal = rewritten && !commitsDecisions(actor)
+      // Written whenever the caller cannot commit, and not only when the row
+      // read above was confirmed, so a confirm that lands between that read
+      // and this write does not put a member's name on the new text.
+      const provenance: Partial<repository.DecisionColumns> = rewritten
+        ? {
+            origin: originAfterTextEdit(existing.origin, actor),
+            confirmedById: null,
+            ...(leavesProposal ? { confirmedAt: null } : {}),
+          }
+        : {}
+      const withdrawsConfirmation = leavesProposal && existing.confirmedAt !== null
 
-      // No event. The catalog carries `decision.added` and nothing for a
-      // decision changing, and inventing a name here would add one the webhooks
-      // engine has never been told about.
-      return dependencies.transaction(async ({ tx }) => {
+      // No event for an edit. The catalog carries nothing for a decision
+      // changing, and inventing a name here would add one the webhooks engine
+      // has never been told about. The one exception is a commitment that
+      // stops being one, which a subscriber that announced it has to hear.
+      return dependencies.transaction(async ({ tx, events }) => {
         const updated = await repository.updateDecision(tx, workspaceId, id, {
           ...columns,
           ...provenance,
@@ -260,8 +290,16 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
           throw AppError.notFound('Decision not found')
         }
 
+        if (withdrawsConfirmation) {
+          events.emit(
+            'decisions.decision.unconfirmed',
+            { type: updated.targetType, id: updated.targetId },
+            { decisionId: updated.id, origin: updated.origin },
+          )
+        }
+
         return toView(updated)
-      })
+      }, { workspaceId, actor: toEventActor(actor) })
     },
 
     async confirm(actor, id, expected) {

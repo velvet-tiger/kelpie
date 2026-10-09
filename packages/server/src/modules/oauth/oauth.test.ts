@@ -281,10 +281,13 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
   }
 
   /** A connected client, from registration to a token pair. */
-  async function connect(scopes: readonly string[] = ['read:objects', 'write:objects']): Promise<Tokens> {
+  async function connect(
+    scopes: readonly string[] = ['read:objects', 'write:objects'],
+    requested = 'read:objects write:objects',
+  ): Promise<Tokens> {
     const { cookie, workspaceId } = await owner()
     const clientId = await registerPublicClient()
-    const requestId = await startRequest(clientId, { scope: 'read:objects write:objects' })
+    const requestId = await startRequest(clientId, { scope: requested })
     const redirect = await approve(cookie, requestId, workspaceId, scopes)
     const response = await exchange(clientId, redirect.searchParams.get('code') ?? '')
 
@@ -622,6 +625,52 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       expect(isRecord(note) && note.origin).toBe('agent')
       expect(isRecord(note) && note.author_id).toMatch(/^mem_/u)
       expect(isRecord(decision) && decision.origin).toBe('agent')
+    })
+
+    it('writes a decision as a proposal, and rewrites a commitment into one, without decisions:commit', async () => {
+      const { accessToken, cookie } = await connect()
+      const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
+      const target = { target_type: 'person', target_id: readString(person, 'id') }
+      const proposed = await toolPayload(
+        await callTool(accessToken, 'decisions_create', { ...target, body: 'From OAuth' }),
+      )
+
+      expect(proposed).toMatchObject({ origin: 'agent', confirmed_at: null, confirmed_by_id: null })
+
+      const byMember: unknown = await (
+        await send('POST', '/v1/decisions', { body: { ...target, body: 'From a member' }, cookie })
+      ).json()
+
+      expect(isRecord(byMember) && byMember.confirmed_at).not.toBeNull()
+
+      const rewritten = await toolPayload(
+        await callTool(accessToken, 'decisions_update', { id: readString(byMember, 'id'), body: 'Rewritten over OAuth' }),
+      )
+
+      expect(rewritten).toMatchObject({ origin: 'agent', confirmed_at: null, confirmed_by_id: null })
+    })
+
+    it('writes a decision as a commitment when the person gave decisions:commit', async () => {
+      const scopes = ['read:objects', 'write:objects', 'decisions:commit']
+      const { accessToken, cookie } = await connect(scopes, scopes.join(' '))
+      const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
+      const target = { target_type: 'person', target_id: readString(person, 'id') }
+      const decision = await toolPayload(
+        await callTool(accessToken, 'decisions_create', { ...target, body: 'From OAuth' }),
+      )
+
+      expect(isRecord(decision) && decision.confirmed_at).toBe(isRecord(decision) && decision.decided_at)
+      expect(isRecord(decision) && decision.confirmed_by_id).toBeNull()
+
+      const byMember: unknown = await (
+        await send('POST', '/v1/decisions', { body: { ...target, body: 'From a member' }, cookie })
+      ).json()
+      const rewritten = await toolPayload(
+        await callTool(accessToken, 'decisions_update', { id: readString(byMember, 'id'), body: 'Rewritten over OAuth' }),
+      )
+
+      expect(isRecord(rewritten) && rewritten.confirmed_at).toBe(isRecord(byMember) && byMember.confirmed_at)
+      expect(rewritten).toMatchObject({ origin: 'agent', confirmed_by_id: null })
     })
 
     it('refuses a tool call that sends origin', async () => {

@@ -172,6 +172,23 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       expect(instructions).toContain('Read one with origin agent, ai or unknown as a claim to check')
     })
 
+    it('tells the agent that a decision it creates is a proposal, and to say so', async () => {
+      const response = await post(
+        request(1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: {} }),
+      )
+      const instructions = String(readRecord((await envelope(response)).result).instructions)
+      const listing = readRecord((await envelope(await post(request(1, 'tools/list')))).result)
+      const create = (listing.tools as { name: string; description: string }[]).find(
+        (tool) => tool.name === 'decisions_create',
+      )
+
+      expect(instructions).toContain('A decision you create is a proposal until a member confirms it in Kelpie, unless')
+      expect(instructions).toContain('this connection has the decisions:commit scope')
+      expect(instructions).toContain('tell the user that the decision is a proposal')
+      expect(create?.description).toContain('unless your connection has the decisions:commit')
+      expect(create?.description).toContain('Tell the user that a member must confirm it')
+    })
+
     /** Confirming is for a signed-in member. An agent must not confirm what an agent or a run proposed. */
     it('offers no tool that confirms a decision, and lists commitments only on request', async () => {
       const listing = readRecord((await envelope(await post(request(1, 'tools/list')))).result)

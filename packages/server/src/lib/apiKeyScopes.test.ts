@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { expandApiKeyScopes, satisfiesApiKeyScope } from '@kelpie/schemas'
+import { API_KEY_PRESET_SCOPES, expandApiKeyScopes, satisfiesApiKeyScope } from '@kelpie/schemas'
 
 import { resolveRestScope } from './apiKeyScopes.ts'
 
@@ -38,6 +38,27 @@ describe('satisfiesApiKeyScope', () => {
 
   it('refuses a missing scope', () => {
     expect(satisfiesApiKeyScope(['people:read'], 'people:write')).toBe(false)
+  })
+})
+
+describe('decisions:commit', () => {
+  it('is in no preset, alone or all together', () => {
+    for (const preset of API_KEY_PRESET_SCOPES) {
+      expect(satisfiesApiKeyScope([preset], 'decisions:commit')).toBe(false)
+    }
+
+    expect(satisfiesApiKeyScope([...API_KEY_PRESET_SCOPES], 'decisions:commit')).toBe(false)
+  })
+
+  it('is not implied by decisions:write, and implies neither read nor write', () => {
+    expect(satisfiesApiKeyScope(['decisions:write'], 'decisions:commit')).toBe(false)
+    expect(satisfiesApiKeyScope(['decisions:commit'], 'decisions:write')).toBe(false)
+    expect(satisfiesApiKeyScope(['decisions:commit'], 'decisions:read')).toBe(false)
+  })
+
+  it('is held by a key that names it, and by a key with no scopes', () => {
+    expect(satisfiesApiKeyScope(['decisions:commit'], 'decisions:commit')).toBe(true)
+    expect(satisfiesApiKeyScope([], 'decisions:commit')).toBe(true)
   })
 })
 

@@ -928,6 +928,351 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
     })
   })
 
+  describe('proposals from agents', () => {
+    const WITHOUT_COMMIT = ['decisions:write'] as const
+    const WITH_COMMIT = ['decisions:write', 'decisions:commit'] as const
+
+    type Service = ReturnType<typeof createDecisionsService>
+
+    async function mintScopedKey(
+      scopes: readonly string[],
+      kind: 'workspace' | 'personal' = 'workspace',
+    ): Promise<string> {
+      const response = await client.send('POST', '/v1/api-keys', {
+        body: { name: 'agent', kind, scopes },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(201)
+
+      return readString(await response.json(), 'secret')
+    }
+
+    async function createWith(bearer: string, body = 'From a key'): Promise<Record<string, unknown>> {
+      const response = await client.send('POST', '/v1/decisions', {
+        body: { target_type: 'person', target_id: personId, body },
+        bearer,
+      })
+
+      expect(response.status).toBe(201)
+
+      return readRecord(await response.json())
+    }
+
+    /** A `decisions_*` tool over `/mcp`, as an agent with this key calls it. */
+    async function callTool(
+      bearer: string,
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+      const response = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      })
+      const result = readRecord(readRecord(await response.json()).result)
+      const [content] = result.content as { text: string }[]
+
+      expect(result.isError).not.toBe(true)
+
+      return readRecord(JSON.parse(content?.text ?? 'null'))
+    }
+
+    async function patchWith(
+      id: unknown,
+      body: Record<string, unknown>,
+      credentials: { cookie?: string; bearer?: string },
+    ): Promise<Record<string, unknown>> {
+      const response = await client.send('PATCH', `/v1/decisions/${String(id)}`, { body, ...credentials })
+
+      expect(response.status).toBe(200)
+
+      return readRecord(await response.json())
+    }
+
+    function service(): Service {
+      return createDecisionsService({
+        db: harness.services.db,
+        transaction: harness.services.transaction,
+        createId: harness.services.createId,
+        now: harness.services.now,
+      })
+    }
+
+    function input(body: string): Parameters<Service['create']>[1] {
+      return {
+        targetType: 'person',
+        targetId: personId,
+        body,
+        rationale: null,
+        decidedAt: undefined,
+        ownerId: null,
+        dueAt: null,
+      }
+    }
+
+    it('makes a proposal of a decision from an API key without decisions:commit, on REST and on MCP', async () => {
+      for (const kind of ['workspace', 'personal'] as const) {
+        const key = await mintScopedKey(WITHOUT_COMMIT, kind)
+        const overRest = await createWith(key)
+        const overMcp = await callTool(key, 'decisions_create', {
+          target_type: 'person',
+          target_id: personId,
+          body: 'From an agent',
+        })
+
+        for (const created of [overRest, overMcp]) {
+          expect(created.origin).toBe('agent')
+          expect(created.confirmed_at).toBeNull()
+          expect(created.confirmed_by_id).toBeNull()
+        }
+      }
+    })
+
+    it('does not count write:objects, write:all or admin as decisions:commit', async () => {
+      for (const scopes of [['write:objects'], ['read:all', 'write:all'], ['write:all', 'admin', 'admin:objects']]) {
+        expect((await createWith(await mintScopedKey(scopes))).confirmed_at).toBeNull()
+      }
+    })
+
+    it('confirms a decision from an API key with decisions:commit as it is written, on REST and on MCP', async () => {
+      const key = await mintScopedKey(WITH_COMMIT)
+      const overRest = await createWith(key)
+      const overMcp = await callTool(key, 'decisions_create', {
+        target_type: 'person',
+        target_id: personId,
+        body: 'From an agent',
+      })
+
+      for (const created of [overRest, overMcp]) {
+        expect(created.origin).toBe('agent')
+        expect(created.confirmed_at).toBe(created.decided_at)
+        expect(created.confirmed_by_id).toBeNull()
+      }
+    })
+
+    it('confirms a decision from a full-access key, which has every scope', async () => {
+      const created = await createWith(await mintKey('workspace'))
+
+      expect(created.origin).toBe('agent')
+      expect(created.confirmed_at).toBe(created.decided_at)
+    })
+
+    it('keeps a decision from a signed-in member confirmed as it is written', async () => {
+      const created = await decisionOn(personId, 'From a member')
+
+      expect(created.confirmed_at).toBe(created.decided_at)
+      expect(created.confirmed_by_id).toMatch(/^mem_/u)
+    })
+
+    /**
+     * The hosted AI actor has the shape of a key with no scopes, and no scopes
+     * on a key means every scope. The model mark must be read before that.
+     */
+    it('keeps a decision from the hosted AI, or from a session marked as a model, a proposal', async () => {
+      const member: SessionActor = {
+        kind: 'session',
+        userId: 'usr_test',
+        sessionId: 'ses_test',
+        workspaceId: acme.workspaceId,
+        role: 'owner',
+        memberId: null,
+      }
+
+      for (const actor of [createHostedAiActor(acme.workspaceId), asAiAuthor(member)]) {
+        const created = await service().create(actor, input('From a run'))
+
+        expect(created.origin).toBe('ai')
+        expect(created.confirmedAt).toBeNull()
+        expect(created.confirmedById).toBeNull()
+      }
+    })
+
+    it('decides an OAuth caller by its scopes, and never reads an empty list as every scope', async () => {
+      const oauth = (scopes: OAuthActor['scopes']): OAuthActor => ({
+        kind: 'oauth',
+        grantId: 'ogr_test',
+        connectionId: 'ocn_test',
+        clientId: 'client',
+        userId: 'usr_test',
+        workspaceId: acme.workspaceId,
+        role: 'owner',
+        scopes,
+        memberId: 'mem_test',
+      })
+
+      expect((await service().create(oauth(['write:objects']), input('No commit'))).confirmedAt).toBeNull()
+      expect((await service().create(oauth([]), input('No scopes'))).confirmedAt).toBeNull()
+      expect(
+        (await service().create(oauth(['write:objects', 'decisions:commit']), input('Commit'))).confirmedAt,
+      ).not.toBeNull()
+    })
+
+    it('makes a confirmed decision a proposal again when a key without decisions:commit rewrites its text', async () => {
+      const key = await mintScopedKey(WITHOUT_COMMIT)
+
+      for (const change of [{ body: 'Rewritten by an agent' }, { rationale: 'A reason an agent wrote' }]) {
+        const created = await decisionOn(personId, 'From a member')
+        const edited = await patchWith(created.id, change, { bearer: key })
+
+        expect(edited.origin).toBe('agent')
+        expect(edited.confirmed_at).toBeNull()
+        expect(edited.confirmed_by_id).toBeNull()
+      }
+
+      const created = await decisionOn(personId, 'From a member')
+      const overMcp = await callTool(key, 'decisions_update', { id: created.id, body: 'Rewritten over MCP' })
+
+      expect(overMcp.origin).toBe('agent')
+      expect(overMcp.confirmed_at).toBeNull()
+      expect(overMcp.confirmed_by_id).toBeNull()
+    })
+
+    it('keeps a decision confirmed, with no member named, when a key with decisions:commit rewrites its text', async () => {
+      const created = await decisionOn(personId, 'From a member')
+      const edited = await patchWith(
+        created.id,
+        { body: 'Rewritten by an agent' },
+        { bearer: await mintScopedKey(WITH_COMMIT) },
+      )
+
+      expect(edited.origin).toBe('agent')
+      expect(edited.confirmed_at).toBe(created.confirmed_at)
+      expect(edited.confirmed_by_id).toBeNull()
+    })
+
+    it('changes nothing when a key without decisions:commit edits other fields, or sends the same text', async () => {
+      const created = await decisionOn(personId, 'From a member', { rationale: 'The reason' })
+      const key = await mintScopedKey(WITHOUT_COMMIT)
+
+      for (const change of [
+        { due_at: '2026-09-01T00:00:00.000Z' },
+        { owner_id: null },
+        { decided_at: '2026-07-01T09:30:00.000Z' },
+        { body: 'From a member', rationale: 'The reason' },
+      ]) {
+        const edited = await patchWith(created.id, change, { bearer: key })
+
+        expect(edited.origin).toBe('member')
+        expect(edited.confirmed_at).toBe(created.confirmed_at)
+        expect(edited.confirmed_by_id).toBe(created.confirmed_by_id)
+      }
+    })
+
+    it('keeps a proposal a proposal when an agent or a member edits it, and lets a member confirm it', async () => {
+      const key = await mintScopedKey(WITHOUT_COMMIT)
+      const proposed = await createWith(key)
+      const byKey = await patchWith(proposed.id, { body: 'Edited by the agent' }, { bearer: key })
+      const byMember = await patchWith(proposed.id, { rationale: 'Edited by a member' }, { cookie: acme.cookie })
+
+      expect(byKey.confirmed_at).toBeNull()
+      expect(byMember.confirmed_at).toBeNull()
+      expect(byMember.origin).toBe('agent')
+
+      const confirmed = await client.send('POST', `/v1/decisions/${String(proposed.id)}/confirm`, {
+        cookie: acme.cookie,
+      })
+
+      expect(confirmed.status).toBe(200)
+      expect(readRecord(await confirmed.json()).confirmed_by_id).toMatch(/^mem_/u)
+    })
+
+    it('makes a confirmed decision a proposal again when the hosted AI rewrites its text', async () => {
+      const created = await decisionOn(personId, 'From a member')
+      const edited = await service().update(createHostedAiActor(acme.workspaceId), String(created.id), {
+        body: 'Rewritten by a run',
+      })
+
+      expect(edited.origin).toBe('ai')
+      expect(edited.confirmedAt).toBeNull()
+      expect(edited.confirmedById).toBeNull()
+    })
+
+    it('does not let a key confirm, with or without decisions:commit', async () => {
+      const proposed = await createWith(await mintScopedKey(WITHOUT_COMMIT))
+
+      for (const scopes of [WITHOUT_COMMIT, WITH_COMMIT]) {
+        const response = await client.send('POST', `/v1/decisions/${String(proposed.id)}/confirm`, {
+          bearer: await mintScopedKey(scopes),
+        })
+
+        expect(response.status).toBe(403)
+      }
+    })
+
+    it('does not let a key give decisions:commit to a new key when it does not hold it', async () => {
+      const minter = await mintScopedKey(['api_keys:write', 'decisions:write'])
+      const response = await client.send('POST', '/v1/api-keys', {
+        body: { name: 'child', kind: 'workspace', scopes: ['decisions:write', 'decisions:commit'] },
+        bearer: minter,
+      })
+
+      expect(response.status).toBe(403)
+    })
+
+    describe('events', () => {
+      interface Seen {
+        readonly name: string
+        readonly data: unknown
+      }
+
+      function watch(): Seen[] {
+        const seen: Seen[] = []
+
+        for (const name of [
+          'decisions.decision.added',
+          'decisions.decision.confirmed',
+          'decisions.decision.unconfirmed',
+        ] as const) {
+          harness.services.events.subscribe(name, (event) => {
+            seen.push({ name: event.name, data: event.data })
+          })
+        }
+
+        return seen
+      }
+
+      it('says on decision.added whether the agent could commit', async () => {
+        const without = await mintScopedKey(WITHOUT_COMMIT)
+        const withCommit = await mintScopedKey(WITH_COMMIT)
+        const seen = watch()
+        const proposed = await createWith(without)
+        const committed = await createWith(withCommit)
+
+        await harness.services.events.drain()
+
+        expect(seen).toEqual([
+          { name: 'decisions.decision.added', data: { decisionId: proposed.id, origin: 'agent', confirmed: false } },
+          { name: 'decisions.decision.added', data: { decisionId: committed.id, origin: 'agent', confirmed: true } },
+        ])
+      })
+
+      it('emits decision.unconfirmed when a commitment goes back to a proposal, and for no other edit', async () => {
+        const created = await decisionOn(personId, 'From a member')
+        const without = await mintScopedKey(WITHOUT_COMMIT)
+        const withCommit = await mintScopedKey(WITH_COMMIT)
+        const seen = watch()
+
+        await patchWith(created.id, { due_at: '2026-09-01T00:00:00.000Z' }, { bearer: without })
+        await patchWith(created.id, { body: 'Rewritten by an agent' }, { bearer: without })
+        // It is a proposal now, so a second rewrite withdraws nothing.
+        await patchWith(created.id, { body: 'Rewritten again' }, { bearer: without })
+        await client.send('POST', `/v1/decisions/${String(created.id)}/confirm`, { cookie: acme.cookie })
+        await patchWith(created.id, { body: 'Rewritten with commit' }, { bearer: withCommit })
+        await harness.services.events.drain()
+
+        expect(seen).toEqual([
+          { name: 'decisions.decision.unconfirmed', data: { decisionId: created.id, origin: 'agent' } },
+          { name: 'decisions.decision.confirmed', data: { decisionId: created.id, origin: 'agent' } },
+        ])
+      })
+    })
+  })
+
   describe('deleting the record a decision is attached to', () => {
     it('takes the decisions with it', async () => {
       const created = await decisionOn(personId, 'Body')

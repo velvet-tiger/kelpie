@@ -1049,6 +1049,41 @@ describe('DecisionsPanel', () => {
     })
   })
 
+  it('shows a decision from an agent as a proposal by an agent, with a way to confirm it', async () => {
+    renderWithClient(
+      panelsClient({
+        decisions: [
+          decision({ id: 'dec_2', body: 'From an agent', origin: 'agent', confirmed_at: null, confirmed_by_id: null }),
+        ],
+      }),
+      <DecisionsPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Proposed by an agent — not confirmed')
+
+    expect(screen.getByRole('button', { name: 'Confirm decision: From an agent' })).toBeTruthy()
+    // One label. "Written by an agent" beside it would say the same thing twice.
+    expect(screen.queryByText('Written by an agent')).toBeNull()
+  })
+
+  it('claims nothing about who proposed a proposal with origin member or unknown', async () => {
+    renderWithClient(
+      panelsClient({
+        decisions: [
+          decision({ id: 'dec_2', body: 'Member proposal', origin: 'member', confirmed_at: null, confirmed_by_id: null }),
+          decision({ id: 'dec_3', body: 'Old proposal', origin: 'unknown', confirmed_at: null, confirmed_by_id: null }),
+        ],
+      }),
+      <DecisionsPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Old proposal')
+
+    expect(screen.getAllByText('Not confirmed')).toHaveLength(2)
+    expect(screen.queryByText(/^Proposed by/u)).toBeNull()
+    expect(screen.getAllByRole('button', { name: /^Confirm decision/u })).toHaveLength(2)
+  })
+
   it('shows no label on a decision from before origin was recorded', async () => {
     renderWithClient(
       panelsClient({ decisions: [decision({ origin: 'unknown', confirmed_by_id: null })] }),

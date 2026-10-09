@@ -1,8 +1,10 @@
 import type { ApiKey, ApiKeyGranularScope, ApiKeyKind, ApiKeyScope, CreatedApiKey } from '@kelpie/schemas'
 import {
+  API_KEY_EXTRA_SCOPES,
   API_KEY_PRESET_SCOPES,
   API_KEY_SCOPE_GROUPS,
   API_KEY_SCOPE_LABELS,
+  API_KEY_SCOPE_RISKS,
   expandApiKeyScopes,
   isApiKeyGranularScope,
   isApiKeyPresetScope,
@@ -120,6 +122,9 @@ function CreateKeyModal({
   const [accessMode, setAccessMode] = useState<AccessMode>('full')
   const [selectedPresets, setSelectedPresets] = useState<readonly ApiKeyScope[]>([])
   const [selectedCustom, setSelectedCustom] = useState<readonly ApiKeyScope[]>([])
+  // Apart from the presets and the custom grid: no preset includes one, so a
+  // person adds it to either.
+  const [selectedExtras, setSelectedExtras] = useState<readonly ApiKeyScope[]>([])
   const [showCustom, setShowCustom] = useState(false)
 
   const presetExpandedScopes = useMemo(
@@ -136,11 +141,15 @@ function CreateKeyModal({
       return undefined
     }
 
-    if (accessMode === 'presets') {
-      return selectedPresets.length === 0 ? undefined : selectedPresets
-    }
+    const chosen = [...(accessMode === 'presets' ? selectedPresets : selectedCustom), ...selectedExtras]
 
-    return selectedCustom.length === 0 ? undefined : selectedCustom
+    return chosen.length === 0 ? undefined : chosen
+  }
+
+  function toggleExtra(scope: ApiKeyScope): void {
+    setSelectedExtras((current) =>
+      current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope],
+    )
   }
 
   function submit(event: FormEvent): void {
@@ -217,6 +226,7 @@ function CreateKeyModal({
                     setAccessMode('full')
                     setSelectedPresets([])
                     setSelectedCustom([])
+                    setSelectedExtras([])
                     setShowCustom(false)
                   }}
                 />
@@ -306,9 +316,35 @@ function CreateKeyModal({
                   )}
                 </div>
               )}
+              {accessMode !== 'full' && (
+                <div className="rounded-md border border-border p-3">
+                  <p className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                    Extra permissions
+                  </p>
+                  <div className="space-y-2">
+                    {API_KEY_EXTRA_SCOPES.map((scope) => (
+                      <label key={scope} className="flex items-start gap-2 text-[13px] text-ink">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={selectedExtras.includes(scope)}
+                          onChange={() => {
+                            toggleExtra(scope)
+                          }}
+                        />
+                        <span>
+                          {API_KEY_SCOPE_LABELS[scope]}
+                          <span className="block text-[11px] text-ink-muted">{API_KEY_SCOPE_RISKS[scope]}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <p className="mt-2 text-[11px] text-ink-faint">
-              Write includes read for the same resource. Presets cover many scopes at once.
+              Write includes read for the same resource. Presets cover many scopes at once. No preset
+              includes an extra permission.
             </p>
           </fieldset>
 
@@ -390,20 +426,20 @@ function formatScopeSummary(scopes: readonly ApiKeyScope[]): string {
     return 'Full access'
   }
 
+  const extraScopes: readonly ApiKeyScope[] = API_KEY_EXTRA_SCOPES
   const presets = scopes.filter(isApiKeyPresetScope)
-  const granular = scopes.filter(isApiKeyGranularScope)
+  // An extra permission is named, never counted into "Custom": it changes
+  // what the key may do on its own authority, and a count would hide it.
+  const extras = scopes.filter((scope) => extraScopes.includes(scope))
+  const granular = scopes.filter((scope) => isApiKeyGranularScope(scope) && !extraScopes.includes(scope))
+  const custom =
+    presets.length === 0 ? `Custom (${String(granular.length)} scopes)` : `Custom (${String(granular.length)})`
 
-  if (granular.length === 0) {
-    return presets.map((scope) => API_KEY_SCOPE_LABELS[scope]).join(', ')
-  }
-
-  if (presets.length === 0) {
-    return `Custom (${String(scopes.length)} scopes)`
-  }
-
-  return [...presets.map((scope) => API_KEY_SCOPE_LABELS[scope]), `Custom (${String(granular.length)})`].join(
-    ', ',
-  )
+  return [
+    ...presets.map((scope) => API_KEY_SCOPE_LABELS[scope]),
+    ...(granular.length === 0 ? [] : [custom]),
+    ...extras.map((scope) => API_KEY_SCOPE_LABELS[scope]),
+  ].join(', ')
 }
 
 function ApiKeyTable({

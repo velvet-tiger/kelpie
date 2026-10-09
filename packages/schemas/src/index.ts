@@ -487,6 +487,7 @@ export type {
 } from './oauth.ts'
 export {
   API_KEY_ADMIN_RESOURCES,
+  API_KEY_EXTRA_SCOPES,
   API_KEY_GRANULAR_SCOPES,
   API_KEY_OBJECT_CONFIG_RESOURCES,
   API_KEY_OBJECT_DATA_RESOURCES,
@@ -494,6 +495,7 @@ export {
   API_KEY_PRESET_SCOPES,
   API_KEY_SCOPE_GROUPS,
   API_KEY_SCOPE_LABELS,
+  API_KEY_SCOPE_RISKS,
   API_KEY_SCOPES,
   dedupeApiKeyScopes,
   expandApiKeyScopes,
@@ -501,7 +503,7 @@ export {
   isApiKeyPresetScope,
   satisfiesApiKeyScope,
 } from './apiKeyScopes.ts'
-export type { ApiKeyGranularScope, ApiKeyPresetScope, ApiKeyScope } from './apiKeyScopes.ts'
+export type { ApiKeyExtraScope, ApiKeyGranularScope, ApiKeyPresetScope, ApiKeyScope } from './apiKeyScopes.ts'
 
 export {
   agentRunSchema,

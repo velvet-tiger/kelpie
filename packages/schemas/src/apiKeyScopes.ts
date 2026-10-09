@@ -95,6 +95,18 @@ const OBJECT_CONFIG_WRITE_SCOPES = API_KEY_OBJECT_CONFIG_RESOURCES.map(writeScop
 const ADMIN_READ_SCOPES = API_KEY_ADMIN_RESOURCES.map(readScope)
 const ADMIN_WRITE_SCOPES = API_KEY_ADMIN_RESOURCES.map(writeScope)
 
+/**
+ * Scopes that are not a read or a write of a resource. Each one allows an
+ * action that a person must give on purpose, so no preset includes any of
+ * them. A key with an empty scope list has them, as it has everything.
+ *
+ * `decisions:commit`: a Decision this credential writes is a commitment at
+ * once. Without it the Decision is a proposal until a member confirms it.
+ */
+export const API_KEY_EXTRA_SCOPES = ['decisions:commit'] as const
+
+export type ApiKeyExtraScope = (typeof API_KEY_EXTRA_SCOPES)[number]
+
 /** Fine-grained per-resource scopes. */
 export const API_KEY_GRANULAR_SCOPES = [
   ...OBJECT_DATA_READ_SCOPES,
@@ -103,6 +115,7 @@ export const API_KEY_GRANULAR_SCOPES = [
   ...OBJECT_CONFIG_WRITE_SCOPES,
   ...ADMIN_READ_SCOPES,
   ...ADMIN_WRITE_SCOPES,
+  ...API_KEY_EXTRA_SCOPES,
 ] as const
 
 export type ApiKeyGranularScope = (typeof API_KEY_GRANULAR_SCOPES)[number]
@@ -186,6 +199,7 @@ export const API_KEY_SCOPE_LABELS: Readonly<Record<ApiKeyScope, string>> = {
   'sample_data:write': 'Sample data (write)',
   'ai:read': 'AI (read)',
   'ai:write': 'AI (write)',
+  'decisions:commit': 'Decisions (commit without confirmation)',
 }
 
 const PRESET_EXPANSIONS: Readonly<Record<ApiKeyPresetScope, readonly ApiKeyGranularScope[]>> = {
@@ -199,7 +213,20 @@ const PRESET_EXPANSIONS: Readonly<Record<ApiKeyPresetScope, readonly ApiKeyGranu
   admin: [...ADMIN_WRITE_SCOPES, ...OBJECT_CONFIG_WRITE_SCOPES],
 }
 
-/** UI groupings for the custom scope picker. */
+/**
+ * One sentence on what a scope lets a credential do, for the scopes a person
+ * must give on purpose. Shown beside the checkbox in the key form and on the
+ * OAuth consent page.
+ */
+export const API_KEY_SCOPE_RISKS: Readonly<Partial<Record<ApiKeyScope, string>>> = {
+  'decisions:commit':
+    'Lets this credential record a Decision as a commitment. Without it, a Decision it writes is a proposal until a member confirms it.',
+}
+
+/**
+ * UI groupings for the custom scope picker. `API_KEY_EXTRA_SCOPES` are not in
+ * a group: the picker shows them apart, because a preset never includes one.
+ */
 export const API_KEY_SCOPE_GROUPS: readonly {
   readonly label: string
   readonly scopes: readonly ApiKeyGranularScope[]

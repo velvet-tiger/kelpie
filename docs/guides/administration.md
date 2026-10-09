@@ -47,7 +47,9 @@ Two kinds, managed in two places:
 - **Workspace keys** (`kp_live_…`) — Admin → API keys. For shared agents, integrations, and CI. They act for the workspace.
 - **Personal keys** (`kp_user_…`) — Account → API keys. They act as *you*, in this workspace.
 
-Either kind is shown once at creation and stored hashed; copy it then or make a new one. Every key is bound to one workspace — access to another workspace means another key. What to pick when connecting an agent: [Connect an agent](../agents/connect-an-agent.md).
+Either kind is shown once at creation and stored hashed; copy it then or make a new one. Every key is bound to one workspace — access to another workspace means another key.
+
+**Extra permissions** are not part of any preset. "Decisions (commit without confirmation)" lets the key record a decision as a commitment. Without it, a decision the key writes is a proposal until a member confirms it. What to pick when connecting an agent: [Connect an agent](../agents/connect-an-agent.md).
 
 ## Registered agents and Run
 
