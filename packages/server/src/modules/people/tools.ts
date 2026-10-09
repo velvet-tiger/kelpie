@@ -19,7 +19,7 @@ export function registerPeopleTools(mcp: McpToolRegistry, service: PeopleService
   registerCrudTools(mcp, {
     resource: 'people',
     subject: 'person',
-    scopes: { read: 'people:read', write: 'people:write' },
+    scopes: { read: 'people:read', write: 'people:write', delete: 'people:delete' },
     about:
       'Someone the workspace knows. A job title belongs to a position, never to the person. ' +
       'name is the display name every list shows; first_name, last_name, salutation and suffix ' +

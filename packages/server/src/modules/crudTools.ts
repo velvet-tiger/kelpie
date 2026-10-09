@@ -130,8 +130,17 @@ export interface CrudToolSpec<
   readonly resource: string
   /** Singular, for descriptions: `person`. */
   readonly subject: string
-  /** What `list` and `get` need, and what the three writes need. The REST routes need the same. */
-  readonly scopes: { readonly read: ApiKeyGranularScope; readonly write: ApiKeyGranularScope }
+  /**
+   * What `list` and `get` need, what `create` and `update` need, and what
+   * `delete` needs. The REST routes need the same. An object-data resource
+   * names its own delete scope. A config resource has none and names its write
+   * scope again, so every spec says which it is.
+   */
+  readonly scopes: {
+    readonly read: ApiKeyGranularScope
+    readonly write: ApiKeyGranularScope
+    readonly delete: ApiKeyGranularScope
+  }
   /** One line an agent reads to know what this object is for. */
   readonly about: string
   readonly service: CrudService<View, CreateInput, UpdateInput, Filters>
@@ -223,8 +232,9 @@ export function registerCrudTools<
     name: `${resource}_delete`,
     description:
       `Delete a ${subject}. Dependent records go with it; a record something else ` +
-      `independently references refuses with a conflict. Mirrors DELETE /v1/${resource}/{id}.`,
-    scope: scopes.write,
+      `independently references refuses with a conflict. Needs the ${scopes.delete} scope. ` +
+      `Mirrors DELETE /v1/${resource}/{id}.`,
+    scope: scopes.delete,
     inputSchema: z.strictObject({ id: idArg }),
     invoke: async ({ id }, actor) => {
       await service.remove(actor, id)

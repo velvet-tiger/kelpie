@@ -254,6 +254,40 @@ describe('ConsentPage', () => {
     })
   })
 
+  it('says what each extra permission risks, and gives the ones the person ticks', async () => {
+    const approved: { body?: unknown } = {}
+
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign: vi.fn() })
+    renderPage({
+      extraScopes: ['decisions:commit', 'handbook:write', 'delete:objects'],
+      onApprove: (body) => {
+        approved.body = body
+      },
+    })
+
+    const remove = (await screen.findByRole('checkbox', { name: /^Delete objects/u })) as HTMLInputElement
+    const handbook = screen.getByRole('checkbox', { name: /^Handbook \(write\)/u }) as HTMLInputElement
+
+    expect(remove.checked).toBe(false)
+    expect(handbook.checked).toBe(false)
+    expect(screen.getByText('Lets it delete records and handbook pages. A deleted record cannot be restored.')).toBeTruthy()
+    expect(screen.getByText(/Lets it create and change handbook pages/u)).toBeTruthy()
+
+    await act(async () => {
+      remove.click()
+    })
+    await act(async () => {
+      screen.getByRole('button', { name: 'Allow' }).click()
+    })
+
+    await waitFor(() => {
+      expect(approved.body).toEqual({
+        workspace_ids: ['ws_1'],
+        scopes: ['read:objects', 'write:objects', 'delete:objects'],
+      })
+    })
+  })
+
   it('shows no extra section when the server offers none', async () => {
     renderPage({ extraScopes: [] })
 

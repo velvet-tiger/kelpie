@@ -40,7 +40,7 @@ export function registerHiringTools(
   registerCrudTools(mcp, {
     resource: 'roles',
     subject: 'role',
-    scopes: { read: 'roles:read', write: 'roles:write' },
+    scopes: { read: 'roles:read', write: 'roles:write', delete: 'roles:delete' },
     about: 'An opening this workspace is hiring for. Candidates attach to a role, never to a person.',
     service: services.roles,
     render: roleResponse,
@@ -55,7 +55,7 @@ export function registerHiringTools(
   registerCrudTools(mcp, {
     resource: 'candidates',
     subject: 'candidate',
-    scopes: { read: 'candidates:read', write: 'candidates:write' },
+    scopes: { read: 'candidates:read', write: 'candidates:write', delete: 'candidates:delete' },
     about:
       'One person\'s candidacy for one role: status, interview stage while in process, ' +
       'and who referred them. Interview notes attach here, not to the person.',

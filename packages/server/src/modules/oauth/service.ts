@@ -48,8 +48,9 @@ import {
 
 /**
  * What a client gets when it names no scope: enough to read and write CRM
- * records, nothing administrative. A tool that needs more answers
- * `insufficient_scope` and the client asks the user again.
+ * records. Nothing administrative, no delete, and no write to the handbook.
+ * A tool that needs more answers `insufficient_scope` and the client asks the
+ * user again.
  */
 export const DEFAULT_SCOPES: readonly ApiKeyScope[] = ['read:objects', 'write:objects']
 
@@ -59,7 +60,7 @@ export const DEFAULT_SCOPES: readonly ApiKeyScope[] = ['read:objects', 'write:ob
  * person gives it on purpose or not at all. The page reads this list from the
  * request; an approval accepts these and the requested scopes, nothing else.
  */
-export const CONSENT_EXTRA_SCOPES: readonly ApiKeyScope[] = ['decisions:commit']
+export const CONSENT_EXTRA_SCOPES: readonly ApiKeyScope[] = ['decisions:commit', 'handbook:write', 'delete:objects']
 
 /**
  * True when a scope set gives everything `scope` gives. A preset is covered

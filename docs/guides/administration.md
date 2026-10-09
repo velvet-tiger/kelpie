@@ -49,6 +49,8 @@ Two kinds, managed in two places:
 
 Either kind is shown once at creation and stored hashed; copy it then or make a new one. Every key is bound to one workspace — access to another workspace means another key.
 
+**Write does not include delete.** A key with "Write objects" can create and change records. It can delete them only with "Delete objects" too, or with the delete permission of one resource. "Write objects" also does not include the handbook: give "Handbook (write)" to a key that must change handbook pages.
+
 **Extra permissions** are not part of any preset. "Decisions (commit without confirmation)" lets the key record a decision as a commitment. Without it, a decision the key writes is a proposal until a member confirms it. What to pick when connecting an agent: [Connect an agent](../agents/connect-an-agent.md).
 
 ## Registered agents and Run

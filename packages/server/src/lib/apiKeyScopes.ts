@@ -9,6 +9,13 @@ import { AppError } from './errors.ts'
  * REST scope enforcement for API keys. MCP tools declare their own scope.
  *
  * Sessions are never scoped. An empty scope list on a key means full access.
+ *
+ * A route that deletes a record of an object-data resource needs that
+ * resource's delete scope, whatever its HTTP method. A route that deletes
+ * workspace admin or object config (a webhook, an API key, a custom field, a
+ * pipeline stage, a consent purpose, a member, an invitation, an import job,
+ * an agent registration, the AI settings) needs the write scope: those
+ * resources have no delete scope.
  */
 
 interface RouteScopeRule {
@@ -45,46 +52,68 @@ function isExempt(method: string, path: string): boolean {
 
 const ROUTE_SCOPE_RULES: readonly RouteScopeRule[] = [
   { methods: ['GET'], pattern: /^\/v1\/people(?:\/[^/]+)?$/u, scope: 'people:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/people(?:\/[^/]+)?$/u, scope: 'people:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/people(?:\/[^/]+)?$/u, scope: 'people:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/people(?:\/[^/]+)?$/u, scope: 'people:delete' },
   { methods: ['GET'], pattern: /^\/v1\/companies(?:\/[^/]+)?$/u, scope: 'companies:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/companies(?:\/[^/]+)?$/u, scope: 'companies:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/companies(?:\/[^/]+)?$/u, scope: 'companies:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/companies(?:\/[^/]+)?$/u, scope: 'companies:delete' },
   { methods: ['GET'], pattern: /^\/v1\/positions(?:\/[^/]+)?$/u, scope: 'positions:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/positions(?:\/[^/]+)?$/u, scope: 'positions:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/positions(?:\/[^/]+)?$/u, scope: 'positions:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/positions(?:\/[^/]+)?$/u, scope: 'positions:delete' },
   { methods: ['GET'], pattern: /^\/v1\/deals(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'deals:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/deals(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'deals:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/deals(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'deals:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/deals(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'deals:delete' },
   { methods: ['GET'], pattern: /^\/v1\/enquiries(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'enquiries:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/enquiries(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'enquiries:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/enquiries(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'enquiries:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/enquiries(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'enquiries:delete' },
   { methods: ['GET'], pattern: /^\/v1\/opportunities(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'opportunities:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/opportunities(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'opportunities:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/opportunities(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'opportunities:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/opportunities(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'opportunities:delete' },
   { methods: ['GET'], pattern: /^\/v1\/partnerships(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'partnerships:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/partnerships(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'partnerships:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/partnerships(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'partnerships:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/partnerships(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'partnerships:delete' },
   { methods: ['GET'], pattern: /^\/v1\/raises(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'raises:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/raises(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'raises:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/raises(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'raises:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/raises(?:\/[^/]+(?:\/convert)?)?$/u, scope: 'raises:delete' },
   { methods: ['GET'], pattern: /^\/v1\/roles(?:\/[^/]+)?$/u, scope: 'roles:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/roles(?:\/[^/]+)?$/u, scope: 'roles:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/roles(?:\/[^/]+)?$/u, scope: 'roles:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/roles(?:\/[^/]+)?$/u, scope: 'roles:delete' },
   { methods: ['GET'], pattern: /^\/v1\/candidates(?:\/[^/]+)?$/u, scope: 'candidates:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/candidates(?:\/[^/]+)?$/u, scope: 'candidates:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/candidates(?:\/[^/]+)?$/u, scope: 'candidates:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/candidates(?:\/[^/]+)?$/u, scope: 'candidates:delete' },
   { methods: ['GET'], pattern: /^\/v1\/(?:events(?:\/[^/]+(?:\/attendances)?)?|event-associations)$/u, scope: 'events:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/(?:events(?:\/[^/]+(?:\/attendances)?)?|event-associations)$/u, scope: 'events:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/(?:events(?:\/[^/]+(?:\/attendances)?)?|event-associations)$/u, scope: 'events:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/(?:events(?:\/[^/]+(?:\/attendances)?)?|event-associations)$/u, scope: 'events:delete' },
   { methods: ['GET'], pattern: /^\/v1\/attendances(?:\/[^/]+)?$/u, scope: 'attendances:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/attendances(?:\/[^/]+)?$/u, scope: 'attendances:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/attendances(?:\/[^/]+)?$/u, scope: 'attendances:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/attendances(?:\/[^/]+)?$/u, scope: 'attendances:delete' },
   { methods: ['GET'], pattern: /^\/v1\/decisions(?:\/[^/]+)?$/u, scope: 'decisions:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/decisions(?:\/[^/]+)?$/u, scope: 'decisions:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/decisions(?:\/[^/]+)?$/u, scope: 'decisions:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/decisions(?:\/[^/]+)?$/u, scope: 'decisions:delete' },
   // The service refuses every bearer credential with 403. The scope is here so
   // that a key without `decisions:write` is refused for that reason first.
   { methods: ['POST'], pattern: /^\/v1\/decisions\/[^/]+\/confirm$/u, scope: 'decisions:write' },
   { methods: ['GET'], pattern: /^\/v1\/plan_items(?:\/[^/]+)?$/u, scope: 'plan_items:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/plan_items(?:\/[^/]+)?$/u, scope: 'plan_items:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/plan_items(?:\/[^/]+)?$/u, scope: 'plan_items:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/plan_items(?:\/[^/]+)?$/u, scope: 'plan_items:delete' },
   { methods: ['GET'], pattern: /^\/v1\/notes(?:\/[^/]+)?$/u, scope: 'notes:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/notes(?:\/[^/]+)?$/u, scope: 'notes:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/notes(?:\/[^/]+)?$/u, scope: 'notes:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/notes(?:\/[^/]+)?$/u, scope: 'notes:delete' },
   { methods: ['GET'], pattern: /^\/v1\/(?:lists(?:\/[^/]+(?:\/members(?:\/[^/]+)?)?)?|list-memberships)$/u, scope: 'lists:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/(?:lists(?:\/[^/]+(?:\/members(?:\/[^/]+)?)?)?|list-memberships)$/u, scope: 'lists:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/(?:lists(?:\/[^/]+(?:\/members(?:\/[^/]+)?)?)?|list-memberships)$/u, scope: 'lists:write' },
+  // Taking a record off a list ends a membership. It deletes no record, so
+  // it is a write to the list. This rule must stay above the next one.
+  { methods: ['DELETE'], pattern: /^\/v1\/lists\/[^/]+\/members\/[^/]+$/u, scope: 'lists:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/(?:lists(?:\/[^/]+(?:\/members(?:\/[^/]+)?)?)?|list-memberships)$/u, scope: 'lists:delete' },
   { methods: ['GET'], pattern: /^\/v1\/handbook_pages(?:\/[^/]+)?$/u, scope: 'handbook:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/handbook_pages(?:\/[^/]+)?$/u, scope: 'handbook:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/handbook_pages(?:\/[^/]+)?$/u, scope: 'handbook:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/handbook_pages(?:\/[^/]+)?$/u, scope: 'handbook:delete' },
   { methods: ['GET'], pattern: /^\/v1\/(?:forms(?:\/[^/]+(?:\/(?:submissions(?:\/[^/]+)?|embed))?)?|form-submissions)$/u, scope: 'forms:read' },
-  { methods: ['POST', 'PATCH', 'DELETE'], pattern: /^\/v1\/forms(?:\/[^/]+)?$/u, scope: 'forms:write' },
-  { methods: ['DELETE'], pattern: /^\/v1\/forms\/[^/]+\/submissions\/[^/]+$/u, scope: 'forms:write' },
-  { methods: ['POST'], pattern: /^\/v1\/forms\/[^/]+\/submissions\/delete$/u, scope: 'forms:write' },
+  { methods: ['POST', 'PATCH'], pattern: /^\/v1\/forms(?:\/[^/]+)?$/u, scope: 'forms:write' },
+  { methods: ['DELETE'], pattern: /^\/v1\/forms(?:\/[^/]+)?$/u, scope: 'forms:delete' },
+  { methods: ['DELETE'], pattern: /^\/v1\/forms\/[^/]+\/submissions\/[^/]+$/u, scope: 'forms:delete' },
+  // A bulk delete. It is a POST because it takes a list of ids in a body.
+  { methods: ['POST'], pattern: /^\/v1\/forms\/[^/]+\/submissions\/delete$/u, scope: 'forms:delete' },
   { methods: ['POST'], pattern: /^\/v1\/forms\/[^/]+\/regenerate-slug$/u, scope: 'forms:write' },
   { methods: ['POST'], pattern: /^\/v1\/forms\/[^/]+\/submissions\/[^/]+\/release$/u, scope: 'forms:write' },
   { methods: ['GET'], pattern: /^\/v1\/activities$/u, scope: 'activities:read' },
@@ -171,7 +200,9 @@ export function requireApiKeyScope(actor: Actor, required: ApiKeyGranularScope):
  * everything. A session and an unscoped API key can give any scopes.
  *
  * Write implies read here as it does at enforcement, so a caller with
- * `people:write` can give `people:read`.
+ * `people:write` can give `people:read`. Nothing implies delete, so a caller
+ * gives `people:delete` only when it holds that scope, by name or through
+ * `delete:objects`.
  */
 export function requireScopesWithinActor(actor: Actor, requested: readonly ApiKeyScope[]): void {
   if (!isBearerActor(actor)) {

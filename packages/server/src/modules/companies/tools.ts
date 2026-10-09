@@ -19,7 +19,7 @@ export function registerCompaniesTools(mcp: McpToolRegistry, service: CompaniesS
   registerCrudTools(mcp, {
     resource: 'companies',
     subject: 'company',
-    scopes: { read: 'companies:read', write: 'companies:write' },
+    scopes: { read: 'companies:read', write: 'companies:write', delete: 'companies:delete' },
     about: 'An organisation, with the stage, ICP fit and tech stack an agent qualifies against.',
     service,
     render: companyResponse,

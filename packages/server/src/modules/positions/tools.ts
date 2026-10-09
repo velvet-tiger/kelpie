@@ -17,7 +17,7 @@ export function registerPositionsTools(mcp: McpToolRegistry, service: PositionsS
   registerCrudTools(mcp, {
     resource: 'positions',
     subject: 'position',
-    scopes: { read: 'positions:read', write: 'positions:write' },
+    scopes: { read: 'positions:read', write: 'positions:write', delete: 'positions:delete' },
     about:
       'The link between a person and a company, and the only place a job title lives. ' +
       'One person may hold several.',

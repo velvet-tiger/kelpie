@@ -48,7 +48,7 @@ export function registerFormsTools(
   registerCrudTools(mcp, {
     resource: 'forms',
     subject: 'form',
-    scopes: { read: 'forms:read', write: 'forms:write' },
+    scopes: { read: 'forms:read', write: 'forms:write', delete: 'forms:delete' },
     about:
       'An embeddable inbound form. A submission upserts a person, a company and a ' +
       'position, and optionally opens a deal.',
@@ -110,9 +110,9 @@ export function registerFormsTools(
       'Delete one or more submissions of one form, accepted or held as spam. The ' +
       'people, companies, deals and other records a submission created or matched ' +
       'are not deleted. An id that is not a submission of the form is skipped; ' +
-      'deleted_ids names what went. ' +
+      'deleted_ids names what went. Needs the forms:delete scope. ' +
       'Mirrors POST /v1/forms/{id}/submissions/delete.',
-    scope: 'forms:write',
+    scope: 'forms:delete',
     inputSchema: z.strictObject({
       form_id: idArg.describe('The form the submissions belong to.'),
       submission_ids: deleteSubmissionsBody.shape.ids.describe('The submissions to delete.'),

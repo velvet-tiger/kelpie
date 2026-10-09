@@ -67,7 +67,7 @@ export function registerListsTools(mcp: McpToolRegistry, service: ListsService):
   registerCrudTools(mcp, {
     resource: 'lists',
     subject: 'list',
-    scopes: { read: 'lists:read', write: 'lists:write' },
+    scopes: { read: 'lists:read', write: 'lists:write', delete: 'lists:delete' },
     about:
       'A named collection of records of one type, chosen when the list is created and fixed for its lifetime.',
     service,
@@ -107,7 +107,9 @@ export function registerListsTools(mcp: McpToolRegistry, service: ListsService):
   mcp.tool({
     name: 'list_members_remove',
     description:
-      'Remove a record from a list. Mirrors DELETE /v1/lists/{id}/members/{memberId}.',
+      'Remove a record from a list. The record itself stays. ' +
+      'Mirrors DELETE /v1/lists/{id}/members/{memberId}.',
+    // Not `lists:delete`: this ends a membership and deletes no record.
     scope: 'lists:write',
     inputSchema: removeMemberArgs,
     invoke: async (args, actor) => {

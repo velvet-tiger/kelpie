@@ -33,7 +33,7 @@ export function registerEnquiriesTools(
   registerCrudTools(mcp, {
     resource: 'enquiries',
     subject: 'enquiry',
-    scopes: { read: 'enquiries:read', write: 'enquiries:write' },
+    scopes: { read: 'enquiries:read', write: 'enquiries:write', delete: 'enquiries:delete' },
     about:
       'An inbound enquiry: a top-of-funnel request that may become a Deal once qualified. ' +
       'Not itself a deal.',

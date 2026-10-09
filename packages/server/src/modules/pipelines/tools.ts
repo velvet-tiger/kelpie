@@ -17,7 +17,7 @@ export function registerPipelineTools(mcp: McpToolRegistry, service: PipelineSta
   registerCrudTools(mcp, {
     resource: 'pipeline_stages',
     subject: 'pipeline stage',
-    scopes: { read: 'pipeline_stages:read', write: 'pipeline_stages:write' },
+    scopes: { read: 'pipeline_stages:read', write: 'pipeline_stages:write', delete: 'pipeline_stages:write' },
     about:
       'A column on one of the four kanban boards. Read these to find the stage_id to ' +
       'move a deal, opportunity, partnership or raise into.',

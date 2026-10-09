@@ -189,6 +189,26 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       expect(create?.description).toContain('Tell the user that a member must confirm it')
     })
 
+    it('tells the agent what to do when a delete or a handbook write is refused for a missing scope', async () => {
+      const response = await post(
+        request(1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: {} }),
+      )
+      const instructions = String(readRecord((await envelope(response)).result).instructions)
+      const listing = readRecord((await envelope(await post(request(1, 'tools/list')))).result)
+      const tools = listing.tools as { name: string; description: string }[]
+
+      expect(instructions).toContain('Deleting needs the delete scope of the resource')
+      expect(instructions).toContain('writing a handbook page needs handbook:write')
+      expect(instructions).toContain('tell the user that this connection does not allow it')
+      expect(instructions).toContain('Do not look for another way to get the same result')
+      expect(tools.find((tool) => tool.name === 'people_delete')?.description).toContain(
+        'Needs the people:delete scope',
+      )
+      expect(tools.find((tool) => tool.name === 'handbook_pages_create')?.description).toContain(
+        'needs the handbook:write scope',
+      )
+    })
+
     /** Confirming is for a signed-in member. An agent must not confirm what an agent or a run proposed. */
     it('offers no tool that confirms a decision, and lists commitments only on request', async () => {
       const listing = readRecord((await envelope(await post(request(1, 'tools/list')))).result)

@@ -26,7 +26,7 @@ export function registerPartnershipsTools(
   registerCrudTools(mcp, {
     resource: 'partnerships',
     subject: 'partnership',
-    scopes: { read: 'partnerships:read', write: 'partnerships:write' },
+    scopes: { read: 'partnerships:read', write: 'partnerships:write', delete: 'partnerships:delete' },
     about:
       'An ongoing two-way relationship, including the standing relationship with an ' +
       'investor. There is no favour ledger.',

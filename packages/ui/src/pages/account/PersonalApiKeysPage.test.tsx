@@ -198,6 +198,32 @@ describe('PersonalApiKeysPage', () => {
     expect(await screen.findByText('Write objects, Decisions (commit without confirmation)')).toBeTruthy()
   })
 
+  it('offers Delete objects as its own preset, which Write objects does not include', async () => {
+    renderPage({ keys: [] })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create key' }).click()
+    })
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'Write objects' }).click()
+    })
+
+    // The grid under the presets shows what the ticked presets include.
+    const scope = (name: string): HTMLInputElement => screen.getByRole('checkbox', { name }) as HTMLInputElement
+
+    expect(scope('People (write)').checked).toBe(true)
+    expect(scope('People (delete)').checked).toBe(false)
+    expect(scope('Handbook (write)').checked).toBe(false)
+
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'Delete objects' }).click()
+    })
+
+    expect(scope('People (delete)').checked).toBe(true)
+    expect(scope('Handbook (delete)').checked).toBe(true)
+    expect(scope('Handbook (write)').checked).toBe(false)
+  })
+
   it('asks before revoking, and removes the key once confirmed', async () => {
     renderPage()
 

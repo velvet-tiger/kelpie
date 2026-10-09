@@ -733,9 +733,56 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
         { cookie },
       )
 
-      expect(await plain.json()).toMatchObject({ scopes: DEFAULT, extra_scopes: ['decisions:commit'] })
+      const extras = ['decisions:commit', 'handbook:write', 'delete:objects']
+
+      expect(await plain.json()).toMatchObject({ scopes: DEFAULT, extra_scopes: extras })
       // Asked for by name, it is still offered as an extra, so the page starts it clear.
-      expect(await named.json()).toMatchObject({ scopes: WITH_COMMIT, extra_scopes: ['decisions:commit'] })
+      expect(await named.json()).toMatchObject({ scopes: WITH_COMMIT, extra_scopes: extras })
+    })
+
+    it('does not offer an extra that the requested scopes include already', async () => {
+      const { cookie } = await owner()
+      const clientId = await registerPublicClient()
+      const response = await send(
+        'GET',
+        `/v1/oauth/requests/${await startRequest(clientId, { scope: 'read:all write:all people:delete' })}`,
+        { cookie },
+      )
+
+      // `write:all` includes `handbook:write`. One delete scope is not all of `delete:objects`.
+      expect(await response.json()).toMatchObject({ extra_scopes: ['decisions:commit', 'delete:objects'] })
+    })
+
+    it('gives a default connection no delete and no handbook write, and names the scope it lacks', async () => {
+      const { accessToken } = await connect()
+      const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
+
+      const deleted = await callTool(accessToken, 'people_delete', { id: readString(person, 'id') })
+      const written = await callTool(accessToken, 'handbook_pages_create', { title: 'Pricing', body: 'Text' })
+
+      expect(deleted.status).toBe(403)
+      expect(deleted.headers.get('WWW-Authenticate')).toContain('error="insufficient_scope"')
+      expect(deleted.headers.get('WWW-Authenticate')).toContain('scope="people:delete"')
+      expect(written.status).toBe(403)
+      expect(written.headers.get('WWW-Authenticate')).toContain('scope="handbook:write"')
+      // Reading the handbook and the person is still part of the default.
+      expect((await callTool(accessToken, 'handbook_pages_list')).status).toBe(200)
+      expect((await callTool(accessToken, 'people_get', { id: readString(person, 'id') })).status).toBe(200)
+    })
+
+    it('lets a connection delete and write the handbook when the person added those extras', async () => {
+      const scopes = [...DEFAULT, 'handbook:write', 'delete:objects']
+      const { accessToken, cookie } = await connect(scopes)
+      const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
+      const written = await toolPayload(
+        await callTool(accessToken, 'handbook_pages_create', { title: 'Pricing', body: 'Text' }),
+      )
+      const deleted = await toolPayload(await callTool(accessToken, 'people_delete', { id: readString(person, 'id') }))
+      const listed = readList(await (await send('GET', '/v1/oauth/grants', { cookie })).json())
+
+      expect(isRecord(written) && written.title).toBe('Pricing')
+      expect(deleted).toEqual({ id: readString(person, 'id'), deleted: true })
+      expect(listed[0]).toMatchObject({ scopes, extra_scopes: ['handbook:write', 'delete:objects'] })
     })
 
     it('gives an extra the client did not request, in the token response, the grant and the token', async () => {

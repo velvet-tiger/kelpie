@@ -74,7 +74,8 @@ While the major version is `0`, a minor bump may break the API.
 
 - **The OAuth consent page offers extra permissions.** A person can now give
   an MCP client a permission that the client did not ask for, from a fixed
-  list on the server. The list has one entry, `decisions:commit`. The page
+  list on the server: `decisions:commit`, `handbook:write` and
+  `delete:objects`. The page
   shows these in their own section, each with one sentence on what it lets
   the app do, and each starts clear. A scope from the list starts clear also
   when the client asked for it by name. Connected apps shows the extra
@@ -352,6 +353,61 @@ While the major version is `0`, a minor bump may break the API.
   - The MCP instructions, the `decisions_*` tool descriptions and the
     `kelpie` skill tell an agent that its Decision is a proposal and that it
     must say so to the user. No migration.
+- **Deleting a record and writing the handbook need their own scopes.** A
+  scoped API key or an OAuth connection that could write records could also
+  delete them, and could rewrite the handbook, which agents read as the
+  company's own guidance. An agent that obeyed text in a record could do
+  both. These powers are now apart from write.
+  - **New scopes.** `<resource>:delete` for each object-data resource
+    (`people:delete`, `handbook:delete`, `forms:delete` and the others), and
+    the preset `delete:objects`, which is all of them. Write does not imply
+    delete. Delete implies neither write nor read. No other preset includes
+    a delete scope: not `write:all`, not `admin`. There is no `delete:all`,
+    because workspace admin and object config resources have no delete
+    scope.
+  - **Changed behaviour for an existing integration:** `DELETE` on an
+    object-data route, and each `*_delete` MCP tool for those resources, now
+    needs the delete scope and answers `403` without it. This includes
+    `DELETE /v1/forms/:id/submissions/:submission_id`,
+    `POST /v1/forms/:id/submissions/delete` and `form_submissions_delete`,
+    which need `forms:delete`.
+  - **Changed behaviour for an existing integration:** `write:objects` no
+    longer includes `handbook:write`. Creating or changing a handbook page,
+    and `POST /v1/workspaces/:id/handbook/seed`, need `handbook:write` or
+    `write:all`. Deleting a page needs `handbook:delete`.
+  - **Not changed.** Taking a record off a list
+    (`DELETE /v1/lists/:id/members/:member_id`, `list_members_remove`) needs
+    `lists:write`: it ends a membership and deletes no record. A convert
+    needs the write scope of the source: it leaves the source in place. The
+    deletes of webhooks, API keys, custom fields, pipeline stages, consent
+    purposes, members, invitations, agent registrations, import jobs and AI
+    settings need the write scope of that resource, as before. An API key
+    with no scopes has every scope. A signed-in member is not scoped.
+  - **Credentials from before keep what they could do.** Migration `0065`
+    adds scopes to each stored list in `api_keys`, `oauth_grants` and
+    `oauth_tokens` (authorization codes, access tokens and refresh tokens):
+    `write:objects` gets `handbook:write` and `delete:objects`, `write:all`
+    gets `delete:objects`, and `<resource>:write` on an object-data resource
+    gets `<resource>:delete`. An empty list stays empty. A second run
+    changes nothing. A consent request that nobody has answered
+    (`oauth_requests`) is not changed. Run the migration before the new
+    code serves requests, or these credentials get `403` on a delete until
+    it has run.
+  - **A new credential does not get them by default.** An OAuth client that
+    names no scope gets `read:objects write:objects`, which now has no
+    delete and no handbook write. The consent page offers `handbook:write`
+    and `delete:objects` as extra permissions. A tool call without the scope
+    answers `403` with `insufficient_scope` and the scope.
+  - **`@kelpie/schemas`** — new scopes as above in `API_KEY_SCOPES`,
+    `API_KEY_GRANULAR_SCOPES`, `API_KEY_PRESET_SCOPES` and the "Object data"
+    group of `API_KEY_SCOPE_GROUPS`. `expandApiKeyScopes(['write:objects'])`
+    no longer holds `handbook:write`. **Breaking for a client of a newer
+    server:** an older `apiKeySchema` or `oauthGrantSchema` refuses a list
+    that holds a new scope.
+  - **`@kelpie/ui`** — the API key form has the "Delete objects" preset and
+    a delete tick box for each object-data resource.
+  - The MCP instructions tell an agent to say that the connection does not
+    allow a delete or a handbook write, and not to look for another way.
 - **`@kelpie/server`** — **A hosted AI run cannot make a commitment or a
   pin that its task did not ask for.** A run's reply becomes writes with no
   approval, and later agents treat a Decision and a pinned note as facts.

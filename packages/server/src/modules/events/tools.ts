@@ -50,7 +50,7 @@ export function registerEventsTools(
   registerCrudTools(mcp, {
     resource: 'events',
     subject: 'event',
-    scopes: { read: 'events:read', write: 'events:write' },
+    scopes: { read: 'events:read', write: 'events:write', delete: 'events:delete' },
     about:
       'A dated gathering (webinar, meetup, dinner). Not a pipeline. People attach as attendances.',
     service: services.events,
@@ -73,7 +73,7 @@ export function registerEventsTools(
   registerCrudTools(mcp, {
     resource: 'attendances',
     subject: 'attendance',
-    scopes: { read: 'attendances:read', write: 'attendances:write' },
+    scopes: { read: 'attendances:read', write: 'attendances:write', delete: 'attendances:delete' },
     about:
       "One person's registration for one event: registered, attended, no_show, or cancelled.",
     service: services.attendances,

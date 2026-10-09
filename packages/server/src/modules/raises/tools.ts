@@ -25,7 +25,7 @@ export function registerRaisesTools(
   registerCrudTools(mcp, {
     resource: 'raises',
     subject: 'raise',
-    scopes: { read: 'raises:read', write: 'raises:write' },
+    scopes: { read: 'raises:read', write: 'raises:write', delete: 'raises:delete' },
     about:
       'One firm\'s progress through one funding round: thesis fit, check size, pass reason. ' +
       'The standing relationship with that firm is a partnership.',

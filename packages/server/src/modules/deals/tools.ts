@@ -25,7 +25,7 @@ export function registerDealsTools(
   registerCrudTools(mcp, {
     resource: 'deals',
     subject: 'deal',
-    scopes: { read: 'deals:read', write: 'deals:write' },
+    scopes: { read: 'deals:read', write: 'deals:write', delete: 'deals:delete' },
     about:
       'A sales pipeline record. Move one by setting stage_id to a stage from ' +
       'pipeline_stages_list with kind deal.',

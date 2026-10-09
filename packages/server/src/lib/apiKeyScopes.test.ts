@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { API_KEY_PRESET_SCOPES, expandApiKeyScopes, satisfiesApiKeyScope } from '@kelpie/schemas'
+import {
+  API_KEY_OBJECT_DATA_RESOURCES,
+  API_KEY_PRESET_SCOPES,
+  expandApiKeyScopes,
+  satisfiesApiKeyScope,
+} from '@kelpie/schemas'
 
 import { resolveRestScope } from './apiKeyScopes.ts'
 
@@ -38,6 +43,59 @@ describe('satisfiesApiKeyScope', () => {
 
   it('refuses a missing scope', () => {
     expect(satisfiesApiKeyScope(['people:read'], 'people:write')).toBe(false)
+  })
+})
+
+describe('delete scopes', () => {
+  it('exist for every object-data resource, and delete:objects is all of them and nothing else', () => {
+    const expanded = expandApiKeyScopes(['delete:objects'])
+
+    expect([...expanded].sort()).toEqual(API_KEY_OBJECT_DATA_RESOURCES.map((resource) => `${resource}:delete`).sort())
+  })
+
+  it('are in no other preset, alone or all together', () => {
+    const others = API_KEY_PRESET_SCOPES.filter((preset) => preset !== 'delete:objects')
+
+    for (const preset of others) {
+      expect(satisfiesApiKeyScope([preset], 'people:delete'), preset).toBe(false)
+    }
+
+    expect(satisfiesApiKeyScope(others, 'people:delete')).toBe(false)
+    expect(satisfiesApiKeyScope(others, 'handbook:delete')).toBe(false)
+  })
+
+  it('are not implied by write, and imply neither write nor read', () => {
+    expect(satisfiesApiKeyScope(['people:write'], 'people:delete')).toBe(false)
+    expect(satisfiesApiKeyScope(['people:delete'], 'people:write')).toBe(false)
+    expect(satisfiesApiKeyScope(['people:delete'], 'people:read')).toBe(false)
+    expect(satisfiesApiKeyScope(['delete:objects'], 'people:read')).toBe(false)
+  })
+
+  it('are held by a key that names one, and by a key with no scopes', () => {
+    expect(satisfiesApiKeyScope(['people:delete'], 'people:delete')).toBe(true)
+    expect(satisfiesApiKeyScope(['delete:objects'], 'forms:delete')).toBe(true)
+    expect(satisfiesApiKeyScope(['people:delete'], 'companies:delete')).toBe(false)
+    expect(satisfiesApiKeyScope([], 'people:delete')).toBe(true)
+  })
+})
+
+describe('handbook:write', () => {
+  it('is not in write:objects, which keeps every other object-data write', () => {
+    const expanded = expandApiKeyScopes(['write:objects'])
+
+    expect(expanded.has('handbook:write')).toBe(false)
+    expect(satisfiesApiKeyScope(['write:objects'], 'handbook:read')).toBe(false)
+    expect(satisfiesApiKeyScope(['read:objects', 'write:objects'], 'handbook:read')).toBe(true)
+
+    for (const resource of API_KEY_OBJECT_DATA_RESOURCES.filter((name) => name !== 'handbook')) {
+      expect(expanded.has(`${resource}:write`), resource).toBe(true)
+    }
+  })
+
+  it('is in write:all, and is held by name', () => {
+    expect(satisfiesApiKeyScope(['write:all'], 'handbook:write')).toBe(true)
+    expect(satisfiesApiKeyScope(['handbook:write'], 'handbook:write')).toBe(true)
+    expect(satisfiesApiKeyScope(['admin', 'admin:objects'], 'handbook:write')).toBe(false)
   })
 })
 
@@ -79,9 +137,41 @@ describe('resolveRestScope', () => {
     expect(resolveRestScope('POST', '/v1/decisions/dec_1/confirm')).toBe('decisions:write')
   })
 
-  it('needs forms write to delete submissions, one or several', () => {
-    expect(resolveRestScope('DELETE', '/v1/forms/frm_1/submissions/sub_1')).toBe('forms:write')
-    expect(resolveRestScope('POST', '/v1/forms/frm_1/submissions/delete')).toBe('forms:write')
+  it('needs forms delete to delete submissions, one or several', () => {
+    expect(resolveRestScope('DELETE', '/v1/forms/frm_1/submissions/sub_1')).toBe('forms:delete')
+    expect(resolveRestScope('POST', '/v1/forms/frm_1/submissions/delete')).toBe('forms:delete')
+  })
+
+  it('needs the delete scope of the resource to delete a record, and the write scope to change one', () => {
+    expect(resolveRestScope('DELETE', '/v1/people/per_1')).toBe('people:delete')
+    expect(resolveRestScope('PATCH', '/v1/people/per_1')).toBe('people:write')
+    expect(resolveRestScope('POST', '/v1/people')).toBe('people:write')
+    expect(resolveRestScope('DELETE', '/v1/handbook_pages/hbp_1')).toBe('handbook:delete')
+    expect(resolveRestScope('DELETE', '/v1/forms/frm_1')).toBe('forms:delete')
+    expect(resolveRestScope('DELETE', '/v1/events/evt_1')).toBe('events:delete')
+    expect(resolveRestScope('DELETE', '/v1/lists/lst_1')).toBe('lists:delete')
+  })
+
+  it('keeps a convert under write: it leaves the source record in place', () => {
+    expect(resolveRestScope('POST', '/v1/enquiries/enq_1/convert')).toBe('enquiries:write')
+    expect(resolveRestScope('POST', '/v1/deals/deal_1/convert')).toBe('deals:write')
+  })
+
+  it('keeps taking a record off a list under lists write', () => {
+    expect(resolveRestScope('DELETE', '/v1/lists/lst_1/members/lmb_1')).toBe('lists:write')
+    expect(resolveRestScope('POST', '/v1/lists/lst_1/members')).toBe('lists:write')
+  })
+
+  it('keeps the deletes of admin and config resources under write', () => {
+    expect(resolveRestScope('DELETE', '/v1/webhooks/whk_1')).toBe('webhooks:write')
+    expect(resolveRestScope('DELETE', '/v1/api-keys/apik_1')).toBe('api_keys:write')
+    expect(resolveRestScope('DELETE', '/v1/custom_fields/cf_1')).toBe('custom_fields:write')
+    expect(resolveRestScope('DELETE', '/v1/pipeline_stages/stg_1')).toBe('pipeline_stages:write')
+    expect(resolveRestScope('DELETE', '/v1/consent_purposes/cp_1')).toBe('consent_purposes:write')
+    expect(resolveRestScope('DELETE', '/v1/import/jobs/imp_1')).toBe('import_export:write')
+    expect(resolveRestScope('DELETE', '/v1/workspaces/ws_1/members/mem_1')).toBe('workspace:write')
+    expect(resolveRestScope('DELETE', '/v1/workspaces/ws_1/invites/inv_1')).toBe('workspace:write')
+    expect(resolveRestScope('DELETE', '/v1/workspaces/ws_1')).toBe('workspace:write')
   })
 
   it('needs forms write to regenerate a slug or release a held submission', () => {

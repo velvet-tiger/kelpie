@@ -3,6 +3,13 @@
  *
  * Presets expand to granular scopes at enforcement time. An empty scope list on
  * a key means full access.
+ *
+ * Three verbs. `read` and `write` exist for every resource, and write implies
+ * read. `delete` exists for the object-data resources only, and it is apart:
+ * write does not imply it, and it implies neither write nor read. A record
+ * that is gone cannot be put back, so the power to remove one is given by
+ * name. Workspace admin and object config resources have no delete scope;
+ * their deletes need the write scope, which only an admin preset gives.
  */
 
 /** Preset bundles — stored on the key and shown as one badge in the UI. */
@@ -11,6 +18,7 @@ export const API_KEY_PRESET_SCOPES = [
   'write:all',
   'read:objects',
   'write:objects',
+  'delete:objects',
   'read:admin',
   'write:admin',
   'admin:objects',
@@ -65,8 +73,10 @@ export const API_KEY_ADMIN_RESOURCES = [
   'ai',
 ] as const
 
+type ObjectDataResource = (typeof API_KEY_OBJECT_DATA_RESOURCES)[number]
+
 type WritableResource =
-  | (typeof API_KEY_OBJECT_DATA_RESOURCES)[number]
+  | ObjectDataResource
   | (typeof API_KEY_OBJECT_CONFIG_RESOURCES)[number]
   | (typeof API_KEY_ADMIN_RESOURCES)[number]
 
@@ -82,12 +92,17 @@ function writeScope(resource: WritableResource): `${WritableResource}:write` {
   return `${resource}:write`
 }
 
+function deleteScope(resource: ObjectDataResource): `${ObjectDataResource}:delete` {
+  return `${resource}:delete`
+}
+
 const OBJECT_DATA_READ_SCOPES = [
   ...API_KEY_OBJECT_DATA_RESOURCES.map(readScope),
   ...API_KEY_OBJECT_READ_ONLY_RESOURCES.map(readScope),
 ] as const
 
 const OBJECT_DATA_WRITE_SCOPES = API_KEY_OBJECT_DATA_RESOURCES.map(writeScope)
+const OBJECT_DATA_DELETE_SCOPES = API_KEY_OBJECT_DATA_RESOURCES.map(deleteScope)
 
 const OBJECT_CONFIG_READ_SCOPES = API_KEY_OBJECT_CONFIG_RESOURCES.map(readScope)
 const OBJECT_CONFIG_WRITE_SCOPES = API_KEY_OBJECT_CONFIG_RESOURCES.map(writeScope)
@@ -111,6 +126,7 @@ export type ApiKeyExtraScope = (typeof API_KEY_EXTRA_SCOPES)[number]
 export const API_KEY_GRANULAR_SCOPES = [
   ...OBJECT_DATA_READ_SCOPES,
   ...OBJECT_DATA_WRITE_SCOPES,
+  ...OBJECT_DATA_DELETE_SCOPES,
   ...OBJECT_CONFIG_READ_SCOPES,
   ...OBJECT_CONFIG_WRITE_SCOPES,
   ...ADMIN_READ_SCOPES,
@@ -129,6 +145,7 @@ export const API_KEY_SCOPE_LABELS: Readonly<Record<ApiKeyScope, string>> = {
   'write:all': 'Write all',
   'read:objects': 'Read objects',
   'write:objects': 'Write objects',
+  'delete:objects': 'Delete objects',
   'read:admin': 'Read admin',
   'write:admin': 'Write admin',
   'admin:objects': 'Object admin',
@@ -169,6 +186,24 @@ export const API_KEY_SCOPE_LABELS: Readonly<Record<ApiKeyScope, string>> = {
   'handbook:write': 'Handbook (write)',
   'forms:read': 'Forms (read)',
   'forms:write': 'Forms (write)',
+  'people:delete': 'People (delete)',
+  'companies:delete': 'Companies (delete)',
+  'positions:delete': 'Positions (delete)',
+  'deals:delete': 'Deals (delete)',
+  'enquiries:delete': 'Enquiries (delete)',
+  'opportunities:delete': 'Opportunities (delete)',
+  'partnerships:delete': 'Partnerships (delete)',
+  'raises:delete': 'Raises (delete)',
+  'roles:delete': 'Roles (delete)',
+  'candidates:delete': 'Candidates (delete)',
+  'events:delete': 'Events (delete)',
+  'attendances:delete': 'Attendances (delete)',
+  'decisions:delete': 'Decisions (delete)',
+  'plan_items:delete': 'Plan items (delete)',
+  'notes:delete': 'Notes (delete)',
+  'lists:delete': 'Lists (delete)',
+  'handbook:delete': 'Handbook (delete)',
+  'forms:delete': 'Forms (delete)',
   'activities:read': 'Activities (read)',
   'search:read': 'Search (read)',
   'dashboard:read': 'Dashboard (read)',
@@ -206,7 +241,11 @@ const PRESET_EXPANSIONS: Readonly<Record<ApiKeyPresetScope, readonly ApiKeyGranu
   'read:all': [...API_KEY_GRANULAR_SCOPES.filter((scope) => scope.endsWith(':read'))],
   'write:all': [...API_KEY_GRANULAR_SCOPES.filter((scope) => scope.endsWith(':write'))],
   'read:objects': [...OBJECT_DATA_READ_SCOPES],
-  'write:objects': [...OBJECT_DATA_WRITE_SCOPES],
+  // Without the handbook. Agents read it as the company's own guidance on
+  // voice and selling, so the power to change it is given by name, or by
+  // `write:all`.
+  'write:objects': [...OBJECT_DATA_WRITE_SCOPES.filter((scope) => scope !== 'handbook:write')],
+  'delete:objects': [...OBJECT_DATA_DELETE_SCOPES],
   'read:admin': [...ADMIN_READ_SCOPES],
   'write:admin': [...ADMIN_WRITE_SCOPES],
   'admin:objects': [...OBJECT_CONFIG_WRITE_SCOPES],
@@ -221,6 +260,9 @@ const PRESET_EXPANSIONS: Readonly<Record<ApiKeyPresetScope, readonly ApiKeyGranu
 export const API_KEY_SCOPE_RISKS: Readonly<Partial<Record<ApiKeyScope, string>>> = {
   'decisions:commit':
     'Lets it record a Decision as a commitment. Without this, a Decision it writes is a proposal until a member confirms it.',
+  'handbook:write':
+    'Lets it create and change handbook pages. Agents read the handbook as the company\'s own guidance.',
+  'delete:objects': 'Lets it delete records and handbook pages. A deleted record cannot be restored.',
 }
 
 /**
@@ -233,7 +275,7 @@ export const API_KEY_SCOPE_GROUPS: readonly {
 }[] = [
   {
     label: 'Object data',
-    scopes: [...OBJECT_DATA_READ_SCOPES, ...OBJECT_DATA_WRITE_SCOPES],
+    scopes: [...OBJECT_DATA_READ_SCOPES, ...OBJECT_DATA_WRITE_SCOPES, ...OBJECT_DATA_DELETE_SCOPES],
   },
   {
     label: 'Object config',
@@ -270,7 +312,13 @@ export function expandApiKeyScopes(scopes: readonly ApiKeyScope[]): ReadonlySet<
   return expanded
 }
 
-/** Whether a stored scope set satisfies a required granular scope. Empty stored = full access. */
+/**
+ * Whether a stored scope set satisfies a required granular scope. Empty stored = full access.
+ *
+ * Write implies read for the same resource. Nothing implies delete, and
+ * delete implies nothing: a key that can remove a record by id need not be
+ * able to read or change one.
+ */
 export function satisfiesApiKeyScope(
   stored: readonly ApiKeyScope[],
   required: ApiKeyGranularScope,

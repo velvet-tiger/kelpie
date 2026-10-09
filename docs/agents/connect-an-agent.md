@@ -13,6 +13,8 @@ MCP takes bearer API keys only. A browser session will not work, deliberately.
 
 Either kind is shown once; copy it when it appears. A key is bound to one workspace — connecting a second workspace means a second key.
 
+A key with "Write objects" cannot delete records and cannot change the handbook. Add "Delete objects" or "Handbook (write)" when the agent needs them. An agent that connects through OAuth sign-in gets the same default, and the consent page offers both as extra permissions.
+
 A decision that an agent records is a proposal until a member confirms it in the app. To let an agent record commitments itself, give its key the extra permission "Decisions (commit without confirmation)" (`decisions:commit`). No preset includes it.
 
 ## Step 2: the endpoint

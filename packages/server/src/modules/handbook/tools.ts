@@ -17,10 +17,11 @@ export function registerHandbookTools(mcp: McpToolRegistry, service: HandbookSer
   registerCrudTools(mcp, {
     resource: 'handbook_pages',
     subject: 'handbook page',
-    scopes: { read: 'handbook:read', write: 'handbook:write' },
+    scopes: { read: 'handbook:read', write: 'handbook:write', delete: 'handbook:delete' },
     about:
       'A markdown page of company knowledge: voice, ICP, how we sell, case studies. ' +
-      'Read these before writing anything a customer will see.',
+      'Read these before writing anything a customer will see. Creating or changing a page ' +
+      'needs the handbook:write scope, which write:objects does not include.',
     service,
     render: handbookPageResponse,
     listArgs,
