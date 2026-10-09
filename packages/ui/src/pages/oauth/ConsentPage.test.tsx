@@ -27,6 +27,7 @@ const REQUEST = {
   logo_uri: null,
   scopes: ['read:objects', 'write:objects'],
   extra_scopes: ['decisions:commit'],
+  local_client: false,
   workspaces: [{ id: 'ws_1', name: 'Acme', role: 'owner', connected: false, held_scopes: [] }],
   expires_at: '2026-09-25T02:10:00.000Z',
 }
@@ -54,6 +55,8 @@ interface PageStubs {
   readonly scopes?: readonly string[]
   /** The extra permissions the server offers. `decisions:commit` unless a test says otherwise. */
   readonly extraScopes?: readonly string[]
+  /** True for an app that redirects to this computer. False unless a test says otherwise. */
+  readonly localClient?: boolean
   /** The workspace the session is in. `ws_1` unless a test says otherwise. */
   readonly activeWorkspaceId?: string
 }
@@ -75,6 +78,7 @@ function renderPage(stubs: PageStubs = {}): void {
           ...REQUEST,
           scopes: stubs.scopes ?? REQUEST.scopes,
           extra_scopes: stubs.extraScopes ?? REQUEST.extra_scopes,
+          local_client: stubs.localClient ?? REQUEST.local_client,
           workspaces: stubs.workspaces ?? REQUEST.workspaces,
         }
       }
@@ -577,6 +581,78 @@ describe('ConsentPage', () => {
       workspace_ids: ['ws_1'],
       scopes: ['read:all', 'people:delete', 'delete:objects'],
     })
+  })
+
+  /**
+   * What the server sends for an app on the person's computer: nothing
+   * connected and nothing held, whatever the app was allowed before.
+   */
+  it('ticks nothing for an app that runs on this computer, and says why', async () => {
+    const stubs = {
+      localClient: true,
+      activeWorkspaceId: 'ws_2',
+      extraScopes: ALL_EXTRAS,
+      workspaces: TWO_WORKSPACES,
+    }
+
+    renderPage(stubs)
+    await screen.findByText('Connect Example Agent')
+
+    expect(
+      screen.getByText(/This app runs on your computer, so Kelpie does not use what you allowed it before/u),
+    ).toBeTruthy()
+    // The workspace of the session, as for an app that is new.
+    expect(box(/Globex/u).checked).toBe(true)
+    expect(box(/Acme/u).checked).toBe(false)
+
+    for (const name of [/^Decisions \(commit/u, /^Handbook \(write\)/u, /^Delete objects/u]) {
+      expect(box(name).checked).toBe(false)
+    }
+
+    expect(screen.queryByText(/· already allowed/u)).toBeNull()
+
+    cleanup()
+
+    expect(await approveAfter(stubs, [])).toEqual({ workspace_ids: ['ws_2'], scopes: ['read:objects', 'write:objects'] })
+  })
+
+  it('does not show that line for an app that does not run on this computer', async () => {
+    renderPage({ extraScopes: ALL_EXTRAS })
+    await screen.findByText('Connect Example Agent')
+
+    expect(screen.queryByText(/This app runs on your computer/u)).toBeNull()
+  })
+
+  it('says where an extra is allowed now when only some of the ticked workspaces have it', async () => {
+    const stubs = {
+      extraScopes: ALL_EXTRAS,
+      workspaces: [
+        { id: 'ws_1', name: 'Acme', role: 'owner', connected: true, held_scopes: ['delete:objects'] },
+        { id: 'ws_2', name: 'Globex', role: 'member', connected: true, held_scopes: [] },
+      ],
+    }
+
+    renderPage(stubs)
+    await screen.findByText('Connect Example Agent')
+
+    // Both are ticked, one holds the scope, so the row starts clear and says what a plain Allow does.
+    expect(box(/^Delete objects/u).checked).toBe(false)
+    expect(screen.getByText('Allowed now in Acme. If you leave it clear, it is removed there.')).toBeTruthy()
+    // A row that no ticked workspace holds has no such note.
+    expect(screen.getAllByText(/^Allowed now in/u)).toHaveLength(1)
+
+    await act(async () => {
+      box(/^Delete objects/u).click()
+    })
+
+    expect(screen.getByText('Allowed now in Acme. Ticked, it is allowed in every selected workspace.')).toBeTruthy()
+
+    await act(async () => {
+      box(/Globex/u).click()
+    })
+
+    // Only Acme is ticked now, and it holds the scope: nothing is partial.
+    expect(screen.queryByText(/^Allowed now in/u)).toBeNull()
   })
 
   it('shows no extra section when the server offers none', async () => {

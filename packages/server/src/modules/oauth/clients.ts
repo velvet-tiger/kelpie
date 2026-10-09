@@ -46,6 +46,23 @@ function isLoopback(url: URL): boolean {
 }
 
 /**
+ * True when a redirect URI is one that `redirectUriMatches` accepts on any
+ * port: plain HTTP on a loopback address.
+ *
+ * Such a redirect does not say which program asked. Any program on the
+ * person's computer can open an authorize request with the `client_id` of a
+ * native client and a port of its own, and the request matches. So a request
+ * with this kind of redirect is told nothing about what the client was
+ * allowed before. It is the same test as the match uses, so the two cannot
+ * come apart.
+ */
+export function isLoopbackRedirectUri(value: string): boolean {
+  const url = parseUrl(value)
+
+  return url !== undefined && isLoopback(url)
+}
+
+/**
  * The redirect URIs a client may register.
  *
  * HTTPS anywhere. Plain HTTP only on a loopback address, which is what a CLI or

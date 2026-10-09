@@ -150,7 +150,8 @@ export async function insertDecision(db: Queryable, values: DecisionColumns): Pr
 /**
  * Whether a decision is confirmed, read with a lock on its row until the
  * transaction ends. A confirm waits for that lock, so the answer is still
- * true when the caller's own write lands.
+ * true when the caller's own write lands, and a refusal that follows from it
+ * is not made on a stale row.
  *
  * @returns Undefined when the decision is not in the workspace.
  */

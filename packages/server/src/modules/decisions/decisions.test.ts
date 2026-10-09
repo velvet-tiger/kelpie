@@ -1115,24 +1115,84 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
       ).not.toBeNull()
     })
 
-    it('makes a confirmed decision a proposal again when a key without decisions:commit rewrites its text', async () => {
-      const key = await mintScopedKey(WITHOUT_COMMIT)
+    /** The error of a `decisions_*` tool call that the tool refused. */
+    async function toolError(
+      bearer: string,
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+      const response = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      })
+      const result = readRecord(readRecord(await response.json()).result)
+      const [content] = result.content as { text: string }[]
 
-      for (const change of [{ body: 'Rewritten by an agent' }, { rationale: 'A reason an agent wrote' }]) {
-        const created = await decisionOn(personId, 'From a member')
-        const edited = await patchWith(created.id, change, { bearer: key })
+      expect(result.isError).toBe(true)
 
-        expect(edited.origin).toBe('agent')
-        expect(edited.confirmed_at).toBeNull()
-        expect(edited.confirmed_by_id).toBeNull()
+      return readRecord(readRecord(JSON.parse(content?.text ?? 'null')).error)
+    }
+
+    async function readDecision(id: unknown): Promise<Record<string, unknown>> {
+      return readRecord(await (await client.send('GET', `/v1/decisions/${String(id)}`, { cookie: acme.cookie })).json())
+    }
+
+    it('refuses a change to the text of a confirmed decision by a key without decisions:commit, and writes nothing', async () => {
+      for (const kind of ['workspace', 'personal'] as const) {
+        const key = await mintScopedKey(WITHOUT_COMMIT, kind)
+
+        for (const change of [
+          { body: 'Rewritten by an agent' },
+          { rationale: 'A reason an agent wrote' },
+          // The date is not written either: the whole update is refused.
+          { body: 'Rewritten by an agent', due_at: '2026-09-01T00:00:00.000Z' },
+        ]) {
+          const created = await decisionOn(personId, 'From a member')
+          const response = await client.send('PATCH', `/v1/decisions/${String(created.id)}`, {
+            body: change,
+            bearer: key,
+          })
+          const error = readRecord(readRecord(await response.json()).error)
+
+          expect(response.status).toBe(403)
+          expect(error.code).toBe('forbidden')
+          expect(error.message).toContain('This decision is confirmed, and this connection cannot change its text')
+          expect(error.message).toContain('Create a new decision instead')
+          expect(await readDecision(created.id)).toEqual(created)
+        }
       }
+    })
 
+    it('refuses the same change over MCP, with the same message, and writes nothing', async () => {
       const created = await decisionOn(personId, 'From a member')
-      const overMcp = await callTool(key, 'decisions_update', { id: created.id, body: 'Rewritten over MCP' })
+      const error = await toolError(await mintScopedKey(WITHOUT_COMMIT), 'decisions_update', {
+        id: created.id,
+        body: 'Rewritten over MCP',
+      })
 
-      expect(overMcp.origin).toBe('agent')
-      expect(overMcp.confirmed_at).toBeNull()
-      expect(overMcp.confirmed_by_id).toBeNull()
+      expect(error.code).toBe('forbidden')
+      expect(error.message).toContain('Create a new decision instead')
+      expect(await readDecision(created.id)).toEqual(created)
+    })
+
+    it('lets the refused caller propose the change as a new decision', async () => {
+      const key = await mintScopedKey(WITHOUT_COMMIT)
+      const created = await decisionOn(personId, 'From a member')
+
+      expect(
+        (await client.send('PATCH', `/v1/decisions/${String(created.id)}`, { body: { body: 'Changed' }, bearer: key }))
+          .status,
+      ).toBe(403)
+
+      const proposed = await createWith(key, 'Changed')
+
+      expect(proposed.confirmed_at).toBeNull()
+      expect((await readDecision(created.id)).confirmed_at).toBe(created.confirmed_at)
     })
 
     it('keeps a decision confirmed, with no member named, when a key with decisions:commit rewrites its text', async () => {
@@ -1184,15 +1244,69 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
       expect(readRecord(await confirmed.json()).confirmed_by_id).toMatch(/^mem_/u)
     })
 
-    it('makes a confirmed decision a proposal again when the hosted AI rewrites its text', async () => {
+    it('refuses the hosted AI, and a session marked as a model, the text of a confirmed decision', async () => {
       const created = await decisionOn(personId, 'From a member')
-      const edited = await service().update(createHostedAiActor(acme.workspaceId), String(created.id), {
-        body: 'Rewritten by a run',
+      const member: SessionActor = {
+        kind: 'session',
+        userId: 'usr_test',
+        sessionId: 'ses_test',
+        workspaceId: acme.workspaceId,
+        role: 'owner',
+        memberId: null,
+      }
+
+      for (const actor of [createHostedAiActor(acme.workspaceId), asAiAuthor(member)]) {
+        const refusal: unknown = await service()
+          .update(actor, String(created.id), { body: 'Rewritten by a run' })
+          .catch((thrown: unknown) => thrown)
+
+        expect(refusal).toBeInstanceOf(AppError)
+        expect(refusal instanceof AppError && refusal.code).toBe('forbidden')
+      }
+
+      expect(await readDecision(created.id)).toEqual(created)
+    })
+
+    it('decides an OAuth caller that rewrites a confirmed decision by its scopes', async () => {
+      const oauth = (scopes: OAuthActor['scopes']): OAuthActor => ({
+        kind: 'oauth',
+        grantId: 'ogr_test',
+        connectionId: 'ocn_test',
+        clientId: 'client',
+        userId: 'usr_test',
+        workspaceId: acme.workspaceId,
+        role: 'owner',
+        scopes,
+        memberId: 'mem_test',
+      })
+      const created = await decisionOn(personId, 'From a member')
+
+      for (const scopes of [['decisions:write'], ['read:objects', 'write:objects'], []] as const) {
+        const refusal: unknown = await service()
+          .update(oauth(scopes), String(created.id), { body: 'Rewritten over OAuth' })
+          .catch((thrown: unknown) => thrown)
+
+        expect(refusal instanceof AppError && refusal.code).toBe('forbidden')
+      }
+
+      expect(await readDecision(created.id)).toEqual(created)
+
+      const edited = await service().update(oauth(['decisions:write', 'decisions:commit']), String(created.id), {
+        body: 'Rewritten with commit',
       })
 
-      expect(edited.origin).toBe('ai')
-      expect(edited.confirmedAt).toBeNull()
+      expect(edited.body).toBe('Rewritten with commit')
+      expect(edited.confirmedAt).not.toBeNull()
       expect(edited.confirmedById).toBeNull()
+    })
+
+    it('lets a signed-in member change the text of a confirmed decision, as before', async () => {
+      const created = await decisionOn(personId, 'From a member')
+      const edited = await patchWith(created.id, { body: 'Edited by the member' }, { cookie: acme.cookie })
+
+      expect(edited.body).toBe('Edited by the member')
+      expect(edited.confirmed_at).toBe(created.confirmed_at)
+      expect(edited.confirmed_by_id).toBe(created.confirmed_by_id)
     })
 
     it('does not let a key confirm, with or without decisions:commit', async () => {
@@ -1226,11 +1340,7 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
       function watch(): Seen[] {
         const seen: Seen[] = []
 
-        for (const name of [
-          'decisions.decision.added',
-          'decisions.decision.confirmed',
-          'decisions.decision.unconfirmed',
-        ] as const) {
+        for (const name of ['decisions.decision.added', 'decisions.decision.confirmed'] as const) {
           harness.services.events.subscribe(name, (event) => {
             seen.push({ name: event.name, data: event.data })
           })
@@ -1254,13 +1364,28 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
         ])
       })
 
+      it('emits nothing for an edit, refused or allowed', async () => {
+        const created = await decisionOn(personId, 'From a member')
+        const without = await mintScopedKey(WITHOUT_COMMIT)
+        const withCommit = await mintScopedKey(WITH_COMMIT)
+        const seen = watch()
+
+        await client.send('PATCH', `/v1/decisions/${String(created.id)}`, { body: { body: 'Refused' }, bearer: without })
+        await patchWith(created.id, { due_at: '2026-09-01T00:00:00.000Z' }, { bearer: without })
+        await patchWith(created.id, { body: 'Rewritten with commit' }, { bearer: withCommit })
+        await harness.services.events.drain()
+
+        expect(seen).toEqual([])
+      })
+
       /**
        * The race: an agent reads a proposal, a member confirms it, and then
        * the agent's rewrite lands. The confirm here runs after the update's
-       * first read and before its transaction, which is that order.
+       * first read and before its transaction, which is that order. The
+       * rewrite must not become confirmed text that no member read.
        */
-      it('emits decision.unconfirmed when a member confirmed between the read and the write of an edit', async () => {
-        const proposed = await createWith(await mintScopedKey(WITHOUT_COMMIT))
+      it('refuses an edit when a member confirmed between its read and its write, and keeps the confirmed text', async () => {
+        const proposed = await createWith(await mintScopedKey(WITHOUT_COMMIT), 'What the member read')
         const [member] = await database.db
           .select()
           .from(workspaceMembers)
@@ -1300,36 +1425,32 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
           now: harness.services.now,
         })
         const seen = watch()
-        const edited = await racing.update(agent, String(proposed.id), { body: 'Rewritten after the confirm' })
+        const refusal: unknown = await racing
+          .update(agent, String(proposed.id), { body: 'Rewritten after the confirm' })
+          .catch((thrown: unknown) => thrown)
 
         await harness.services.events.drain()
 
-        expect(edited.confirmedAt).toBeNull()
-        expect(edited.confirmedById).toBeNull()
+        expect(refusal instanceof AppError && refusal.code).toBe('forbidden')
+
+        const stored = await readDecision(proposed.id)
+
+        expect(stored.body).toBe('What the member read')
+        expect(stored.confirmed_at).not.toBeNull()
+        expect(stored.confirmed_by_id).toBe(member?.id)
         expect(seen).toEqual([
           { name: 'decisions.decision.confirmed', data: { decisionId: proposed.id, origin: 'agent' } },
-          { name: 'decisions.decision.unconfirmed', data: { decisionId: proposed.id, origin: 'agent' } },
         ])
       })
 
-      it('emits decision.unconfirmed when a commitment goes back to a proposal, and for no other edit', async () => {
-        const created = await decisionOn(personId, 'From a member')
-        const without = await mintScopedKey(WITHOUT_COMMIT)
-        const withCommit = await mintScopedKey(WITH_COMMIT)
-        const seen = watch()
+      /** The same lock, the other way: an edit of what is still a proposal is not refused. */
+      it('allows an edit of a proposal that nobody confirmed in between', async () => {
+        const key = await mintScopedKey(WITHOUT_COMMIT)
+        const proposed = await createWith(key)
+        const edited = await patchWith(proposed.id, { body: 'Edited by the agent' }, { bearer: key })
 
-        await patchWith(created.id, { due_at: '2026-09-01T00:00:00.000Z' }, { bearer: without })
-        await patchWith(created.id, { body: 'Rewritten by an agent' }, { bearer: without })
-        // It is a proposal now, so a second rewrite withdraws nothing.
-        await patchWith(created.id, { body: 'Rewritten again' }, { bearer: without })
-        await client.send('POST', `/v1/decisions/${String(created.id)}/confirm`, { cookie: acme.cookie })
-        await patchWith(created.id, { body: 'Rewritten with commit' }, { bearer: withCommit })
-        await harness.services.events.drain()
-
-        expect(seen).toEqual([
-          { name: 'decisions.decision.unconfirmed', data: { decisionId: created.id, origin: 'agent' } },
-          { name: 'decisions.decision.confirmed', data: { decisionId: created.id, origin: 'agent' } },
-        ])
+        expect(edited.body).toBe('Edited by the agent')
+        expect(edited.confirmed_at).toBeNull()
       })
     })
   })

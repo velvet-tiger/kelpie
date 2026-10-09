@@ -23,6 +23,7 @@ import {
   OAuthClientError,
   describeRedirectHost,
   fetchClientMetadata,
+  isLoopbackRedirectUri,
   isMetadataDocumentClientId,
   redirectUriMatches,
   validateRegistration,
@@ -237,6 +238,12 @@ export interface ConsentView {
   readonly scopes: readonly ApiKeyScope[]
   /** The scopes shown apart and clear: the sensitive ones requested, then `CONSENT_EXTRA_SCOPES`. */
   readonly extraScopes: readonly ApiKeyScope[]
+  /**
+   * True when the request redirects to a loopback address. No workspace is
+   * then reported as connected and none holds a scope, whatever the grants
+   * say, and the page tells the person why nothing is ticked for them.
+   */
+  readonly localClient: boolean
   readonly workspaces: readonly {
     readonly id: string
     readonly name: string
@@ -682,11 +689,20 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
 
       const memberships = await repository.listMembershipsForUser(dependencies.db, session.userId)
       const extraScopes = offeredExtraScopes(request.scopes as ApiKeyScope[])
+      // A loopback redirect does not prove which program asked, so such a
+      // request gets nothing from an earlier approval: no ticked sensitive
+      // scope, and no ticked workspace either. A ticked workspace gives no
+      // sensitive scope, but with one click it would give a program that only
+      // names the client every workspace the client has, and not the one
+      // workspace a new app gets.
+      const localClient = isLoopbackRedirectUri(request.redirectUri)
       // Read here and never taken from the request: what a connection holds
       // already is for the server to say, not for the client that wants more.
-      const grants = (await repository.listGrantsForUser(dependencies.db, session.userId)).filter(
-        ({ grant }) => grant.clientRowId === client.id,
-      )
+      const grants = localClient
+        ? []
+        : (await repository.listGrantsForUser(dependencies.db, session.userId)).filter(
+            ({ grant }) => grant.clientRowId === client.id,
+          )
 
       return {
         id: request.id,
@@ -699,6 +715,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         logoUri: client.logoUri,
         scopes: request.scopes as ApiKeyScope[],
         extraScopes,
+        localClient,
         workspaces: memberships.map((membership) => {
           const held = grants.find(({ grant }) => grant.workspaceId === membership.id)?.grant.scopes
 

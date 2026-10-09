@@ -41,6 +41,12 @@ import type { DecisionFilters, DecisionRecord } from './repository.ts'
  * an API key or an OAuth token that holds `decisions:commit`. Every other
  * caller writes a proposal, and a member confirms it. No update confirms one;
  * `confirm` is the only way, and it takes a session.
+ *
+ * The same rule guards the text of a commitment. A caller that cannot commit
+ * cannot change the `body` or the `rationale` of a confirmed decision: the
+ * update is refused, and the caller proposes a new decision instead. So no
+ * write takes a confirmation off, and a confirmed decision always holds text
+ * that a member, or a credential trusted to commit, put there.
  */
 
 export interface DecisionsDependencies {
@@ -95,6 +101,11 @@ export interface DecisionsService {
   ): Promise<Page<DecisionView>>
   get(actor: Actor, id: string): Promise<DecisionView>
   create(actor: Actor, input: CreateDecisionInput): Promise<DecisionView>
+  /**
+   * @throws AppError 403 when the caller cannot commit decisions and the
+   *   change is to the `body` or the `rationale` of a confirmed decision.
+   *   Nothing is written.
+   */
   update(actor: Actor, id: string, changes: UpdateDecisionInput): Promise<DecisionView>
   /**
    * Turns a proposal into a commitment. Confirming a decision that is
@@ -257,34 +268,42 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
 
       // A caller that is not a member and changes what the decision says
       // takes the member's name off it. The origin drops to the caller's, and
-      // the member who confirmed the old text did not confirm this one. A
-      // caller that cannot commit also takes the confirmation off: the new
-      // text is that caller's proposal. No edit ever sets `confirmedAt`.
+      // the member who confirmed the old text did not confirm this one.
+      // `confirmedAt` is not touched here: no edit confirms a decision, and
+      // none takes a confirmation off.
       const textChanged = changed.includes('body') || changed.includes('rationale')
       const rewritten = textChanged && writeOrigin(actor) !== 'member'
-      const leavesProposal = rewritten && !commitsDecisions(actor)
-      // Written whenever the caller cannot commit, and not only when the row
-      // read above was confirmed, so a confirm that lands between that read
-      // and this write does not put a member's name on the new text.
+      const needsProposal = rewritten && !commitsDecisions(actor)
       const provenance: Partial<repository.DecisionColumns> = rewritten
-        ? {
-            origin: originAfterTextEdit(existing.origin, actor),
-            confirmedById: null,
-            ...(leavesProposal ? { confirmedAt: null } : {}),
-          }
+        ? { origin: originAfterTextEdit(existing.origin, actor), confirmedById: null }
         : {}
 
-      // No event for an edit. The catalog carries nothing for a decision
-      // changing, and inventing a name here would add one the webhooks engine
-      // has never been told about. The one exception is a commitment that
-      // stops being one, which a subscriber that announced it has to hear.
-      return dependencies.transaction(async ({ tx, events }) => {
-        // Whether this write takes a confirmation off is read under a row
-        // lock, not from the row read above. A member can confirm between
-        // that read and this write; `decision.confirmed` then fires, and the
-        // subscriber that heard it must hear `decision.unconfirmed` too.
-        const locked = leavesProposal ? await repository.lockDecisionConfirmation(tx, workspaceId, id) : undefined
-        const withdrawsConfirmation = locked !== undefined && locked.confirmedAt !== null
+      // No event. The catalog carries `decision.added` and nothing for a
+      // decision changing, and inventing a name here would add one the webhooks
+      // engine has never been told about.
+      return dependencies.transaction(async ({ tx }) => {
+        // A caller that cannot commit may rewrite a proposal and may not
+        // rewrite a commitment. Which one this is, is read here under a row
+        // lock and not from the row read above. A member can confirm between
+        // that read and this write. Without the lock the new text would then
+        // be confirmed text that no member read, or a stale read would refuse
+        // an edit of what is still a proposal. A confirm waits for the lock.
+        if (needsProposal) {
+          const locked = await repository.lockDecisionConfirmation(tx, workspaceId, id)
+
+          if (locked === undefined) {
+            throw AppError.notFound('Decision not found')
+          }
+
+          if (locked.confirmedAt !== null) {
+            throw new AppError(
+              'forbidden',
+              'This decision is confirmed, and this connection cannot change its text. ' +
+                'Create a new decision instead. It will be a proposal for a member to confirm',
+            )
+          }
+        }
+
         const updated = await repository.updateDecision(tx, workspaceId, id, {
           ...columns,
           ...provenance,
@@ -295,16 +314,8 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
           throw AppError.notFound('Decision not found')
         }
 
-        if (withdrawsConfirmation) {
-          events.emit(
-            'decisions.decision.unconfirmed',
-            { type: updated.targetType, id: updated.targetId },
-            { decisionId: updated.id, origin: updated.origin },
-          )
-        }
-
         return toView(updated)
-      }, { workspaceId, actor: toEventActor(actor) })
+      })
     },
 
     async confirm(actor, id, expected) {

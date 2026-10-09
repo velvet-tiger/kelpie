@@ -93,7 +93,20 @@ While the major version is `0`, a minor bump may break the API.
     start, and not the workspace of the session. An authorize request
     carries no token, so the server cannot tell which connection asked; it
     marks every workspace that the client has. An app that is new to the
-    person still opens on the workspace of the session.
+    person still opens on the workspace of the session. One approval joins
+    this app's connections for the ticked workspaces into one connection,
+    and the tokens of the others end.
+  - **Some of the ticked workspaces have a permission and some do not.**
+    The row then starts clear, and it says where the permission is allowed
+    now and that leaving it clear removes it there.
+  - **An app that redirects to a loopback address gets nothing from an
+    earlier approval.** Any program on the person's computer can start a
+    request with the `client_id` of a native client and a loopback port of
+    its own. So for such a request the server reports no workspace as
+    connected and no sensitive scope as held. The page opens on the
+    workspace of the session with every sensitive scope clear, and says
+    why. The test is the one the redirect match uses. The person can still
+    tick everything again.
   - **A wider ticked row locks the narrower ones.** While "Delete objects"
     is ticked, a row such as "People (delete)" shows ticked and cannot be
     changed, with "included in Delete objects". The same is so for "Write
@@ -117,8 +130,8 @@ While the major version is `0`, a minor bump may break the API.
     connection, under any name that gives it: `write:all` shows "Handbook
     (write)".
   - **`@kelpie/server`** — `GET /v1/oauth/requests/:id` carries
-    `extra_scopes`, and each of its `workspaces` carries `connected` and
-    `held_scopes`. Each
+    `extra_scopes` and `local_client`, and each of its `workspaces` carries
+    `connected` and `held_scopes`. Each
     row of `GET /v1/oauth/grants` carries `extra_scopes`: the sensitive
     powers of the grant. `POST /v1/oauth/requests/:id/approve` accepts the
     requested scopes and the three scopes that are always offered, and
@@ -127,8 +140,9 @@ While the major version is `0`, a minor bump may break the API.
     that set and cannot widen it. No migration.
   - **`@kelpie/schemas`** — `OAuthRequest` and `OAuthGrant` gain
     `extraScopes`, and `OAuthWorkspaceChoice` gains `connected` and
-    `heldScopes`. **Breaking for a client of an older server:** the schemas
-    need `extra_scopes`, `connected` and `held_scopes`. New: `API_KEY_SENSITIVE_SCOPES`,
+    `heldScopes`, and `OAuthRequest` gains `localClient`. **Breaking for a
+    client of an older server:** the schemas need `extra_scopes`,
+    `local_client`, `connected` and `held_scopes`. New: `API_KEY_SENSITIVE_SCOPES`,
     `API_KEY_SENSITIVE_PRESET_SCOPES`, `API_KEY_OPT_IN_SCOPES`,
     `isSensitiveApiKeyScope`, `sensitiveApiKeyScopesHeld`,
     `isApiKeyRiskScope` and `apiKeyScopeRisk`, with the types
@@ -369,15 +383,27 @@ While the major version is `0`, a minor bump may break the API.
     member confirm the Decision in the app. An API key with no scopes (full
     access) has every scope, so its Decisions are confirmed as before. A
     signed-in member's are too.
-  - **Changed behaviour for an existing integration:** when a credential
-    without `decisions:commit` changes the `body` or the `rationale` of a
-    confirmed Decision, the Decision becomes a proposal again: `confirmed_at`
-    and `confirmed_by_id` are null. With the scope it stays confirmed, with
-    `confirmed_by_id` null, as before. A change to another field, or the same
-    text again, changes nothing.
+  - **Changed behaviour for an existing integration:** a credential without
+    `decisions:commit` cannot change the `body` or the `rationale` of a
+    confirmed Decision. `PATCH /v1/decisions/:id` and `decisions_update`
+    answer `403`, and nothing is written, also when the request changes
+    other fields too. The message says to create a new Decision, which is a
+    proposal. Before, the edit was written and the Decision stayed
+    confirmed. Not changed: such a credential can change the text of a
+    Decision that is still a proposal, can change `due_at`, `decided_at`
+    and `owner_id` of a confirmed one, and gets no error for the same text
+    again. With the scope the edit is written and the Decision stays
+    confirmed, with `confirmed_by_id` null, as before. A signed-in member is
+    not affected.
+  - The check reads the Decision under a row lock in the same transaction
+    as the write. A confirm that lands between an agent's read and its
+    write cannot leave rewritten text confirmed.
+  - Deleting is not part of this rule. A delete of a Decision, confirmed or
+    not, needs `decisions:delete`, which a default key and a default OAuth
+    connection do not have.
   - The hosted AI is not given the scope by its empty scope list. Its
-    Decisions are proposals, and its rewrite of a confirmed Decision makes
-    that Decision a proposal.
+    Decisions are proposals, and it cannot change the text of a confirmed
+    Decision.
   - `POST /v1/decisions/:id/confirm` is as before: a signed-in member only,
     whatever scopes a key has.
   - **`@kelpie/schemas`** — new: the scope `decisions:commit`,
@@ -386,9 +412,8 @@ While the major version is `0`, a minor bump may break the API.
     preset expands to it.
   - **`@kelpie/server`** — **for a module that subscribes to events:**
     `decisions.decision.added` has `confirmed: false` for these proposals.
-    New: `decisions.decision.unconfirmed`, when a commitment becomes a
-    proposal again. `decisions.decision.confirmed` fires again when a member
-    confirms the new text. None is a webhook event.
+    Nothing takes a confirmation off, so `decisions.decision.confirmed`
+    fires at most once for a Decision. Neither is a webhook event.
   - **`@kelpie/ui`** — a proposal from an agent shows "Proposed by an agent —
     not confirmed" with the Confirm button. The API key form has an "Extra
     permissions" section with `decisions:commit`, and the key list names it.

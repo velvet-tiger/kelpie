@@ -188,6 +188,16 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       expect(instructions).toContain('tell the user that the decision is a proposal')
       expect(create?.description).toContain('unless your connection has the decisions:commit')
       expect(create?.description).toContain('Tell the user that a member must confirm it')
+
+      const update = (listing.tools as { name: string; description: string }[]).find(
+        (tool) => tool.name === 'decisions_update',
+      )
+
+      expect(instructions).toContain('you cannot change the body or the rationale of a confirmed\n  decision')
+      expect(instructions).toContain('Do not delete\n  the decision or look for another way')
+      expect(instructions).not.toContain('becomes a proposal again')
+      expect(update?.description).toContain('is refused with forbidden, and nothing is written')
+      expect(update?.description).toContain('create a new decision with decisions_create')
     })
 
     it('tells the agent what to do when a delete or a handbook write is refused for a missing scope', async () => {

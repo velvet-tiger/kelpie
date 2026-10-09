@@ -34,8 +34,14 @@ export function registerDecisionsTools(mcp: McpToolRegistry, service: DecisionsS
       'proposal, with confirmed_at null, unless your connection has the decisions:commit ' +
       'scope. Tell the user that a member must confirm it in Kelpie. origin says what wrote ' +
       'it; when you change the body or the rationale it becomes agent, unless it is ai, ' +
-      'which it stays. Without decisions:commit that change also makes a confirmed decision ' +
-      'a proposal again.',
+      'which it stays. Without decisions:commit you cannot change the body or the rationale ' +
+      'of a confirmed decision.',
+    updateNote:
+      'Without the decisions:commit scope, a change to the body or the rationale of a ' +
+      'confirmed decision (confirmed_at set) is refused with forbidden, and nothing is ' +
+      'written. Do not look for another way to change it: create a new decision with ' +
+      'decisions_create, which is a proposal, and tell the user that a member must confirm ' +
+      'it. You can still change due_at, decided_at and owner_id, and the text of a proposal.',
     service,
     render: decisionResponse,
     listArgs,

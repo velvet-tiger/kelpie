@@ -143,6 +143,8 @@ export interface CrudToolSpec<
   }
   /** One line an agent reads to know what this object is for. */
   readonly about: string
+  /** A rule of this resource's update that an agent must know before it calls the tool. */
+  readonly updateNote?: string
   readonly service: CrudService<View, CreateInput, UpdateInput, Filters>
   readonly render: (view: View) => Record<string, unknown>
   /** Filters plus `listWindowShape`. Flat, so the published JSON Schema is one object. */
@@ -215,6 +217,7 @@ export function registerCrudTools<
     name: `${resource}_update`,
     description:
       `Update a ${subject}. Only the fields you send change; null clears a nullable one. ` +
+      `${spec.updateNote === undefined ? '' : `${spec.updateNote} `}` +
       `Mirrors PATCH /v1/${resource}/{id}.`,
     scope: scopes.write,
     inputSchema: spec.updateArgs,

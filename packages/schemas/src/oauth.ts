@@ -54,6 +54,13 @@ export interface OAuthRequest {
    * unless every selected workspace has it in `heldScopes`.
    */
   readonly extraScopes: readonly ApiKeyScope[]
+  /**
+   * True when the app runs on the person's computer: it redirects to a
+   * loopback address. The server then reports no workspace as `connected`
+   * and no `heldScopes`, because such a redirect does not prove which
+   * program asked.
+   */
+  readonly localClient: boolean
   readonly workspaces: readonly OAuthWorkspaceChoice[]
   readonly expiresAt: Date
 }
@@ -91,6 +98,7 @@ const oauthRequestWireSchema = z.object({
   logo_uri: z.string().nullable(),
   scopes: z.array(z.enum(API_KEY_SCOPES)),
   extra_scopes: z.array(z.enum(API_KEY_SCOPES)),
+  local_client: z.boolean(),
   workspaces: z.array(
     z.object({
       id: idSchema,
@@ -112,6 +120,7 @@ export const oauthRequestSchema: z.ZodType<OAuthRequest, unknown> = oauthRequest
     logoUri: wire.logo_uri,
     scopes: wire.scopes,
     extraScopes: wire.extra_scopes,
+    localClient: wire.local_client,
     workspaces: wire.workspaces.map((workspace) => ({
       id: workspace.id,
       name: workspace.name,

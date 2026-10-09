@@ -29,6 +29,10 @@ const connectionString = testDatabaseUrl(process.env)
 
 const RESOURCE = `${TEST_APP_BASE_URL}/mcp`
 const REDIRECT = 'http://127.0.0.1:33418/callback'
+/** A redirect on a public host: one program owns it, unlike a loopback port. */
+const WEB_REDIRECT = 'https://client.example/callback'
+/** Makes an authorize request come from the web redirect of a client that has both. */
+const FROM_WEB = { redirect_uri: WEB_REDIRECT }
 const VERIFIER = 'a-verifier-that-is-long-enough-to-satisfy-rfc-7636-rules'
 const CHALLENGE = createHash('sha256').update(VERIFIER, 'ascii').digest('base64url')
 const METADATA_CLIENT_ID = 'https://client.example/oauth/metadata.json'
@@ -285,9 +289,10 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
   async function connect(
     scopes: readonly string[] = ['read:objects', 'write:objects'],
     requested = 'read:objects write:objects',
+    redirectUris: readonly string[] = [REDIRECT],
   ): Promise<Tokens> {
     const { cookie, workspaceId } = await owner()
-    const clientId = await registerPublicClient()
+    const clientId = await registerPublicClient(redirectUris)
     const requestId = await startRequest(clientId, { scope: requested })
     const redirect = await approve(cookie, requestId, workspaceId, scopes)
     const response = await exchange(clientId, redirect.searchParams.get('code') ?? '')
@@ -630,7 +635,7 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       expect(isRecord(decision) && decision.origin).toBe('agent')
     })
 
-    it('writes a decision as a proposal, and rewrites a commitment into one, without decisions:commit', async () => {
+    it('writes a decision as a proposal, and cannot rewrite a commitment, without decisions:commit', async () => {
       const { accessToken, cookie } = await connect()
       const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
       const target = { target_type: 'person', target_id: readString(person, 'id') }
@@ -640,17 +645,41 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
       expect(proposed).toMatchObject({ origin: 'agent', confirmed_at: null, confirmed_by_id: null })
 
+      // Its own proposal is its to change.
+      const reworded = await toolPayload(
+        await callTool(accessToken, 'decisions_update', { id: readString(proposed, 'id'), body: 'Reworded' }),
+      )
+
+      expect(reworded).toMatchObject({ body: 'Reworded', confirmed_at: null })
+
       const byMember: unknown = await (
         await send('POST', '/v1/decisions', { body: { ...target, body: 'From a member' }, cookie })
       ).json()
+      const refusedCall = await callTool(accessToken, 'decisions_update', {
+        id: readString(byMember, 'id'),
+        body: 'Rewritten over OAuth',
+      })
+      const refused: unknown = await refusedCall.json()
 
-      expect(isRecord(byMember) && byMember.confirmed_at).not.toBeNull()
-
-      const rewritten = await toolPayload(
-        await callTool(accessToken, 'decisions_update', { id: readString(byMember, 'id'), body: 'Rewritten over OAuth' }),
+      // A tool error and not a scope challenge: `decisions:write` is held, and
+      // the answer must not send the client to ask for more access.
+      expect(refusedCall.status).toBe(200)
+      expect(isRecord(refused) && isRecord(refused.result) && refused.result.isError).toBe(true)
+      expect(JSON.stringify(refused)).toContain('This decision is confirmed, and this connection cannot change its text')
+      expect(await (await send('GET', `/v1/decisions/${readString(byMember, 'id')}`, { cookie })).json()).toEqual(
+        byMember,
       )
 
-      expect(rewritten).toMatchObject({ origin: 'agent', confirmed_at: null, confirmed_by_id: null })
+      // A date is not the text, so that change is allowed and the decision stays confirmed.
+      const dated = await toolPayload(
+        await callTool(accessToken, 'decisions_update', {
+          id: readString(byMember, 'id'),
+          due_at: '2026-09-01T00:00:00.000Z',
+        }),
+      )
+
+      expect(isRecord(dated) && dated.confirmed_at).toBe(isRecord(byMember) && byMember.confirmed_at)
+      expect(dated).toMatchObject({ body: 'From a member', origin: 'member' })
     })
 
     it('writes a decision as a commitment when the person gave decisions:commit', async () => {
@@ -785,13 +814,16 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
     it('says which sensitive scopes the client holds already, for each workspace, from the stored grant', async () => {
       const scopes = [...DEFAULT, 'handbook:write', 'people:delete']
-      const { clientId, cookie, workspaceId } = await connect(scopes, scopes.join(' '))
+      const { clientId, cookie, workspaceId } = await connect(scopes, scopes.join(' '), [REDIRECT, WEB_REDIRECT])
       const created = await send('POST', '/v1/workspaces', {
         body: { name: 'Globex', timezone: 'Australia/Melbourne' },
         cookie,
       })
       const otherWorkspaceId = readString(await created.json(), 'id')
-      const requestId = await startRequest(clientId, { scope: 'read:objects write:objects people:delete deals:delete' })
+      const requestId = await startRequest(clientId, {
+        ...FROM_WEB,
+        scope: 'read:objects write:objects people:delete deals:delete',
+      })
       const body: unknown = await (await send('GET', `/v1/oauth/requests/${requestId}`, { cookie })).json()
       const held = new Map(
         (isRecord(body) && Array.isArray(body.workspaces) ? body.workspaces : [])
@@ -810,9 +842,9 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       ])
 
       // Another client of the same person holds nothing.
-      const otherClient = await registerPublicClient()
+      const otherClient = await registerPublicClient([WEB_REDIRECT])
       const fresh: unknown = await (
-        await send('GET', `/v1/oauth/requests/${await startRequest(otherClient)}`, { cookie })
+        await send('GET', `/v1/oauth/requests/${await startRequest(otherClient, FROM_WEB)}`, { cookie })
       ).json()
 
       expect(isRecord(fresh) && fresh.workspaces).toMatchObject([
@@ -822,9 +854,9 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
     })
 
     it('marks a workspace as connected when its grant holds no sensitive scope, and for that person only', async () => {
-      const { clientId, cookie, workspaceId } = await connect()
+      const { clientId, cookie, workspaceId } = await connect(DEFAULT, DEFAULT.join(' '), [REDIRECT, WEB_REDIRECT])
       const mine: unknown = await (
-        await send('GET', `/v1/oauth/requests/${await startRequest(clientId)}`, { cookie })
+        await send('GET', `/v1/oauth/requests/${await startRequest(clientId, FROM_WEB)}`, { cookie })
       ).json()
 
       expect(isRecord(mine) && mine.workspaces).toMatchObject([{ id: workspaceId, connected: true, held_scopes: [] }])
@@ -832,7 +864,7 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       // Another person asks about the same client. They have their own workspace and no grant.
       const other = await owner('grace@example.com')
       const theirs: unknown = await (
-        await send('GET', `/v1/oauth/requests/${await startRequest(clientId)}`, { cookie: other.cookie })
+        await send('GET', `/v1/oauth/requests/${await startRequest(clientId, FROM_WEB)}`, { cookie: other.cookie })
       ).json()
 
       expect(isRecord(theirs) && theirs.workspaces).toMatchObject([
@@ -842,13 +874,54 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
     it('counts a scope as held when a wider scope of the grant gives it', async () => {
       const scopes = [...DEFAULT, 'delete:objects']
-      const { clientId, cookie, workspaceId } = await connect(scopes)
-      const requestId = await startRequest(clientId, { scope: 'read:objects write:objects people:delete' })
+      const { clientId, cookie, workspaceId } = await connect(scopes, DEFAULT.join(' '), [REDIRECT, WEB_REDIRECT])
+      const requestId = await startRequest(clientId, {
+        ...FROM_WEB,
+        scope: 'read:objects write:objects people:delete',
+      })
       const body: unknown = await (await send('GET', `/v1/oauth/requests/${requestId}`, { cookie })).json()
 
       expect(isRecord(body) && body.workspaces).toMatchObject([
         { id: workspaceId, held_scopes: ['people:delete', 'delete:objects'] },
       ])
+    })
+
+    /**
+     * Any program on the person's computer can open a request with the
+     * `client_id` of a native client and a loopback port of its own. So the
+     * same grant is reported to a request from the web redirect and not to
+     * one from a loopback redirect, on the registered port or on another.
+     */
+    it('reports nothing held, and no workspace connected, to a request that redirects to a loopback address', async () => {
+      const scopes = [...DEFAULT, 'delete:objects']
+      const { clientId, cookie, workspaceId } = await connect(scopes, DEFAULT.join(' '), [REDIRECT, WEB_REDIRECT])
+      const read = async (overrides: Record<string, string>): Promise<unknown> =>
+        (await send('GET', `/v1/oauth/requests/${await startRequest(clientId, overrides)}`, { cookie })).json()
+
+      expect(await read(FROM_WEB)).toMatchObject({
+        local_client: false,
+        workspaces: [{ id: workspaceId, connected: true, held_scopes: ['delete:objects'] }],
+      })
+
+      for (const redirect of [REDIRECT, 'http://127.0.0.1:50999/callback']) {
+        const body = await read({ redirect_uri: redirect })
+
+        expect(body).toMatchObject({
+          local_client: true,
+          workspaces: [{ id: workspaceId, connected: false, held_scopes: [] }],
+        })
+        // The scopes are still offered. They only start clear.
+        expect(isRecord(body) && body.extra_scopes).toEqual(['decisions:commit', 'handbook:write', 'delete:objects'])
+      }
+    })
+
+    it('still lets a person give a loopback client a sensitive scope again by ticking it', async () => {
+      const scopes = [...DEFAULT, 'delete:objects']
+      const { clientId, cookie, workspaceId } = await connect(scopes)
+      const redirect = await approve(cookie, await startRequest(clientId), workspaceId, scopes)
+      const tokens: unknown = await (await exchange(clientId, redirect.searchParams.get('code') ?? '')).json()
+
+      expect(readString(tokens, 'scope')).toBe(scopes.join(' '))
     })
 
     it('lets a step-up add one scope and keep the rest of the connection', async () => {

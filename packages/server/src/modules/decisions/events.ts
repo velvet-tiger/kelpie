@@ -17,9 +17,10 @@ import type { ModuleEventCatalog } from '../../runtime/module.ts'
  * `decision.confirmed` fires for it. A decision that is confirmed as it is
  * written gets `decision.added` alone.
  *
- * `decision.unconfirmed` fires when a commitment goes back to a proposal: a
- * caller that cannot commit rewrote its text. `decision.confirmed` fires again
- * if a member then confirms the new text. No other edit has an event.
+ * Nothing takes a confirmation off: a caller that cannot commit is refused
+ * when it tries to change the text of a confirmed decision. So
+ * `decision.confirmed` fires at most once for a decision, and there is no
+ * event for the reverse.
  */
 
 export const decisionsEvents = {
@@ -29,7 +30,6 @@ export const decisionsEvents = {
     confirmed: z.boolean(),
   }),
   'decisions.decision.confirmed': z.object({ decisionId: z.string(), origin: z.enum(WRITE_ORIGINS) }),
-  'decisions.decision.unconfirmed': z.object({ decisionId: z.string(), origin: z.enum(WRITE_ORIGINS) }),
 } satisfies ModuleEventCatalog
 
 export interface DecisionAddedData {
@@ -43,16 +43,9 @@ export interface DecisionConfirmedData {
   readonly origin: WriteOrigin
 }
 
-export interface DecisionUnconfirmedData {
-  readonly decisionId: string
-  /** The origin after the edit that took the confirmation off. */
-  readonly origin: WriteOrigin
-}
-
 declare module '../../runtime/events.ts' {
   interface KelpieEventMap {
     'decisions.decision.added': DecisionAddedData
     'decisions.decision.confirmed': DecisionConfirmedData
-    'decisions.decision.unconfirmed': DecisionUnconfirmedData
   }
 }

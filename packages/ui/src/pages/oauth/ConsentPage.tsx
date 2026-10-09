@@ -162,6 +162,17 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
   }
 
   /**
+   * The selected workspaces that have this extra now, when some have it and
+   * some do not. The row then starts clear, and an approval takes the extra
+   * away where the app had it. The row has to say so.
+   */
+  function allowedOnlyIn(scope: ApiKeyScope): readonly string[] {
+    const holders = selectedWorkspaces.filter((workspace) => workspace.heldScopes.includes(scope))
+
+    return holders.length === selectedWorkspaces.length ? [] : holders.map((workspace) => workspace.name)
+  }
+
+  /**
    * The ticked extra that gives everything this one gives and more, if there
    * is one: "Delete objects" for `people:delete`, "Write all" for "Handbook
    * (write)". The narrower row is then shown ticked and locked. Clear, it
@@ -317,9 +328,16 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
             <p className="mb-2 text-[11px] text-ink-muted">
               Not part of the access above. Tick one only if you want this app to have it.
             </p>
+            {request.localClient && (
+              <p className="mb-2 text-[11px] text-ink-muted">
+                This app runs on your computer, so Kelpie does not use what you allowed it before. It asks
+                again for each workspace and each of these permissions.
+              </p>
+            )}
             <div className="space-y-2">
               {request.extraScopes.map((scope) => {
                 const wider = widerTickedExtra(scope)
+                const partly = allowedOnlyIn(scope)
 
                 return (
                   <label key={scope} className="flex items-start gap-2 text-[13px] text-ink">
@@ -345,6 +363,14 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
                       )}
                       {isApiKeyRiskScope(scope) && (
                         <span className="block text-[11px] text-ink-muted">{apiKeyScopeRisk(scope)}</span>
+                      )}
+                      {partly.length > 0 && (
+                        <span className="block text-[11px] text-warning">
+                          Allowed now in {partly.join(', ')}.{' '}
+                          {extraTicked(scope) || wider !== undefined
+                            ? 'Ticked, it is allowed in every selected workspace.'
+                            : 'If you leave it clear, it is removed there.'}
+                        </span>
                       )}
                     </span>
                   </label>
