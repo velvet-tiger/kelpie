@@ -273,13 +273,18 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
             ...(leavesProposal ? { confirmedAt: null } : {}),
           }
         : {}
-      const withdrawsConfirmation = leavesProposal && existing.confirmedAt !== null
 
       // No event for an edit. The catalog carries nothing for a decision
       // changing, and inventing a name here would add one the webhooks engine
       // has never been told about. The one exception is a commitment that
       // stops being one, which a subscriber that announced it has to hear.
       return dependencies.transaction(async ({ tx, events }) => {
+        // Whether this write takes a confirmation off is read under a row
+        // lock, not from the row read above. A member can confirm between
+        // that read and this write; `decision.confirmed` then fires, and the
+        // subscriber that heard it must hear `decision.unconfirmed` too.
+        const locked = leavesProposal ? await repository.lockDecisionConfirmation(tx, workspaceId, id) : undefined
+        const withdrawsConfirmation = locked !== undefined && locked.confirmedAt !== null
         const updated = await repository.updateDecision(tx, workspaceId, id, {
           ...columns,
           ...provenance,

@@ -147,6 +147,28 @@ export async function insertDecision(db: Queryable, values: DecisionColumns): Pr
   return created
 }
 
+/**
+ * Whether a decision is confirmed, read with a lock on its row until the
+ * transaction ends. A confirm waits for that lock, so the answer is still
+ * true when the caller's own write lands.
+ *
+ * @returns Undefined when the decision is not in the workspace.
+ */
+export async function lockDecisionConfirmation(
+  tx: Queryable,
+  workspaceId: string,
+  id: string,
+): Promise<{ readonly confirmedAt: Date | null } | undefined> {
+  const [found] = await tx
+    .select({ confirmedAt: decisions.confirmedAt })
+    .from(decisions)
+    .where(and(eq(decisions.workspaceId, workspaceId), eq(decisions.id, id)))
+    .limit(1)
+    .for('update')
+
+  return found
+}
+
 export async function updateDecision(
   db: Queryable,
   workspaceId: string,

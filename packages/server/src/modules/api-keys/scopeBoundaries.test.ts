@@ -14,6 +14,7 @@ import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
+import { createAiModule } from '../ai/index.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import { apiKeys } from './schema.ts'
 
@@ -23,11 +24,23 @@ import { apiKeys } from './schema.ts'
  *
  * Two tables below name the scope of every route and every tool that removes
  * something. A new one fails here until somebody decides which scope it needs.
+ *
+ * What the tables can see: a route with the method `DELETE`, a route whose
+ * path ends in `/delete`, the routes in `OTHER_REMOVING_ROUTES`, and a tool
+ * whose name ends in `_delete`, `_remove` or `_revoke` or whose scope is a
+ * delete scope. What they cannot see: a route or a tool that removes records
+ * under another name, such as a bulk delete on a `POST` path that does not
+ * end in `/delete`, or a `PATCH` that drops rows. Add such a route to
+ * `OTHER_REMOVING_ROUTES` when you write it. The app under test is the core
+ * modules and the `ai` module; a module outside this repository is not here.
  */
 
 const connectionString = testDatabaseUrl(process.env)
 
-/** Every `DELETE` route under `/v1`, and the one bulk delete that is a `POST`. */
+/** Routes that remove records with no `DELETE` method and no `/delete` in the path. */
+const OTHER_REMOVING_ROUTES: readonly string[] = ['POST /v1/workspaces/:id/handbook/seed']
+
+/** Every `DELETE` route under `/v1`, the bulk delete that is a `POST`, and `OTHER_REMOVING_ROUTES`. */
 const DELETE_ROUTE_SCOPES: Readonly<Record<string, string | null>> = {
   // Object data: the delete scope of the resource.
   'DELETE /v1/people/:id': 'people:delete',
@@ -63,6 +76,10 @@ const DELETE_ROUTE_SCOPES: Readonly<Record<string, string | null>> = {
   'DELETE /v1/workspaces/:id': 'workspace:write',
   'DELETE /v1/workspaces/:id/members/:memberId': 'workspace:write',
   'DELETE /v1/workspaces/:id/invites/:inviteId': 'workspace:write',
+  'DELETE /v1/ai/settings': 'ai:write',
+  // The route rule. With `replace: true` it deletes every page first, and the
+  // service then asks for `handbook:delete` as well; a test below covers that.
+  'POST /v1/workspaces/:id/handbook/seed': 'handbook:write',
   // Session only: the service refuses every bearer credential.
   'DELETE /v1/auth/sessions/:id': null,
   'DELETE /v1/oauth/grants/:id': null,
@@ -128,15 +145,15 @@ describe.skipIf(connectionString === undefined)('delete and handbook scopes', ()
     acme = await client.owner()
   })
 
-  async function mintKey(scopes: readonly string[], bearer?: string): Promise<Response> {
+  async function mintKey(scopes: readonly string[], bearer?: string, kind = 'workspace'): Promise<Response> {
     return client.send('POST', '/v1/api-keys', {
-      body: { name: 'agent', kind: 'workspace', scopes },
+      body: { name: 'agent', kind, scopes },
       ...(bearer === undefined ? { cookie: acme.cookie } : { bearer }),
     })
   }
 
-  async function key(scopes: readonly string[]): Promise<string> {
-    const response = await mintKey(scopes)
+  async function key(scopes: readonly string[], kind = 'workspace'): Promise<string> {
+    const response = await mintKey(scopes, undefined, kind)
 
     expect(response.status).toBe(201)
 
@@ -175,12 +192,25 @@ describe.skipIf(connectionString === undefined)('delete and handbook scopes', ()
   }
 
   describe('which scope each removal needs', () => {
-    it('names a scope for every DELETE route and the bulk delete, and no route is left out', () => {
+    /**
+     * The core modules and the `ai` module, which is the one optional module
+     * in this repository. Only its routes and tools are read, so its own
+     * tables need not exist in this database.
+     */
+    async function withAiModule(): Promise<TestApp> {
+      return createTestApp({
+        modules: [...coreModules, createAiModule({ keyMode: 'workspace', providers: {} })],
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db }),
+      })
+    }
+
+    it('names a scope for every DELETE route and the bulk delete, and no route is left out', async () => {
       const registered = new Set(
-        harness.app.routes
+        (await withAiModule()).app.routes
           .filter((route) => route.path.startsWith('/v1/'))
-          .filter((route) => route.method === 'DELETE' || /\/delete$/u.test(route.path))
-          .map((route) => `${route.method} ${route.path}`),
+          .map((route) => `${route.method} ${route.path}`)
+          .filter((route) => /^DELETE |\/delete$/u.test(route) || OTHER_REMOVING_ROUTES.includes(route)),
       )
 
       expect([...registered].sort()).toEqual(Object.keys(DELETE_ROUTE_SCOPES).sort())
@@ -194,8 +224,8 @@ describe.skipIf(connectionString === undefined)('delete and handbook scopes', ()
       }
     })
 
-    it('names a scope for every tool that deletes, removes or revokes, and no tool is left out', () => {
-      const removing = harness.contributions.mcpTools.filter(
+    it('names a scope for every tool that deletes, removes or revokes, and no tool is left out', async () => {
+      const removing = (await withAiModule()).contributions.mcpTools.filter(
         (tool) => /_(?:delete|remove|revoke)$/u.test(tool.name) || tool.scope.endsWith(':delete'),
       )
 
@@ -386,6 +416,37 @@ describe.skipIf(connectionString === undefined)('delete and handbook scopes', ()
           })
         ).status,
       ).toBe(403)
+    })
+
+    it('needs handbook:delete as well to replace the starter pages, which deletes them first', async () => {
+      const seed = (bearer: string, replace: boolean): Promise<Response> =>
+        client.send('POST', `/v1/workspaces/${acme.workspaceId}/handbook/seed`, {
+          body: { handbook_template: 'startup', replace },
+          bearer,
+        })
+      const pagesBefore = readList(await (await client.send('GET', '/v1/handbook_pages', { cookie: acme.cookie })).json())
+      // A personal key: the seed needs a member, and a workspace key has none.
+      const writer = await key(['handbook:write'], 'personal')
+      const refused = await seed(writer, true)
+
+      expect(refused.status).toBe(403)
+      expect(readString(readRecord(await refused.json()).error, 'message')).toContain('handbook:delete')
+      // Without `replace` the scope allows the call, and the pages that exist stop it.
+      expect((await seed(writer, false)).status).toBe(409)
+
+      const pagesAfter = readList(await (await client.send('GET', '/v1/handbook_pages', { cookie: acme.cookie })).json())
+
+      expect(pagesAfter.map((page) => page.id)).toEqual(pagesBefore.map((page) => page.id))
+      expect((await seed(await key(['handbook:write', 'handbook:delete'], 'personal'), true)).status).toBe(201)
+      // A signed-in admin is not scoped.
+      expect(
+        (
+          await client.send('POST', `/v1/workspaces/${acme.workspaceId}/handbook/seed`, {
+            body: { handbook_template: 'startup', replace: true },
+            cookie: acme.cookie,
+          })
+        ).status,
+      ).toBe(201)
     })
 
     it('lets handbook:write and write:all write a page, on REST and on MCP', async () => {

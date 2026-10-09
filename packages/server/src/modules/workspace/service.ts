@@ -10,6 +10,7 @@ import { limitFor } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import { isBearerActor, toEventActor } from '../../lib/actor.ts'
+import { requireApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import type { Actor, SessionActor } from '../auth/actor.ts'
 import './events.ts'
 import * as authRepository from '../auth/repository.ts'
@@ -490,6 +491,12 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
     },
 
     async seedHandbook(actor, workspaceId, input) {
+      // A replace deletes every page before it writes the new ones. The route
+      // rule asks for `handbook:write`; the delete needs its own scope too.
+      if (input.replace === true) {
+        requireApiKeyScope(actor, 'handbook:delete')
+      }
+
       const { memberId } = await requireMembership(actor, workspaceId, 'admin')
 
       if (memberId === null) {

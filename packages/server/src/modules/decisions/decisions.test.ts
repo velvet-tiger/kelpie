@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { asAiAuthor, createHostedAiActor } from '../../lib/actor.ts'
 import type { OAuthActor, SessionActor } from '../../lib/actor.ts'
 import { AppError } from '../../lib/errors.ts'
+import type { TransactionScope } from '../../runtime/transaction.ts'
 
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
@@ -15,6 +16,7 @@ import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
+import { workspaceMembers } from '../workspace/schema.ts'
 import { decisions } from './schema.ts'
 import { createDecisionsService } from './service.ts'
 
@@ -1249,6 +1251,64 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
         expect(seen).toEqual([
           { name: 'decisions.decision.added', data: { decisionId: proposed.id, origin: 'agent', confirmed: false } },
           { name: 'decisions.decision.added', data: { decisionId: committed.id, origin: 'agent', confirmed: true } },
+        ])
+      })
+
+      /**
+       * The race: an agent reads a proposal, a member confirms it, and then
+       * the agent's rewrite lands. The confirm here runs after the update's
+       * first read and before its transaction, which is that order.
+       */
+      it('emits decision.unconfirmed when a member confirmed between the read and the write of an edit', async () => {
+        const proposed = await createWith(await mintScopedKey(WITHOUT_COMMIT))
+        const [member] = await database.db
+          .select()
+          .from(workspaceMembers)
+          .where(eq(workspaceMembers.workspaceId, acme.workspaceId))
+        const session: SessionActor = {
+          kind: 'session',
+          userId: member?.userId ?? '',
+          sessionId: 'ses_test',
+          workspaceId: acme.workspaceId,
+          role: 'owner',
+          memberId: member?.id ?? null,
+        }
+        const agent: OAuthActor = {
+          kind: 'oauth',
+          grantId: 'ogr_test',
+          connectionId: 'ocn_test',
+          clientId: 'client',
+          userId: member?.userId ?? '',
+          workspaceId: acme.workspaceId,
+          role: 'owner',
+          scopes: ['decisions:write'],
+          memberId: member?.id ?? '',
+        }
+        let confirmed = false
+        const confirmFirst: TransactionScope = async (work, options) => {
+          if (!confirmed) {
+            confirmed = true
+            await service().confirm(session, String(proposed.id), { updatedAt: undefined })
+          }
+
+          return harness.services.transaction(work, options)
+        }
+        const racing = createDecisionsService({
+          db: harness.services.db,
+          transaction: confirmFirst,
+          createId: harness.services.createId,
+          now: harness.services.now,
+        })
+        const seen = watch()
+        const edited = await racing.update(agent, String(proposed.id), { body: 'Rewritten after the confirm' })
+
+        await harness.services.events.drain()
+
+        expect(edited.confirmedAt).toBeNull()
+        expect(edited.confirmedById).toBeNull()
+        expect(seen).toEqual([
+          { name: 'decisions.decision.confirmed', data: { decisionId: proposed.id, origin: 'agent' } },
+          { name: 'decisions.decision.unconfirmed', data: { decisionId: proposed.id, origin: 'agent' } },
         ])
       })
 
