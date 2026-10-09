@@ -607,6 +607,11 @@ describe('ConsentPage', () => {
       /This app runs on your computer, so Kelpie does not use what you allowed it before/u,
     )
 
+    // The app replaces its tokens, so it must not read as if the other workspaces keep working.
+    expect(explanation.textContent).toContain(
+      'What it has now is marked. After you select Allow, the app uses only the workspaces that you tick here. Tick a connected workspace again to keep it.',
+    )
+    expect(explanation.textContent).not.toContain('stays in place')
     // Above the workspaces, which are the first thing it explains.
     expect(
       explanation.compareDocumentPosition(screen.getByRole('group', { name: 'Workspaces' })) &

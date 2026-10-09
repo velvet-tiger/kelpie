@@ -195,8 +195,18 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
     }
   }
 
-  async function requireOwner(workspaceId: string, ownerId: string): Promise<void> {
-    if (!(await repository.memberExists(dependencies.db, workspaceId, ownerId))) {
+  /**
+   * @param db The connection to read on. Inside a transaction it is the
+   *   transaction's own. A read on the pool there would hold one connection
+   *   and wait for a second, and under load every connection can be held by
+   *   a caller that waits.
+   */
+  async function requireOwner(
+    db: Parameters<typeof repository.memberExists>[0],
+    workspaceId: string,
+    ownerId: string,
+  ): Promise<void> {
+    if (!(await repository.memberExists(db, workspaceId, ownerId))) {
       throw AppError.notFound('Team member not found')
     }
   }
@@ -228,7 +238,7 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
       const ownerId = input.ownerId === undefined ? actorMemberId(actor) : input.ownerId
 
       if (ownerId !== null) {
-        await requireOwner(workspaceId, ownerId)
+        await requireOwner(dependencies.db, workspaceId, ownerId)
       }
 
       const id = dependencies.createId('decision')
@@ -304,7 +314,7 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
         }
 
         if (typeof columns.ownerId === 'string') {
-          await requireOwner(workspaceId, columns.ownerId)
+          await requireOwner(tx, workspaceId, columns.ownerId)
         }
 
         // A caller that is not a member and changes what the decision says

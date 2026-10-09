@@ -1543,6 +1543,41 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
         expect(edited.dueAt?.toISOString()).toBe('2026-09-01T00:00:00.000Z')
       })
 
+      /**
+       * An update holds a row lock, and so a pool connection, until it ends.
+       * A read on the pool inside it would wait for a second connection.
+       */
+      it('reads only on the connection of its transaction, also to check a new owner', async () => {
+        const created = await decisionOn(personId, 'From a member', { owner_id: null })
+        const noPool = new Proxy(harness.services.db, {
+          get: (_target, property) => {
+            throw new Error(`update used the pool: db.${String(property)}`)
+          },
+        })
+        const onTransaction = createDecisionsService({
+          db: noPool,
+          transaction: harness.services.transaction,
+          createId: harness.services.createId,
+          now: harness.services.now,
+        })
+        const [member] = await database.db
+          .select()
+          .from(workspaceMembers)
+          .where(eq(workspaceMembers.workspaceId, acme.workspaceId))
+        const actor = agentWith(['decisions:write'])
+        const edited = await onTransaction.update(actor, String(created.id), { ownerId: member?.id ?? '' })
+
+        expect(edited.ownerId).toBe(member?.id)
+
+        // The same 404 and message for an owner that is not on this team.
+        const refusal: unknown = await onTransaction
+          .update(actor, String(created.id), { ownerId: 'mem_01M1DDZFG3N7TWB3F3X4AV4S96' })
+          .catch((thrown: unknown) => thrown)
+
+        expect(refusal instanceof AppError && refusal.code).toBe('not_found')
+        expect(refusal instanceof AppError && refusal.message).toBe('Team member not found')
+      })
+
       /** The same lock, the other way: an edit of what is still a proposal is not refused. */
       it('allows an edit of a proposal that nobody confirmed in between', async () => {
         const key = await mintScopedKey(WITHOUT_COMMIT)

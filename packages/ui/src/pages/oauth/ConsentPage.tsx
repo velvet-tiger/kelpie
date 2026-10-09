@@ -286,8 +286,9 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
         {request.localClient && (
           <p className="rounded-md border border-border bg-surface px-3 py-2.5 text-[12px] text-ink-muted">
             This app runs on your computer, so Kelpie does not use what you allowed it before. Tick each
-            workspace and each extra permission that it needs. What it has now is marked, and stays in
-            place for the workspaces you do not tick.
+            workspace and each extra permission that it needs. What it has now is marked. After you select
+            Allow, the app uses only the workspaces that you tick here. Tick a connected workspace again to
+            keep it.
           </p>
         )}
 
