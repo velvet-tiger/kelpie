@@ -170,8 +170,10 @@ function CreateKeyModal({
     setSelectedExtras((current) => current.filter((scope) => outsideGrid.includes(scope)))
   }
 
+  // The grid stays open while it holds a tick. What the form sends must be on
+  // the page: a hidden grid with ticks in it would send scopes nobody can see.
   const showScopeGrid =
-    (accessMode === 'custom' && showCustom) ||
+    (accessMode === 'custom' && (showCustom || selectedCustom.length > 0)) ||
     (accessMode === 'presets' && selectedPresets.length > 0)
 
   const chosenScopes: readonly ApiKeyScope[] =
@@ -293,7 +295,8 @@ function CreateKeyModal({
                   </div>
                 </div>
               )}
-              {(accessMode === 'custom' || (accessMode === 'presets' && selectedPresets.length === 0)) && (
+              {((accessMode === 'custom' && selectedCustom.length === 0) ||
+                (accessMode === 'presets' && selectedPresets.length === 0)) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -304,7 +307,7 @@ function CreateKeyModal({
                   }}
                   className="text-[12px] font-medium text-accent hover:underline"
                 >
-                  {showCustom ? 'Hide custom scopes' : 'Custom scopes…'}
+                  {showCustom && accessMode === 'custom' ? 'Hide custom scopes' : 'Custom scopes…'}
                 </button>
               )}
               {showScopeGrid && (

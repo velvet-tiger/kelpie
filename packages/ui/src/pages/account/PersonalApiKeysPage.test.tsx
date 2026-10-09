@@ -1,3 +1,4 @@
+import { API_KEY_SCOPE_LABELS } from '@kelpie/schemas'
 import { QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
@@ -287,6 +288,97 @@ describe('PersonalApiKeysPage', () => {
     // The grid has a tick box for each delete scope, so the preset is not offered beside it.
     expect(screen.queryByRole('checkbox', { name: /^Delete objects/u })).toBeNull()
     expect(screen.getByRole('checkbox', { name: /^Decisions \(commit/u })).toBeTruthy()
+  })
+
+  /**
+   * The grid must not close over ticks. Before, "Hide custom scopes" hid a
+   * grid that held every delete scope, and Create sent them all.
+   */
+  it('keeps the custom grid open while it holds a tick, so what it sends is on the page', async () => {
+    const posted: { body?: unknown } = {}
+    renderPage({
+      keys: [],
+      onPost: (body) => {
+        posted.body = body
+
+        return {
+          id: 'key_14',
+          name: 'Agent',
+          kind: 'personal',
+          scopes: [],
+          display_prefix: 'kp_user_…c3a5',
+          last_used_at: null,
+          created_at: '2026-08-12T00:00:00.000Z',
+          secret: 'kp_user_fourthsecret',
+        }
+      },
+    })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create key' }).click()
+    })
+    await act(async () => {
+      setInputValue(await screen.findByPlaceholderText('Laptop Claude'), 'Agent')
+    })
+    await act(async () => {
+      within(screen.getByRole('group', { name: 'Extra permissions' }))
+        .getByRole('checkbox', { name: /^Delete objects/u })
+        .click()
+    })
+    await act(async () => {
+      screen.getByRole('button', { name: 'Switch to custom scopes…' }).click()
+    })
+
+    // Nothing offers to hide the grid, and each delete scope is a ticked box in it.
+    expect(screen.queryByRole('button', { name: 'Hide custom scopes' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Custom scopes…' })).toBeNull()
+    expect((screen.getByRole('checkbox', { name: 'People (delete)' }) as HTMLInputElement).checked).toBe(true)
+
+    // Every ticked box on the page, by its label, except the name of a mode.
+    const ticked = (screen.getAllByRole('checkbox') as HTMLInputElement[])
+      .filter((input) => input.checked)
+      .map((input) => input.closest('label')?.firstElementChild?.nextSibling?.textContent ?? '')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create' }).click()
+    })
+    await waitFor(() => {
+      expect(posted.body).toBeDefined()
+    })
+
+    const sent = (posted.body as { scopes: (keyof typeof API_KEY_SCOPE_LABELS)[] }).scopes
+
+    expect(sent).toContain('people:delete')
+    expect(sent).toContain('handbook:delete')
+    expect(sent.map((scope) => API_KEY_SCOPE_LABELS[scope]).toSorted()).toEqual(ticked.toSorted())
+  })
+
+  it('offers to hide the custom grid only while it holds no tick', async () => {
+    renderPage({ keys: [] })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Create key' }).click()
+    })
+
+    // Clear both presets, then open the empty grid.
+    for (const name of ['Read objects', 'Write objects']) {
+      await act(async () => {
+        screen.getByRole('checkbox', { name }).click()
+      })
+    }
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Custom scopes…' }).click()
+    })
+
+    expect(screen.getByRole('button', { name: 'Hide custom scopes' })).toBeTruthy()
+
+    await act(async () => {
+      screen.getByRole('checkbox', { name: 'People (read)' }).click()
+    })
+
+    expect(screen.queryByRole('button', { name: 'Hide custom scopes' })).toBeNull()
+    expect((screen.getByRole('checkbox', { name: 'People (read)' }) as HTMLInputElement).checked).toBe(true)
   })
 
   it('names the sensitive scopes of a custom key in the list, and marks a full-access key', async () => {
