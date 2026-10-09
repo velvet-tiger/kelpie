@@ -1443,6 +1443,106 @@ describe.skipIf(connectionString === undefined)('decisions', () => {
         ])
       })
 
+      /** A service whose update is interrupted once, after it was called and before it locks the row. */
+      function interruptedBy(interruption: () => Promise<unknown>): ReturnType<typeof createDecisionsService> {
+        let done = false
+        const interrupted: TransactionScope = async (work, options) => {
+          if (!done) {
+            done = true
+            await interruption()
+          }
+
+          return harness.services.transaction(work, options)
+        }
+
+        return createDecisionsService({
+          db: harness.services.db,
+          transaction: interrupted,
+          createId: harness.services.createId,
+          now: harness.services.now,
+        })
+      }
+
+      function agentWith(scopes: OAuthActor['scopes']): OAuthActor {
+        return {
+          kind: 'oauth',
+          grantId: 'ogr_test',
+          connectionId: 'ocn_test',
+          clientId: 'client',
+          userId: 'usr_test',
+          workspaceId: acme.workspaceId,
+          role: 'owner',
+          scopes,
+          memberId: 'mem_test',
+        }
+      }
+
+      /**
+       * The lost update. The agent read body X and sends it back with a new
+       * date. A member changes the body to Y before the agent's write. The
+       * agent's X is then a change to the text of a confirmed decision, so
+       * the whole request is refused: the date too. Applying the date alone
+       * would be half of a request, and the caller cannot tell which half.
+       */
+      it('refuses a request that sends back text a member changed in between, and writes none of it', async () => {
+        const created = await decisionOn(personId, 'Text X')
+        const racing = interruptedBy(() => patchWith(created.id, { body: 'Text Y' }, { cookie: acme.cookie }))
+        const refusal: unknown = await racing
+          .update(agentWith(['decisions:write']), String(created.id), {
+            body: 'Text X',
+            dueAt: new Date('2026-09-01T00:00:00.000Z'),
+          })
+          .catch((thrown: unknown) => thrown)
+
+        expect(refusal instanceof AppError && refusal.code).toBe('forbidden')
+
+        const stored = await readDecision(created.id)
+
+        expect(stored.body).toBe('Text Y')
+        expect(stored.due_at).toBeNull()
+        expect(stored.origin).toBe('member')
+        expect(stored.confirmed_at).toBe(created.confirmed_at)
+        expect(stored.confirmed_by_id).toBe(created.confirmed_by_id)
+      })
+
+      it('applies a date alone and leaves text a member changed in between as it is', async () => {
+        const created = await decisionOn(personId, 'Text X')
+        const racing = interruptedBy(() => patchWith(created.id, { body: 'Text Y' }, { cookie: acme.cookie }))
+        const edited = await racing.update(agentWith(['decisions:write']), String(created.id), {
+          dueAt: new Date('2026-09-01T00:00:00.000Z'),
+        })
+
+        expect(edited.body).toBe('Text Y')
+        expect(edited.dueAt?.toISOString()).toBe('2026-09-01T00:00:00.000Z')
+        expect(edited.origin).toBe('member')
+        expect(edited.confirmedAt).not.toBeNull()
+        expect(edited.confirmedById).toBe(created.confirmed_by_id)
+      })
+
+      /**
+       * The same shape for a caller that may write the text. The text it sends
+       * is what the row holds by the time of the write, so only the date is
+       * written, and the member's name stays on the decision.
+       */
+      it('does not write back text that is the stored text at the time of the write, for any caller', async () => {
+        const created = await decisionOn(personId, 'Text X')
+        // The row is rewritten to the same text in between: `updated_at` moves and the text does not.
+        const racing = interruptedBy(async () => {
+          await patchWith(created.id, { body: 'Text Y' }, { cookie: acme.cookie })
+          await patchWith(created.id, { body: 'Text X' }, { cookie: acme.cookie })
+        })
+        const edited = await racing.update(agentWith(['decisions:write', 'decisions:commit']), String(created.id), {
+          body: 'Text X',
+          dueAt: new Date('2026-09-01T00:00:00.000Z'),
+        })
+
+        // No text change, so the origin and the confirming member are not touched.
+        expect(edited.body).toBe('Text X')
+        expect(edited.origin).toBe('member')
+        expect(edited.confirmedById).toBe(created.confirmed_by_id)
+        expect(edited.dueAt?.toISOString()).toBe('2026-09-01T00:00:00.000Z')
+      })
+
       /** The same lock, the other way: an edit of what is still a proposal is not refused. */
       it('allows an edit of a proposal that nobody confirmed in between', async () => {
         const key = await mintScopedKey(WITHOUT_COMMIT)

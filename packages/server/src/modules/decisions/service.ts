@@ -1,4 +1,3 @@
-import { changedKeys } from '../../lib/changes.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -139,6 +138,34 @@ function commitsDecisions(actor: Actor): boolean {
   return hasApiKeyScope(actor, 'decisions:commit')
 }
 
+function sameMoment(a: Date | null, b: Date | null): boolean {
+  return a === null || b === null ? a === b : a.getTime() === b.getTime()
+}
+
+/**
+ * The columns of a PATCH whose value differs from the stored row, and only
+ * those. An absent field is left alone. Text is compared exactly: a
+ * difference in white space alone is a change.
+ *
+ * Exported for its unit test only.
+ */
+export function changedColumns(
+  stored: DecisionRecord,
+  changes: UpdateDecisionInput,
+): Partial<repository.DecisionColumns> {
+  return {
+    ...(changes.body === undefined || changes.body === stored.body ? {} : { body: changes.body }),
+    ...(changes.rationale === undefined || changes.rationale === stored.rationale
+      ? {}
+      : { rationale: changes.rationale }),
+    ...(changes.decidedAt === undefined || sameMoment(changes.decidedAt, stored.decidedAt)
+      ? {}
+      : { decidedAt: changes.decidedAt }),
+    ...(changes.ownerId === undefined || changes.ownerId === stored.ownerId ? {} : { ownerId: changes.ownerId }),
+    ...(changes.dueAt === undefined || sameMoment(changes.dueAt, stored.dueAt) ? {} : { dueAt: changes.dueAt }),
+  }
+}
+
 function toView(record: DecisionRecord): DecisionView {
   const { workspaceId: _workspaceId, ...view } = record
 
@@ -245,68 +272,64 @@ export function createDecisionsService(dependencies: DecisionsDependencies): Dec
 
     async update(actor, id, changes) {
       const workspaceId = requireWorkspaceId(actor)
-      const existing = await require(workspaceId, id)
-
-      if (typeof changes.ownerId === 'string' && changes.ownerId !== existing.ownerId) {
-        await requireOwner(workspaceId, changes.ownerId)
-      }
-
-      const columns: Partial<repository.DecisionColumns> = {
-        ...(changes.body === undefined ? {} : { body: changes.body }),
-        ...(changes.rationale === undefined ? {} : { rationale: changes.rationale }),
-        ...(changes.decidedAt === undefined ? {} : { decidedAt: changes.decidedAt }),
-        ...(changes.ownerId === undefined ? {} : { ownerId: changes.ownerId }),
-        ...(changes.dueAt === undefined ? {} : { dueAt: changes.dueAt }),
-      }
-      const changed = changedKeys(existing, columns)
-
-      // A PATCH that changes nothing is not a write. Bumping `updated_at` for it
-      // would make the decision look freshly touched to anything sorting by it.
-      if (changed.length === 0) {
-        return toView(existing)
-      }
-
-      // A caller that is not a member and changes what the decision says
-      // takes the member's name off it. The origin drops to the caller's, and
-      // the member who confirmed the old text did not confirm this one.
-      // `confirmedAt` is not touched here: no edit confirms a decision, and
-      // none takes a confirmation off.
-      const textChanged = changed.includes('body') || changed.includes('rationale')
-      const rewritten = textChanged && writeOrigin(actor) !== 'member'
-      const needsProposal = rewritten && !commitsDecisions(actor)
-      const provenance: Partial<repository.DecisionColumns> = rewritten
-        ? { origin: originAfterTextEdit(existing.origin, actor), confirmedById: null }
-        : {}
 
       // No event. The catalog carries `decision.added` and nothing for a
       // decision changing, and inventing a name here would add one the webhooks
       // engine has never been told about.
       return dependencies.transaction(async ({ tx }) => {
+        // The row is read once, here, with a lock that holds until the write
+        // below is committed. Everything that follows is decided from it: what
+        // the request changes, whether the text is a commitment's, and what is
+        // written. A row read before the transaction can be older than the
+        // one this write lands on. A member can confirm in between, or change
+        // the text; a request that sends the text it read would then put the
+        // old text back, under that member's confirmation. A confirm and
+        // another update both wait for the lock.
+        const stored = await repository.lockDecision(tx, workspaceId, id)
+
+        // A decision in another workspace is indistinguishable from one that
+        // never existed.
+        if (stored === undefined) {
+          throw AppError.notFound('Decision not found')
+        }
+
+        // Only the columns whose value differs from the locked row. A value
+        // the request sent that is the stored one is not written again.
+        const columns = changedColumns(stored, changes)
+
+        // A PATCH that changes nothing is not a write. Bumping `updated_at` for it
+        // would make the decision look freshly touched to anything sorting by it.
+        if (Object.keys(columns).length === 0) {
+          return toView(stored)
+        }
+
+        if (typeof columns.ownerId === 'string') {
+          await requireOwner(workspaceId, columns.ownerId)
+        }
+
+        // A caller that is not a member and changes what the decision says
+        // takes the member's name off it. The origin drops to the caller's, and
+        // the member who confirmed the old text did not confirm this one.
+        // `confirmedAt` is not touched here: no edit confirms a decision, and
+        // none takes a confirmation off.
+        const textChanged = columns.body !== undefined || columns.rationale !== undefined
+        const rewritten = textChanged && writeOrigin(actor) !== 'member'
+
         // A caller that cannot commit may rewrite a proposal and may not
-        // rewrite a commitment. Which one this is, is read here under a row
-        // lock and not from the row read above. A member can confirm between
-        // that read and this write. Without the lock the new text would then
-        // be confirmed text that no member read, or a stale read would refuse
-        // an edit of what is still a proposal. A confirm waits for the lock.
-        if (needsProposal) {
-          const locked = await repository.lockDecisionConfirmation(tx, workspaceId, id)
-
-          if (locked === undefined) {
-            throw AppError.notFound('Decision not found')
-          }
-
-          if (locked.confirmedAt !== null) {
-            throw new AppError(
-              'forbidden',
-              'This decision is confirmed, and this connection cannot change its text. ' +
-                'Create a new decision instead. It will be a proposal for a member to confirm',
-            )
-          }
+        // rewrite a commitment. The whole request is refused, also the fields
+        // of it that are not text: a request is one change, and half of one
+        // is not what the caller asked for.
+        if (rewritten && !commitsDecisions(actor) && stored.confirmedAt !== null) {
+          throw new AppError(
+            'forbidden',
+            'This decision is confirmed, and this connection cannot change its text. ' +
+              'Create a new decision instead. It will be a proposal for a member to confirm',
+          )
         }
 
         const updated = await repository.updateDecision(tx, workspaceId, id, {
           ...columns,
-          ...provenance,
+          ...(rewritten ? { origin: originAfterTextEdit(stored.origin, actor), confirmedById: null } : {}),
           updatedAt: dependencies.now(),
         })
 
