@@ -1,5 +1,5 @@
 import type { ApiKeyScope, MemberRole } from '@kelpie/schemas'
-import { API_KEY_SCOPES, MEMBER_ROLES } from '@kelpie/schemas'
+import { API_KEY_SCOPES, MEMBER_ROLES, expandApiKeyScopes, satisfiesApiKeyScope } from '@kelpie/schemas'
 
 import { requireSessionActor } from '../../lib/actor.ts'
 import type { Actor } from '../../lib/actor.ts'
@@ -52,6 +52,39 @@ import {
  * `insufficient_scope` and the client asks the user again.
  */
 export const DEFAULT_SCOPES: readonly ApiKeyScope[] = ['read:objects', 'write:objects']
+
+/**
+ * What the person on the consent page may add though the client did not ask
+ * for it. Each one is a power that a client does not get by default, so the
+ * person gives it on purpose or not at all. The page reads this list from the
+ * request; an approval accepts these and the requested scopes, nothing else.
+ */
+export const CONSENT_EXTRA_SCOPES: readonly ApiKeyScope[] = ['decisions:commit']
+
+/**
+ * True when a scope set gives everything `scope` gives. A preset is covered
+ * when each scope it expands to is. An empty set covers nothing: an OAuth
+ * grant with no scopes has no access.
+ */
+function scopesCover(held: readonly ApiKeyScope[], scope: ApiKeyScope): boolean {
+  if (held.length === 0) {
+    return false
+  }
+
+  return [...expandApiKeyScopes([scope])].every((granular) => satisfiesApiKeyScope(held, granular))
+}
+
+/**
+ * The extras the consent page offers for a request. One that the client asked
+ * for by name is offered here too, so it starts clear like the others. One
+ * that the other requested scopes include already is left out: a tick box for
+ * it would change nothing.
+ */
+function offeredExtraScopes(requested: readonly ApiKeyScope[]): ApiKeyScope[] {
+  const others = requested.filter((scope) => !CONSENT_EXTRA_SCOPES.includes(scope))
+
+  return CONSENT_EXTRA_SCOPES.filter((extra) => !scopesCover(others, extra))
+}
 
 /** Registered clients that never connected are removed after this long. */
 const UNUSED_CLIENT_LIFETIME_MS = 30 * 24 * 60 * 60_000
@@ -180,6 +213,8 @@ export interface ConsentView {
   readonly clientUri: string | null
   readonly logoUri: string | null
   readonly scopes: readonly ApiKeyScope[]
+  /** From `CONSENT_EXTRA_SCOPES`: what the person may add to this request. */
+  readonly extraScopes: readonly ApiKeyScope[]
   readonly workspaces: readonly { readonly id: string; readonly name: string; readonly role: MemberRole }[]
   readonly expiresAt: Date
 }
@@ -193,6 +228,8 @@ export interface GrantView {
   readonly workspaceId: string
   readonly workspaceName: string
   readonly scopes: readonly ApiKeyScope[]
+  /** The entries of `CONSENT_EXTRA_SCOPES` that `scopes` gives, by name or through a preset. */
+  readonly extraScopes: readonly ApiKeyScope[]
   readonly lastUsedAt: Date | null
   readonly createdAt: Date
 }
@@ -616,6 +653,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         clientUri: client.clientUri,
         logoUri: client.logoUri,
         scopes: request.scopes as ApiKeyScope[],
+        extraScopes: offeredExtraScopes(request.scopes as ApiKeyScope[]),
         workspaces: memberships.map((membership) => ({
           id: membership.id,
           name: membership.name,
@@ -662,12 +700,17 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         ])
       }
 
-      const extra = chosen.filter((scope) => !request.scopes.includes(scope))
+      // The fixed list and not `offeredExtraScopes`: an extra the request
+      // includes already is in `request.scopes`, or adds nothing.
+      const unasked = chosen.filter(
+        (scope) => !request.scopes.includes(scope) && !CONSENT_EXTRA_SCOPES.includes(scope),
+      )
 
-      if (extra.length > 0) {
-        throw AppError.validationFailed('You can remove requested access, not add to it', [
-          { field: 'scopes', message: `Not requested: ${extra.join(', ')}` },
-        ])
+      if (unasked.length > 0) {
+        throw AppError.validationFailed(
+          'You can remove requested access and add an extra permission, not add other access',
+          [{ field: 'scopes', message: `Not requested: ${unasked.join(', ')}` }],
+        )
       }
 
       if (!(await repository.takeRequest(dependencies.db, request.id))) {
@@ -831,6 +874,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         workspaceId: grant.workspaceId,
         workspaceName,
         scopes: grant.scopes as ApiKeyScope[],
+        extraScopes: CONSENT_EXTRA_SCOPES.filter((extra) => scopesCover(grant.scopes as ApiKeyScope[], extra)),
         lastUsedAt: grant.lastUsedAt,
         createdAt: grant.createdAt,
       }))

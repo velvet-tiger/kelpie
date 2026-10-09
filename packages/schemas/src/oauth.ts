@@ -33,7 +33,14 @@ export interface OAuthRequest {
   readonly clientHost: string
   readonly clientUri: string | null
   readonly logoUri: string | null
+  /** What the client asked for. */
   readonly scopes: readonly ApiKeyScope[]
+  /**
+   * What the person may add though the client did not ask for it. The server
+   * fixes the list. Each one starts clear on the consent page. A scope here
+   * may also be in `scopes`, when the client asked for it by name.
+   */
+  readonly extraScopes: readonly ApiKeyScope[]
   readonly workspaces: readonly OAuthWorkspaceChoice[]
   readonly expiresAt: Date
 }
@@ -57,6 +64,8 @@ export interface OAuthGrant {
   readonly workspaceId: string
   readonly workspaceName: string
   readonly scopes: readonly ApiKeyScope[]
+  /** The extra permissions `scopes` gives, by name or through a preset. */
+  readonly extraScopes: readonly ApiKeyScope[]
   readonly lastUsedAt: Date | null
   readonly createdAt: Date
 }
@@ -68,6 +77,7 @@ const oauthRequestWireSchema = z.object({
   client_uri: z.string().nullable(),
   logo_uri: z.string().nullable(),
   scopes: z.array(z.enum(API_KEY_SCOPES)),
+  extra_scopes: z.array(z.enum(API_KEY_SCOPES)),
   workspaces: z.array(
     z.object({
       id: idSchema,
@@ -86,6 +96,7 @@ export const oauthRequestSchema: z.ZodType<OAuthRequest, unknown> = oauthRequest
     clientUri: wire.client_uri,
     logoUri: wire.logo_uri,
     scopes: wire.scopes,
+    extraScopes: wire.extra_scopes,
     workspaces: wire.workspaces,
     expiresAt: wire.expires_at,
   }),
@@ -104,6 +115,7 @@ export const oauthGrantSchema: z.ZodType<OAuthGrant, unknown> = z
     workspace_id: idSchema,
     workspace_name: z.string(),
     scopes: z.array(z.enum(API_KEY_SCOPES)),
+    extra_scopes: z.array(z.enum(API_KEY_SCOPES)),
     last_used_at: nullableTimestampSchema,
     created_at: timestampSchema,
   })
@@ -116,6 +128,7 @@ export const oauthGrantSchema: z.ZodType<OAuthGrant, unknown> = z
       workspaceId: wire.workspace_id,
       workspaceName: wire.workspace_name,
       scopes: wire.scopes,
+      extraScopes: wire.extra_scopes,
       lastUsedAt: wire.last_used_at,
       createdAt: wire.created_at,
     }),
@@ -124,7 +137,10 @@ export const oauthGrantSchema: z.ZodType<OAuthGrant, unknown> = z
 export interface ApproveOAuthRequestInput {
   /** At least one. One connection then covers each of them. */
   readonly workspaceIds: readonly string[]
-  /** At least one. The user may remove requested scopes, never add others. */
+  /**
+   * At least one. The user may remove requested scopes, and may add any of
+   * the request's `extraScopes`. The server refuses every other scope.
+   */
   readonly scopes: readonly ApiKeyScope[]
 }
 

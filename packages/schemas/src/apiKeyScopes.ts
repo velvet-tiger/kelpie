@@ -220,7 +220,7 @@ const PRESET_EXPANSIONS: Readonly<Record<ApiKeyPresetScope, readonly ApiKeyGranu
  */
 export const API_KEY_SCOPE_RISKS: Readonly<Partial<Record<ApiKeyScope, string>>> = {
   'decisions:commit':
-    'Lets this credential record a Decision as a commitment. Without it, a Decision it writes is a proposal until a member confirms it.',
+    'Lets it record a Decision as a commitment. Without this, a Decision it writes is a proposal until a member confirms it.',
 }
 
 /**

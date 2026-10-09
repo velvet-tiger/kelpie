@@ -72,6 +72,25 @@ While the major version is `0`, a minor bump may break the API.
     Neither is a webhook event.
 ### Changed
 
+- **The OAuth consent page offers extra permissions.** A person can now give
+  an MCP client a permission that the client did not ask for, from a fixed
+  list on the server. The list has one entry, `decisions:commit`. The page
+  shows these in their own section, each with one sentence on what it lets
+  the app do, and each starts clear. A scope from the list starts clear also
+  when the client asked for it by name. Connected apps shows the extra
+  permissions of each connection.
+  - **`@kelpie/server`** — `GET /v1/oauth/requests/:id` carries
+    `extra_scopes`, and each row of `GET /v1/oauth/grants` carries
+    `extra_scopes`: the listed permissions that the grant gives.
+    `POST /v1/oauth/requests/:id/approve` accepts the requested scopes and
+    the listed extras, and answers `422` to any other scope, as before. The
+    token response, the stored grant and each token carry what the person
+    approved. A refresh can narrow that set and cannot widen it. No
+    migration.
+  - **`@kelpie/schemas`** — `OAuthRequest` and `OAuthGrant` gain
+    `extraScopes`. **Breaking for a client of an older server:** the two
+    schemas need `extra_scopes`.
+
 - **One OAuth connection can cover more than one workspace.** The consent
   page for an MCP client had a selector for one workspace. A person who is a
   member of three workspaces had to connect the client three times, and some

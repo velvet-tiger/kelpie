@@ -280,6 +280,7 @@ function requestResponse(view: ConsentView): Record<string, unknown> {
     client_uri: view.clientUri,
     logo_uri: view.logoUri,
     scopes: view.scopes,
+    extra_scopes: view.extraScopes,
     workspaces: view.workspaces,
     expires_at: view.expiresAt.toISOString(),
   }
@@ -294,6 +295,7 @@ function grantResponse(grant: GrantView): Record<string, unknown> {
     workspace_id: grant.workspaceId,
     workspace_name: grant.workspaceName,
     scopes: grant.scopes,
+    extra_scopes: grant.extraScopes,
     last_used_at: grant.lastUsedAt === null ? null : grant.lastUsedAt.toISOString(),
     created_at: grant.createdAt.toISOString(),
   }

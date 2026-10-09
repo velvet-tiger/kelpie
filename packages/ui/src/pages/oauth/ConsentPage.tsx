@@ -1,4 +1,4 @@
-import { API_KEY_SCOPE_LABELS, expandApiKeyScopes, isApiKeyPresetScope } from '@kelpie/schemas'
+import { API_KEY_SCOPE_LABELS, API_KEY_SCOPE_RISKS, expandApiKeyScopes, isApiKeyPresetScope } from '@kelpie/schemas'
 import type { ApiKeyScope, OAuthRequest } from '@kelpie/schemas'
 import { useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router'
@@ -98,8 +98,12 @@ function initialWorkspaceIds(request: OAuthRequest, activeWorkspaceId: string | 
  * A per-resource scope inside a requested preset is not listed. The preset
  * grants it, so a separate tick box for it would change nothing. Only the
  * listed scopes are approved: clearing a preset also drops what it included.
+ *
+ * An extra permission is not listed here, also when the app asked for it by
+ * name. It is in its own section and starts clear.
  */
-function offeredScopes(requested: readonly ApiKeyScope[]): readonly ApiKeyScope[] {
+function offeredScopes(request: OAuthRequest): readonly ApiKeyScope[] {
+  const requested = request.scopes.filter((scope) => !request.extraScopes.includes(scope))
   const presets = requested.filter(isApiKeyPresetScope)
   const included: ReadonlySet<ApiKeyScope> = expandApiKeyScopes(presets)
 
@@ -113,8 +117,10 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
     initialWorkspaceIds(request, activeWorkspaceId),
   )
   const [onlyWorkspace] = request.workspaces
-  const offered = offeredScopes(request.scopes)
+  const offered = offeredScopes(request)
   const [scopes, setScopes] = useState<readonly ApiKeyScope[]>(offered)
+  // Clear at the start: a person who only clicks Allow gives none of them.
+  const [extras, setExtras] = useState<readonly ApiKeyScope[]>([])
   const [leaving, setLeaving] = useState(false)
   const busy = approve.isPending || deny.isPending || leaving
 
@@ -127,6 +133,10 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
 
   function toggle(scope: ApiKeyScope): void {
     setScopes((current) => (current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope]))
+  }
+
+  function toggleExtra(scope: ApiKeyScope): void {
+    setExtras((current) => (current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope]))
   }
 
   function toggleWorkspace(id: string): void {
@@ -240,6 +250,33 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
           </p>
         </fieldset>
 
+        {request.extraScopes.length > 0 && (
+          <fieldset className="rounded-md border border-border px-3 py-2.5">
+            <legend className="px-1 text-[12px] font-medium text-ink">Extra permissions</legend>
+            <p className="mb-2 text-[11px] text-ink-muted">
+              Not part of the access above. Tick one only if you want this app to have it.
+            </p>
+            <div className="space-y-2">
+              {request.extraScopes.map((scope) => (
+                <label key={scope} className="flex items-start gap-2 text-[13px] text-ink">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={extras.includes(scope)}
+                    onChange={() => {
+                      toggleExtra(scope)
+                    }}
+                  />
+                  <span>
+                    {API_KEY_SCOPE_LABELS[scope]}
+                    <span className="block text-[11px] text-ink-muted">{API_KEY_SCOPE_RISKS[scope]}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
+
         {approve.error !== null && <ErrorPanel error={approve.error} />}
         {deny.error !== null && <ErrorPanel error={deny.error} />}
 
@@ -264,7 +301,7 @@ function ConsentForm({ request, activeWorkspaceId }: ConsentFormProps): React.JS
             disabled={busy || scopes.length === 0 || workspaceIds.length === 0}
             onClick={() => {
               approve
-                .runAsync({ requestId: request.id, workspaceIds, scopes })
+                .runAsync({ requestId: request.id, workspaceIds, scopes: [...scopes, ...extras] })
                 .then((decision) => {
                   leaveTo(decision.redirectUrl)
                 })

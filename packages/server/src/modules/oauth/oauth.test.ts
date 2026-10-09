@@ -688,6 +688,165 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
     })
   })
 
+  describe('extra permissions at consent', () => {
+    const DEFAULT = ['read:objects', 'write:objects']
+    const WITH_COMMIT = [...DEFAULT, 'decisions:commit']
+
+    /** The JSON a tool call answered with. */
+    async function toolPayload(response: Response): Promise<unknown> {
+      const body: unknown = await response.json()
+
+      if (!isRecord(body) || !isRecord(body.result) || !Array.isArray(body.result.content)) {
+        throw new Error(`Expected a tool result, got ${JSON.stringify(body)}`)
+      }
+
+      const [first]: unknown[] = body.result.content
+
+      return JSON.parse(readString(first, 'text'))
+    }
+
+    /** Whether a Decision this token writes is a commitment at once. */
+    async function commits(accessToken: string, workspaceId?: string): Promise<boolean> {
+      const workspace = workspaceId === undefined ? {} : { workspace_id: workspaceId }
+      const person = await toolPayload(
+        await callTool(accessToken, 'people_create', { ...workspace, name: 'Grace Hopper' }),
+      )
+      const decision = await toolPayload(
+        await callTool(accessToken, 'decisions_create', {
+          ...workspace,
+          target_type: 'person',
+          target_id: readString(person, 'id'),
+          body: 'From OAuth',
+        }),
+      )
+
+      return isRecord(decision) && decision.confirmed_at !== null
+    }
+
+    it('tells the consent page which extras the person may add', async () => {
+      const { cookie } = await owner()
+      const clientId = await registerPublicClient()
+      const plain = await send('GET', `/v1/oauth/requests/${await startRequest(clientId)}`, { cookie })
+      const named = await send(
+        'GET',
+        `/v1/oauth/requests/${await startRequest(clientId, { scope: WITH_COMMIT.join(' ') })}`,
+        { cookie },
+      )
+
+      expect(await plain.json()).toMatchObject({ scopes: DEFAULT, extra_scopes: ['decisions:commit'] })
+      // Asked for by name, it is still offered as an extra, so the page starts it clear.
+      expect(await named.json()).toMatchObject({ scopes: WITH_COMMIT, extra_scopes: ['decisions:commit'] })
+    })
+
+    it('gives an extra the client did not request, in the token response, the grant and the token', async () => {
+      const { cookie, workspaceId } = await owner()
+      const clientId = await registerPublicClient()
+      const redirect = await approve(cookie, await startRequest(clientId), workspaceId, WITH_COMMIT)
+      const response = await exchange(clientId, redirect.searchParams.get('code') ?? '')
+      const body: unknown = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(readString(body, 'scope')).toBe(WITH_COMMIT.join(' '))
+
+      const [grant] = await database.db.select().from(oauthGrants)
+      const tokens = await database.db.select().from(oauthTokens)
+
+      expect(grant?.scopes).toEqual(WITH_COMMIT)
+      expect(tokens.map((token) => token.scopes)).toEqual([WITH_COMMIT, WITH_COMMIT, WITH_COMMIT])
+      expect(await commits(readString(body, 'access_token'))).toBe(true)
+
+      const listed = readList(await (await send('GET', '/v1/oauth/grants', { cookie })).json())
+
+      expect(listed[0]).toMatchObject({ scopes: WITH_COMMIT, extra_scopes: ['decisions:commit'] })
+    })
+
+    it('gives no extra to an approval that does not name one', async () => {
+      const { accessToken, cookie } = await connect()
+      const listed = readList(await (await send('GET', '/v1/oauth/grants', { cookie })).json())
+
+      expect(listed[0]).toMatchObject({ scopes: DEFAULT, extra_scopes: [] })
+      expect(await commits(accessToken)).toBe(false)
+    })
+
+    it('still refuses an unrequested scope that is not an extra, and grants nothing', async () => {
+      const { cookie, workspaceId } = await owner()
+      const clientId = await registerPublicClient()
+
+      for (const scope of ['webhooks:write', 'admin', 'write:all', 'decisions:read']) {
+        const response = await send('POST', `/v1/oauth/requests/${await startRequest(clientId)}/approve`, {
+          body: { workspace_ids: [workspaceId], scopes: [...WITH_COMMIT, scope] },
+          cookie,
+        })
+
+        expect(response.status).toBe(422)
+      }
+
+      expect(await database.db.select().from(oauthGrants)).toHaveLength(0)
+      expect(await database.db.select().from(oauthTokens)).toHaveLength(0)
+    })
+
+    it('keeps the extra across a refresh, and narrows it away when the client asks', async () => {
+      const scopes = WITH_COMMIT
+      const { clientId, refreshToken } = await connect(scopes)
+      const refreshed = await sendForm('/oauth/token', {
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: clientId,
+      })
+      const next: unknown = await refreshed.json()
+
+      expect(refreshed.status).toBe(200)
+      expect(readString(next, 'scope')).toBe(scopes.join(' '))
+      expect(await commits(readString(next, 'access_token'))).toBe(true)
+
+      const narrowed = await sendForm('/oauth/token', {
+        grant_type: 'refresh_token',
+        refresh_token: readString(next, 'refresh_token'),
+        client_id: clientId,
+        scope: DEFAULT.join(' '),
+      })
+      const narrow: unknown = await narrowed.json()
+
+      expect(narrowed.status).toBe(200)
+      expect(readString(narrow, 'scope')).toBe(DEFAULT.join(' '))
+      expect(await commits(readString(narrow, 'access_token'))).toBe(false)
+    })
+
+    it('does not let a refresh add an extra that the person did not give', async () => {
+      const { clientId, refreshToken } = await connect()
+      const widened = await sendForm('/oauth/token', {
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: clientId,
+        scope: WITH_COMMIT.join(' '),
+      })
+
+      expect(widened.status).toBe(400)
+      expect(readString(await widened.json(), 'error')).toBe('invalid_scope')
+    })
+
+    it('gives the extra in each workspace of a connection that covers more than one', async () => {
+      const { cookie, workspaceId } = await owner()
+      const created = await send('POST', '/v1/workspaces', {
+        body: { name: 'Globex', timezone: 'Australia/Melbourne' },
+        cookie,
+      })
+      const otherWorkspaceId = readString(await created.json(), 'id')
+      const clientId = await registerPublicClient()
+      const redirect = await approve(cookie, await startRequest(clientId), [workspaceId, otherWorkspaceId], WITH_COMMIT)
+      const response = await exchange(clientId, redirect.searchParams.get('code') ?? '')
+      const accessToken = readString(await response.json(), 'access_token')
+
+      expect(await database.db.select().from(oauthConnections)).toHaveLength(1)
+      expect((await database.db.select().from(oauthGrants)).map((grant) => grant.scopes)).toEqual([
+        WITH_COMMIT,
+        WITH_COMMIT,
+      ])
+      expect(await commits(accessToken, workspaceId)).toBe(true)
+      expect(await commits(accessToken, otherWorkspaceId)).toBe(true)
+    })
+  })
+
   describe('connected apps', () => {
     it('lists the connection and revokes it', async () => {
       const { accessToken, cookie, workspaceId } = await connect()

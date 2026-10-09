@@ -14,7 +14,12 @@ afterEach(cleanup)
  * workspace of a connection when they asked to disconnect one, and the reverse.
  */
 
-function grant(id: string, connectionId: string, workspaceName: string): Record<string, unknown> {
+function grant(
+  id: string,
+  connectionId: string,
+  workspaceName: string,
+  extraScopes: readonly string[] = [],
+): Record<string, unknown> {
   return {
     id,
     connection_id: connectionId,
@@ -22,14 +27,19 @@ function grant(id: string, connectionId: string, workspaceName: string): Record<
     client_host: 'client.example',
     workspace_id: `ws_${id}`,
     workspace_name: workspaceName,
-    scopes: ['read:objects'],
+    scopes: ['read:objects', ...extraScopes],
+    extra_scopes: extraScopes,
     last_used_at: null,
     created_at: '2026-10-01T01:00:00.000Z',
   }
 }
 
 /** One connection for two workspaces, and one for a single workspace. */
-const GRANTS = [grant('ogr_1', 'ocn_1', 'Acme'), grant('ogr_2', 'ocn_1', 'Globex'), grant('ogr_3', 'ocn_2', 'Initech')]
+const GRANTS = [
+  grant('ogr_1', 'ocn_1', 'Acme'),
+  grant('ogr_2', 'ocn_1', 'Globex'),
+  grant('ogr_3', 'ocn_2', 'Initech', ['decisions:commit']),
+]
 
 function renderPage(deleted: string[]): void {
   const client = stubClient({
@@ -71,6 +81,20 @@ function rowFor(workspaceName: string): HTMLElement {
 }
 
 describe('ConnectedAppsPage', () => {
+  it('names the extra permissions of a connection apart from its access, and only where it has one', async () => {
+    renderPage([])
+
+    await screen.findByText('Acme')
+
+    const extras = within(rowFor('Initech')).getByRole('list', { name: 'Extra permissions' })
+
+    expect(within(extras).getByText('Decisions (commit without confirmation)')).toBeTruthy()
+    // Named once: the access list beside it does not repeat it.
+    expect(within(rowFor('Initech')).getAllByText(/commit without confirmation/u)).toHaveLength(1)
+    expect(within(rowFor('Initech')).getByText('Read objects')).toBeTruthy()
+    expect(within(rowFor('Acme')).queryByRole('list', { name: 'Extra permissions' })).toBeNull()
+  })
+
   it('offers Disconnect all only on a connection with more than one workspace', async () => {
     renderPage([])
 

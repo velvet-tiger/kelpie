@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { useTimezone } from '../../api/resources/account.ts'
 import { useOAuthGrants, useRevokeOAuthConnection, useRevokeOAuthGrant } from '../../api/resources/oauth.ts'
+import { Chip } from '../../components/Chip.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { ErrorPanel, LoadingPanel } from '../../components/QueryState.tsx'
 import { formatDate } from '../../lib/dates.ts'
@@ -151,7 +152,21 @@ function GrantRow({
       </td>
       <td className="px-4 py-3 text-ink-muted">{grant.workspaceName}</td>
       <td className="px-4 py-3 text-ink-muted">
-        {grant.scopes.map((scope) => API_KEY_SCOPE_LABELS[scope]).join(', ')}
+        {grant.scopes
+          .filter((scope) => !grant.extraScopes.includes(scope))
+          .map((scope) => API_KEY_SCOPE_LABELS[scope])
+          .join(', ')}
+        {grant.extraScopes.length > 0 && (
+          // Apart from the list, so a person can see at a glance which
+          // connection has a power that is not part of the default access.
+          <ul aria-label="Extra permissions" className="mt-1 flex flex-wrap gap-1">
+            {grant.extraScopes.map((scope) => (
+              <li key={scope}>
+                <Chip tone="warning">{API_KEY_SCOPE_LABELS[scope]}</Chip>
+              </li>
+            ))}
+          </ul>
+        )}
       </td>
       <td className="px-4 py-3 text-ink-muted">{formatDate(grant.createdAt, timezone)}</td>
       <td className="px-4 py-3 text-ink-muted">

@@ -26,6 +26,7 @@ const REQUEST = {
   client_uri: null,
   logo_uri: null,
   scopes: ['read:objects', 'write:objects'],
+  extra_scopes: ['decisions:commit'],
   workspaces: [{ id: 'ws_1', name: 'Acme', role: 'owner' }],
   expires_at: '2026-09-25T02:10:00.000Z',
 }
@@ -49,6 +50,8 @@ interface PageStubs {
   readonly workspaces?: readonly unknown[]
   /** The scopes the app asked for. Read and write objects unless a test says otherwise. */
   readonly scopes?: readonly string[]
+  /** The extra permissions the server offers. `decisions:commit` unless a test says otherwise. */
+  readonly extraScopes?: readonly string[]
   /** The workspace the session is in. `ws_1` unless a test says otherwise. */
   readonly activeWorkspaceId?: string
 }
@@ -69,6 +72,7 @@ function renderPage(stubs: PageStubs = {}): void {
         return {
           ...REQUEST,
           scopes: stubs.scopes ?? REQUEST.scopes,
+          extra_scopes: stubs.extraScopes ?? REQUEST.extra_scopes,
           workspaces: stubs.workspaces ?? REQUEST.workspaces,
         }
       }
@@ -190,6 +194,72 @@ describe('ConsentPage', () => {
     await waitFor(() => {
       expect(approved.body).toEqual({ workspace_ids: ['ws_1'], scopes: ['write:objects'] })
     })
+  })
+
+  it('offers an extra permission clear, with what it risks, and gives it only when ticked', async () => {
+    const approved: unknown[] = []
+
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign: vi.fn() })
+    renderPage({
+      onApprove: (body) => {
+        approved.push(body)
+      },
+    })
+
+    const commit = (await screen.findByRole('checkbox', {
+      name: /^Decisions \(commit without confirmation\)/u,
+    })) as HTMLInputElement
+
+    expect(commit.checked).toBe(false)
+    expect(screen.getByRole('group', { name: 'Extra permissions' }).contains(commit)).toBe(true)
+    expect(screen.getByText(/Lets it record a Decision as a commitment/u)).toBeTruthy()
+
+    await act(async () => {
+      commit.click()
+    })
+    await act(async () => {
+      screen.getByRole('button', { name: 'Allow' }).click()
+    })
+
+    await waitFor(() => {
+      expect(approved).toEqual([
+        { workspace_ids: ['ws_1'], scopes: ['read:objects', 'write:objects', 'decisions:commit'] },
+      ])
+    })
+  })
+
+  it('gives no extra permission to a person who only clicks Allow, also when the app asked for it', async () => {
+    const approved: { body?: unknown } = {}
+
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign: vi.fn() })
+    renderPage({
+      scopes: ['read:objects', 'write:objects', 'decisions:commit'],
+      onApprove: (body) => {
+        approved.body = body
+      },
+    })
+
+    const boxes = await screen.findAllByRole('checkbox', { name: /^Decisions \(commit without confirmation\)/u })
+
+    // Once, in its own section, and clear.
+    expect(boxes).toHaveLength(1)
+    expect((boxes[0] as HTMLInputElement).checked).toBe(false)
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Allow' }).click()
+    })
+
+    await waitFor(() => {
+      expect(approved.body).toEqual({ workspace_ids: ['ws_1'], scopes: ['read:objects', 'write:objects'] })
+    })
+  })
+
+  it('shows no extra section when the server offers none', async () => {
+    renderPage({ extraScopes: [] })
+
+    await screen.findByRole('checkbox', { name: 'Write objects' })
+
+    expect(screen.queryByRole('group', { name: 'Extra permissions' })).toBeNull()
   })
 
   it('shows one workspace as text, with no choice to make', async () => {
