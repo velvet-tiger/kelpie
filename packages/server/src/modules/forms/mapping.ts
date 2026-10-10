@@ -381,11 +381,13 @@ export function readIntent(mapped: MappedAnswers): SubmitIntent | undefined {
 }
 
 /**
- * The merge rule for every field a submit touches: fill a blank, never overwrite.
+ * The merge rule for a mapped value on a record the submit has just created:
+ * fill a blank, never overwrite.
  *
- * A form is filled in by whoever happens to be at the keyboard, and a CRM record
- * carries what the team has since learned. An inbound "Alex" must not replace
- * "Alex Rivera", so the stored value wins whenever there is one.
+ * The core capture writes the name, the address and the defaults first, and
+ * the mapped values come after it. A value already there wins. A record that
+ * was already in the workspace is never given a mapped value, so this rule
+ * never runs against what the team has learned.
  *
  * @returns undefined when nothing should be written, which keeps the field out
  *   of the update and off the `changedFields` of the event.
@@ -399,8 +401,8 @@ export function fillBlank(stored: string | null, inbound: string | undefined): s
 }
 
 /**
- * The merge rule for `person.phones`: fill when the stored list is empty, never
- * append to a list the team has already set.
+ * The rule for `person.phones` on a person the submit creates: the one answer
+ * becomes the list. A list that has an entry is left as it is.
  */
 export function fillPhonesBlank(
   stored: readonly string[],

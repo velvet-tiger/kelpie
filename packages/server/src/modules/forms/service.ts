@@ -346,6 +346,7 @@ interface EmailSettingsState {
   readonly autoReplySubject: string
   readonly autoReplyBody: string
   readonly autoReplyReplyTo: FormEmailRecipient | null
+  readonly requireSpamCheck: boolean
 }
 
 /** Order matters: it is the order the builder shows. */
@@ -383,6 +384,16 @@ function findEmailSettingProblems(state: EmailSettingsState): { field: string; m
     for (const message of findTemplatePlaceholderProblems(template.text, template.kind)) {
       problems.push({ field: template.field, message })
     }
+  }
+
+  // An auto-reply goes to an address a stranger typed. The spam check is what
+  // stands between a script and a mail to that address, so the one may not be
+  // on without the other. Both fields are named: either one fixes it.
+  if (state.autoReply && !state.requireSpamCheck) {
+    problems.push(
+      { field: 'auto_reply', message: 'An auto-reply needs the spam check. Turn on require_spam_check' },
+      { field: 'require_spam_check', message: 'Required while auto_reply is on' },
+    )
   }
 
   if (state.notifyEmail && state.notifyRecipients.length === 0) {
@@ -929,6 +940,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
           autoReplySubject: input.autoReplySubject,
           autoReplyBody: input.autoReplyBody,
           autoReplyReplyTo: input.autoReplyReplyTo,
+          requireSpamCheck: input.requireSpamCheck,
         },
       })
 
@@ -1069,6 +1081,7 @@ export function createFormsService(dependencies: FormsDependencies): FormsServic
             changes.autoReplyReplyTo === undefined
               ? replyToFrom(existing.autoReplyReplyToMemberId, existing.autoReplyReplyToAddress)
               : changes.autoReplyReplyTo,
+          requireSpamCheck: changes.requireSpamCheck ?? existing.requireSpamCheck,
         },
       })
 

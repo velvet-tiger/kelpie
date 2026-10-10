@@ -886,7 +886,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(person?.lastName).toBe('Rivera')
     })
 
-    it('fills a blank name part without overwriting one the team already knows', async () => {
+    it('keeps the name parts of a person it matched, whatever the visitor types', async () => {
       const fields = [
         { label: 'First name', type: 'text', map_to: 'person.first_name' },
         { label: 'Last name', type: 'text', map_to: 'person.last_name' },
@@ -901,8 +901,8 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       })
 
       expect((await submit(formPath(form), answers('Alex', 'Rivera'))).status).toBe(201)
-      // The same visitor returns and types a different surname. The stored one
-      // wins, the same rule the whole-name merge has always followed.
+      // The same address returns with a different surname. Nothing a visitor
+      // types is written on a person who was already there.
       expect((await submit(formPath(form), answers('Alex', 'Nakamura'))).status).toBe(201)
 
       const [person] = await database.db
@@ -936,7 +936,7 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(person?.phones).toEqual(['+61 400 000 000'])
     })
 
-    it('composes a mailing address and fills only blank parts on return', async () => {
+    it('composes a mailing address on a new person and writes none of it on return', async () => {
       const fields = [
         { label: 'Name', type: 'text', map_to: 'person.name', required: true },
         { label: 'Email', type: 'email', map_to: 'person.email', required: true },
@@ -1091,11 +1091,11 @@ describe.skipIf(connectionString === undefined)('forms', () => {
         .where(eq(people.workspaceId, acme.workspaceId))
 
       expect(rows).toHaveLength(1)
-      // Fill blanks only: the stored name is what the team has since learned.
+      // A matched person is never changed: the stored name is what the team has learned.
       expect(rows[0]?.name).toBe('Alex Rivera')
     })
 
-    it('fills a blank the matched company did not have', async () => {
+    it('links to a company it matched by name and never gives it a domain', async () => {
       const created = await client.send('POST', '/v1/companies', {
         body: { name: 'Example Co' },
         cookie: acme.cookie,
@@ -1122,9 +1122,10 @@ describe.skipIf(connectionString === undefined)('forms', () => {
         .from(companies)
         .where(eq(companies.workspaceId, acme.workspaceId))
 
-      // Matched by name, and the mapped domain filled the blank it had.
+      // Matched by name. A name is a claim anybody can type, so the domain the
+      // visitor gave goes nowhere: answers are written only on a company the submit creates.
       expect(rows).toHaveLength(1)
-      expect(rows[0]?.domain).toBe('example.com')
+      expect(rows[0]?.domain).toBeNull()
     })
 
     it('reuses the position a person already holds at a company', async () => {
@@ -2199,6 +2200,33 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(newsletterOf(await alex())).toMatchObject({ status: 'withdrawn', source: 'manual' })
       expect(await activityActions(personId)).toContain(
         'kept Newsletter consent withdrawn after a submit of Website contact',
+      )
+    })
+
+    it('does not change a consent a member already recorded as granted', async () => {
+      const { form, answers } = await consentForm()
+
+      await submit(formPath(form), answers)
+
+      const personId = readString(await alex(), 'id')
+
+      // Withdrawn and granted again by hand: the row is now the member's.
+      for (const status of ['withdrawn', 'granted']) {
+        await client.send('PATCH', `/v1/people/${personId}`, {
+          cookie: acme.cookie,
+          body: { consents: [{ purpose_slug: 'newsletter', status }] },
+        })
+      }
+
+      const before = newsletterOf(await alex())
+
+      expect((await submit(formPath(form), answers)).status).toBe(201)
+
+      // Same status, same source, same date: the submit wrote nothing on it.
+      expect(newsletterOf(await alex())).toEqual(before)
+      expect(before).toMatchObject({ status: 'granted', source: 'manual' })
+      expect(await activityActions(personId)).toContain(
+        'kept Newsletter consent granted after a submit of Website contact',
       )
     })
 

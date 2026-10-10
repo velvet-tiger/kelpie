@@ -1,5 +1,5 @@
 import type { ConsentStatus } from '@kelpie/schemas'
-import { and, eq, inArray, ne } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 
 import { AppError } from '../../lib/errors.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -121,24 +121,27 @@ export async function upsertPersonConsent(
 /**
  * A grant from somebody who showed no credentials: a public form submit.
  *
- * It never changes a `withdrawn` row. The person is matched by email address
- * alone, so anybody who knows the address can send the form, and a withdrawal
- * that such a request could undo would be worth nothing. A person in the
- * workspace can set the consent back to granted by hand.
+ * It writes a row only where the person has none for the purpose. It never
+ * changes a row that exists, whatever its status. The person is matched by
+ * email address alone, so anybody who knows the address can send the form. A
+ * withdrawal that such a request could undo would be worth nothing, and a
+ * grant a member recorded would lose its date and its source. A person in the
+ * workspace can set the consent by hand.
  *
- * The condition is part of the upsert itself, so a withdrawal that lands
- * between a read and this write is not lost.
+ * One insert that does nothing on a conflict, so a row that lands between a
+ * read and this write is not changed either.
  *
- * @returns `applied: false` when the row was `withdrawn` and stays so.
+ * @returns `applied: true` when this call wrote the grant. Otherwise the
+ *   status of the row that was already there, which stays as it was.
  */
-export async function grantPersonConsentUnlessWithdrawn(
+export async function grantPersonConsentIfAbsent(
   tx: Transaction,
   workspaceId: string,
   personId: string,
   purposeId: string,
   source: string,
   now: Date,
-): Promise<{ readonly applied: boolean }> {
+): Promise<{ readonly applied: boolean; readonly status: ConsentStatus }> {
   const written = await tx
     .insert(personConsents)
     .values({
@@ -150,14 +153,24 @@ export async function grantPersonConsentUnlessWithdrawn(
       source,
       updatedAt: now,
     })
-    .onConflictDoUpdate({
-      target: [personConsents.personId, personConsents.purposeId],
-      set: { status: 'granted', notedAt: now, source, updatedAt: now },
-      setWhere: ne(personConsents.status, 'withdrawn'),
-    })
+    .onConflictDoNothing({ target: [personConsents.personId, personConsents.purposeId] })
     .returning({ personId: personConsents.personId })
 
-  return { applied: written.length > 0 }
+  if (written.length > 0) {
+    return { applied: true, status: 'granted' }
+  }
+
+  const [existing] = await tx
+    .select({ status: personConsents.status })
+    .from(personConsents)
+    .where(and(eq(personConsents.personId, personId), eq(personConsents.purposeId, purposeId)))
+    .limit(1)
+
+  if (existing === undefined) {
+    throw new Error(`Consent of ${personId} for ${purposeId} disappeared during a form submit`)
+  }
+
+  return { applied: false, status: existing.status as ConsentStatus }
 }
 
 /**

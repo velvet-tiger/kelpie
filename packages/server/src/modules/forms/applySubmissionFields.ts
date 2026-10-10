@@ -15,8 +15,6 @@ import * as partnershipRepository from '../partnerships/repository.ts'
 import type { PartnershipRecord } from '../partnerships/repository.ts'
 import * as peopleRepository from '../people/repository.ts'
 import type { PersonRecord } from '../people/repository.ts'
-import * as raiseRepository from '../raises/repository.ts'
-import type { RaiseRecord } from '../raises/repository.ts'
 import {
   applyStandardFillBlank,
   customFieldsFillBlankPatch,
@@ -83,16 +81,6 @@ const PARTNERSHIP_FIELD_COLUMNS: Readonly<Record<string, keyof PartnershipRecord
 
 const ENQUIRY_FIELD_COLUMNS: Readonly<Record<string, keyof EnquiryRecord>> = {
   source: 'source',
-  summary: 'summary',
-  tags: 'tags',
-}
-
-const RAISE_FIELD_COLUMNS: Readonly<Record<string, keyof RaiseRecord>> = {
-  check_size_cents: 'checkSizeCents',
-  currency: 'currency',
-  thesis_fit: 'thesisFit',
-  pass_reason: 'passReason',
-  expected_close: 'expectedClose',
   summary: 'summary',
   tags: 'tags',
 }
@@ -397,41 +385,4 @@ export async function applyEnquiryMappedFields(
   })
 
   return updated ?? enquiry
-}
-
-export async function applyRaiseMappedFields(
-  tx: Transaction,
-  workspaceId: string,
-  raise: RaiseRecord,
-  mapped: MappedAnswers,
-  definitions: readonly CustomFieldDefinitionRecord[],
-  now: Date,
-): Promise<RaiseRecord> {
-  const values = valuesForObject(mapped, 'raise')
-
-  if (!hasObjectMappedValues(values)) {
-    return raise
-  }
-
-  const standardPatch = applyStandardFillBlank(raise, 'raise', values, columnLookup(RAISE_FIELD_COLUMNS))
-  const customFields = await buildCustomFieldsPatch(
-    tx,
-    workspaceId,
-    'raise',
-    raise.customFields,
-    values.custom,
-    definitions,
-  )
-
-  if (Object.keys(standardPatch).length === 0 && customFields === undefined) {
-    return raise
-  }
-
-  const updated = await raiseRepository.updateRaise(tx, workspaceId, raise.id, {
-    ...standardPatch,
-    ...(customFields === undefined ? {} : { customFields }),
-    updatedAt: now,
-  })
-
-  return updated ?? raise
 }

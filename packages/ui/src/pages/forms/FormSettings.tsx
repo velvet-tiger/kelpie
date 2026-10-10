@@ -96,6 +96,9 @@ export function FormSettings({ form }: FormSettingsProps): React.JSX.Element {
           <input
             type="checkbox"
             checked={form.requireSpamCheck}
+            // The server refuses an auto-reply without the check, so the check
+            // cannot be turned off while the auto-reply is on.
+            disabled={form.autoReply && form.requireSpamCheck}
             onChange={(event) => {
               patch({ requireSpamCheck: event.target.checked })
             }}
@@ -107,6 +110,8 @@ export function FormSettings({ form }: FormSettingsProps): React.JSX.Element {
           can release it from the Submissions tab. Your embeds pass the check by themselves.
           If a site posts JSON to this form from its own markup, it must get a token first:
           see the Embed tab.
+          {form.autoReply &&
+            ' The auto-reply needs this check. To turn the check off, first turn the auto-reply off on the Actions tab.'}
         </Hint>
       </div>
 

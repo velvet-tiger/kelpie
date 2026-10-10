@@ -859,7 +859,7 @@ export type EmbedLayout = 'page' | 'embed'
 
 /** What the page needs for a form that requires the spam check. */
 export interface EmbedSpamCheck {
-  /** Absolute URL the page gets its token from as it loads. */
+  /** Where the page gets its token from as it loads: a path on the page's own origin. */
   readonly tokenUrl: string
   /** The CAPTCHA to draw, when the deployment picked a provider. */
   readonly captcha: CaptchaWidget | undefined
@@ -872,7 +872,10 @@ export interface EmbedPageOptions {
   readonly consentPurposes: ReadonlyMap<string, EmbedConsentPurpose>
   /** The names of the lists the "Add to list" fields offer, keyed by list id. */
   readonly listNames: ReadonlyMap<string, string>
-  /** Absolute URL of the public submit endpoint this page posts to. */
+  /**
+   * The public submit endpoint this page posts to: a path on the page's own
+   * origin, never a URL built from request headers, because the page is cached.
+   */
   readonly submitUrl: string
   /** Per-response value tying the inline style and script to the CSP header. */
   readonly nonce: string

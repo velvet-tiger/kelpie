@@ -523,21 +523,47 @@ export function formSubmissionResponse(submission: FormSubmissionView): Record<s
   }
 }
 
+function publicFormsPath(workspaceId: string): string {
+  return `${PUBLIC_ROUTE_PREFIX}/workspaces/${workspaceId}/forms`
+}
+
 function publicFormsBase(context: Context, workspaceId: string): string {
-  return `${requestOrigin(context)}${PUBLIC_ROUTE_PREFIX}/workspaces/${workspaceId}/forms`
+  return `${requestOrigin(context)}${publicFormsPath(workspaceId)}`
+}
+
+/**
+ * The path a form submits to, from the root of the origin that serves it.
+ *
+ * What the embed page posts to. That page is stored by shared caches, so it
+ * must carry nothing taken from a request header: an absolute URL built from
+ * `Host` would let one forged request point every later visitor's page at
+ * another host. The page and the submit are always on one origin, so a path
+ * is enough and is right wherever the service is reached from.
+ */
+export function submitPathFor(workspaceId: string, slug: string): string {
+  return `${publicFormsPath(workspaceId)}/${slug}/submit`
+}
+
+/** The path the embed page gets its spam-check token from. A path for the reason `submitPathFor` gives. */
+export function tokenPathFor(workspaceId: string, formId: string): string {
+  return `${publicFormsPath(workspaceId)}/${formId}/token`
 }
 
 /**
  * The absolute URL a form submits to, `…/forms/:slug/submit`.
  *
  * The one public URL built from the slug, so regenerating the slug moves only
- * this. The embed page is rendered per request and carries the current value,
+ * this. The embed page is rendered per request and carries the current path,
  * so every embed follows within its cache window, and a caller that saved the
  * old URL gets a 404. The slug is URL-safe (`FORM_SLUG_PATTERN`) and needs no
  * escaping.
+ *
+ * Built from the request's origin, so only for a response that goes to the
+ * signed-in caller alone and that no shared cache stores. The public embed
+ * page uses `submitPathFor`.
  */
 export function submitUrlFor(context: Context, workspaceId: string, slug: string): string {
-  return `${publicFormsBase(context, workspaceId)}/${slug}/submit`
+  return `${requestOrigin(context)}${submitPathFor(workspaceId, slug)}`
 }
 
 /**
@@ -545,7 +571,7 @@ export function submitUrlFor(context: Context, workspaceId: string, slug: string
  * Built from the form id, like the embed, so it never moves.
  */
 export function tokenUrlFor(context: Context, workspaceId: string, formId: string): string {
-  return `${publicFormsBase(context, workspaceId)}/${formId}/token`
+  return `${requestOrigin(context)}${tokenPathFor(workspaceId, formId)}`
 }
 
 /**

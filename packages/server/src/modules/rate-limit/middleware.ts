@@ -6,7 +6,7 @@ import { rateLimitKeyForIp } from '../../lib/clientIp.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import { MAX_SHORT_TEXT_LENGTH } from '../../lib/fieldLimits.ts'
-import { PUBLIC_ROUTE_PREFIX } from '../../lib/http.ts'
+import { PUBLIC_ROUTE_PREFIX, setClientRateKey } from '../../lib/http.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { RateLimitBudget, RateLimitConfig } from '../../lib/rateLimit.ts'
 import { readBearerToken } from '../api-keys/keys.ts'
@@ -340,9 +340,14 @@ export function createFormSubmitRateLimitMiddleware(
       return
     }
 
+    const key = clientKey(dependencies, context)
+
+    // The submit handler counts auto-replies for the same caller.
+    setClientRateKey(context, key)
+
     await enforceBudget(dependencies, context, {
       scope,
-      key: clientKey(dependencies, context),
+      key,
       budget: dependencies.config.forms,
     })
     await next()

@@ -17,7 +17,7 @@ import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
 import { SEND_FORM_EMAILS_JOB, sendFormEmails, sendFormEmailsDataSchema } from './emailJob.ts'
 import type { FormEmailDependencies, SendFormEmailsData } from './emailJob.ts'
-import { formEmailSends, formSubmissions } from './schema.ts'
+import { formEmailSends, formSubmissions, forms } from './schema.ts'
 
 /**
  * Form emails end to end: the settings on `/v1/forms`, the job a submit
@@ -116,7 +116,10 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
     await database.truncateAll()
     harness = await createTestApp({
       modules: coreModules,
-      environment: TEST_ENVIRONMENT,
+      // A form with an auto-reply requires the spam check. These cases are
+      // about the emails, so the check's minimum time is off and a submit
+      // only has to carry a token.
+      environment: { ...TEST_ENVIRONMENT, FORMS_SPAM_MIN_SECONDS: '0' },
       services: createTestServices({ db: database.db, enqueueOnTx: database.jobs.enqueueOnTx }),
     })
     client = createTestClient(harness.app, harness.services.db)
@@ -130,7 +133,13 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
 
   async function createForm(body: Record<string, unknown>): Promise<Form> {
     const response = await client.send('POST', '/v1/forms', {
-      body: { name: 'Website contact', fields: CONTACT_FIELDS, ...body },
+      body: {
+        name: 'Website contact',
+        fields: CONTACT_FIELDS,
+        // The server refuses an auto-reply without the spam check.
+        ...(body.auto_reply === true ? { require_spam_check: true } : {}),
+        ...body,
+      },
       cookie: acme.cookie,
     })
 
@@ -163,11 +172,21 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
     return field.id
   }
 
+  /** A spam-check token for the form, as its embed page gets one. */
+  async function spamToken(form: Form): Promise<string> {
+    const response = await client.send(
+      'GET',
+      `/v1/public/workspaces/${acme.workspaceId}/forms/${form.id}/token`,
+    )
+
+    return readString(await response.json(), 'token')
+  }
+
   async function submit(form: Form, answers: Record<string, string>): Promise<string> {
     const response = await client.send(
       'POST',
       `/v1/public/workspaces/${acme.workspaceId}/forms/${form.slug}/submit`,
-      { body: { answers } },
+      { body: { answers, token: await spamToken(form) } },
     )
 
     expect(response.status).toBe(201)
@@ -316,8 +335,92 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
       const form = await createForm({})
 
       expect(
-        await refusal('PATCH', `/v1/forms/${form.id}`, { auto_reply: true, auto_reply_subject: '  ' }),
+        await refusal('PATCH', `/v1/forms/${form.id}`, {
+          auto_reply: true,
+          require_spam_check: true,
+          auto_reply_subject: '  ',
+        }),
       ).toEqual([{ field: 'auto_reply_subject', message: 'Required while this email is on' }])
+    })
+
+    describe('an auto-reply needs the spam check', () => {
+      const BOTH_FIELDS = [
+        { field: 'auto_reply', message: 'An auto-reply needs the spam check. Turn on require_spam_check' },
+        { field: 'require_spam_check', message: 'Required while auto_reply is on' },
+      ]
+
+      it('refuses a new form with the auto-reply on and the check off, naming both fields', async () => {
+        expect(
+          await refusal('POST', '/v1/forms', { name: 'x', fields: CONTACT_FIELDS, auto_reply: true }),
+        ).toEqual(BOTH_FIELDS)
+        expect(
+          await refusal('POST', '/v1/forms', {
+            name: 'x',
+            fields: CONTACT_FIELDS,
+            auto_reply: true,
+            require_spam_check: false,
+          }),
+        ).toEqual(BOTH_FIELDS)
+      })
+
+      it('refuses turning the auto-reply on alone, and takes both in one request', async () => {
+        const form = await createForm({})
+
+        expect(await refusal('PATCH', `/v1/forms/${form.id}`, { auto_reply: true })).toEqual(BOTH_FIELDS)
+
+        const both = await client.send('PATCH', `/v1/forms/${form.id}`, {
+          body: { auto_reply: true, require_spam_check: true },
+          cookie: acme.cookie,
+        })
+
+        expect(both.status).toBe(200)
+        expect(formSchema.parse(await both.json())).toMatchObject({
+          autoReply: true,
+          requireSpamCheck: true,
+        })
+      })
+
+      it('refuses turning the check off while the auto-reply is on', async () => {
+        const form = await createForm({ auto_reply: true })
+
+        expect(
+          await refusal('PATCH', `/v1/forms/${form.id}`, { require_spam_check: false }),
+        ).toEqual(BOTH_FIELDS)
+
+        const off = await client.send('PATCH', `/v1/forms/${form.id}`, {
+          body: { require_spam_check: false, auto_reply: false },
+          cookie: acme.cookie,
+        })
+
+        expect(off.status).toBe(200)
+      })
+
+      it('leaves a form stored before the rule sending, and applies the rule at its next save', async () => {
+        const form = await createForm({ auto_reply: true })
+
+        // A row as an earlier version could store it. No write path makes one now.
+        await database.db.update(forms).set({ requireSpamCheck: false }).where(eq(forms.id, form.id))
+
+        const response = await client.send(
+          'POST',
+          `/v1/public/workspaces/${acme.workspaceId}/forms/${form.slug}/submit`,
+          { body: { answers: contactAnswers(form) } },
+        )
+
+        expect(response.status).toBe(201)
+        expect(await queuedJobs()).toEqual([
+          expect.objectContaining({ kinds: ['auto_reply'] }),
+        ])
+
+        expect(await refusal('PATCH', `/v1/forms/${form.id}`, { name: 'Renamed' })).toEqual(BOTH_FIELDS)
+
+        const fixed = await client.send('PATCH', `/v1/forms/${form.id}`, {
+          body: { name: 'Renamed', require_spam_check: true },
+          cookie: acme.cookie,
+        })
+
+        expect(fixed.status).toBe(200)
+      })
     })
 
     it('treats a resent identical recipient list as no write', async () => {

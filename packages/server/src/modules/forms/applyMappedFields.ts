@@ -5,6 +5,7 @@ import {
 } from '@kelpie/schemas'
 import type { CustomFieldDefinitionRef, FormMapObjectType, FormMapValueType } from '@kelpie/schemas'
 
+import { MAX_TAGS } from '../../lib/fieldLimits.ts'
 import type { MappedAnswers } from './mapping.ts'
 import { fillBlank, isConsentTicked, mergeTags } from './mapping.ts'
 
@@ -129,7 +130,15 @@ function isBlankStored(value: unknown): boolean {
   return false
 }
 
-/** Applies fill-blank for one standard field onto a patch object keyed by repository column names. */
+/**
+ * Applies fill-blank for one standard field onto a patch object keyed by
+ * repository column names.
+ *
+ * The caller runs this only for a record the submit has just created, so
+ * "stored" is that record's defaults and what the core capture wrote. A record
+ * that was already in the workspace gets no mapped value at all
+ * (`submission.ts`).
+ */
 export function applyStandardFillBlank<T extends Record<string, unknown>>(
   stored: T,
   objectType: FormMapObjectType,
@@ -156,7 +165,10 @@ export function applyStandardFillBlank<T extends Record<string, unknown>>(
         parsed,
       )
 
-      if (merge.changed) {
+      // The tag API refuses a longer list, so a merge that would pass the
+      // limit is left out whole. Writing the first few would store a list
+      // nobody asked for.
+      if (merge.changed && merge.next.length <= MAX_TAGS) {
         patch[column] = merge.next
       }
 
@@ -172,6 +184,9 @@ export function applyStandardFillBlank<T extends Record<string, unknown>>(
     }
 
     if (typeof parsed === 'boolean') {
+      // One direction only: an answer can set a flag (`do_not_contact`) and
+      // never clears one. This runs only for a record the submit created, so
+      // the stored value is the default.
       if (storedValue === false && parsed === true) {
         patch[column] = parsed
       }

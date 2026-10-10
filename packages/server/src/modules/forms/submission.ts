@@ -8,7 +8,7 @@ import type {
 import { toEventActor } from '../../lib/actor.ts'
 import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
-import { AppError } from '../../lib/errors.ts'
+import { AppError, describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { JobHandle } from '../../lib/jobs.ts'
 import type { Logger } from '../../lib/logger.ts'
@@ -44,7 +44,7 @@ import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import * as customFieldsRepository from '../custom-fields/repository.ts'
 import { CUSTOM_FIELD_OBJECT_TYPES } from '../custom-fields/schema.ts'
 import '../people/events.ts'
-import { grantPersonConsentUnlessWithdrawn } from '../people/personConsentWrites.ts'
+import { grantPersonConsentIfAbsent } from '../people/personConsentWrites.ts'
 import * as peopleRepository from '../people/repository.ts'
 import type { PersonRecord } from '../people/repository.ts'
 import * as personLinks from '../personLinks.ts'
@@ -52,10 +52,10 @@ import * as pipelineRepository from '../pipelines/repository.ts'
 import '../positions/events.ts'
 import * as positionRepository from '../positions/repository.ts'
 import { targetExists } from '../recordTargets.ts'
-import * as raiseRepository from '../raises/repository.ts'
 import '../raises/events.ts'
 import * as workspaceRepository from '../workspace/repository.ts'
 import './events.ts'
+import { spendClientAutoReply } from './autoReplyClientLimit.ts'
 import type { SendFormEmailsData } from './emailJob.ts'
 import {
   DEAL_CLOSE_HORIZON_DAYS,
@@ -63,7 +63,6 @@ import {
   describeAnswers,
   expandNameTemplate,
   expectedCloseFrom,
-  fillBlank,
   fillPhonesBlank,
   findAnswerProblems,
   findUnknownAnswers,
@@ -73,9 +72,11 @@ import {
   readIntent,
   readListChoices,
 } from './mapping.ts'
-import type { Answers, ConsentGrant, SubmitIntent } from './mapping.ts'
+import type { Answers, ConsentGrant, MappedAnswers, SubmitIntent } from './mapping.ts'
 import * as repository from './repository.ts'
 import type { FormFieldRecord, FormRecord, FormSubmissionRecord } from './repository.ts'
+import { EXISTING_RECORD_REASON, checkMappedAnswers, mappedTargetsOf } from './mappedValueChecks.ts'
+import type { RefusedMappedValue } from './mappedValueChecks.ts'
 import { SPAM_RETENTION_DAYS } from './spam.ts'
 import type { SpamCheck, SpamCheckInput } from './spam.ts'
 import {
@@ -85,7 +86,6 @@ import {
   applyOpportunityMappedFields,
   applyPartnershipMappedFields,
   applyPersonMappedFields,
-  applyRaiseMappedFields,
 } from './applySubmissionFields.ts'
 
 /**
@@ -155,6 +155,11 @@ export interface SubmissionDependencies {
   /** Enqueued inside the submit's transaction when the form sends an email. */
   readonly sendEmailsJob: JobHandle<SendFormEmailsData>
   readonly spamCheck: SpamCheck
+  /**
+   * Auto-replies one client address may cause in a workspace in a UTC day.
+   * `FORMS_AUTO_REPLY_CLIENT_DAILY_LIMIT`.
+   */
+  readonly autoReplyClientDailyLimit: number
   readonly log: Logger
 }
 
@@ -188,6 +193,11 @@ export interface FormSubmitService {
    * A submit the spam check catches resolves like any other, with
    * `status: 'spam'`.
    *
+   * @param clientKey The key the rate limiter counts this caller under. An
+   *   accepted submit of a form with an auto-reply is counted against it, and
+   *   a caller over the daily limit gets no auto-reply. The submit itself is
+   *   accepted all the same, and the response does not say which happened.
+   *
    * @throws AppError 404 unknown form, 409 paused, 422 unusable answers.
    */
   submit(
@@ -195,6 +205,7 @@ export interface FormSubmitService {
     slug: string,
     answers: Answers,
     spam?: SpamCheckInput,
+    clientKey?: string,
   ): Promise<SubmitOutcome>
   /**
    * Takes a `spam` submission out of quarantine and runs the submit rules on
@@ -229,6 +240,15 @@ interface PendingEvent {
   readonly data: unknown
 }
 
+/** What a set of answers will write, once the values no record takes are set aside. */
+interface ReadAnswers {
+  readonly intent: SubmitIntent
+  /** Mapped answers the records' own `PATCH` schemas accept. */
+  readonly mapped: MappedAnswers
+  /** Mapped answers left out of every write. They stay on the submission. */
+  readonly refused: readonly RefusedMappedValue[]
+}
+
 /** A record, and whether this submit is what put it there. */
 interface Upserted<TRecord extends { readonly id: string }> {
   readonly record: TRecord
@@ -237,9 +257,16 @@ interface Upserted<TRecord extends { readonly id: string }> {
   readonly filled: readonly string[]
 }
 
+/** A Company a submit resolved, and the answer it was matched on. */
+interface MatchedCompany extends Upserted<CompanyRecord> {
+  /** The mapped target the match was made on. Undefined on a create. */
+  readonly matchedOn: 'company.domain' | 'company.name' | undefined
+}
+
 /** The bare shape `emitRecordEvents` needs of a Position. */
 interface PositionLink {
   readonly id: string
+  readonly title: string
 }
 
 /** What a submit touched, for the events published after commit. */
@@ -342,11 +369,12 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
   /**
    * Upserts the Person, matched on the normalised address.
    *
-   * `lastContactedAt` is stamped either way, and unlike every other field it
-   * overwrites: it records when this person was last in touch, and filling the
-   * form in is them being in touch. It is not reported as a filled blank,
-   * because a consumer watching for enrichment does not want a notification
-   * every time somebody says hello.
+   * The answers are written only on a person this submit creates. On a person
+   * it matched, the one thing it stamps is `lastContactedAt`: that records
+   * when this person was last in touch, and filling the form in is them being
+   * in touch. It is not a value the visitor chose, and it is not reported as
+   * a change, because a consumer watching for edits does not want a
+   * notification every time somebody says hello.
    */
   async function upsertPerson(
     tx: Transaction,
@@ -373,21 +401,10 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       return { record: created, created: true, filled: phones === undefined ? [] : ['phones'] }
     }
 
-    // Each part fills its own blank. A stored first name is what the team has
-    // learned and an inbound one is what a visitor typed, so the rule that keeps
-    // an inbound "Alex" off a stored "Alex Rivera" covers these unchanged.
-    const filledName = fillBlank(existing.name, intent.personName)
-    const filledFirstName = fillBlank(existing.firstName, intent.personFirstName)
-    const filledLastName = fillBlank(existing.lastName, intent.personLastName)
-    const filledPhones = fillPhonesBlank(existing.phones, intent.personPhone)
-    const changes = {
-      ...(filledName === undefined ? {} : { name: filledName }),
-      ...(filledFirstName === undefined ? {} : { firstName: filledFirstName }),
-      ...(filledLastName === undefined ? {} : { lastName: filledLastName }),
-      ...(filledPhones === undefined ? {} : { phones: [...filledPhones] }),
-    }
+    // Nothing the visitor typed is written here. The address matched, and an
+    // address is a claim anybody can make, so it gives no right to change the
+    // person the team already has.
     const updated = await peopleRepository.updatePerson(tx, workspaceId, existing.id, {
-      ...changes,
       lastContactedAt: now,
       updatedAt: now,
     })
@@ -396,12 +413,20 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       throw new Error(`Person ${existing.id} disappeared during a form submit`)
     }
 
-    return { record: updated, created: false, filled: Object.keys(changes) }
+    return { record: updated, created: false, filled: [] }
   }
 
   /**
    * Upserts the Company, by domain when there is one and by name otherwise
    * (`docs/guides/forms.md`).
+   *
+   * The name and the domain are written only on a company this submit
+   * creates. A company it matched is matched on a claim: names are not unique
+   * and anybody can type one, or a domain. The domain is also what the
+   * email-domain linker attaches people to a company by, so a stranger who
+   * names an existing company must not be able to give it a domain of their
+   * own. They are still linked to it, which is what a lead saying where they
+   * work is for.
    *
    * @returns undefined when the answers said nothing about a company, which is
    *   the ordinary case for a form collecting only a name and an address.
@@ -410,7 +435,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     tx: Transaction,
     workspaceId: string,
     intent: SubmitIntent,
-  ): Promise<Upserted<CompanyRecord> | undefined> {
+  ): Promise<MatchedCompany | undefined> {
     const name = companyNameFrom(intent)
 
     if (name === undefined) {
@@ -436,31 +461,15 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         ...NEW_COMPANY_DEFAULTS,
       })
 
-      return { record: created, created: true, filled: [] }
+      return { record: created, created: true, filled: [], matchedOn: undefined }
     }
 
-    const filledName = fillBlank(existing.name, intent.companyName)
-    const filledDomain = fillBlank(existing.domain, intent.companyDomain)
-    const changes = {
-      ...(filledName === undefined ? {} : { name: filledName }),
-      ...(filledDomain === undefined ? {} : { domain: filledDomain }),
+    return {
+      record: existing,
+      created: false,
+      filled: [],
+      matchedOn: byDomain === undefined ? 'company.name' : 'company.domain',
     }
-    const filled = Object.keys(changes)
-
-    if (filled.length === 0) {
-      return { record: existing, created: false, filled }
-    }
-
-    const updated = await companyRepository.updateCompany(tx, workspaceId, existing.id, {
-      ...changes,
-      updatedAt: dependencies.now(),
-    })
-
-    if (updated === undefined) {
-      throw new Error(`Company ${existing.id} disappeared during a form submit`)
-    }
-
-    return { record: updated, created: false, filled }
   }
 
   /**
@@ -566,6 +575,45 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       log.push({ action, status: 'error', detail })
 
       return undefined
+    }
+  }
+
+  /**
+   * Writes one record's mapped values under a savepoint.
+   *
+   * The values have passed the record's own `PATCH` schema by now, so a
+   * failure here is one the schema cannot see (a database constraint, a row
+   * deleted meanwhile). It must cost that one write and not the lead: the
+   * savepoint rolls back, the log says so, and the record stays as it was.
+   * Nothing is logged when it works, so the log of a healthy submit is only
+   * the actions the form was configured to run.
+   *
+   * @returns The record after the write, or `record` unchanged when it failed.
+   */
+  async function writeMappedFields<TRecord>(
+    tx: Transaction,
+    log: FormSubmissionActionEntry[],
+    objectType: string,
+    record: TRecord,
+    work: (inner: Transaction) => Promise<TRecord>,
+  ): Promise<TRecord> {
+    try {
+      return await tx.transaction(async (inner) => work(inner))
+    } catch (error: unknown) {
+      // Broad on purpose, as in `runAction`: whatever went wrong, the savepoint
+      // is gone and the submit carries on. The cause goes to the server log,
+      // and the action log gets a line that is safe to show.
+      dependencies.log.warn('form submit could not write mapped fields', {
+        objectType,
+        error: describeThrown(error),
+      })
+      log.push({
+        action: `map_fields:${objectType}`,
+        status: 'error',
+        detail: error instanceof AppError ? error.message : 'The mapped values could not be saved',
+      })
+
+      return record
     }
   }
 
@@ -838,7 +886,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
    *   (the page is stale), with one detail per unknown id; else 422 listing
    *   everything wrong with the answers at once.
    */
-  function readAnswers(fields: readonly FormFieldRecord[], answers: Answers): SubmitIntent {
+  function readAnswers(fields: readonly FormFieldRecord[], answers: Answers): ReadAnswers {
     // A stale page is checked first and alone. Its answers are for the old
     // fields, so checking them against the new ones would only add "is
     // required" errors for fields the visitor's page does not show.
@@ -854,7 +902,10 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       throw AppError.validationFailed('Some answers need attention', problems)
     }
 
-    const intent = readIntent(mapAnswers(fields, answers))
+    // A mapped value the record's own `PATCH` would refuse is treated as not
+    // given, for the intent and for every write below alike.
+    const { accepted, refused } = checkMappedAnswers(mapAnswers(fields, answers))
+    const intent = readIntent(accepted)
 
     if (intent === undefined) {
       throw AppError.validationFailed('This form needs an email address', [
@@ -862,7 +913,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       ])
     }
 
-    return intent
+    return { intent, mapped: accepted, refused }
   }
 
   /**
@@ -904,7 +955,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     for (const grant of grants) {
       const purpose = purposes.get(grant.purposeId)
       if (purpose === undefined) continue
-      const { applied } = await grantPersonConsentUnlessWithdrawn(
+      const { applied, status } = await grantPersonConsentIfAbsent(
         tx,
         workspaceId,
         personId,
@@ -921,12 +972,13 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         targetType: 'person',
         targetId: personId,
         kind: 'updated',
-        // A withdrawn consent stays withdrawn: the submit proves nothing about
-        // who sent it. The timeline keeps the attempt, so a person in the
-        // workspace can decide what to do about it.
+        // A consent the person already has a row for stays as it is, granted
+        // or withdrawn: the submit proves nothing about who sent it. The
+        // timeline keeps the attempt, so a person in the workspace can decide
+        // what to do about it.
         action: applied
           ? `granted ${purpose.label} consent via ${formName}`
-          : `kept ${purpose.label} consent withdrawn after a submit of ${formName}`,
+          : `kept ${purpose.label} consent ${status} after a submit of ${formName}`,
         detail,
       })
     }
@@ -950,10 +1002,10 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     answers: Answers,
     held: FormSubmissionRecord | undefined,
     options: TransactionOptions,
+    clientKey?: string,
   ): Promise<SubmitOutcome> {
     const { workspaceId } = form
-    const intent = readAnswers(fields, answers)
-    const mapped = mapAnswers(fields, answers)
+    const { intent, mapped, refused } = readAnswers(fields, answers)
     const consentGrants = readConsentGrants(fields, answers)
     const listChoices = readListChoices(fields, answers)
     const customFieldDefinitions = (
@@ -997,33 +1049,71 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
       }
       // Core capture: atomic. A failure here fails the submit; every
       // post-action below runs under its own savepoint and logs.
+      const actionLog: FormSubmissionActionEntry[] = refused.map((value) => ({
+        action: `map_field:${value.target}`,
+        status: 'skipped',
+        detail: value.reason,
+      }))
+
+      /** Says on the log that these answers went on no record, and why. */
+      const logNotWritten = (targets: readonly string[]): void => {
+        for (const target of targets) {
+          actionLog.push({
+            action: `map_field:${target}`,
+            status: 'skipped',
+            detail: EXISTING_RECORD_REASON,
+          })
+        }
+      }
+
       const personUpserted = await upsertPerson(tx, workspaceId, intent)
-      const personRecord = await applyPersonMappedFields(
-        tx,
-        workspaceId,
-        personUpserted.record,
-        mapped,
-        customFieldDefinitions,
-        now,
-      )
+      let personRecord = personUpserted.record
+
+      if (personUpserted.created) {
+        personRecord = await writeMappedFields(tx, actionLog, 'person', personRecord, (inner) =>
+          applyPersonMappedFields(
+            inner,
+            workspaceId,
+            personUpserted.record,
+            mapped,
+            customFieldDefinitions,
+            now,
+          ),
+        )
+      } else {
+        // The address is what matched, so it is the one answer not "skipped".
+        logNotWritten(mappedTargetsOf(mapped, 'person', ['person.email']))
+      }
+
       const person = { ...personUpserted, record: personRecord }
 
       const companyUpserted = await upsertCompany(tx, workspaceId, intent)
-      const companyRecord =
-        companyUpserted === undefined
-          ? undefined
-          : await applyCompanyMappedFields(
-              tx,
+      let companyRecord = companyUpserted?.record
+
+      if (companyUpserted?.created === true) {
+        companyRecord = await writeMappedFields(
+          tx,
+          actionLog,
+          'company',
+          companyUpserted.record,
+          (inner) =>
+            applyCompanyMappedFields(
+              inner,
               workspaceId,
               companyUpserted.record,
               mapped,
               customFieldDefinitions,
               now,
-            )
+            ),
+        )
+      } else if (companyUpserted?.matchedOn !== undefined) {
+        logNotWritten(mappedTargetsOf(mapped, 'company', [companyUpserted.matchedOn]))
+      }
+
       const company =
-        companyUpserted === undefined
+        companyUpserted === undefined || companyRecord === undefined
           ? undefined
-          : { ...companyUpserted, record: companyRecord ?? companyUpserted.record }
+          : { ...companyUpserted, record: companyRecord }
       const position =
         company === undefined || intent.positionTitle === undefined
           ? undefined
@@ -1034,6 +1124,16 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
               company.record.id,
               intent.positionTitle,
             )
+
+      // A position the person already holds keeps its title. Only a title
+      // that differs is an answer that went nowhere.
+      if (
+        position !== undefined &&
+        !position.created &&
+        position.record.title.toLowerCase() !== intent.positionTitle?.toLowerCase()
+      ) {
+        logNotWritten(['position.title'])
+      }
 
       // Consent grants (from ticked `consent` fields) are core capture, not
       // post-actions: they commit with the person, and an Activity records
@@ -1048,8 +1148,6 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         consentPurposesForGrants,
         dependencies,
       )
-
-      const actionLog: FormSubmissionActionEntry[] = []
 
       // --- Create triggers ---
 
@@ -1145,13 +1243,8 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         const deal = await dealRepository.findDeal(tx, workspaceId, dealId)
 
         if (deal !== undefined) {
-          await applyDealMappedFields(
-            tx,
-            workspaceId,
-            deal,
-            mapped,
-            customFieldDefinitions,
-            now,
+          await writeMappedFields(tx, actionLog, 'deal', deal, (inner) =>
+            applyDealMappedFields(inner, workspaceId, deal, mapped, customFieldDefinitions, now),
           )
         }
       }
@@ -1160,13 +1253,8 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         const opportunity = await opportunityRepository.findOpportunity(tx, workspaceId, opportunityId)
 
         if (opportunity !== undefined) {
-          await applyOpportunityMappedFields(
-            tx,
-            workspaceId,
-            opportunity,
-            mapped,
-            customFieldDefinitions,
-            now,
+          await writeMappedFields(tx, actionLog, 'opportunity', opportunity, (inner) =>
+            applyOpportunityMappedFields(inner, workspaceId, opportunity, mapped, customFieldDefinitions, now),
           )
         }
       }
@@ -1175,13 +1263,8 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         const partnership = await partnershipRepository.findPartnership(tx, workspaceId, partnershipId)
 
         if (partnership !== undefined) {
-          await applyPartnershipMappedFields(
-            tx,
-            workspaceId,
-            partnership,
-            mapped,
-            customFieldDefinitions,
-            now,
+          await writeMappedFields(tx, actionLog, 'partnership', partnership, (inner) =>
+            applyPartnershipMappedFields(inner, workspaceId, partnership, mapped, customFieldDefinitions, now),
           )
         }
       }
@@ -1190,13 +1273,8 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         const enquiry = await enquiryRepository.findEnquiry(tx, workspaceId, enquiryId)
 
         if (enquiry !== undefined) {
-          await applyEnquiryMappedFields(
-            tx,
-            workspaceId,
-            enquiry,
-            mapped,
-            customFieldDefinitions,
-            now,
+          await writeMappedFields(tx, actionLog, 'enquiry', enquiry, (inner) =>
+            applyEnquiryMappedFields(inner, workspaceId, enquiry, mapped, customFieldDefinitions, now),
           )
         }
       }
@@ -1360,23 +1438,10 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         )
       }
 
-      for (const target of attachTargets) {
-        if (target.targetType !== 'raise') {
-          continue
-        }
-
-        const raise = await raiseRepository.findRaise(tx, workspaceId, target.targetId)
-
-        if (raise !== undefined) {
-          await applyRaiseMappedFields(
-            tx,
-            workspaceId,
-            raise,
-            mapped,
-            customFieldDefinitions,
-            now,
-          )
-        }
+      // A raise is always one the form attaches to, never one this submit
+      // made, so nothing mapped to a raise is written.
+      if (attachTargets.some((target) => target.targetType === 'raise')) {
+        logNotWritten(mappedTargetsOf(mapped, 'raise'))
       }
 
       // --- Persist submission + core activity + record events ---
@@ -1421,11 +1486,31 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         ...(form.autoReply ? (['auto_reply'] as const) : []),
       ]
 
+      // Counted here, so only for a submit that passed the spam check and
+      // is about to ask for an auto-reply. A member releasing a held submit
+      // has no client key and is not counted.
+      const overClientLimit =
+        form.autoReply &&
+        clientKey !== undefined &&
+        !(await spendClientAutoReply(
+          tx,
+          {
+            createId: dependencies.createId,
+            now: dependencies.now,
+            limit: dependencies.autoReplyClientDailyLimit,
+          },
+          workspaceId,
+          clientKey,
+        ))
+
       if (emailKinds.length > 0) {
         await jobs.enqueue(dependencies.sendEmailsJob, {
           workspaceId,
           submissionId: submission.id,
           kinds: emailKinds,
+          // The job records the auto-reply as skipped, with the reason, where
+          // staff read every other email outcome.
+          ...(overClientLimit ? { autoReplyOverClientLimit: true } : {}),
         })
       }
 
@@ -1515,7 +1600,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
   }
 
   return {
-    async submit(urlWorkspaceId, slug, answers, spam = {}) {
+    async submit(urlWorkspaceId, slug, answers, spam = {}, clientKey) {
       const form = await requireOpenForm(urlWorkspaceId, slug)
       const fields = await repository.listFields(dependencies.db, form.id)
 
@@ -1530,7 +1615,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         return quarantine(form, answers, spamReason)
       }
 
-      return capture(form, fields, answers, undefined, { workspaceId: form.workspaceId })
+      return capture(form, fields, answers, undefined, { workspaceId: form.workspaceId }, clientKey)
     },
 
     async release(actor, formId, submissionId) {

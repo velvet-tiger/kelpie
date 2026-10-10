@@ -22,15 +22,27 @@ Each field maps to an object and attribute via a searchable picker — not a fix
 
 **Repeatable:** **Submission only** and **Person · consent** may appear on more than one field.
 
-**A withdrawn consent stays withdrawn.** If a person withdrew a consent and the form is then sent with that person's email address and the box ticked, Kelpie does not change the consent. A form needs no sign-in, so the submit does not prove who sent it. The person's timeline shows the attempt, and you can grant the consent again on the person record.
+**A consent the person already has stays as it is.** A ticked box writes a new grant only when the person has no record for that purpose. If the person already has one, granted or withdrawn, Kelpie does not change it: not its status, its date, or its source. A form needs no sign-in, so the submit does not prove who sent it. The person's timeline shows the attempt, and you can set the consent on the person record.
 
-**When values land:** Person, Company, and Position fields write on every submit. Deal, Opportunity, Partnership, and Enquiry fields write when the matching create trigger runs. Raise fields write when the form attaches submitters to that raise. Everything uses fill-a-blank except tags (union merge).
+**When values land:** an answer is written only on a record that this submit creates. Person, Company, and Position answers are written when the submit creates that person, company, or position. Deal, Opportunity, Partnership, and Enquiry answers are written when the matching create trigger runs, because the trigger always creates a new record.
+
+**A submit never changes a record that was already in your workspace.** Anybody can type an email address or a company name that matches one of your records, so a match is not proof. When the submit matches a person or a company, or the form attaches the submitter to a raise, none of the mapped answers are written on that record. This covers names, phones, addresses, summaries, tags from any field type, custom fields, a company's domain, and do not contact. The answers are not lost. The submission keeps every answer as it was typed, and the action log has one `map_field:<target>` entry marked `skipped` with the reason "The record already existed" for each answer that was not written. Copy a value to the record yourself when you trust it.
+
+**A value the field cannot hold is skipped.** A mapped answer gets the same check the API gives that field: its type, its length, its allowed values. An answer that fails the check is not written, for example words in a number field or a line of more than 500 characters in a one-line field. The submit still succeeds, the answer stays on the submission, and the action log has a `map_field:<target>` entry marked `skipped` with the reason. A record takes at most 100 tags of at most 120 characters each.
+
+**Do not contact** can be set by a field mapped to Person · do not contact, on a person the submit creates. A submit never changes it on a person who was already in your workspace.
 
 Common starters — Person · name, Company · domain, Position · title, Submission only — remain in the "Add field" menu for speed.
 
 ## What a submission creates
 
-A submit matches the person by email and the company by domain, then by name. The merge **fills blanks and never overwrites**: an inbound "Alex" does not replace the "Alex Rivera" your team recorded, and a blank answer never erases a stored value. The one field always updated is last-contacted — filling in your form is the person being in touch.
+A submit matches the person by email and the company by domain, then by name. A new person or company gets the answers. A matched one is left as it is, and the submit only adds to it:
+
+- a Position at the company, when a title was given and the person holds none there (a Position the person already holds keeps its title);
+- the pipeline records, list memberships, and attached-record links the form is set up to make;
+- the tags you set on the form's Actions tab (your own fixed tags, not the visitor's);
+- a new consent grant, where the person had none for that purpose;
+- the submission on the person's timeline, and the person's last-contacted time.
 
 **A company is never inferred from an email address.** Only an answer mapped to Company · domain sets one. Email domains are not company identifiers — one company sends from several, consumer addresses belong to none, and two unrelated people can share one — so inferring would quietly merge records that were never the same company. A form that wants companies matched by domain asks for the domain.
 
@@ -46,7 +58,19 @@ The **Actions** tab is where you say what the form does with a submission beyond
 
 **Attach the submitter to a record** links every submitter into a pre-existing enquiry, deal, opportunity, raise, or partnership through `person_links` — "everyone who fills this form joins the Q4 accelerator opportunity". Deleting the record drops the mapping.
 
-Each configured action lands one entry on the submission's `action_log` — `ok`, `skipped` (the precondition was absent — a company tag on a submit that resolved no company), or `error` (something went wrong; the rest of the submit still ran). An email entry can also be `refused`: the mail server refused the email for good, for example because the mailbox does not exist, and Kelpie does not send it again. An email entry that is an `error` is tried again. The Submissions tab shows the counts and the detail on hover.
+Each configured action lands one entry on the submission's `action_log` — `ok`, `skipped` (the precondition was absent — a company tag on a submit that resolved no company), or `error` (something went wrong; the rest of the submit still ran). A mapped value that was skipped has a `map_field:<target>` entry, and mapped values that could not be saved on a record have a `map_fields:<record type>` entry marked `error`. An email entry can also be `refused`: the mail server refused the email for good, for example because the mailbox does not exist, and Kelpie does not send it again. An email entry that is an `error` is tried again. The Submissions tab shows the counts and the detail on hover.
+
+## Emails and their limits
+
+**An auto-reply needs the spam check.** A form with the auto-reply on must have "Require the spam check" on. The builder turns the check on when you turn the auto-reply on, and the API answers `422` naming `auto_reply` and `require_spam_check` otherwise. A form saved before this rule keeps sending until you next save it. That save is refused until the check is on.
+
+Three limits protect the mail your server sends. Each one skips the auto-reply, keeps the submission, and writes the reason on the submission's action log:
+
+- one auto-reply per form per address in 24 hours;
+- a daily number for each client address in a workspace (default 5), so one source cannot use up the workspace's number;
+- a daily number for the workspace (default 500).
+
+A submit held as spam sends nothing and counts toward none of them. The visitor is never told that a limit was reached.
 
 ## Embedding on your site
 

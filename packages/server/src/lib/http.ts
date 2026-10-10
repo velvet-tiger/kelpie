@@ -43,6 +43,27 @@ export function requestOrigin(context: Context): string {
   return url.origin
 }
 
+const CLIENT_RATE_KEY = 'kelpie.clientRateKey'
+
+/**
+ * Keeps the key the rate limiter counted this caller under, for a handler
+ * that has a count of its own to make for the same caller.
+ *
+ * The limiter is the one place that knows how the deployment finds a client
+ * address (`TRUSTED_PROXY_HOP_COUNT`). A module gets the finished key from
+ * here and never reads `X-Forwarded-For` itself.
+ */
+export function setClientRateKey(context: Context, key: string): void {
+  context.set(CLIENT_RATE_KEY, key)
+}
+
+/** @returns The key, or undefined on a route the limiter did not count by client address. */
+export function readClientRateKey(context: Context): string | undefined {
+  const key: unknown = context.get(CLIENT_RATE_KEY)
+
+  return typeof key === 'string' && key.length > 0 ? key : undefined
+}
+
 const WITHHELD_FROM_REPLAY = 'kelpie.withheldFromReplay'
 
 /**

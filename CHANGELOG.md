@@ -278,6 +278,10 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **A bad mapped number or date does not fail a
+  form submit.** A public submit answered `500`. Mapped writes now run
+  under a savepoint, and a failure is logged as `map_fields:<record type>`
+  on the submission.
 - **`@kelpie/server`** — **A registered OAuth client is not deleted
   during consent.** The cleanup of unused clients older than 30 days
   checked grants only. It now keeps a client that a pending request or a
@@ -397,6 +401,43 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **An anonymous form submit never changes a record that already
+  existed.** A submit filled blank fields, merged tags and could set
+  `do_not_contact` on a person it matched by email, and could set the
+  domain of a company it matched by name. A person who knew a customer's
+  address could thus write to that customer's record. A submit now writes
+  an answer only on a record that it creates.
+  - **Changed behaviour for an existing form:** a person matched by email,
+    a company matched by domain or name, and an attached raise get no
+    mapped answer. A Position that the person already holds keeps its
+    title. Each answer that is not written is in the submission's action
+    log as `map_field:<target>`, status `skipped`, with "The record
+    already existed". The stored submission keeps every answer.
+  - A ticked consent field writes a grant only where the person has none
+    for the purpose. It never changes a consent row that exists.
+  - Unchanged on an existing record: `last_contacted_at`, the "submitted
+    form" Activity, the form's own fixed tags and list actions, and new
+    records that link to it.
+- **A mapped answer gets the checks of the record's API.** A mapped value
+  was written with no check of type, length or range. A value that the
+  record's API refuses is now skipped and logged as `map_field:<target>`.
+  The submit still succeeds. Tag lists must meet the tag limits.
+- **A form with the auto-reply on must have the spam check on.** A create
+  or an update that leaves `auto_reply` on and `require_spam_check` off
+  answers `422`. The form builder turns the spam check on with the
+  auto-reply.
+  - **Changed behaviour for an existing form:** a stored form with the
+    auto-reply on and the spam check off keeps sending. Its next save is
+    refused until the spam check is on. This query lists such forms:
+    `SELECT id, workspace_id, name FROM forms WHERE auto_reply = true AND require_spam_check = false;`
+- **Auto-replies have a daily limit for each client address.** One client
+  address could use up the daily auto-reply limit of a workspace. It now
+  causes at most `FORMS_AUTO_REPLY_CLIENT_DAILY_LIMIT` auto-replies in a
+  workspace in a UTC day (default 5). Over the limit, the submit is still
+  accepted and the auto-reply is recorded as skipped.
+- **The public embed page posts to a path on its own origin.** It held a
+  URL built from the `Host` and `X-Forwarded-Proto` headers, and shared
+  caches store the page.
 - **A failed refresh request does not spend the refresh token.** A request
   with a wrong `scope` used up the token, and the next correct request
   ended the connection. The token is now spent in the transaction that

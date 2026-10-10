@@ -101,7 +101,15 @@ export function FormEmails({ form }: FormEmailsProps): React.JSX.Element {
           <input
             type="checkbox"
             checked={form.autoReply}
-            onChange={(event) => onChange({ autoReply: event.target.checked })}
+            // The server refuses an auto-reply on a form without the spam
+            // check, so turning one on turns the other on in the same save.
+            onChange={(event) =>
+              onChange(
+                event.target.checked
+                  ? { autoReply: true, requireSpamCheck: true }
+                  : { autoReply: false },
+              )
+            }
           />
           Send an auto-reply
         </label>
@@ -109,7 +117,8 @@ export function FormEmails({ form }: FormEmailsProps): React.JSX.Element {
           Sent to the email address the visitor typed. Use it to confirm the request only, not
           for marketing. It cannot include the visitor&apos;s answers: anybody can type any
           address into a public form, so it contains only text you wrote. One auto-reply per
-          address per day for each form.
+          address per day for each form. An auto-reply needs the spam check, so turning this
+          on also turns on &ldquo;Require the spam check&rdquo; on the Settings tab.
         </p>
 
         <ReplyToPicker
