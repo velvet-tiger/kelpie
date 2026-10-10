@@ -463,6 +463,13 @@
       "when": 1790832000000,
       "tag": "0065_delete_and_handbook_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1790918400000,
+      "tag": "0066_workspace_members_one_owner",
+      "breakpoints": true
     }
   ]
 }

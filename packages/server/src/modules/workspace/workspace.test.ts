@@ -10,9 +10,11 @@ import type { QueuedJob } from '../../testing/jobs.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { PermanentEmailError } from '../../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../../lib/email.ts'
+import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import { createLogger } from '../../lib/logger.ts'
 import { hashToken } from '../../lib/tokens.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
+import type { TransactionScope } from '../../runtime/transaction.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import { users } from '../auth/schema.ts'
 import { coreModules } from '../core.ts'
@@ -127,6 +129,40 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       resolveActor: (context) => resolveActorFrom({ db: database.db, now: () => new Date() }, context),
     })
   })
+
+  /** Runs one time, immediately before the next transaction opens. Needs `useInterruptibleHarness`. */
+  let beforeNextTransaction: (() => Promise<void>) | undefined
+
+  /**
+   * Replaces the harness with one whose transactions a test can get in front of.
+   *
+   * A service reads, decides, and then opens its transaction. A test sets
+   * `beforeNextTransaction` to make a change at that point, as a second request
+   * that arrives at that moment does. Two requests sent together do not meet
+   * there reliably, and this does every time.
+   */
+  async function useInterruptibleHarness(): Promise<void> {
+    beforeNextTransaction = undefined
+
+    const services = createTestServices({ db: database.db })
+    const transaction: TransactionScope = async (work, options) => {
+      const interrupt = beforeNextTransaction
+      beforeNextTransaction = undefined
+
+      if (interrupt !== undefined) {
+        await interrupt()
+      }
+
+      return services.transaction(work, options)
+    }
+
+    harness = await createTestApp({
+      modules: coreModules,
+      environment: TEST_ENVIRONMENT,
+      services: { ...services, transaction },
+      resolveActor: (context) => resolveActorFrom({ db: database.db, now: () => new Date() }, context),
+    })
+  }
 
   function send(method: string, path: string, body?: unknown, cookie?: string): Promise<Response> {
     return Promise.resolve(
@@ -703,6 +739,174 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
 
       expect(members.filter((member) => member.role === 'owner')).toHaveLength(1)
       expect(readString(await (await send('GET', '/v1/auth/me', undefined, owner)).json(), 'role')).toBe('admin')
+    })
+
+    async function ownerCount(workspaceId: string): Promise<number> {
+      const members = await database.db
+        .select()
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.workspaceId, workspaceId))
+
+      return members.filter((member) => member.role === 'owner').length
+    }
+
+    it('refuses a second owner at the database, whatever wrote it', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+
+      const refused = await database.db
+        .update(workspaceMembers)
+        .set({ role: 'owner' })
+        .where(eq(workspaceMembers.id, grace.memberId))
+        .then(
+          () => undefined,
+          (error: unknown) => postgresErrorCode(error),
+        )
+
+      expect(refused).toBe(UNIQUE_VIOLATION)
+      expect(await ownerCount(workspaceId)).toBe(1)
+    })
+
+    it('leaves one owner when the owner hands ownership to two members at the same time', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+      const henry = await addMember(owner, workspaceId, 'henry@example.com', 'admin')
+
+      // A second session for the owner. Two requests of one session do not run
+      // side by side for long enough to meet.
+      const signedIn = await send('POST', '/v1/auth/login', {
+        email: 'ada@example.com',
+        password: 'correct horse battery staple',
+      })
+      expect(signedIn.status).toBe(200)
+      const secondSession = (signedIn.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+      const switched = await send('POST', '/v1/auth/workspace', { workspace_id: workspaceId }, secondSession)
+      expect(switched.status).toBe(200)
+
+      const responses = await Promise.all([
+        send('PATCH', `/v1/workspaces/${workspaceId}/members/${grace.memberId}`, { role: 'owner' }, owner),
+        send('PATCH', `/v1/workspaces/${workspaceId}/members/${henry.memberId}`, { role: 'owner' }, secondSession),
+      ])
+
+      // The second transfer waits for the first, and then finds that its caller
+      // is the owner no longer.
+      expect(responses.map((response) => response.status).sort()).toEqual([200, 403])
+      expect(await ownerCount(workspaceId)).toBe(1)
+    })
+
+    describe('when ownership moves between the checks and the write', () => {
+      beforeEach(async () => {
+        await useInterruptibleHarness()
+      })
+
+      /** A finished transfer, written as the service writes it: the old owner first. */
+      async function moveOwnership(fromMemberId: string, toMemberId: string): Promise<void> {
+        await database.db.update(workspaceMembers).set({ role: 'admin' }).where(eq(workspaceMembers.id, fromMemberId))
+        await database.db.update(workspaceMembers).set({ role: 'owner' }).where(eq(workspaceMembers.id, toMemberId))
+      }
+
+      it('refuses a transfer from a caller who is the owner no longer', async () => {
+        const owner = await signUp('ada@example.com')
+        const workspaceId = await createWorkspace(owner)
+        const ownerId = await ownerMemberId(owner, workspaceId)
+        const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+        const henry = await addMember(owner, workspaceId, 'henry@example.com', 'admin')
+
+        beforeNextTransaction = () => moveOwnership(ownerId, henry.memberId)
+
+        const response = await send(
+          'PATCH',
+          `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+          { role: 'owner' },
+          owner,
+        )
+
+        expect(response.status).toBe(403)
+        expect(await ownerCount(workspaceId)).toBe(1)
+        expect(readString(await (await send('GET', '/v1/auth/me', undefined, henry.cookie)).json(), 'role')).toBe('owner')
+      })
+
+      it('refuses the demotion of a member who became the owner', async () => {
+        const owner = await signUp('ada@example.com')
+        const workspaceId = await createWorkspace(owner)
+        const ownerId = await ownerMemberId(owner, workspaceId)
+        const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+        const henry = await addMember(owner, workspaceId, 'henry@example.com', 'admin')
+
+        beforeNextTransaction = () => moveOwnership(ownerId, grace.memberId)
+
+        const response = await send(
+          'PATCH',
+          `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+          { role: 'member' },
+          henry.cookie,
+        )
+
+        expect(response.status).toBe(409)
+        expect(await ownerCount(workspaceId)).toBe(1)
+      })
+
+      it('refuses the removal of a member who became the owner', async () => {
+        const owner = await signUp('ada@example.com')
+        const workspaceId = await createWorkspace(owner)
+        const ownerId = await ownerMemberId(owner, workspaceId)
+        const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+        const henry = await addMember(owner, workspaceId, 'henry@example.com', 'admin')
+
+        beforeNextTransaction = () => moveOwnership(ownerId, grace.memberId)
+
+        const response = await send(
+          'DELETE',
+          `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+          undefined,
+          henry.cookie,
+        )
+
+        expect(response.status).toBe(409)
+        expect(await ownerCount(workspaceId)).toBe(1)
+      })
+    })
+
+    it('leaves one owner when an admin demotes a member who is being made the owner', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+      const henry = await addMember(owner, workspaceId, 'henry@example.com', 'admin')
+      const path = `/v1/workspaces/${workspaceId}/members/${grace.memberId}`
+
+      const [transfer, demotion] = await Promise.all([
+        send('PATCH', path, { role: 'owner' }, owner),
+        send('PATCH', path, { role: 'member' }, henry.cookie),
+      ])
+
+      // Either order is correct. The demotion is done first, or it finds an
+      // owner and is refused.
+      expect(transfer.status).toBe(200)
+      expect([200, 409]).toContain(demotion.status)
+      expect(await ownerCount(workspaceId)).toBe(1)
+    })
+
+    it('leaves one owner when an admin removes a member who is being made the owner', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'admin')
+      const henry = await addMember(owner, workspaceId, 'henry@example.com', 'admin')
+      const path = `/v1/workspaces/${workspaceId}/members/${grace.memberId}`
+
+      const [transfer, removal] = await Promise.all([
+        send('PATCH', path, { role: 'owner' }, owner),
+        send('DELETE', path, undefined, henry.cookie),
+      ])
+
+      // Either order is correct. The removal is done first and the transfer
+      // finds no member, or the removal finds an owner and is refused.
+      expect([
+        [200, 409],
+        [404, 204],
+      ]).toContainEqual([transfer.status, removal.status])
+      expect(await ownerCount(workspaceId)).toBe(1)
     })
 
     it('refuses an admin trying to hand ownership around', async () => {
@@ -2226,6 +2430,86 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         await signUp('henry@example.com'),
       )
       expect(accepted.status).toBe(200)
+    })
+
+    describe('when something changes between the checks and the write', () => {
+      beforeEach(async () => {
+        await useInterruptibleHarness()
+      })
+
+      async function membershipCount(workspaceId: string): Promise<number> {
+        const members = await database.db
+          .select()
+          .from(workspaceMembers)
+          .where(eq(workspaceMembers.workspaceId, workspaceId))
+
+        return members.length
+      }
+
+      it('does not verify an address that the account moved to after the invitation matched', async () => {
+        const owner = await signUp('ada@example.com')
+        const workspaceId = await createWorkspace(owner)
+        const token = await inviteToken(owner, workspaceId, 'member')
+        const grace = await rawSignUp('grace@example.com')
+
+        beforeNextTransaction = async () => {
+          await database.db
+            .update(users)
+            .set({ email: 'somebody-else@example.com' })
+            .where(eq(users.id, grace.accountId))
+        }
+
+        const accepted = await send('POST', '/v1/invites/accept', { token }, grace.cookie)
+
+        // The token is proof of the mailbox it was sent to, and of no other.
+        expect(accepted.status).toBe(200)
+
+        const [account] = await database.db.select().from(users).where(eq(users.id, grace.accountId))
+        expect(account?.email).toBe('somebody-else@example.com')
+        expect(account?.emailVerifiedAt).toBeNull()
+      })
+
+      it('refuses an invitation that is revoked while it is accepted', async () => {
+        const owner = await signUp('ada@example.com')
+        const workspaceId = await createWorkspace(owner)
+        const token = await inviteToken(owner, workspaceId, 'member')
+        const grace = await rawSignUp('grace@example.com')
+
+        beforeNextTransaction = async () => {
+          await database.db.delete(invites).where(eq(invites.workspaceId, workspaceId))
+        }
+
+        const accepted = await send('POST', '/v1/invites/accept', { token }, grace.cookie)
+
+        expect(accepted.status).toBe(401)
+        expect(await membershipCount(workspaceId)).toBe(1)
+
+        const [account] = await database.db.select().from(users).where(eq(users.id, grace.accountId))
+        expect(account?.emailVerifiedAt).toBeNull()
+      })
+
+      it('refuses the old link when the invitation is resent while it is accepted', async () => {
+        const owner = await signUp('ada@example.com')
+        const workspaceId = await createWorkspace(owner)
+        const token = await inviteToken(owner, workspaceId, 'member')
+        const grace = await rawSignUp('grace@example.com')
+
+        beforeNextTransaction = async () => {
+          await database.db
+            .update(invites)
+            .set({ tokenHash: hashToken('the token of the newer email') })
+            .where(eq(invites.workspaceId, workspaceId))
+        }
+
+        const accepted = await send('POST', '/v1/invites/accept', { token }, grace.cookie)
+
+        expect(accepted.status).toBe(401)
+        expect(await membershipCount(workspaceId)).toBe(1)
+
+        // The invitation is still there for the newer link.
+        const open = await database.db.select().from(invites).where(eq(invites.workspaceId, workspaceId))
+        expect(open).toHaveLength(1)
+      })
     })
 
     it('refuses a token nobody issued', async () => {

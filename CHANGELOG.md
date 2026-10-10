@@ -384,6 +384,26 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **A workspace cannot end with two owners or none.** A transfer of
+  ownership at the same time as another role change or a removal could
+  leave a workspace with two owners or with none. Role changes and
+  removals now take a lock for the workspace. Migration `0066` adds a
+  unique index that permits one owner in a workspace. It changes no row.
+  - **Before you upgrade:** the migration fails if a workspace has two
+    owners now. This query must return no rows:
+    `SELECT "workspace_id", count(*) FROM "workspace_members" WHERE "role" = 'owner' GROUP BY "workspace_id" HAVING count(*) > 1;`
+- **The `workspace.access` gate checks the workspace a request acts on.**
+  It checked the active workspace of the session only. It now checks the
+  workspace in the path for `/v1/workspaces/:id/...` and for the public
+  form routes. Self-hosted, the gate grants everything, so nothing changes.
+  - **Changed behaviour for a hosting operator:** the public embed, token
+    and submit routes of a suspended workspace answer `403`. A session
+    whose active workspace is suspended can work on its other workspaces
+    through `/v1/workspaces/:id/...`.
+- **An invitation verifies only the address it was sent to.** An account
+  that changed its address while it accepted an invitation got the new
+  address marked as verified. An invitation that was revoked or sent again
+  while it was accepted still worked. It now answers `401`.
 - **More rate limits on account routes.** `RATE_LIMIT_LOGIN_ACCOUNT_*`
   (10 in 15 minutes by default) now also sets three new counts. The login
   count itself is unchanged. Over a count, the request answers `429`.

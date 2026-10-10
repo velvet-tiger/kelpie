@@ -1,10 +1,14 @@
 import type { Context, MiddlewareHandler } from 'hono'
+import { tryDecodeURIComponent } from 'hono/utils/url'
 
 import { AppError } from '../../lib/errors.ts'
+import { PUBLIC_ROUTE_PREFIX } from '../../lib/http.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { actorWorkspaceId } from '../auth/actor.ts'
+import type { Actor } from '../auth/actor.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import * as authRepository from '../auth/repository.ts'
 import { WORKSPACE_ACCESS } from './capabilities.ts'
 
 /**
@@ -20,6 +24,15 @@ import { WORKSPACE_ACCESS } from './capabilities.ts'
  * no-credential case, since an unauthenticated `/v1/auth/*` call has
  * nothing to check, and ahead of idempotency in `app.ts` so a blocked
  * request never reserves a key it will not be allowed to spend.
+ *
+ * A path can name a workspace itself: `/v1/workspaces/:id` and everything
+ * under it. A session reaches each workspace its user belongs to through
+ * those paths, whichever one is active, so the workspace this checks there is
+ * the one in the path. See `gatedWorkspaceId`.
+ *
+ * `/v1/public/*` is not checked here. A public request acts on the workspace
+ * its path names and on nobody's session, and its refusal must come after the
+ * public CORS layer. `createPublicWorkspaceAccessMiddleware` checks it.
  *
  * Exempts `/v1/auth/*` and `/v1/account*`: they manage the *account*, not
  * the workspace, and a member of a workspace this gate has locked out
@@ -42,6 +55,26 @@ function isExempt(method: string, path: string): boolean {
   // `/mcp`, where the gate runs again.
   return path.startsWith('/v1/auth/') || path.startsWith('/v1/account') || path.startsWith('/v1/oauth/') ||
     (method === 'DELETE' && WORKSPACE_DELETE_PATH.test(path))
+}
+
+const WORKSPACE_PATH = /^\/v1\/workspaces\/([^/]+)/u
+const PUBLIC_WORKSPACE_PATH = /^\/v1\/public\/workspaces\/([^/]+)/u
+
+function isPublic(path: string): boolean {
+  return path === PUBLIC_ROUTE_PREFIX || path.startsWith(`${PUBLIC_ROUTE_PREFIX}/`)
+}
+
+/**
+ * The workspace id a path names, as the handler will read it.
+ *
+ * Decoded with the function the router uses for a path parameter. A different
+ * decoder would let an encoded id name one workspace here and another in the
+ * handler.
+ */
+function workspaceIdIn(path: string, pattern: RegExp): string | undefined {
+  const segment = pattern.exec(path)?.[1]
+
+  return segment === undefined ? undefined : tryDecodeURIComponent(segment)
 }
 
 export interface WorkspaceAccessMiddlewareDependencies extends CredentialDependencies {
@@ -68,8 +101,41 @@ export async function requireWorkspaceAccess(entitlements: EntitlementRegistry, 
 export function createWorkspaceAccessMiddleware(
   dependencies: WorkspaceAccessMiddlewareDependencies,
 ): MiddlewareHandler {
+  /**
+   * True when the handler will let this actor act on `workspaceId`: the same
+   * rule as the workspace service's membership check. A bearer credential
+   * reaches the one workspace it is bound to, and a session reaches each
+   * workspace its user is a member of.
+   */
+  async function reaches(actor: Actor, workspaceId: string): Promise<boolean> {
+    if (actor.kind !== 'session') {
+      return actor.workspaceId === workspaceId
+    }
+
+    return (await authRepository.findMembership(dependencies.db, workspaceId, actor.userId)) !== undefined
+  }
+
+  /**
+   * The workspace the request acts on: the one its path names, else the
+   * actor's own.
+   *
+   * The path counts only when the actor can reach that workspace. For anybody
+   * else the handler answers 404, and a 403 from here would tell a stranger
+   * that the workspace exists and is suspended. That caller is checked on the
+   * actor's own workspace, as on every other path.
+   */
+  async function gatedWorkspaceId(actor: Actor, path: string): Promise<string | null> {
+    const named = workspaceIdIn(path, WORKSPACE_PATH)
+
+    if (named !== undefined && (await reaches(actor, named))) {
+      return named
+    }
+
+    return actorWorkspaceId(actor)
+  }
+
   return async (context: Context, next) => {
-    if (isExempt(context.req.method, context.req.path)) {
+    if (isExempt(context.req.method, context.req.path) || isPublic(context.req.path)) {
       await next()
       return
     }
@@ -84,7 +150,7 @@ export function createWorkspaceAccessMiddleware(
       throw error
     })
 
-    const workspaceId = actor === undefined ? null : actorWorkspaceId(actor)
+    const workspaceId = actor === undefined ? null : await gatedWorkspaceId(actor, context.req.path)
 
     // Between signup and a first workspace there is nothing to gate
     // (`POST /v1/workspaces`, `POST /v1/invites/accept`): the same case
@@ -97,6 +163,29 @@ export function createWorkspaceAccessMiddleware(
     }
 
     await requireWorkspaceAccess(dependencies.entitlements, workspaceId)
+    await next()
+  }
+}
+
+/**
+ * The same gate for `/v1/public/workspaces/:workspaceId/...`.
+ *
+ * A public request has no actor. Its path names the workspace it acts on, so
+ * that is the workspace checked, whatever session cookie the visitor's browser
+ * sends with it. A public path that names no workspace has nothing to check.
+ *
+ * Mount it after the public CORS layer: a cross-origin embed must be able to
+ * read the refusal, and CORS answers the preflight `OPTIONS` request before
+ * this runs.
+ */
+export function createPublicWorkspaceAccessMiddleware(entitlements: EntitlementRegistry): MiddlewareHandler {
+  return async (context: Context, next) => {
+    const workspaceId = workspaceIdIn(context.req.path, PUBLIC_WORKSPACE_PATH)
+
+    if (workspaceId !== undefined) {
+      await requireWorkspaceAccess(entitlements, workspaceId)
+    }
+
     await next()
   }
 }

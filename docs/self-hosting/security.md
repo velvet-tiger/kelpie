@@ -17,7 +17,7 @@ Every workspace-owned row carries a workspace id, every query is scoped to it se
 
 The rule behind the table: a value the service only checks is hashed; a value it must use again is encrypted. Rotating the encryption key is a supported, four-step procedure — see [Production](production.md#rotating-the-encryption-key).
 
-Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` everywhere except development, so a deployment must set `NODE_ENV=production` ([Production](production.md#build-and-serve)). Confirming a password reset ends every session on the account.
+Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` everywhere except development, so a deployment must set `NODE_ENV=production` ([Production](production.md#build-and-serve)). Confirming a password reset ends every session on the account, every other open reset link, every personal API key of the account and every connected app. Workspace API keys stay.
 
 The cookie is not the only defence against a forged request. A request under `/v1` that changes something and carries no API key must come from a page of your deployment: the browser states the page's origin in the `Origin` header, and Kelpie compares it with the host the request arrived on. Another origin gets `403`. The body must also be `application/json`, which a page on another origin cannot send without permission; another content type gets `415`. A sign-in request is checked the same way, so another site cannot sign a reader in to an account of its choice. For this to work behind a reverse proxy, the proxy must keep the `Host` header ([Production](production.md#a-reverse-proxy-with-tls)).
 
@@ -35,7 +35,7 @@ Every request body has a limit. A body over it gets `413` with the code `payload
 
 ## Rate limits
 
-Four fixed-window budgets, all configurable ([Configuration](configuration.md#rate-limits)): public forms and unauthenticated auth per client IP, login additionally per account, and API-key traffic per key. The per-account login budget is the one an IP-rotating attacker cannot reset. Set `TRUSTED_PROXY_HOP_COUNT` behind a proxy so the limiter meters real clients.
+Five fixed-window budgets, all configurable ([Configuration](configuration.md#rate-limits)): public forms, unauthenticated auth and the OAuth endpoints per client IP, attempts on one account, and API-key traffic per key. The account budget covers login, password reset requests for one address, checks of the current password by a signed-in person, and requests to send the verification mail again. The per-account login budget is the one an IP-rotating attacker cannot reset. An IPv6 client is counted by its `/64` prefix. Set `TRUSTED_PROXY_HOP_COUNT` behind a proxy so the limiter meters real clients.
 
 ## The public surface
 
@@ -57,7 +57,7 @@ Webhook deliveries and agent-task dispatches are the two places Kelpie POSTs to 
 
 Three roles: owner, admin, member. Administration, API keys, imports and exports, the AI run log, and the sample-data installer are admin work. Webhooks require admin **for reads too**, because a delivery URL routinely carries a credential in its path. Deleting a workspace is the owner's alone and takes the workspace name typed as confirmation, checked in the request itself. There is no read-only role today; every CRM record is open to any member.
 
-Every `/v1` and `/mcp` request also passes a `workspace.access` entitlement gate. Self-hosted it is inert — entitlements default to granted — and it exists so a hosting operator can suspend a workspace in one place.
+Every `/v1` and `/mcp` request also passes a `workspace.access` entitlement gate. Self-hosted it is inert — entitlements default to granted — and it exists so a hosting operator can suspend a workspace in one place. The gate checks the workspace a request acts on. For `/v1/workspaces/:id/...` and for the public form routes that is the workspace in the path. For every other route it is the workspace of the session or the key.
 
 ## Reporting a vulnerability
 

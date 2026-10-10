@@ -4,7 +4,7 @@ import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
-import { createTestClient, readRecord, readString } from '../../testing/client.ts'
+import { createTestClient, readList, readRecord, readString } from '../../testing/client.ts'
 import type { TestClient, TestOwner } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
@@ -210,6 +210,194 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
 
     const peopleAfter = await client.send('GET', '/v1/people', { cookie: blocked.cookie })
     expect(peopleAfter.status).toBe(200)
+  })
+
+  describe('for a path that names a workspace', () => {
+    let harness: TestApp
+    let client: TestClient
+    /** Owns the suspended workspace and the open one. */
+    let cookie: string
+    let suspendedId: string
+    let openId: string
+    let deniedWorkspaceId: string | undefined
+
+    async function activate(workspaceId: string): Promise<void> {
+      const switched = await client.send('POST', '/v1/auth/workspace', {
+        cookie,
+        body: { workspace_id: workspaceId },
+      })
+
+      expect(switched.status).toBe(200)
+    }
+
+    /** The starter Contact form of the active workspace. Read before the suspension starts. */
+    async function contactForm(): Promise<{ id: string; slug: string }> {
+      const listed = await client.send('GET', '/v1/forms', { cookie })
+      const form = readList(await listed.json()).find((entry) => readString(entry, 'slug') === 'contact')
+
+      if (form === undefined) {
+        throw new Error('The workspace has no starter Contact form')
+      }
+
+      return { id: readString(form, 'id'), slug: readString(form, 'slug') }
+    }
+
+    beforeEach(async () => {
+      deniedWorkspaceId = undefined
+
+      const entitlements: EntitlementRegistry = createEntitlementRegistry()
+      entitlements.provide((workspaceId, capability) =>
+        Promise.resolve(
+          capability.name === WORKSPACE_ACCESS.name && workspaceId === deniedWorkspaceId
+            ? { kind: 'flag', granted: false }
+            : undefined,
+        ),
+      )
+
+      harness = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db }),
+        entitlements,
+      })
+      client = createTestClient(harness.app, harness.services.db)
+
+      const owner = await client.owner('both@example.com')
+      cookie = owner.cookie
+      suspendedId = owner.workspaceId
+
+      // Creating a workspace moves the session into it.
+      const second = await client.send('POST', '/v1/workspaces', {
+        cookie,
+        body: { name: 'Other', timezone: 'UTC' },
+      })
+      expect(second.status).toBe(201)
+      openId = readString(await second.json(), 'id')
+    })
+
+    it('blocks a call on a suspended workspace from a session that is active in an open one', async () => {
+      deniedWorkspaceId = suspendedId
+
+      const members = await client.send('GET', `/v1/workspaces/${suspendedId}/members`, { cookie })
+      const patch = await client.send('PATCH', `/v1/workspaces/${suspendedId}`, {
+        cookie,
+        body: { name: 'Renamed' },
+      })
+      const invite = await client.send('POST', `/v1/workspaces/${suspendedId}/invites`, {
+        cookie,
+        body: { email: 'grace@example.com', role: 'member' },
+      })
+
+      expect(members.status).toBe(403)
+      expect(readRecord(readRecord(await members.json()).error).code).toBe('entitlement_required')
+      expect(patch.status).toBe(403)
+      expect(invite.status).toBe(403)
+
+      // The session's own workspace is not suspended, and stays reachable.
+      expect((await client.send('GET', '/v1/people', { cookie })).status).toBe(200)
+    })
+
+    it('reads the workspace id the way the router does, so an encoded id is not a way round', async () => {
+      deniedWorkspaceId = suspendedId
+
+      const encoded = `%${suspendedId.charCodeAt(0).toString(16)}${suspendedId.slice(1)}`
+      const response = await client.send('GET', `/v1/workspaces/${encoded}/members`, { cookie })
+
+      expect(response.status).toBe(403)
+    })
+
+    it('lets a call on an open workspace through from a session that is active in a suspended one', async () => {
+      await activate(suspendedId)
+      deniedWorkspaceId = suspendedId
+
+      const members = await client.send('GET', `/v1/workspaces/${openId}/members`, { cookie })
+      const people = await client.send('GET', '/v1/people', { cookie })
+
+      expect(members.status).toBe(200)
+      expect(people.status).toBe(403)
+    })
+
+    it('still lets the owner delete a suspended workspace that is not the active one', async () => {
+      deniedWorkspaceId = suspendedId
+
+      const response = await client.send('DELETE', `/v1/workspaces/${suspendedId}?name=Acme`, { cookie })
+
+      expect(response.status).toBe(204)
+    })
+
+    it('answers a caller who does not belong to the suspended workspace as if it did not exist', async () => {
+      const stranger = await client.owner('stranger@example.com')
+      deniedWorkspaceId = suspendedId
+
+      const response = await client.send('GET', `/v1/workspaces/${suspendedId}/members`, {
+        cookie: stranger.cookie,
+      })
+
+      expect(response.status).toBe(404)
+    })
+
+    it('answers a workspace key that names a different, suspended workspace as if it did not exist', async () => {
+      const minted = await client.send('POST', '/v1/api-keys', {
+        cookie,
+        body: { name: 'agent', kind: 'workspace', full_access: true },
+      })
+      const openWorkspaceKey = readString(await minted.json(), 'secret')
+      deniedWorkspaceId = suspendedId
+
+      const response = await client.send('GET', `/v1/workspaces/${suspendedId}/members`, {
+        bearer: openWorkspaceKey,
+      })
+
+      expect(response.status).toBe(404)
+    })
+
+    it('closes the public form routes of a suspended workspace, and keeps the CORS headers on the refusal', async () => {
+      await activate(suspendedId)
+      const form = await contactForm()
+      deniedWorkspaceId = suspendedId
+
+      const base = `/v1/public/workspaces/${suspendedId}/forms`
+      const submit = await harness.app.request(`${base}/${form.slug}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'https://customer.example' },
+        body: JSON.stringify({ answers: {} }),
+      })
+      const token = await harness.app.request(`${base}/${form.id}/token`)
+      const embed = await harness.app.request(`${base}/${form.id}/embed`)
+
+      expect(submit.status).toBe(403)
+      expect(readRecord(readRecord(await submit.json()).error).code).toBe('entitlement_required')
+      expect(submit.headers.get('Access-Control-Allow-Origin')).toBe('*')
+      expect(token.status).toBe(403)
+      expect(embed.status).toBe(403)
+    })
+
+    it('still answers the CORS preflight of a suspended workspace form', async () => {
+      await activate(suspendedId)
+      const form = await contactForm()
+      deniedWorkspaceId = suspendedId
+
+      const preflight = await harness.app.request(
+        `/v1/public/workspaces/${suspendedId}/forms/${form.slug}/submit`,
+        {
+          method: 'OPTIONS',
+          headers: { Origin: 'https://customer.example', 'Access-Control-Request-Method': 'POST' },
+        },
+      )
+
+      expect(preflight.status).toBe(204)
+      expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe('*')
+    })
+
+    it('serves the public form of an open workspace to a visitor whose own session is in a suspended one', async () => {
+      const form = await contactForm()
+      await activate(suspendedId)
+      deniedWorkspaceId = suspendedId
+
+      const token = await client.send('GET', `/v1/public/workspaces/${openId}/forms/${form.id}/token`, { cookie })
+
+      expect(token.status).toBe(200)
+    })
   })
 
   it('is inert with no provider registered, the open-source default', async () => {

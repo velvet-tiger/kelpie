@@ -225,8 +225,31 @@ export async function findMemberWithUser(
 }
 
 /**
- * The workspace's owner. Earliest-joined breaks a tie, so the answer does not
- * move if a second owner ever exists; the service is what keeps there being one.
+ * Makes the caller's transaction the only one that changes this workspace's
+ * roles or removes one of its members, until it ends.
+ *
+ * Each of those writes decides from what it reads: who the owner is, and what
+ * role the caller and the target have. Without the lock, two of them can read
+ * the same state and then both write, and the workspace ends with two owners
+ * or none. Read the members again after this returns; a read from before it
+ * may be out of date.
+ *
+ * The lock is on the workspace row, at `NO KEY UPDATE` strength. A stronger
+ * lock would also stop every insert of a row that refers to the workspace,
+ * which is each write to it.
+ */
+export async function lockMembershipChanges(tx: Transaction, workspaceId: string): Promise<void> {
+  await tx
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .for('no key update')
+}
+
+/**
+ * The workspace's owner. The service keeps there being exactly one, and the
+ * `workspace_members_one_owner_idx` index refuses a second. The order is what
+ * made the answer stable before that index existed.
  */
 export async function findOwner(
   db: Queryable,
@@ -440,6 +463,38 @@ export async function findInviteByTokenHash(
   const [found] = await db.select().from(invites).where(eq(invites.tokenHash, tokenHash)).limit(1)
 
   return found
+}
+
+/**
+ * Spends an invitation: removes it, but only while `tokenHash` is still its
+ * token and it is still open.
+ *
+ * The conditions are part of the delete, so an accept cannot use an invitation
+ * that was revoked, resent with a new token, or accepted after the accept read
+ * it. A second statement on the same row waits for this one and then finds
+ * nothing.
+ *
+ * @returns False when there was nothing left to spend.
+ */
+export async function spendInvite(
+  db: Queryable,
+  id: string,
+  tokenHash: string,
+  now: Date,
+): Promise<boolean> {
+  const spent = await db
+    .delete(invites)
+    .where(
+      and(
+        eq(invites.id, id),
+        eq(invites.tokenHash, tokenHash),
+        eq(invites.status, 'pending'),
+        gt(invites.expiresAt, now),
+      ),
+    )
+    .returning({ id: invites.id })
+
+  return spent.length > 0
 }
 
 export async function deleteInvite(db: Queryable, id: string): Promise<void> {

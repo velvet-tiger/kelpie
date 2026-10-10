@@ -1,0 +1,11 @@
+-- A workspace has exactly one owner. The service moves ownership in one
+-- transaction and holds a lock while it does. This index is the last check: it
+-- refuses a second `owner` row in one workspace, whatever writes it.
+-- It does not refuse a workspace with no owner. An index cannot, and the
+-- service is what prevents that.
+-- No row is changed. The migration fails if a workspace has two owners now.
+-- This query finds those workspaces, and it must return no rows:
+--   SELECT "workspace_id", count(*) FROM "workspace_members"
+--   WHERE "role" = 'owner' GROUP BY "workspace_id" HAVING count(*) > 1;
+-- Hand-written: the drizzle-kit snapshot chain is stale.
+CREATE UNIQUE INDEX "workspace_members_one_owner_idx" ON "workspace_members" USING btree ("workspace_id") WHERE "role" = 'owner';

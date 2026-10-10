@@ -28,6 +28,7 @@ import {
 } from './modules/rate-limit/middleware.ts'
 import { createIdempotencyMiddleware } from './modules/workspace/idempotencyMiddleware.ts'
 import {
+  createPublicWorkspaceAccessMiddleware,
   createWorkspaceAccessMiddleware,
   requireWorkspaceAccess,
 } from './modules/workspace/workspaceAccessMiddleware.ts'
@@ -201,6 +202,14 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   // cross-origin embed needs to read the 429 body, and would apply to the
   // preflight `OPTIONS` request CORS itself answers without reaching here.
   app.use(`${PUBLIC_ROUTE_PREFIX}/*`, createFormSubmitRateLimitMiddleware(rateLimitDependencies))
+
+  // After CORS for the same reason. `workspaceAccessMiddleware` above skips the
+  // public prefix: a public request acts on the workspace in its path, not on
+  // the workspace of a session.
+  app.use(
+    `${PUBLIC_ROUTE_PREFIX}/*`,
+    createPublicWorkspaceAccessMiddleware(dependencies.contributions.entitlements),
+  )
 
   for (const { router } of dependencies.contributions.publicRouters) {
     app.route(PUBLIC_ROUTE_PREFIX, router)

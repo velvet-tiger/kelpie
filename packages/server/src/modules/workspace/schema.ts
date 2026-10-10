@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, index, integer, jsonb, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import { boolean, check, index, integer, jsonb, pgTable, text, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 
 import { citext, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 import { users } from '../auth/schema.ts'
@@ -35,6 +35,11 @@ export const workspaceMembers = pgTable(
   (table) => [
     unique('workspace_members_workspace_user_key').on(table.workspaceId, table.userId),
     index('workspace_members_workspace_idx').on(table.workspaceId),
+    // One owner in a workspace, at most. The service keeps it at exactly one;
+    // this refuses a second whatever writes it.
+    uniqueIndex('workspace_members_one_owner_idx')
+      .on(table.workspaceId)
+      .where(sql`${table.role} = 'owner'`),
     check('workspace_members_role_check', sql`${table.role} in ('owner', 'admin', 'member')`),
   ],
 )

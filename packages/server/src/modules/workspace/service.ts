@@ -8,7 +8,7 @@ import { generateToken, hashToken } from '../../lib/tokens.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { limitFor } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
-import type { TransactionScope } from '../../runtime/transaction.ts'
+import type { Transaction, TransactionScope } from '../../runtime/transaction.ts'
 import { isBearerActor, toEventActor } from '../../lib/actor.ts'
 import { requireApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import type { Actor, SessionActor } from '../auth/actor.ts'
@@ -36,6 +36,8 @@ import type { HandbookTemplateId } from './starters.ts'
  * Creating a workspace is the only place a member row appears without an invite,
  * and it is what turns a bare account into something that can hold data.
  */
+
+const OWNER_NOT_REMOVABLE = 'The owner cannot be removed. Give ownership to another member first'
 
 /**
  * The hash an invitation holds until its email job runs. It is the hash of a
@@ -226,6 +228,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
     actor: Actor,
     workspaceId: string,
     required: MemberRole,
+    db: repository.Queryable = dependencies.db,
   ): Promise<{ memberId: string | null; role: MemberRole }> {
     // A key or an OAuth grant is bound to one workspace. Its user may belong to
     // others, but this credential reaches only the one it was issued for.
@@ -242,18 +245,19 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         return { memberId: null, role: actor.role }
       }
 
-      return membershipFor(actor.userId, workspaceId, required)
+      return membershipFor(actor.userId, workspaceId, required, db)
     }
 
-    return membershipFor(actor.userId, workspaceId, required)
+    return membershipFor(actor.userId, workspaceId, required, db)
   }
 
   async function membershipFor(
     userId: string,
     workspaceId: string,
     required: MemberRole,
+    db: repository.Queryable,
   ): Promise<{ memberId: string; role: MemberRole }> {
-    const membership = await authRepository.findMembership(dependencies.db, workspaceId, userId)
+    const membership = await authRepository.findMembership(db, workspaceId, userId)
 
     if (membership === undefined) {
       throw AppError.notFound('Workspace not found')
@@ -347,8 +351,12 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
    * same reason as for records: an id that answers differently when
    * it exists elsewhere tells the caller it exists elsewhere.
    */
-  async function requireTarget(workspaceId: string, memberId: string): Promise<repository.MemberRecord> {
-    const target = await repository.findMember(dependencies.db, workspaceId, memberId)
+  async function requireTarget(
+    workspaceId: string,
+    memberId: string,
+    db: repository.Queryable = dependencies.db,
+  ): Promise<repository.MemberRecord> {
+    const target = await repository.findMember(db, workspaceId, memberId)
 
     if (target === undefined) {
       throw AppError.notFound('Member not found')
@@ -361,8 +369,9 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
   async function requireMemberWithUser(
     workspaceId: string,
     memberId: string,
+    db: repository.Queryable,
   ): Promise<repository.MemberWithUser> {
-    const member = await repository.findMemberWithUser(dependencies.db, workspaceId, memberId)
+    const member = await repository.findMemberWithUser(db, workspaceId, memberId)
 
     if (member === undefined) {
       throw new Error(`Member ${memberId} has no user row, which the join makes impossible`)
@@ -384,28 +393,29 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
   /**
    * Moves ownership to `target` and leaves the outgoing owner an admin.
    *
-   * One transaction, because a workspace with two owners or none is a state no
-   * other code is written to survive.
+   * The caller holds the membership lock and read `target` under it. The owner
+   * is demoted before the target is promoted: the one-owner index is checked
+   * after each statement, and the other order would have two owners for one
+   * statement.
    */
   async function transferOwnership(
+    tx: Transaction,
     workspaceId: string,
-    currentOwner: repository.MemberRecord,
     target: repository.MemberRecord,
-  ): Promise<repository.MemberWithUser> {
-    const now = dependencies.now()
+    now: Date,
+  ): Promise<void> {
+    const currentOwner = await repository.findOwner(tx, workspaceId)
 
-    return dependencies.transaction(async ({ tx }) => {
-      await repository.updateMemberRole(tx, currentOwner.id, 'admin', now)
-      await repository.updateMemberRole(tx, target.id, 'owner', now)
+    if (currentOwner === undefined) {
+      throw new Error(`Workspace ${workspaceId} has an owner-role caller but no owner row`)
+    }
 
-      const updated = await repository.findMemberWithUser(tx, workspaceId, target.id)
+    if (currentOwner.id === target.id) {
+      return
+    }
 
-      if (updated === undefined) {
-        throw new Error(`Member ${target.id} vanished during an ownership transfer`)
-      }
-
-      return updated
-    })
+    await repository.updateMemberRole(tx, currentOwner.id, 'admin', now)
+    await repository.updateMemberRole(tx, target.id, 'owner', now)
   }
 
   return {
@@ -604,39 +614,42 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
     },
 
     async setMemberRole(actor, workspaceId, memberId, role) {
-      const caller = await requireMembership(actor, workspaceId, 'admin')
-      const target = await requireTarget(workspaceId, memberId)
+      // Before the lock, so a caller with no right to change a role is refused
+      // without it. The same checks run again under the lock, and those decide.
+      await requireMembership(actor, workspaceId, 'admin')
+      await requireTarget(workspaceId, memberId)
 
-      if (role === 'owner') {
-        if (caller.role !== 'owner') {
-          throw new AppError('forbidden', 'Only the owner can hand ownership to somebody else')
+      const now = dependencies.now()
+
+      const updated = await dependencies.transaction(async ({ tx }) => {
+        await repository.lockMembershipChanges(tx, workspaceId)
+
+        const caller = await requireMembership(actor, workspaceId, 'admin', tx)
+        const target = await requireTarget(workspaceId, memberId, tx)
+
+        if (role === 'owner') {
+          if (caller.role !== 'owner') {
+            throw new AppError('forbidden', 'Only the owner can hand ownership to somebody else')
+          }
+
+          await transferOwnership(tx, workspaceId, target, now)
+        } else {
+          // Demoting the owner by naming their row would leave the workspace
+          // without one. Transferring is the only way ownership moves, and it
+          // fills the seat in the same transaction that empties it.
+          if (target.role === 'owner') {
+            throw AppError.conflict(
+              'The owner cannot be demoted. Give ownership to another member instead',
+            )
+          }
+
+          await repository.updateMemberRole(tx, target.id, role, now)
         }
 
-        const currentOwner = await repository.findOwner(dependencies.db, workspaceId)
+        return requireMemberWithUser(workspaceId, target.id, tx)
+      })
 
-        if (currentOwner === undefined) {
-          throw new Error(`Workspace ${workspaceId} has an owner-role caller but no owner row`)
-        }
-
-        if (currentOwner.id === target.id) {
-          return toMemberView(await requireMemberWithUser(workspaceId, target.id))
-        }
-
-        return toMemberView(await transferOwnership(workspaceId, currentOwner, target))
-      }
-
-      // Demoting the owner by naming their row would leave the workspace without
-      // one. Transferring is the only way ownership moves, and it fills the seat
-      // in the same write that empties it.
-      if (target.role === 'owner') {
-        throw AppError.conflict(
-          'The owner cannot be demoted. Give ownership to another member instead',
-        )
-      }
-
-      await repository.updateMemberRole(dependencies.db, target.id, role, dependencies.now())
-
-      return toMemberView(await requireMemberWithUser(workspaceId, target.id))
+      return toMemberView(updated)
     },
 
     async removeMember(actor, workspaceId, memberId) {
@@ -644,9 +657,7 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
       const target = await requireTarget(workspaceId, memberId)
 
       if (target.role === 'owner') {
-        throw AppError.conflict(
-          'The owner cannot be removed. Give ownership to another member first',
-        )
+        throw AppError.conflict(OWNER_NOT_REMOVABLE)
       }
 
       // Removing a member is restricted while they own records.
@@ -666,12 +677,22 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
       try {
         await dependencies.transaction(async ({ tx, events }) => {
-          await repository.deleteMember(tx, target.id)
+          await repository.lockMembershipChanges(tx, workspaceId)
+
+          // Read again under the lock: a transfer that finished after the
+          // check above can have made this member the owner.
+          const current = await requireTarget(workspaceId, memberId, tx)
+
+          if (current.role === 'owner') {
+            throw AppError.conflict(OWNER_NOT_REMOVABLE)
+          }
+
+          await repository.deleteMember(tx, current.id)
 
           events.emit(
             'workspace.member.removed',
-            { type: 'member', id: target.id },
-            { userId: target.userId },
+            { type: 'member', id: current.id },
+            { userId: current.userId },
           )
         }, { workspaceId, actor: toEventActor(actor) })
       } catch (error: unknown) {
@@ -820,7 +841,8 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
 
     async acceptInvite(actor, token) {
       const now = dependencies.now()
-      const invite = await repository.findInviteByTokenHash(dependencies.db, hashToken(token))
+      const tokenHash = hashToken(token)
+      const invite = await repository.findInviteByTokenHash(dependencies.db, tokenHash)
 
       if (invite === undefined || invite.status !== 'pending' || invite.expiresAt <= now) {
         throw AppError.unauthorized('That invitation is invalid or has expired')
@@ -878,12 +900,21 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
           throw error
         }
 
-        // A real invite link already proves control of the invited address, so
-        // accepting one satisfies the same gate a verification link would.
-        // A no-op if the account was already verified.
-        await authRepository.markEmailVerified(tx, actor.userId, now)
+        // The checks above read the invitation before this transaction. It can
+        // have been revoked, resent with a new token, or accepted since then,
+        // so it is spent in one statement that holds those conditions. The
+        // throw rolls the membership back.
+        if (!(await repository.spendInvite(tx, invite.id, tokenHash, now))) {
+          throw AppError.unauthorized('That invitation is invalid or has expired')
+        }
 
-        await repository.deleteInvite(tx, invite.id)
+        // The token was mailed to the invited address and to nowhere else, so
+        // holding it is proof of that mailbox: the same proof a verification
+        // link gives. It is proof of no other address. The address is part of
+        // the statement, so an account that has moved to a different address
+        // since the comparison above stays unverified. A no-op if the account
+        // was already verified.
+        await authRepository.markEmailAddressVerified(tx, actor.userId, invite.email, now)
 
         await authRepository.setActiveWorkspace(tx, actor.sessionId, invite.workspaceId)
 
