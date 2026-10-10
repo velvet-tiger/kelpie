@@ -19,6 +19,11 @@ export interface RateLimitConfig {
    * Login attempts for one email address, whatever IP they come from. The `auth`
    * budget alone caps one IP, so a botnet spread across many addresses could
    * still grind one account. This is the per-account half of that defence.
+   *
+   * The rate-limit middleware uses the same numbers for three more counts, each
+   * of them also aimed at one account or one mailbox: password reset requests
+   * for one email address, current-password checks for one signed-in account,
+   * and requests to send the verification mail again.
    */
   readonly loginAccount: RateLimitBudget
   readonly api: RateLimitBudget

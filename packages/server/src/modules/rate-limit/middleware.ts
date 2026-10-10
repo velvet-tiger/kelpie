@@ -2,19 +2,22 @@ import type { Context, MiddlewareHandler } from 'hono'
 
 import { bearerCredentialId, isBearerActor } from '../../lib/actor.ts'
 import type { Actor } from '../../lib/actor.ts'
+import { rateLimitKeyForIp } from '../../lib/clientIp.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
+import { MAX_SHORT_TEXT_LENGTH } from '../../lib/fieldLimits.ts'
 import { PUBLIC_ROUTE_PREFIX } from '../../lib/http.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { RateLimitBudget, RateLimitConfig } from '../../lib/rateLimit.ts'
 import { readBearerToken } from '../api-keys/keys.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
+import { findUserById } from '../auth/repository.ts'
 import { incrementRateLimitBucket, pruneExpiredRateLimitBuckets } from './repository.ts'
 
 /**
- * The three budgets for `/v1`: public form submissions,
- * unauthenticated auth endpoints, and everything else called with an API key.
+ * The budgets for `/v1`: public form routes, unauthenticated auth endpoints,
+ * attempts aimed at one account, and everything else called with an API key.
  * Split into two middlewares rather than one, because the forms budget has to
  * sit *inside* `PUBLIC_CORS` in `app.ts` — a throw ahead of it would strip the
  * CORS headers a cross-origin embed needs to read the 429 body — while the
@@ -32,9 +35,11 @@ export interface RateLimitMiddlewareDependencies {
 
 /**
  * Every unauthenticated `/v1/auth/*` endpoint: the ones a stranger can call to
- * attempt credential stuffing or enumerate accounts. `/auth/logout`, `/me`,
- * `/sessions` and changing a known password all require a session already and
- * carry no such risk, so they are not here.
+ * attempt credential stuffing or enumerate accounts. `/auth/logout`, `/me` and
+ * `/sessions` require a session already and carry no such risk, so they are
+ * not here. The routes that check a current password, and the one that sends
+ * the verification mail again, also require a session. They are counted per
+ * account (`CURRENT_PASSWORD_PATHS`, `VERIFY_EMAIL_RESEND_PATH`).
  */
 const UNAUTHENTICATED_AUTH_PATHS: ReadonlySet<string> = new Set([
   '/v1/auth/signup',
@@ -44,22 +49,57 @@ const UNAUTHENTICATED_AUTH_PATHS: ReadonlySet<string> = new Set([
   '/v1/auth/verify-email/confirm',
 ])
 
-/** The one path in the set that also carries a per-account budget. */
+/** Carries one more budget, for the account the request names. */
 const LOGIN_PATH = '/v1/auth/login'
 
+/** Carries one more budget, for the address the request asks to mail. */
+const PASSWORD_RESET_PATH = '/v1/auth/password-reset'
+
 /**
- * The public form routes that carry the forms budget: the submit POST and the
- * embed GET. Both do database work for an unauthenticated caller, so both are
- * metered by IP. Every other path under the public prefix passes through.
+ * The `PATCH` routes that check the caller's current password. A session is
+ * not proof of the password: somebody holding a stolen session cookie could
+ * otherwise try values here without limit, and a correct guess lets them take
+ * the account over.
  */
-function isMeteredFormRoute(context: Context): boolean {
+const CURRENT_PASSWORD_PATHS: ReadonlySet<string> = new Set(['/v1/auth/password', '/v1/account'])
+
+/**
+ * Sends the verification mail again. It needs a session, but anybody can get
+ * one: sign up with another person's address, and each call here mails that
+ * person.
+ */
+const VERIFY_EMAIL_RESEND_PATH = '/v1/auth/verify-email'
+
+/**
+ * The scope a public form route is counted under, or undefined for a path that
+ * carries no budget.
+ *
+ * The submit `POST` and the embed `GET` share one counter. The token `GET` has
+ * its own counter under the same budget: the embed page asks for a token on
+ * every load, and that must not take from what a visitor has left to submit.
+ * All three do database work for an unauthenticated caller.
+ */
+function formRouteScope(context: Context): 'forms' | 'forms-token' | undefined {
   const path = context.req.path
 
   if (context.req.method === 'POST' && path.endsWith('/submit')) {
-    return true
+    return 'forms'
   }
 
-  return context.req.method === 'GET' && path.endsWith('/embed')
+  if (context.req.method !== 'GET') {
+    return undefined
+  }
+
+  if (path.endsWith('/embed')) {
+    return 'forms'
+  }
+
+  return path.endsWith('/token') ? 'forms-token' : undefined
+}
+
+/** The caller's address as the limiter counts it: an IPv6 client by its `/64`. */
+function clientKey(dependencies: RateLimitMiddlewareDependencies, context: Context): string {
+  return rateLimitKeyForIp(dependencies.resolveClientIp(context))
 }
 
 /** Floors `now` to the start of its fixed window, so every caller in the same window shares one row. */
@@ -84,30 +124,62 @@ function maxWindowMs(config: RateLimitConfig): number {
 }
 
 /**
- * The email a login request names, normalised the way the auth service
- * normalises it (`modules/auth/service.ts`), or undefined when the body carries
- * no usable one.
+ * One string field of a JSON body, or undefined when the body does not carry
+ * it as a string.
  *
- * Reads the body through Hono's cache, so the login handler's own read of it
- * later is unaffected. A malformed body resolves to undefined here and is left
- * for the handler to reject.
+ * Reads the body through Hono's cache, so the handler's own read of it later
+ * is unaffected. A malformed body resolves to undefined here and is left for
+ * the handler to reject.
  */
-async function readLoginEmail(context: Context): Promise<string | undefined> {
+async function readBodyString(context: Context, field: string): Promise<string | undefined> {
   const body: unknown = await context.req.json().catch(() => undefined)
 
   if (typeof body !== 'object' || body === null) {
     return undefined
   }
 
-  const email = (body as Record<string, unknown>).email
+  const value = (body as Record<string, unknown>)[field]
 
-  if (typeof email !== 'string') {
+  return typeof value === 'string' ? value : undefined
+}
+
+/**
+ * The email a login or reset request names, normalised the way the auth
+ * service normalises it (`modules/auth/service.ts`), or undefined when the
+ * body carries no usable one.
+ *
+ * An address longer than the handlers accept is not usable. The handler
+ * refuses it with `422`, and it is too long for the index on the bucket key.
+ */
+async function readAccountEmail(context: Context): Promise<string | undefined> {
+  const email = await readBodyString(context, 'email')
+
+  if (email === undefined || email.length > MAX_SHORT_TEXT_LENGTH) {
     return undefined
   }
 
   const normalised = email.trim().toLowerCase()
 
   return normalised.length === 0 ? undefined : normalised
+}
+
+/**
+ * The actor behind the request's credential, or undefined when it carries no
+ * live one. The handler answers that `401` itself, and on `/mcp` its answer
+ * carries the `WWW-Authenticate` challenge a client needs; refusing here would
+ * drop it.
+ */
+async function resolveLiveActor(
+  dependencies: RateLimitMiddlewareDependencies,
+  context: Context,
+): Promise<Actor | undefined> {
+  return resolveActorFrom(dependencies.credentials, context).catch((error: unknown) => {
+    if (error instanceof AppError && error.code === 'unauthorized') {
+      return undefined
+    }
+
+    throw error
+  })
 }
 
 /**
@@ -153,6 +225,79 @@ async function enforceBudget(
 }
 
 /**
+ * Counts one attempt at the current password against the account the session
+ * belongs to, whatever session or address it comes from.
+ *
+ * Only a request that sends `current_password` is counted, so a profile edit
+ * that needs no password spends nothing. The attempt is counted before the
+ * handler checks it, not after a failure: many requests sent at once would
+ * otherwise all be checked before any of them was counted.
+ */
+async function enforceCurrentPasswordBudget(
+  dependencies: RateLimitMiddlewareDependencies,
+  context: Context,
+): Promise<void> {
+  if ((await readBodyString(context, 'current_password')) === undefined) {
+    return
+  }
+
+  const actor = await resolveLiveActor(dependencies, context)
+
+  // Only a session can call these routes. The handler refuses every other
+  // credential before it checks a password.
+  if (actor === undefined || actor.kind !== 'session') {
+    return
+  }
+
+  await enforceBudget(dependencies, context, {
+    scope: 'current-password',
+    key: actor.userId,
+    budget: dependencies.config.loginAccount,
+  })
+}
+
+/**
+ * Counts one request for the verification mail, against the account and then
+ * against the address the mail goes to.
+ *
+ * The account count follows the person across sessions and client addresses.
+ * The address count is there because an account can change its address
+ * (`PATCH /v1/account`): without it, several accounts could take turns on one
+ * address and each spend a full account budget mailing it. A request the
+ * account count refuses never reaches the address count.
+ */
+async function enforceVerificationMailBudget(
+  dependencies: RateLimitMiddlewareDependencies,
+  context: Context,
+): Promise<void> {
+  const actor = await resolveLiveActor(dependencies, context)
+
+  // Only a session can call this route. The handler refuses every other credential.
+  if (actor === undefined || actor.kind !== 'session') {
+    return
+  }
+
+  await enforceBudget(dependencies, context, {
+    scope: 'verify-email-account',
+    key: actor.userId,
+    budget: dependencies.config.loginAccount,
+  })
+
+  const user = await findUserById(dependencies.db, actor.userId)
+
+  // A session whose account is gone mails nobody. The handler answers it.
+  if (user === undefined) {
+    return
+  }
+
+  await enforceBudget(dependencies, context, {
+    scope: 'verify-email-address',
+    key: user.email,
+    budget: dependencies.config.loginAccount,
+  })
+}
+
+/**
  * Spends more of a bearer credential's `api` budget than the one unit the
  * middleware took for the request.
  *
@@ -179,7 +324,7 @@ export function createApiBudgetCharger(dependencies: RateLimitMiddlewareDependen
 
 /**
  * Guards the public form routes that reach the database, keyed by the caller's
- * IP: the submit `POST` and the embed `GET`.
+ * IP: the submit `POST`, the embed `GET` and the token `GET`.
  *
  * Mount this **after** `PUBLIC_CORS` in `app.ts`. Every other path under the
  * public prefix passes through untouched.
@@ -188,14 +333,16 @@ export function createFormSubmitRateLimitMiddleware(
   dependencies: RateLimitMiddlewareDependencies,
 ): MiddlewareHandler {
   return async (context, next) => {
-    if (!isMeteredFormRoute(context)) {
+    const scope = formRouteScope(context)
+
+    if (scope === undefined) {
       await next()
       return
     }
 
     await enforceBudget(dependencies, context, {
-      scope: 'forms',
-      key: dependencies.resolveClientIp(context),
+      scope,
+      key: clientKey(dependencies, context),
       budget: dependencies.config.forms,
     })
     await next()
@@ -217,7 +364,7 @@ export function createOAuthRateLimitMiddleware(
   return async (context, next) => {
     await enforceBudget(dependencies, context, {
       scope: 'oauth',
-      key: dependencies.resolveClientIp(context),
+      key: clientKey(dependencies, context),
       budget: dependencies.config.oauth,
     })
     await next()
@@ -228,7 +375,8 @@ export function createOAuthRateLimitMiddleware(
  * Guards the unauthenticated auth endpoints (by IP) and every other `/v1/*`
  * request made with an API key (by that key) — the budget that protects a
  * workspace rather than the world. Session traffic, the product's own UI,
- * carries no budget here.
+ * carries no budget here, except an attempt at the account's current password
+ * and a request for the verification mail.
  *
  * Public routes are skipped: `createFormSubmitRateLimitMiddleware` already
  * covers them, positioned where `PUBLIC_CORS` requires. Mount this one
@@ -247,20 +395,30 @@ export function createAuthAndApiRateLimitMiddleware(
     }
 
     if (context.req.method === 'POST' && UNAUTHENTICATED_AUTH_PATHS.has(path)) {
-      await enforceBudget(dependencies, context, {
-        scope: 'auth',
-        key: dependencies.resolveClientIp(context),
-        budget: dependencies.config.auth,
-      })
+      const ipKey = clientKey(dependencies, context)
 
-      // A second budget for login, keyed on the account rather than the IP, so a
-      // distributed attack on one address is capped whatever IPs it comes from.
-      if (path === LOGIN_PATH) {
-        const email = await readLoginEmail(context)
+      await enforceBudget(dependencies, context, { scope: 'auth', key: ipKey, budget: dependencies.config.auth })
 
-        if (email !== undefined) {
+      if (path === LOGIN_PATH || path === PASSWORD_RESET_PATH) {
+        const email = await readAccountEmail(context)
+
+        // A second budget for login, keyed on the account rather than the IP, so a
+        // distributed attack on one address is capped whatever IPs it comes from.
+        if (email !== undefined && path === LOGIN_PATH) {
           await enforceBudget(dependencies, context, {
             scope: 'login-account',
+            key: email,
+            budget: dependencies.config.loginAccount,
+          })
+        }
+
+        // Keyed on the address as typed, whatever IPs ask, so one mailbox
+        // cannot be sent reset mail without limit. The count does not depend
+        // on whether an account has the address, so the `429` tells a caller
+        // nothing about that.
+        if (email !== undefined && path === PASSWORD_RESET_PATH) {
+          await enforceBudget(dependencies, context, {
+            scope: 'password-reset-account',
             key: email,
             budget: dependencies.config.loginAccount,
           })
@@ -269,6 +427,14 @@ export function createAuthAndApiRateLimitMiddleware(
 
       await next()
       return
+    }
+
+    if (context.req.method === 'PATCH' && CURRENT_PASSWORD_PATHS.has(path)) {
+      await enforceCurrentPasswordBudget(dependencies, context)
+    }
+
+    if (context.req.method === 'POST' && path === VERIFY_EMAIL_RESEND_PATH) {
+      await enforceVerificationMailBudget(dependencies, context)
     }
 
     // Only a bearer credential can resolve to an API key or an OAuth grant,
@@ -281,16 +447,7 @@ export function createAuthAndApiRateLimitMiddleware(
       return
     }
 
-    const actor = await resolveActorFrom(dependencies.credentials, context).catch((error: unknown) => {
-      if (error instanceof AppError && error.code === 'unauthorized') {
-        // No live credential to count against. The handler answers the 401
-        // itself, and on `/mcp` that answer carries the `WWW-Authenticate`
-        // challenge a client needs; refusing here would drop it.
-        return undefined
-      }
-
-      throw error
-    })
+    const actor = await resolveLiveActor(dependencies, context)
 
     if (actor === undefined || !isBearerActor(actor)) {
       await next()

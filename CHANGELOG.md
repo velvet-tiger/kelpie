@@ -273,6 +273,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **A login with an over-long `email` answers
+  `422`.** It answered `500`.
 - **`@kelpie/server`** — **A permanent email failure is not retried.** A
   mail server that refused a message for good, for example `550` for a
   mailbox that does not exist, got the same message three more times. The
@@ -382,6 +384,24 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **More rate limits on account routes.** `RATE_LIMIT_LOGIN_ACCOUNT_*`
+  (10 in 15 minutes by default) now also sets three new counts. The login
+  count itself is unchanged. Over a count, the request answers `429`.
+  - A signed-in session can try the current password 10 times for each
+    account, on `PATCH /v1/auth/password` and on `PATCH /v1/account` when it
+    sends `current_password`. There was no limit.
+  - Password reset requests are counted for each typed address, from all
+    client addresses. The `429` does not depend on whether an account
+    exists.
+  - `POST /v1/auth/verify-email` is counted for each account and for each
+    address that gets the mail. There was no limit.
+- **The rate limiter counts an IPv6 client by its `/64` prefix.** A client
+  could use a new address in its prefix for each request. An IPv4-mapped
+  IPv6 address is counted as its IPv4 address.
+- **The form token route has a rate limit.**
+  `GET /v1/public/workspaces/:workspaceId/forms/:formId/token` uses the
+  `RATE_LIMIT_FORMS_*` numbers for each client address, on a count of its
+  own.
 - **A password reset ends everything a thief could still hold.** A reset
   ended every session. It now also ends every other open reset link, every
   personal API key of the account, and every connected app (OAuth

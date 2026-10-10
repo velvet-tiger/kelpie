@@ -9,6 +9,7 @@ import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
+import { SEND_PASSWORD_RESET_EMAIL_JOB, SEND_VERIFICATION_EMAIL_JOB } from '../auth/emailJobs.ts'
 import { coreModules } from '../core.ts'
 
 /**
@@ -38,6 +39,10 @@ function midWindowClock(): Date {
 function rateLimitConfig(overrides: Partial<RateLimitConfig>): RateLimitConfig {
   return { forms: GENEROUS, auth: GENEROUS, loginAccount: GENEROUS, api: GENEROUS, oauth: GENEROUS, ...overrides }
 }
+
+/** The address and password `TestClient.owner()` signs an account up with by default. */
+const OWNER_EMAIL = 'ada@example.com'
+const OWNER_PASSWORD = 'correct horse battery staple'
 
 const CONTACT_FIELDS = [
   { label: 'Name', type: 'text', map_to: 'person.name', required: true },
@@ -202,6 +207,51 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       expect((await embed()).status).toBe(200)
       expect((await embed()).status).toBe(429)
     })
+
+    it('limits the token route per IP, on a count of its own', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ forms: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const owner = await client.owner()
+      const form = await createForm(client, owner)
+      const ids = fieldIds(form)
+      const formPath = `${owner.workspaceId}/forms/${readString(form, 'slug')}`
+      const tokenPath = `/v1/public/workspaces/${owner.workspaceId}/forms/${readString(form, 'id')}/token`
+      const token = (ip: string): Promise<Response> => sendFrom(harness.app, 'GET', tokenPath, ip)
+
+      expect((await token('203.0.113.41')).status).toBe(200)
+      expect((await token('203.0.113.41')).status).toBe(200)
+
+      const blocked = await token('203.0.113.41')
+      expect(blocked.status).toBe(429)
+      expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
+
+      expect((await token('203.0.113.42')).status).toBe(200)
+      // The token requests took nothing from what this IP has left to submit.
+      expect((await submit(harness.app, formPath, ids, '203.0.113.41')).status).toBe(201)
+      expect((await submit(harness.app, formPath, ids, '203.0.113.41')).status).toBe(201)
+    })
+
+    it('counts every address in one IPv6 /64 as one caller', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ forms: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const owner = await client.owner()
+      const form = await createForm(client, owner)
+      const embedPath = `/v1/public/workspaces/${owner.workspaceId}/forms/${readString(form, 'id')}/embed`
+      const embed = (ip: string): Promise<Response> => sendFrom(harness.app, 'GET', embedPath, ip)
+
+      expect((await embed('2001:db8:1:2::1')).status).toBe(200)
+      expect((await embed('2001:db8:1:2:aaaa:bbbb:cccc:dddd')).status).toBe(200)
+      // A third address, but in the same /64.
+      expect((await embed('2001:db8:1:2::3')).status).toBe(429)
+      // Another /64 has its own count.
+      expect((await embed('2001:db8:1:3::1')).status).toBe(200)
+    })
   })
 
   describe('the auth budget', () => {
@@ -284,6 +334,237 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       expect((await attempt('203.0.113.82', 'target@example.com')).status).toBe(429)
       // A different address from that same IP still gets through.
       expect((await attempt('203.0.113.82', 'someone-else@example.com')).status).toBe(401)
+    })
+
+    it('leaves an over-long address to the handler, and keeps it out of a bucket key', async () => {
+      const harness = await harnessWithBudgets(rateLimitConfig({}), midWindowClock)
+      // Text that does not compress: Postgres refuses an index entry this long.
+      const longEmail = `${Array.from({ length: 600 }, () => crypto.randomUUID()).join('')}@example.com`
+      const login = await sendFrom(harness.app, 'POST', '/v1/auth/login', '203.0.113.83', {
+        email: longEmail,
+        password: 'wrong',
+      })
+      const reset = await sendFrom(harness.app, 'POST', '/v1/auth/password-reset', '203.0.113.83', {
+        email: longEmail,
+      })
+
+      expect(login.status).toBe(422)
+      expect(reset.status).toBe(422)
+    })
+
+    it('caps password reset requests for one address across every IP, with the same answer for any address', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      await client.owner(OWNER_EMAIL)
+      const reset = (ip: string, email: string): Promise<Response> =>
+        sendFrom(harness.app, 'POST', '/v1/auth/password-reset', ip, { email })
+
+      // An address with an account and one without get the same answers in the same order.
+      for (const email of [OWNER_EMAIL, 'nobody@example.com']) {
+        expect((await reset('203.0.113.84', email)).status).toBe(202)
+        expect((await reset('203.0.113.85', ` ${email.toUpperCase()} `)).status).toBe(202)
+
+        const blocked = await reset('203.0.113.86', email)
+
+        expect(blocked.status).toBe(429)
+        expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
+      }
+
+      // The refused requests queued no mail: two jobs for each address.
+      const resetJobs = harness.services.queuedJobs.filter((job) => job.name === SEND_PASSWORD_RESET_EMAIL_JOB)
+
+      expect(resetJobs).toHaveLength(4)
+    })
+
+    it('does not spend the reset budget of an address on a login for it', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 1, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const body = { email: 'target@example.com', password: 'wrong' }
+
+      expect((await sendFrom(harness.app, 'POST', '/v1/auth/login', '203.0.113.87', body)).status).toBe(401)
+      expect((await sendFrom(harness.app, 'POST', '/v1/auth/password-reset', '203.0.113.87', body)).status).toBe(202)
+    })
+  })
+
+  describe('the current-password budget', () => {
+    function changePassword(client: TestClient, cookie: string, currentPassword: string): Promise<Response> {
+      return client.send('PATCH', '/v1/auth/password', {
+        body: { current_password: currentPassword, new_password: 'a new long passphrase' },
+        cookie,
+      })
+    }
+
+    function changeEmail(client: TestClient, cookie: string, currentPassword: string): Promise<Response> {
+      return client.send('PATCH', '/v1/account', {
+        body: { email: 'moved@example.com', current_password: currentPassword },
+        cookie,
+      })
+    }
+
+    it('caps guesses at the current password across both routes, for that account only', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const owner = await client.owner()
+      const other = await client.owner('grace@example.com')
+
+      expect((await changePassword(client, owner.cookie, 'guess one')).status).toBe(401)
+      expect((await changeEmail(client, owner.cookie, 'guess two')).status).toBe(401)
+
+      const blocked = await changePassword(client, owner.cookie, 'guess three')
+      expect(blocked.status).toBe(429)
+      expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
+      expect(readRecord(await blocked.json()).error).toMatchObject({ code: 'rate_limited' })
+
+      // The right password is refused as well: the limit is on attempts.
+      expect((await changeEmail(client, owner.cookie, OWNER_PASSWORD)).status).toBe(429)
+      // Another account has its own count.
+      expect((await changePassword(client, other.cookie, 'guess one')).status).toBe(401)
+    })
+
+    it('follows the account across sessions', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 1, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const owner = await client.owner()
+      const secondLogin = await sendFrom(harness.app, 'POST', '/v1/auth/login', '203.0.113.88', {
+        email: OWNER_EMAIL,
+        password: OWNER_PASSWORD,
+      })
+      const secondCookie = (secondLogin.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+
+      expect(secondLogin.status).toBe(200)
+      expect((await changePassword(client, owner.cookie, 'guess one')).status).toBe(401)
+      expect((await changePassword(client, secondCookie, 'guess two')).status).toBe(429)
+    })
+
+    it('never limits a profile edit that sends no password', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 1, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const owner = await client.owner()
+
+      for (let edit = 0; edit < 5; edit += 1) {
+        const response = await client.send('PATCH', '/v1/account', {
+          body: { name: `Name ${edit}` },
+          cookie: owner.cookie,
+        })
+
+        expect(response.status).toBe(200)
+      }
+    })
+
+    it('resets once the window has elapsed', async () => {
+      let now = new Date('2026-01-01T00:00:00Z')
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 1, windowMs: 1000 } }),
+        () => now,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const owner = await client.owner()
+
+      expect((await changePassword(client, owner.cookie, 'guess one')).status).toBe(401)
+      expect((await changePassword(client, owner.cookie, OWNER_PASSWORD)).status).toBe(429)
+
+      now = new Date(now.getTime() + 1001)
+
+      expect((await changePassword(client, owner.cookie, OWNER_PASSWORD)).status).toBe(204)
+    })
+  })
+
+  describe('the verification-mail budget', () => {
+    function resend(client: TestClient, cookie: string): Promise<Response> {
+      return client.send('POST', '/v1/auth/verify-email', { cookie })
+    }
+
+    function verificationJobs(harness: TestApp): number {
+      return harness.services.queuedJobs.filter((job) => job.name === SEND_VERIFICATION_EMAIL_JOB).length
+    }
+
+    /** A new account with its address not verified, which is the state the resend mails in. */
+    async function signUpUnverified(harness: TestApp, email: string, ip: string): Promise<string> {
+      const response = await sendFrom(harness.app, 'POST', '/v1/auth/signup', ip, {
+        email,
+        name: 'Someone',
+        password: OWNER_PASSWORD,
+      })
+
+      expect(response.status).toBe(201)
+
+      return (response.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+    }
+
+    it('lets a single resend through and queues its mail', async () => {
+      const harness = await harnessWithBudgets(rateLimitConfig({}), midWindowClock)
+      const client = createTestClient(harness.app, harness.services.db)
+      const cookie = await signUpUnverified(harness, 'new@example.com', '203.0.113.100')
+      const before = verificationJobs(harness)
+
+      expect((await resend(client, cookie)).status).toBe(202)
+      expect(verificationJobs(harness)).toBe(before + 1)
+    })
+
+    it('caps resends for one account across sessions, and for that account only', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const cookie = await signUpUnverified(harness, 'victim@example.com', '203.0.113.101')
+      const otherCookie = await signUpUnverified(harness, 'other@example.com', '203.0.113.102')
+      const secondLogin = await sendFrom(harness.app, 'POST', '/v1/auth/login', '203.0.113.103', {
+        email: 'victim@example.com',
+        password: OWNER_PASSWORD,
+      })
+      const secondCookie = (secondLogin.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
+      const before = verificationJobs(harness)
+
+      expect(secondLogin.status).toBe(200)
+      expect((await resend(client, cookie)).status).toBe(202)
+      expect((await resend(client, secondCookie)).status).toBe(202)
+
+      const blocked = await resend(client, cookie)
+      expect(blocked.status).toBe(429)
+      expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
+      expect((await resend(client, secondCookie)).status).toBe(429)
+      // The refused requests queued no mail.
+      expect(verificationJobs(harness)).toBe(before + 2)
+
+      // Another account has its own count.
+      expect((await resend(client, otherCookie)).status).toBe(202)
+    })
+
+    it('caps resends to one address when accounts take turns on it', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 2, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const first = await signUpUnverified(harness, 'victim@example.com', '203.0.113.104')
+      const second = await signUpUnverified(harness, 'second@example.com', '203.0.113.105')
+      const moveTo = (cookie: string, email: string): Promise<Response> =>
+        client.send('PATCH', '/v1/account', { body: { email, current_password: OWNER_PASSWORD }, cookie })
+
+      expect((await resend(client, first)).status).toBe(202)
+      expect((await resend(client, first)).status).toBe(202)
+
+      // The first account lets the address go and the second one takes it.
+      expect((await moveTo(first, 'elsewhere@example.com')).status).toBe(200)
+      expect((await moveTo(second, 'victim@example.com')).status).toBe(200)
+
+      // A new account with a full count of its own, but the same mailbox.
+      expect((await resend(client, second)).status).toBe(429)
     })
   })
 

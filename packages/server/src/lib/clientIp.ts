@@ -1,3 +1,5 @@
+import ipaddr from 'ipaddr.js'
+
 /**
  * Resolving the caller's IP when the service sits behind trusted proxies.
  *
@@ -38,4 +40,48 @@ export function resolveClientIpFrom(
   const index = entries.length - hopCount
 
   return index >= 0 ? (entries[index] ?? socketAddress) : socketAddress
+}
+
+/** How many 16-bit groups of an IPv6 address make up the `/64` network prefix. */
+const IPV6_NETWORK_GROUPS = 4
+
+/**
+ * The key the rate limiter counts a client address under.
+ *
+ * An IPv6 client is counted by its `/64` prefix. A provider gives one customer
+ * at least a whole `/64`, so a caller can pick a new address in it for every
+ * request, and a counter per full address would never fill.
+ *
+ * An IPv4 address is its own key. An IPv4-mapped IPv6 address
+ * (`::ffff:a.b.c.d`) is the same host as that IPv4 address, and a dual-stack
+ * socket reports it in that form, so it is reduced to the IPv4 address.
+ *
+ * @param address The client address from `resolveClientIpFrom`.
+ * @returns The key. A value that is not an IP address is returned unchanged:
+ *   all such callers still share one counter, which over-limits rather than
+ *   under-limits.
+ */
+export function rateLimitKeyForIp(address: string): string {
+  if (!ipaddr.isValid(address)) {
+    return address
+  }
+
+  const parsed = ipaddr.parse(address)
+
+  if (parsed.kind() === 'ipv4') {
+    return parsed.toString()
+  }
+
+  const ipv6 = parsed as ipaddr.IPv6
+
+  if (ipv6.isIPv4MappedAddress()) {
+    return ipv6.toIPv4Address().toString()
+  }
+
+  const prefix = ipv6.parts
+    .slice(0, IPV6_NETWORK_GROUPS)
+    .map((group) => group.toString(16))
+    .join(':')
+
+  return `${prefix}::/64`
 }
