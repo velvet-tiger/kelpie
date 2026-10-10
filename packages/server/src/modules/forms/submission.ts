@@ -6,9 +6,9 @@ import type {
 } from '@kelpie/schemas'
 
 import { toEventActor } from '../../lib/actor.ts'
-import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
+import { UNIQUE_VIOLATION, describeWriteFailure, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
-import { AppError, describeThrown } from '../../lib/errors.ts'
+import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { JobHandle } from '../../lib/jobs.ts'
 import type { Logger } from '../../lib/logger.ts'
@@ -52,10 +52,11 @@ import * as pipelineRepository from '../pipelines/repository.ts'
 import '../positions/events.ts'
 import * as positionRepository from '../positions/repository.ts'
 import { targetExists } from '../recordTargets.ts'
+import * as raiseRepository from '../raises/repository.ts'
 import '../raises/events.ts'
 import * as workspaceRepository from '../workspace/repository.ts'
 import './events.ts'
-import { spendClientAutoReply } from './autoReplyClientLimit.ts'
+import { answersNotHeld } from './answersNotHeld.ts'
 import type { SendFormEmailsData } from './emailJob.ts'
 import {
   DEAL_CLOSE_HORIZON_DAYS,
@@ -75,7 +76,7 @@ import {
 import type { Answers, ConsentGrant, MappedAnswers, SubmitIntent } from './mapping.ts'
 import * as repository from './repository.ts'
 import type { FormFieldRecord, FormRecord, FormSubmissionRecord } from './repository.ts'
-import { EXISTING_RECORD_REASON, checkMappedAnswers, mappedTargetsOf } from './mappedValueChecks.ts'
+import { EXISTING_RECORD_REASON, checkMappedAnswers } from './mappedValueChecks.ts'
 import type { RefusedMappedValue } from './mappedValueChecks.ts'
 import { SPAM_RETENTION_DAYS } from './spam.ts'
 import type { SpamCheck, SpamCheckInput } from './spam.ts'
@@ -155,11 +156,6 @@ export interface SubmissionDependencies {
   /** Enqueued inside the submit's transaction when the form sends an email. */
   readonly sendEmailsJob: JobHandle<SendFormEmailsData>
   readonly spamCheck: SpamCheck
-  /**
-   * Auto-replies one client address may cause in a workspace in a UTC day.
-   * `FORMS_AUTO_REPLY_CLIENT_DAILY_LIMIT`.
-   */
-  readonly autoReplyClientDailyLimit: number
   readonly log: Logger
 }
 
@@ -193,11 +189,6 @@ export interface FormSubmitService {
    * A submit the spam check catches resolves like any other, with
    * `status: 'spam'`.
    *
-   * @param clientKey The key the rate limiter counts this caller under. An
-   *   accepted submit of a form with an auto-reply is counted against it, and
-   *   a caller over the daily limit gets no auto-reply. The submit itself is
-   *   accepted all the same, and the response does not say which happened.
-   *
    * @throws AppError 404 unknown form, 409 paused, 422 unusable answers.
    */
   submit(
@@ -205,7 +196,6 @@ export interface FormSubmitService {
     slug: string,
     answers: Answers,
     spam?: SpamCheckInput,
-    clientKey?: string,
   ): Promise<SubmitOutcome>
   /**
    * Takes a `spam` submission out of quarantine and runs the submit rules on
@@ -255,12 +245,6 @@ interface Upserted<TRecord extends { readonly id: string }> {
   readonly created: boolean
   /** Columns this submit filled in on an existing record. Empty on a create. */
   readonly filled: readonly string[]
-}
-
-/** A Company a submit resolved, and the answer it was matched on. */
-interface MatchedCompany extends Upserted<CompanyRecord> {
-  /** The mapped target the match was made on. Undefined on a create. */
-  readonly matchedOn: 'company.domain' | 'company.name' | undefined
 }
 
 /** The bare shape `emitRecordEvents` needs of a Position. */
@@ -435,7 +419,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     tx: Transaction,
     workspaceId: string,
     intent: SubmitIntent,
-  ): Promise<MatchedCompany | undefined> {
+  ): Promise<Upserted<CompanyRecord> | undefined> {
     const name = companyNameFrom(intent)
 
     if (name === undefined) {
@@ -461,15 +445,10 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         ...NEW_COMPANY_DEFAULTS,
       })
 
-      return { record: created, created: true, filled: [], matchedOn: undefined }
+      return { record: created, created: true, filled: [] }
     }
 
-    return {
-      record: existing,
-      created: false,
-      filled: [],
-      matchedOn: byDomain === undefined ? 'company.name' : 'company.domain',
-    }
+    return { record: existing, created: false, filled: [] }
   }
 
   /**
@@ -602,10 +581,12 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     } catch (error: unknown) {
       // Broad on purpose, as in `runAction`: whatever went wrong, the savepoint
       // is gone and the submit carries on. The cause goes to the server log,
-      // and the action log gets a line that is safe to show.
+      // and the action log gets a line that is safe to show. The log gets no
+      // error message: a query error's message holds the values the visitor
+      // typed.
       dependencies.log.warn('form submit could not write mapped fields', {
         objectType,
-        error: describeThrown(error),
+        error: describeWriteFailure(error),
       })
       log.push({
         action: `map_fields:${objectType}`,
@@ -1002,7 +983,6 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     answers: Answers,
     held: FormSubmissionRecord | undefined,
     options: TransactionOptions,
-    clientKey?: string,
   ): Promise<SubmitOutcome> {
     const { workspaceId } = form
     const { intent, mapped, refused } = readAnswers(fields, answers)
@@ -1055,9 +1035,21 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         detail: value.reason,
       }))
 
-      /** Says on the log that these answers went on no record, and why. */
-      const logNotWritten = (targets: readonly string[]): void => {
-        for (const target of targets) {
+      /**
+       * Says on the log which answers a record that already existed does not
+       * hold. Nothing is written on that record. An answer equal to what it
+       * holds is left off the log: there is nothing in it for staff to copy.
+       */
+      const logNotWritten = (
+        objectType: Parameters<typeof answersNotHeld>[0],
+        record: Parameters<typeof answersNotHeld>[1],
+      ): void => {
+        for (const target of answersNotHeld(objectType, record, mapped, customFieldDefinitions)) {
+          // Several raises can be attached, and one entry per answer is enough.
+          if (actionLog.some((entry) => entry.action === `map_field:${target}`)) {
+            continue
+          }
+
           actionLog.push({
             action: `map_field:${target}`,
             status: 'skipped',
@@ -1081,8 +1073,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
           ),
         )
       } else {
-        // The address is what matched, so it is the one answer not "skipped".
-        logNotWritten(mappedTargetsOf(mapped, 'person', ['person.email']))
+        logNotWritten('person', personUpserted.record)
       }
 
       const person = { ...personUpserted, record: personRecord }
@@ -1106,8 +1097,8 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
               now,
             ),
         )
-      } else if (companyUpserted?.matchedOn !== undefined) {
-        logNotWritten(mappedTargetsOf(mapped, 'company', [companyUpserted.matchedOn]))
+      } else if (companyUpserted !== undefined) {
+        logNotWritten('company', companyUpserted.record)
       }
 
       const company =
@@ -1125,14 +1116,9 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
               intent.positionTitle,
             )
 
-      // A position the person already holds keeps its title. Only a title
-      // that differs is an answer that went nowhere.
-      if (
-        position !== undefined &&
-        !position.created &&
-        position.record.title.toLowerCase() !== intent.positionTitle?.toLowerCase()
-      ) {
-        logNotWritten(['position.title'])
+      // A position the person already holds keeps its title.
+      if (position !== undefined && !position.created) {
+        logNotWritten('position', { title: position.record.title })
       }
 
       // Consent grants (from ticked `consent` fields) are core capture, not
@@ -1440,8 +1426,15 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
 
       // A raise is always one the form attaches to, never one this submit
       // made, so nothing mapped to a raise is written.
-      if (attachTargets.some((target) => target.targetType === 'raise')) {
-        logNotWritten(mappedTargetsOf(mapped, 'raise'))
+      for (const target of attachTargets) {
+        const raise =
+          target.targetType === 'raise'
+            ? await raiseRepository.findRaise(tx, workspaceId, target.targetId)
+            : undefined
+
+        if (raise !== undefined) {
+          logNotWritten('raise', raise)
+        }
       }
 
       // --- Persist submission + core activity + record events ---
@@ -1486,31 +1479,11 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         ...(form.autoReply ? (['auto_reply'] as const) : []),
       ]
 
-      // Counted here, so only for a submit that passed the spam check and
-      // is about to ask for an auto-reply. A member releasing a held submit
-      // has no client key and is not counted.
-      const overClientLimit =
-        form.autoReply &&
-        clientKey !== undefined &&
-        !(await spendClientAutoReply(
-          tx,
-          {
-            createId: dependencies.createId,
-            now: dependencies.now,
-            limit: dependencies.autoReplyClientDailyLimit,
-          },
-          workspaceId,
-          clientKey,
-        ))
-
       if (emailKinds.length > 0) {
         await jobs.enqueue(dependencies.sendEmailsJob, {
           workspaceId,
           submissionId: submission.id,
           kinds: emailKinds,
-          // The job records the auto-reply as skipped, with the reason, where
-          // staff read every other email outcome.
-          ...(overClientLimit ? { autoReplyOverClientLimit: true } : {}),
         })
       }
 
@@ -1600,7 +1573,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
   }
 
   return {
-    async submit(urlWorkspaceId, slug, answers, spam = {}, clientKey) {
+    async submit(urlWorkspaceId, slug, answers, spam = {}) {
       const form = await requireOpenForm(urlWorkspaceId, slug)
       const fields = await repository.listFields(dependencies.db, form.id)
 
@@ -1615,7 +1588,7 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
         return quarantine(form, answers, spamReason)
       }
 
-      return capture(form, fields, answers, undefined, { workspaceId: form.workspaceId }, clientKey)
+      return capture(form, fields, answers, undefined, { workspaceId: form.workspaceId })
     },
 
     async release(actor, formId, submissionId) {

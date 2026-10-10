@@ -1,4 +1,4 @@
-import { and, eq, lt, notInArray, sql } from 'drizzle-orm'
+import { lt, sql } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -55,21 +55,6 @@ export async function incrementRateLimitBucket(
 }
 
 /**
- * How many auto-replies one client address caused in a workspace in a UTC day
- * (`modules/forms/autoReplyClientLimit.ts`).
- */
-export const FORM_AUTO_REPLY_CLIENT_SCOPE = 'forms-auto-reply-client'
-
-/**
- * Scopes whose window is a whole day. The request budgets are minutes long,
- * and the sweep below uses the longest of them as its cutoff, so it would
- * delete a day bucket while that day is still open. The sweep leaves these
- * scopes alone, and the code that counts in one sweeps it with
- * `pruneRateLimitScope`.
- */
-export const DAY_WINDOW_SCOPES: readonly string[] = [FORM_AUTO_REPLY_CLIENT_SCOPE]
-
-/**
  * Sweeps buckets from windows that have fully elapsed.
  *
  * Enforced here rather than by a schedule, the same call `idempotency_keys`
@@ -80,20 +65,8 @@ export const DAY_WINDOW_SCOPES: readonly string[] = [FORM_AUTO_REPLY_CLIENT_SCOP
 export async function pruneExpiredRateLimitBuckets(db: Queryable, before: Date): Promise<number> {
   const deleted = await db
     .delete(rateLimitBuckets)
-    .where(
-      and(
-        lt(rateLimitBuckets.windowStart, before),
-        notInArray(rateLimitBuckets.scope, [...DAY_WINDOW_SCOPES]),
-      ),
-    )
+    .where(lt(rateLimitBuckets.windowStart, before))
     .returning({ id: rateLimitBuckets.id })
 
   return deleted.length
-}
-
-/** Sweeps the buckets of one scope whose window started before `before`. */
-export async function pruneRateLimitScope(db: Queryable, scope: string, before: Date): Promise<void> {
-  await db
-    .delete(rateLimitBuckets)
-    .where(and(eq(rateLimitBuckets.scope, scope), lt(rateLimitBuckets.windowStart, before)))
 }

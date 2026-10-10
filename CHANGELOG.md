@@ -281,7 +281,8 @@ While the major version is `0`, a minor bump may break the API.
 - **`@kelpie/server`** — **A bad mapped number or date does not fail a
   form submit.** A public submit answered `500`. Mapped writes now run
   under a savepoint, and a failure is logged as `map_fields:<record type>`
-  on the submission.
+  on the submission. The server log names the database error and holds no
+  value that the visitor typed.
 - **`@kelpie/server`** — **A registered OAuth client is not deleted
   during consent.** The cleanup of unused clients older than 30 days
   checked grants only. It now keeps a client that a pending request or a
@@ -430,9 +431,10 @@ While the major version is `0`, a minor bump may break the API.
   - **Changed behaviour for an existing form:** a person matched by email,
     a company matched by domain or name, and an attached raise get no
     mapped answer. A Position that the person already holds keeps its
-    title. Each answer that is not written is in the submission's action
-    log as `map_field:<target>`, status `skipped`, with "The record
-    already existed". The stored submission keeps every answer.
+    title. Each answer that is not written, and that differs from what
+    the record holds, is in the submission's action log as
+    `map_field:<target>`, status `skipped`, with "The record already
+    existed". The stored submission keeps every answer.
   - A ticked consent field writes a grant only where the person has none
     for the purpose. It never changes a consent row that exists.
   - Unchanged on an existing record: `last_contacted_at`, the "submitted
@@ -450,11 +452,6 @@ While the major version is `0`, a minor bump may break the API.
     auto-reply on and the spam check off keeps sending. Its next save is
     refused until the spam check is on. This query lists such forms:
     `SELECT id, workspace_id, name FROM forms WHERE auto_reply = true AND require_spam_check = false;`
-- **Auto-replies have a daily limit for each client address.** One client
-  address could use up the daily auto-reply limit of a workspace. It now
-  causes at most `FORMS_AUTO_REPLY_CLIENT_DAILY_LIMIT` auto-replies in a
-  workspace in a UTC day (default 5). Over the limit, the submit is still
-  accepted and the auto-reply is recorded as skipped.
 - **The public embed page posts to a path on its own origin.** It held a
   URL built from the `Host` and `X-Forwarded-Proto` headers, and shared
   caches store the page.

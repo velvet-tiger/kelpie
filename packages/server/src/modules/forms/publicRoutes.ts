@@ -4,14 +4,13 @@ import { z } from 'zod'
 import type { CaptchaAccess } from '../../lib/captcha.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
-import { readClientRateKey, readJsonBody } from '../../lib/http.ts'
+import { readJsonBody } from '../../lib/http.ts'
 import { requireCapability } from '../../runtime/entitlements.ts'
 import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { moduleCapabilityName } from '../../runtime/moduleConfig.ts'
 import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import * as listsRepository from '../lists/repository.ts'
 import { findWorkspace } from '../workspace/repository.ts'
-import { UNKNOWN_CLIENT_KEY } from './autoReplyClientLimit.ts'
 import { embedContentSecurityPolicy, renderEmbedPage } from './embed.ts'
 import type { EmbedConsentPurpose } from './embed.ts'
 import type { FormFieldRecord } from './repository.ts'
@@ -144,9 +143,6 @@ export function mountPublicFormRoutes(
       context.req.param('slug'),
       body.answers,
       { token: body.token, trap: body.trap, captchaResponse: body.captcha_response },
-      // The key the rate limiter in front of this route counted the caller
-      // under. It is not stored with the submission.
-      readClientRateKey(context) ?? UNKNOWN_CLIENT_KEY,
     )
 
     return context.json(submitResponse(outcome), 201)

@@ -26,7 +26,9 @@ Each field maps to an object and attribute via a searchable picker — not a fix
 
 **When values land:** an answer is written only on a record that this submit creates. Person, Company, and Position answers are written when the submit creates that person, company, or position. Deal, Opportunity, Partnership, and Enquiry answers are written when the matching create trigger runs, because the trigger always creates a new record.
 
-**A submit never changes a record that was already in your workspace.** Anybody can type an email address or a company name that matches one of your records, so a match is not proof. When the submit matches a person or a company, or the form attaches the submitter to a raise, none of the mapped answers are written on that record. This covers names, phones, addresses, summaries, tags from any field type, custom fields, a company's domain, and do not contact. The answers are not lost. The submission keeps every answer as it was typed, and the action log has one `map_field:<target>` entry marked `skipped` with the reason "The record already existed" for each answer that was not written. Copy a value to the record yourself when you trust it.
+**A submit never changes a record that was already in your workspace.** Anybody can type an email address or a company name that matches one of your records, so a match is not proof. When the submit matches a person or a company, or the form attaches the submitter to a raise, none of the mapped answers are written on that record. This covers names, phones, addresses, summaries, tags from any field type, custom fields, a company's domain, and do not contact. The answers are not lost. The submission keeps every answer as it was typed. The action log has one `map_field:<target>` entry marked `skipped` with the reason "The record already existed" for each answer that differs from what the record holds. An answer that says what the record already says gets no entry, so a returning visitor who types the same name again adds nothing to the log. A value typed where the record has none does get an entry: that is the one worth a look. Copy a value to the record yourself when you trust it.
+
+An answer is the same as the record when: text is equal after the spaces around it are removed (capital letters count, except in a company name, a job title, an email address and a domain); a phone is already on the person's list; every tag in the answer is already on the record; a yes or no is the stored one; an address part or a custom field has the same value.
 
 **A value the field cannot hold is skipped.** A mapped answer gets the same check the API gives that field: its type, its length, its allowed values. An answer that fails the check is not written, for example words in a number field or a line of more than 500 characters in a one-line field. The submit still succeeds, the answer stays on the submission, and the action log has a `map_field:<target>` entry marked `skipped` with the reason. A record takes at most 100 tags of at most 120 characters each.
 
@@ -64,13 +66,12 @@ Each configured action lands one entry on the submission's `action_log` — `ok`
 
 **An auto-reply needs the spam check.** A form with the auto-reply on must have "Require the spam check" on. The builder turns the check on when you turn the auto-reply on, and the API answers `422` naming `auto_reply` and `require_spam_check` otherwise. A form saved before this rule keeps sending until you next save it. That save is refused until the check is on.
 
-Three limits protect the mail your server sends. Each one skips the auto-reply, keeps the submission, and writes the reason on the submission's action log:
+Two limits protect the mail your server sends. Each one skips the auto-reply, keeps the submission, and writes the reason on the submission's action log:
 
 - one auto-reply per form per address in 24 hours;
-- a daily number for each client address in a workspace (default 5), so one source cannot use up the workspace's number;
 - a daily number for the workspace (default 500).
 
-A submit held as spam sends nothing and counts toward none of them. The visitor is never told that a limit was reached.
+A submit held as spam sends nothing and counts toward neither. The visitor is never told that a limit was reached.
 
 ## Embedding on your site
 

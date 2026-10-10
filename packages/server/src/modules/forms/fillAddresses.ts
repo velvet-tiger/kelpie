@@ -183,3 +183,69 @@ export function fillCompanyAddresses(
 ): readonly CompanyAddress[] | undefined {
   return fillTypedAddress(stored, standard, COMPANY_ADDRESS_KINDS, 'hq')
 }
+
+function isStoredAddressList(value: unknown): value is readonly { readonly kind: string }[] {
+  return Array.isArray(value)
+}
+
+/**
+ * The `address.*` answers a stored address list does not already hold.
+ *
+ * The answers are read the way `fillTypedAddress` reads them: the kind is the
+ * one asked for or the default, each part is trimmed, and a country is its
+ * code. A part is held when the stored address of that kind has the same
+ * value. `address.kind` is held when the record has an address of that kind.
+ */
+function addressFieldsNotHeld<Kind extends string>(
+  stored: unknown,
+  standard: Readonly<Record<string, string>>,
+  kinds: readonly Kind[],
+  defaultKind: Kind,
+): readonly string[] {
+  if (!hasAddressAnswers(standard)) {
+    return []
+  }
+
+  const requested = (standard['address.kind'] ?? '').trim()
+  const validKind = kinds.includes(requested as Kind)
+  const kind = validKind ? requested : defaultKind
+  const existing: Readonly<Record<string, unknown>> | undefined = isStoredAddressList(stored)
+    ? stored.find((address) => address.kind === kind)
+    : undefined
+  const notHeld: string[] = []
+
+  if (requested.length > 0 && (!validKind || existing === undefined)) {
+    notHeld.push('address.kind')
+  }
+
+  for (const field of ADDRESS_PART_FIELDS) {
+    const typed = readPart(standard, field)
+
+    if (typed === undefined) {
+      continue
+    }
+
+    const answer = field === 'country' ? resolveCountry(typed) : typed
+    const column = field === 'postal_code' ? 'postalCode' : field
+
+    if (existing === undefined || existing[column] !== answer) {
+      notHeld.push(`address.${field}`)
+    }
+  }
+
+  return notHeld
+}
+
+export function personAddressFieldsNotHeld(
+  stored: unknown,
+  standard: Readonly<Record<string, string>>,
+): readonly string[] {
+  return addressFieldsNotHeld(stored, standard, PERSON_ADDRESS_KINDS, 'mailing')
+}
+
+export function companyAddressFieldsNotHeld(
+  stored: unknown,
+  standard: Readonly<Record<string, string>>,
+): readonly string[] {
+  return addressFieldsNotHeld(stored, standard, COMPANY_ADDRESS_KINDS, 'hq')
+}

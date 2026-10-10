@@ -446,6 +446,18 @@ describe.skipIf(connectionString === undefined)('form emails', () => {
       ])
     })
 
+    it('reads a payload that carries a field this version does not know', () => {
+      // A job queued by another version stays readable: an unknown field is dropped, not refused.
+      expect(
+        sendFormEmailsDataSchema.parse({
+          workspaceId: 'ws_1',
+          submissionId: 'sub_1',
+          kinds: ['auto_reply'],
+          somethingElse: true,
+        }),
+      ).toEqual({ workspaceId: 'ws_1', submissionId: 'sub_1', kinds: ['auto_reply'] })
+    })
+
     it('enqueues nothing when both emails are off', async () => {
       const form = await createForm({})
 

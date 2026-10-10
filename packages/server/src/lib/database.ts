@@ -51,6 +51,26 @@ export function postgresErrorCode(error: unknown): string | undefined {
 }
 
 /**
+ * A failed write as one line that is safe to put in the server log.
+ *
+ * The message of a query error holds the SQL and its parameters, and the
+ * parameters are what a person typed. So this gives the name of the error and
+ * only what the database says about the refusal: the SQLSTATE, and the
+ * constraint, table and column when it names them. Never the message.
+ */
+export function describeWriteFailure(error: unknown): string {
+  const name = error instanceof Error ? error.name : 'unknown error'
+  const facts = [
+    ['code', postgresErrorCode(error)],
+    ['constraint', driverErrorField(error, 'constraint_name')],
+    ['table', driverErrorField(error, 'table_name')],
+    ['column', driverErrorField(error, 'column_name')],
+  ].flatMap(([label, value]) => (value === undefined ? [] : [`${String(label)}=${value}`]))
+
+  return [name, ...facts].join(' ')
+}
+
+/**
  * The table that still references the row a delete tried to remove.
  *
  * Postgres names the *referencing* table, which is what the API wants in the

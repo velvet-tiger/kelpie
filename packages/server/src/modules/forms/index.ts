@@ -23,11 +23,6 @@ import { registerFormsTools } from './tools.ts'
  * typed, so the cap protects the deployment's sending reputation from a bot
  * that fills in a public form with other people's addresses.
  *
- * `FORMS_AUTO_REPLY_CLIENT_DAILY_LIMIT` caps the auto-replies one client
- * address causes in one workspace in a UTC day (an IPv6 client is counted by
- * its `/64`). It stops one source from using up the workspace's limit. A
- * submit over it is accepted and gets no auto-reply.
- *
  * `FORMS_EXTERNAL_NOTIFICATION_DAILY_LIMIT` caps the notifications one
  * workspace sends in a UTC day to addresses that are not its members'. A
  * member can name any address as a recipient and then submit the form with no
@@ -40,7 +35,6 @@ import { registerFormsTools } from './tools.ts'
  */
 export const formsConfigSchema = z.object({
   FORMS_AUTO_REPLY_DAILY_LIMIT: z.coerce.number().int().min(0).default(500),
-  FORMS_AUTO_REPLY_CLIENT_DAILY_LIMIT: z.coerce.number().int().min(0).default(5),
   FORMS_EXTERNAL_NOTIFICATION_DAILY_LIMIT: z.coerce.number().int().min(0).default(500),
   FORMS_SPAM_MIN_SECONDS: z.coerce.number().min(0).default(2),
 })
@@ -121,7 +115,6 @@ export function createFormsModule(migrationsDirectory: string): KelpieModule {
           minimumSeconds: config.FORMS_SPAM_MIN_SECONDS,
           log: context.log,
         }),
-        autoReplyClientDailyLimit: config.FORMS_AUTO_REPLY_CLIENT_DAILY_LIMIT,
         log: context.log,
       })
 

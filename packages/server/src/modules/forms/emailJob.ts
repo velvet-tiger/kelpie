@@ -40,7 +40,6 @@ import {
   subjectLine,
 } from './emailMessages.ts'
 import type { FormEmailValues } from './emailMessages.ts'
-import { AUTO_REPLY_CLIENT_LIMIT_DETAIL } from './autoReplyClientLimit.ts'
 import { parseConsentAnswer } from './mapping.ts'
 import * as repository from './repository.ts'
 import type { FormFieldRecord, FormRecord } from './repository.ts'
@@ -90,12 +89,6 @@ export const sendFormEmailsDataSchema = z.object({
    * is not sent for this submission; one turned off later is `skipped`.
    */
   kinds: z.array(z.enum(FORM_EMAIL_KINDS)).min(1),
-  /**
-   * True when the client that sent the submit had already caused its daily
-   * number of auto-replies (`autoReplyClientLimit.ts`). The auto-reply is then
-   * `skipped`. Decided at the submit, because only the submit sees the client.
-   */
-  autoReplyOverClientLimit: z.boolean().optional(),
 })
 
 export type SendFormEmailsData = z.infer<typeof sendFormEmailsDataSchema>
@@ -230,16 +223,7 @@ async function decideAndSend(
   const submitterEmail = singleAddressOrNone(
     submitterEmailOf(fields, submission.answers) ?? values.personEmail,
   )
-  const context: SendContext = {
-    dependencies,
-    form,
-    submission,
-    previous,
-    values,
-    memberEmails,
-    memberAddresses,
-    autoReplyOverClientLimit: data.autoReplyOverClientLimit === true,
-  }
+  const context: SendContext = { dependencies, form, submission, previous, values, memberEmails, memberAddresses }
   const outcomes: EmailOutcome[] = []
 
   if (data.kinds.includes('notification')) {
@@ -262,8 +246,6 @@ interface SendContext {
   readonly memberEmails: ReadonlyMap<string, string>
   /** Each member's address, normalised. An address not in here is external. */
   readonly memberAddresses: ReadonlySet<string>
-  /** The submit's client was over its daily number of auto-replies. */
-  readonly autoReplyOverClientLimit: boolean
 }
 
 async function loadValues(
@@ -577,12 +559,6 @@ async function sendAutoReply(
   const settled =
     alreadySent(context, 'auto_reply', submitterEmail) ||
     refusalOf(context, 'auto_reply', submitterEmail) !== undefined
-
-  if (!settled && context.autoReplyOverClientLimit) {
-    await record(context, 'auto_reply', submitterEmail, 'skipped', AUTO_REPLY_CLIENT_LIMIT_DETAIL)
-
-    return { kind: 'auto_reply', status: 'skipped', detail: AUTO_REPLY_CLIENT_LIMIT_DETAIL }
-  }
 
   if (!settled) {
     const now = dependencies.now()

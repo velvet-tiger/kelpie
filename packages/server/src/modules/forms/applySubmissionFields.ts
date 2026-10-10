@@ -27,7 +27,7 @@ import { fillCompanyAddresses, fillPersonAddresses } from './fillAddresses.ts'
 
 const customFieldValues = createCustomFieldValues({ db: null as never })
 
-const PERSON_FIELD_COLUMNS: Readonly<Record<string, keyof PersonRecord>> = {
+export const PERSON_FIELD_COLUMNS: Readonly<Record<string, keyof PersonRecord>> = {
   salutation: 'salutation',
   suffix: 'suffix',
   timezone: 'timezone',
@@ -39,7 +39,7 @@ const PERSON_FIELD_COLUMNS: Readonly<Record<string, keyof PersonRecord>> = {
   do_not_contact: 'doNotContact',
 }
 
-const COMPANY_FIELD_COLUMNS: Readonly<Record<string, keyof CompanyRecord>> = {
+export const COMPANY_FIELD_COLUMNS: Readonly<Record<string, keyof CompanyRecord>> = {
   industry: 'industry',
   description: 'description',
   stage: 'stage',

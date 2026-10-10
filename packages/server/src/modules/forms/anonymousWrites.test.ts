@@ -367,6 +367,15 @@ describe.skipIf(connectionString === undefined)('what an anonymous submit may wr
             expect.objectContaining({ action: 'map_fields:person', status: 'error' }),
           ]),
         )
+
+        // The server log names the refusal and holds nothing the visitor
+        // typed: a query error's own message carries every parameter.
+        const logged = harness.logLines.filter((line) => line.includes('could not write mapped fields'))
+
+        expect(logged).toHaveLength(1)
+        expect(logged[0]).toContain('test_short_timezone')
+        expect(logged[0]).not.toContain('Australia/Melbourne')
+        expect(logged[0]).not.toContain('alex@example.com')
       } finally {
         await database.db.execute(sql`ALTER TABLE people DROP CONSTRAINT IF EXISTS test_short_timezone`)
       }
@@ -399,7 +408,10 @@ describe.skipIf(connectionString === undefined)('what an anonymous submit may wr
         label: 'Topic',
         type: 'select',
         map_to: 'person.custom_fields.topic',
-        options: [{ key: 'pricing', value: 'Pricing' }],
+        options: [
+          { key: 'pricing', value: 'Pricing' },
+          { key: 'demo', value: 'A demo' },
+        ],
       },
       { label: 'Stop contacting me', type: 'text', map_to: 'person.do_not_contact' },
     ]
@@ -494,6 +506,147 @@ describe.skipIf(connectionString === undefined)('what an anonymous submit may wr
         ),
       )
       expect(submission.action_log).not.toEqual(expect.arrayContaining([notWritten('person.email')]))
+    })
+
+    describe('an answer the record already holds', () => {
+      /** The answers of a visitor whose person record says exactly the same. */
+      const SAME_ANSWERS = {
+        Name: 'Jane Smith',
+        'First name': 'Jane',
+        'Last name': 'Smith',
+        Phone: '555-1234',
+        Timezone: 'Australia/Melbourne',
+        About: 'Runs operations',
+        City: 'Melbourne',
+        Interests: 'lead, vip',
+        Topic: 'pricing',
+        'Stop contacting me': 'false',
+      }
+
+      async function janeAndTheForm(): Promise<Record<string, unknown>> {
+        const form = await personForm()
+
+        await create('/v1/people', {
+          name: 'Jane Smith',
+          first_name: 'Jane',
+          last_name: 'Smith',
+          email: 'jane@example.com',
+          phones: ['555-0000', '555-1234'],
+          timezone: 'Australia/Melbourne',
+          summary: 'Runs operations',
+          tags: ['vip', 'customer', 'lead'],
+          addresses: [
+            {
+              kind: 'mailing',
+              line1: null,
+              line2: null,
+              city: 'Melbourne',
+              region: null,
+              postal_code: null,
+              country: null,
+              primary: true,
+            },
+          ],
+          custom_fields: { topic: 'pricing' },
+        })
+
+        return form
+      }
+
+      /** The `map_field` entries of the newest submission, as target names. */
+      async function loggedTargets(form: Record<string, unknown>): Promise<string[]> {
+        const log = (await submissionFor(form)).action_log
+
+        return (Array.isArray(log) ? log : [])
+          .filter(isRecord)
+          .filter((entry) => String(entry.action).startsWith('map_field:'))
+          .map((entry) => String(entry.action).slice('map_field:'.length))
+      }
+
+      it('logs only the phone for a person whose name is the same and who had no phone', async () => {
+        await create('/v1/people', { name: 'Jane Smith', email: 'jane@example.com' })
+        const form = await createForm({
+          fields: [...BASE_FIELDS, { label: 'Phone', type: 'text', map_to: 'person.phones' }],
+        })
+
+        const response = await submit(form, { Name: 'Jane Smith', Phone: '555-1234' }, 'JANE@example.com')
+
+        expect(response.status).toBe(201)
+        expect(await loggedTargets(form)).toEqual(['person.phones'])
+        // Logged, and still not written.
+        expect((await personByEmail('jane@example.com')).phones).toEqual([])
+      })
+
+      it('logs nothing for a returning visitor whose answers all say what the record says', async () => {
+        const form = await janeAndTheForm()
+        const before = await personByEmail('jane@example.com')
+
+        expect((await submit(form, SAME_ANSWERS, 'jane@example.com')).status).toBe(201)
+
+        expect(await loggedTargets(form)).toEqual([])
+        expect(await personByEmail('jane@example.com')).toMatchObject({
+          name: before.name,
+          phones: before.phones,
+          tags: before.tags,
+          summary: before.summary,
+        })
+      })
+
+      it.each([
+        ['text', { Name: 'Jane Smyth' }, 'person.name'],
+        ['text that differs only in case', { 'Last name': 'smith' }, 'person.last_name'],
+        ['a phone not on the list', { Phone: '555-9999' }, 'person.phones'],
+        ['a tag not on the record', { Interests: 'lead, partner' }, 'person.tags'],
+        ['a yes where the record says no', { 'Stop contacting me': 'true' }, 'person.do_not_contact'],
+        ['a custom field', { Topic: 'demo' }, 'person.custom_fields.topic'],
+        ['an address part', { City: 'Sydney' }, 'person.address.city'],
+        ['a value where the record has none', { Salutation: 'Dr' }, 'person.salutation'],
+      ])('logs one entry for %s that differs, and writes nothing', async (_kind, changed, target) => {
+        const form = await janeAndTheForm()
+        const before = await personByEmail('jane@example.com')
+
+        await submit(form, { ...SAME_ANSWERS, ...changed }, 'jane@example.com')
+
+        expect(await loggedTargets(form)).toEqual([target])
+        expect((await submissionFor(form)).action_log).toEqual([notWritten(target)])
+
+        const after = await personByEmail('jane@example.com')
+
+        expect({ ...after, lastContactedAt: null, updatedAt: null }).toEqual({
+          ...before,
+          lastContactedAt: null,
+          updatedAt: null,
+        })
+      })
+
+      it('compares a company name and a held title without regard to case', async () => {
+        await create('/v1/companies', { name: 'Example Co', domain: 'example.com' })
+        const form = await createForm()
+
+        await submit(form, { Company: 'Example Co', 'Job title': 'Head of Ops' })
+        await submit(form, { Company: 'EXAMPLE CO', Website: 'https://Example.com/', 'Job title': 'head of ops' })
+
+        expect(await loggedTargets(form)).toEqual([])
+
+        await submit(form, { Company: 'Example Company', Website: 'example.com', 'Job title': 'Chief Executive' })
+
+        expect(await loggedTargets(form)).toEqual(['company.name', 'position.title'])
+      })
+
+      it('logs a raise answer only when the attached raise does not hold it', async () => {
+        const { form, raiseId } = await raiseForm('raise.summary')
+
+        await client.send('PATCH', `/v1/raises/${raiseId}`, {
+          body: { summary: 'Seed, lead investor found' },
+          cookie: acme.cookie,
+        })
+
+        await submit(form, { Extra: 'Seed, lead investor found' })
+        expect(await loggedTargets(form)).toEqual([])
+
+        await submit(form, { Extra: 'We would like to invest' })
+        expect(await loggedTargets(form)).toEqual(['raise.summary'])
+      })
     })
 
     it('never clears do not contact, and never sets it, on a person it matched', async () => {
