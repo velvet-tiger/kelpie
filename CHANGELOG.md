@@ -283,6 +283,11 @@ While the major version is `0`, a minor bump may break the API.
   under a savepoint, and a failure is logged as `map_fields:<record type>`
   on the submission. The server log names the database error and holds no
   value that the visitor typed.
+- **`@kelpie/server`** — **A failed form action does not put a database
+  error message in the action log.** The message held the SQL statement
+  and the values the visitor typed, and members and webhook consumers read
+  that log. The entry now says "The action could not be completed", and
+  the server log names the database error.
 - **`@kelpie/server`** — **A registered OAuth client is not deleted
   during consent.** The cleanup of unused clients older than 30 days
   checked grants only. It now keeps a client that a pending request or a

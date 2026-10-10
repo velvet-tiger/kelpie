@@ -545,13 +545,20 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
 
       return result.value
     } catch (error: unknown) {
-      const detail =
-        error instanceof AppError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            : 'unknown error'
-      log.push({ action, status: 'error', detail })
+      // Members read the action log, and it goes out in the submission's
+      // event. An `AppError` is written for a caller to read. Any other
+      // error is not: a query error's message holds the SQL and the values
+      // the visitor typed. So the log gets a fixed line, and the server log
+      // gets the cause without the message.
+      if (error instanceof AppError) {
+        log.push({ action, status: 'error', detail: error.message })
+      } else {
+        dependencies.log.warn('form submit could not run an action', {
+          action,
+          error: describeWriteFailure(error),
+        })
+        log.push({ action, status: 'error', detail: 'The action could not be completed' })
+      }
 
       return undefined
     }

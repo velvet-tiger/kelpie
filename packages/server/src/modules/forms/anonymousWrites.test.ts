@@ -382,6 +382,49 @@ describe.skipIf(connectionString === undefined)('what an anonymous submit may wr
     })
   })
 
+  describe('a database error while running an action', () => {
+    it('gives the action log a fixed line and the server log no typed value', async () => {
+      const form = await createForm({ create_deal: true })
+
+      // A constraint that refuses every deal, so the create_deal action fails
+      // in the database. Removed again whatever happens.
+      await database.db.execute(
+        sql`ALTER TABLE deals ADD CONSTRAINT test_no_deals CHECK (length(name) < 1) NOT VALID`,
+      )
+
+      try {
+        const response = await submit(form, { Company: 'Example Co' })
+
+        expect(response.status).toBe(201)
+
+        const submission = await submissionFor(form)
+        const actions = JSON.stringify(submission.action_log)
+
+        expect(submission.action_log).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              action: 'create_deal',
+              status: 'error',
+              detail: 'The action could not be completed',
+            }),
+          ]),
+        )
+        // The message of the query error holds the SQL and every parameter.
+        expect(actions).not.toContain('Failed query')
+        expect(actions).not.toContain('insert into')
+
+        const logged = harness.logLines.filter((line) => line.includes('could not run an action'))
+
+        expect(logged).toHaveLength(1)
+        expect(logged[0]).toContain('test_no_deals')
+        expect(logged[0]).not.toContain('Failed query')
+        expect(logged[0]).not.toContain('Example Co')
+      } finally {
+        await database.db.execute(sql`ALTER TABLE deals DROP CONSTRAINT IF EXISTS test_no_deals`)
+      }
+    })
+  })
+
   describe('a record that was already in the workspace', () => {
     /** One log entry per answer that went on no record, with the reason staff read. */
     function notWritten(target: string): unknown {
