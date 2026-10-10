@@ -79,6 +79,11 @@ export async function upsertMetadataClient(
 /**
  * Registered clients nobody connected. Dynamic registration is unauthenticated,
  * so without this the table grows with every abandoned attempt.
+ *
+ * A row stays while a pending request, a connection or a grant names it, the
+ * same three as `deleteUnusedMetadataClients` checks. Each of them cascades
+ * from the client, so deleting a client that a person is looking at on the
+ * consent page would take the request from under them.
  */
 export async function deleteUnusedRegisteredClients(db: Queryable, createdBefore: Date): Promise<number> {
   const deleted = await db
@@ -87,6 +92,18 @@ export async function deleteUnusedRegisteredClients(db: Queryable, createdBefore
       and(
         eq(oauthClients.kind, 'registered'),
         lt(oauthClients.createdAt, createdBefore),
+        notExists(
+          db
+            .select({ id: oauthRequests.id })
+            .from(oauthRequests)
+            .where(eq(oauthRequests.clientRowId, oauthClients.id)),
+        ),
+        notExists(
+          db
+            .select({ id: oauthConnections.id })
+            .from(oauthConnections)
+            .where(eq(oauthConnections.clientRowId, oauthClients.id)),
+        ),
         notExists(
           db
             .select({ id: oauthGrants.id })

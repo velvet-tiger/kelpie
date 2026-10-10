@@ -278,6 +278,10 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **A registered OAuth client is not deleted
+  during consent.** The cleanup of unused clients older than 30 days
+  checked grants only. It now keeps a client that a pending request or a
+  connection refers to.
 - **`@kelpie/server`** — **Malformed `Authorization: Basic` credentials
   answer `401`.** `/oauth/token` and `/oauth/revoke` answered `500` for a
   bad percent escape. They now answer `401 invalid_client` with a
@@ -393,6 +397,11 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **A failed refresh request does not spend the refresh token.** A request
+  with a wrong `scope` used up the token, and the next correct request
+  ended the connection. The token is now spent in the transaction that
+  issues the new pair. A refresh token that is used twice still ends the
+  connection.
 - **`/oauth/authorize` does not redirect on an error before consent.**
   Anybody can register a client, so a link to a deployment could send a
   browser on to a site of the sender's choice with no click. A bad

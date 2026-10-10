@@ -661,21 +661,29 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       throw new OAuthError(400, 'invalid_grant', 'The refresh token is not valid')
     }
 
-    const now = dependencies.now()
-
-    if (!(await repository.spendToken(dependencies.db, record.id, now))) {
-      // Rotation means a refresh token is good once. A second use means two
-      // parties hold it; deleting the connection cuts off both, in every
-      // workspace it covers.
+    // Rotation means a refresh token is good once. A second use means two
+    // parties hold it; deleting the connection cuts off both, in every
+    // workspace it covers.
+    const refuseReplay = async (): Promise<never> => {
       await repository.deleteConnectionById(dependencies.db, connection.id)
 
       throw new OAuthError(400, 'invalid_grant', 'The refresh token has already been used')
     }
 
+    if (record.usedAt !== null) {
+      return refuseReplay()
+    }
+
+    const now = dependencies.now()
+
     if (record.expiresAt.getTime() <= now.getTime()) {
       throw new OAuthError(400, 'invalid_grant', 'The refresh token has expired')
     }
 
+    // Every check comes before the token is spent, as for a code. A client
+    // that sends a wrong `resource` or `scope` keeps its refresh token and can
+    // ask again. Spent first, the token would be gone with nothing issued, and
+    // the client's next try would be a replay that ends the connection.
     if (form.resource !== undefined && canonicalResource(form.resource) !== record.resource) {
       throw new OAuthError(400, 'invalid_target', 'resource does not match the original grant')
     }
@@ -694,9 +702,19 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       accessScopes = requested
     }
 
-    const tokens = await dependencies.db.transaction((tx) =>
-      insertTokenPair(tx, now, connection.id, record.resource, accessScopes, held),
+    // Spent in the transaction that inserts the new pair, so a refresh token
+    // is never spent with nothing issued. Two requests can both pass the
+    // checks above; the conditional update in `spendToken` lets one of them
+    // through, and the other is a replay.
+    const tokens = await dependencies.db.transaction(async (tx) =>
+      (await repository.spendToken(tx, record.id, now))
+        ? insertTokenPair(tx, now, connection.id, record.resource, accessScopes, held)
+        : undefined,
     )
+
+    if (tokens === undefined) {
+      return refuseReplay()
+    }
 
     await sweepTokens(now)
 

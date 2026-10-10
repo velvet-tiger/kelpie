@@ -68,7 +68,7 @@ WHERE EXISTS (
 
 **Client ID Metadata Documents.** `/oauth/authorize` fetches the HTTPS URL that a client gives as its `client_id`. The request follows no redirect, stops after 5 seconds, reads at most 64 KB, and goes through the egress guard described below when `BLOCK_PRIVATE_EGRESS=true`. Each failure gives the caller the same sentence, so the answer does not show whether a host on your network replied. The reason is in the server log, as a `warn` line with the message `oauth client metadata document refused`; the log never holds the body. A cached document that no pending request, connection or grant refers to is deleted one hour after the last authorize request that named it.
 
-**The token endpoint.** An authorization code lasts 60 seconds and works once. The client, the `redirect_uri`, the PKCE verifier and the `resource` are checked before the code is spent, so a request that fails a check does not use the code up. A code that is presented after it was used ends the connection. Client credentials in an `Authorization: Basic` header that cannot be read answer `401 invalid_client`.
+**The token endpoint.** An authorization code lasts 60 seconds and works once. The client, the `redirect_uri`, the PKCE verifier and the `resource` are checked before the code is spent, so a request that fails a check does not use the code up. A code that is presented after it was used ends the connection. A refresh token follows the same order: a request with a wrong `scope` or `resource` leaves it usable, and one that is presented after it was used ends the connection. Client credentials in an `Authorization: Basic` header that cannot be read answer `401 invalid_client`.
 
 ## Outbound requests
 

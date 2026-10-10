@@ -823,6 +823,93 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       expect((await callTool(readString(next, 'access_token'), 'people_list')).status).toBe(401)
     })
 
+    describe('a refresh request that fails a check', () => {
+      const refreshWith = (clientId: string, refreshToken: string, extra: Record<string, string>): Promise<Response> =>
+        sendForm('/oauth/token', {
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+          client_id: clientId,
+          ...extra,
+        })
+
+      it.each([
+        { name: 'a scope the grant does not hold', extra: { scope: 'read:objects handbook:write' }, error: 'invalid_scope' },
+        { name: 'a scope that is not known', extra: { scope: 'nonsense' }, error: 'invalid_scope' },
+        { name: 'a resource other than /mcp', extra: { resource: `${TEST_APP_BASE_URL}/v1` }, error: 'invalid_target' },
+      ])('leaves the refresh token good after $name', async ({ extra, error }) => {
+        const { clientId, accessToken, refreshToken } = await connect()
+        const refused = await refreshWith(clientId, refreshToken, extra)
+
+        expect(refused.status).toBe(400)
+        expect(await refused.json()).toMatchObject({ error })
+
+        const [stored] = await database.db.select().from(oauthTokens).where(eq(oauthTokens.kind, 'refresh'))
+
+        expect(stored?.usedAt).toBeNull()
+
+        const accepted = await refreshWith(clientId, refreshToken, {})
+        const next: unknown = await accepted.json()
+
+        expect(accepted.status).toBe(200)
+        // The connection is still there: the old access token and the new one both work.
+        expect((await callTool(accessToken, 'people_list')).status).toBe(200)
+        expect((await callTool(readString(next, 'access_token'), 'people_list')).status).toBe(200)
+      })
+
+      it('refuses an expired refresh token and does not spend it', async () => {
+        const { clientId, refreshToken } = await connect()
+
+        await database.db
+          .update(oauthTokens)
+          .set({ expiresAt: new Date(Date.now() - 1_000) })
+          .where(eq(oauthTokens.kind, 'refresh'))
+
+        const refused = await refreshWith(clientId, refreshToken, {})
+        const [stored] = await database.db.select().from(oauthTokens).where(eq(oauthTokens.kind, 'refresh'))
+
+        expect(refused.status).toBe(400)
+        expect(await refused.json()).toMatchObject({ error: 'invalid_grant' })
+        expect(stored?.usedAt).toBeNull()
+        expect(await database.db.select().from(oauthConnections)).toHaveLength(1)
+      })
+
+      it('still ends the connection when a spent refresh token comes with a bad scope', async () => {
+        const { clientId, refreshToken } = await connect()
+        const next: unknown = await (await refreshWith(clientId, refreshToken, {})).json()
+        const replayed = await refreshWith(clientId, refreshToken, { scope: 'nonsense' })
+
+        // The token itself was presented again, so this is a replay whatever else the request says.
+        expect(replayed.status).toBe(400)
+        expect(await replayed.json()).toMatchObject({ error: 'invalid_grant' })
+        expect((await callTool(readString(next, 'access_token'), 'people_list')).status).toBe(401)
+        expect(await database.db.select().from(oauthConnections)).toHaveLength(0)
+      })
+
+      it('issues tokens to one of the requests that present the same refresh token together', async () => {
+        const { clientId, refreshToken } = await connect()
+        const responses = await Promise.all([
+          refreshWith(clientId, refreshToken, {}),
+          refreshWith(clientId, refreshToken, {}),
+          refreshWith(clientId, refreshToken, {}),
+        ])
+
+        expect(responses.map((response) => response.status).sort()).toEqual([200, 400, 400])
+
+        const refused = await Promise.all(
+          responses.filter((response) => response.status === 400).map((response) => response.json()),
+        )
+
+        expect(refused).toEqual([
+          expect.objectContaining({ error: 'invalid_grant' }),
+          expect.objectContaining({ error: 'invalid_grant' }),
+        ])
+        // A refresh token presented twice is held by two parties, so the connection ends.
+        expect(await database.db.select().from(oauthTokens)).toHaveLength(0)
+        expect(await database.db.select().from(oauthConnections)).toHaveLength(0)
+        expect(await database.db.select().from(oauthGrants)).toHaveLength(0)
+      })
+    })
+
     it('narrows scope on refresh but never widens it', async () => {
       const { clientId, refreshToken } = await connect(['read:objects'])
       const widened = await sendForm('/oauth/token', {
@@ -1730,6 +1817,71 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
   })
 
   describe('client registration', () => {
+    describe('registered clients that are more than 30 days old', () => {
+      const OLD = new Date(Date.now() - 31 * 24 * 60 * 60_000)
+
+      /** Registers a client, and makes it look 31 days old. */
+      async function registerOldClient(): Promise<string> {
+        const clientId = await registerPublicClient()
+
+        await database.db.update(oauthClients).set({ createdAt: OLD }).where(eq(oauthClients.clientId, clientId))
+
+        return clientId
+      }
+
+      async function clientExists(clientId: string): Promise<boolean> {
+        const rows = await database.db.select().from(oauthClients).where(eq(oauthClients.clientId, clientId))
+
+        return rows.length > 0
+      }
+
+      it('removes one that nothing refers to, at the next registration', async () => {
+        const clientId = await registerOldClient()
+
+        await registerPublicClient()
+
+        expect(await clientExists(clientId)).toBe(false)
+      })
+
+      it('keeps one with a pending request, and the person can still approve it', async () => {
+        const { cookie, workspaceId } = await owner()
+        const clientId = await registerOldClient()
+        const requestId = await startRequest(clientId)
+
+        await registerPublicClient()
+
+        expect(await clientExists(clientId)).toBe(true)
+        expect((await send('GET', `/v1/oauth/requests/${requestId}`, { cookie })).status).toBe(200)
+
+        const redirect = await approve(cookie, requestId, workspaceId, ['read:objects'])
+
+        expect((await exchange(clientId, redirect.searchParams.get('code') ?? '')).status).toBe(200)
+      })
+
+      it('keeps one with a connection that lost its grants, until the connection is swept', async () => {
+        const { cookie, workspaceId } = await owner()
+        const clientId = await registerOldClient()
+
+        await approve(cookie, await startRequest(clientId), workspaceId, ['read:objects'])
+        // What a deleted workspace leaves behind through the cascade.
+        await database.db.delete(oauthGrants)
+        await registerPublicClient()
+
+        expect(await clientExists(clientId)).toBe(true)
+        expect(await database.db.select().from(oauthConnections)).toHaveLength(1)
+      })
+
+      it('keeps one with a grant', async () => {
+        const { clientId, accessToken } = await connect()
+
+        await database.db.update(oauthClients).set({ createdAt: OLD }).where(eq(oauthClients.clientId, clientId))
+        await registerPublicClient()
+
+        expect(await clientExists(clientId)).toBe(true)
+        expect((await callTool(accessToken, 'people_list')).status).toBe(200)
+      })
+    })
+
     it('refuses a plain-HTTP redirect on a public host', async () => {
       const response = await send('POST', '/oauth/register', {
         body: { redirect_uris: ['http://client.example/callback'] },
