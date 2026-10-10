@@ -100,6 +100,72 @@ export async function deleteUnusedRegisteredClients(db: Queryable, createdBefore
   return deleted.length
 }
 
+/**
+ * Marks a cached metadata-document client as named by an authorize request
+ * just now, and answers with the row. Answers undefined when the row is gone:
+ * `deleteUnusedMetadataClients` in another request removed it between the
+ * read and this write, and the caller fetches the document again.
+ *
+ * The request that names the client is inserted a moment later. This write is
+ * what keeps the prune from deleting the row in that moment.
+ */
+export async function touchMetadataClient(
+  db: Queryable,
+  id: string,
+  now: Date,
+): Promise<OAuthClientRecord | undefined> {
+  const [touched] = await db
+    .update(oauthClients)
+    .set({ updatedAt: now })
+    .where(and(eq(oauthClients.id, id), eq(oauthClients.kind, 'metadata_document')))
+    .returning()
+
+  return touched
+}
+
+/**
+ * Metadata-document clients that nothing refers to and that no authorize
+ * request named since `unusedSince`. `/oauth/authorize` takes no credential
+ * and caches a row for each document URL it is given, so without this the
+ * table grows with every URL a stranger sends.
+ *
+ * A row stays while a pending request, a connection or a grant names it. Codes
+ * and tokens belong to a connection, so they keep their client too. Deleting
+ * one of these rows loses a cache entry and nothing else: the next authorize
+ * request for that URL fetches the document again.
+ */
+export async function deleteUnusedMetadataClients(db: Queryable, unusedSince: Date): Promise<number> {
+  const deleted = await db
+    .delete(oauthClients)
+    .where(
+      and(
+        eq(oauthClients.kind, 'metadata_document'),
+        lt(oauthClients.updatedAt, unusedSince),
+        notExists(
+          db
+            .select({ id: oauthRequests.id })
+            .from(oauthRequests)
+            .where(eq(oauthRequests.clientRowId, oauthClients.id)),
+        ),
+        notExists(
+          db
+            .select({ id: oauthConnections.id })
+            .from(oauthConnections)
+            .where(eq(oauthConnections.clientRowId, oauthClients.id)),
+        ),
+        notExists(
+          db
+            .select({ id: oauthGrants.id })
+            .from(oauthGrants)
+            .where(eq(oauthGrants.clientRowId, oauthClients.id)),
+        ),
+      ),
+    )
+    .returning({ id: oauthClients.id })
+
+  return deleted.length
+}
+
 // Requests
 
 export async function insertRequest(

@@ -12,7 +12,7 @@ Every workspace-owned row carries a workspace id, every query is scoped to it se
 | --- | --- |
 | Account passwords | argon2id hashes. Minimum length 12. |
 | Session, invitation, password-reset, and email-verification tokens | SHA-256 hashes. Only ever compared, never read back. |
-| API key secrets | SHA-256 hashes; the key is shown once at creation, and the UI keeps only a display prefix and the last four characters. Scopes limit what each key can reach. A new key with no scopes named gets `read:objects` and `write:objects`; full access is asked for by name, and is stored as an empty scope list. A scoped key cannot create a key that reaches more than it does. A Decision from a key is a proposal until a member confirms it, unless the key has `decisions:commit`, which no preset includes. Deleting a record needs a delete scope (`delete:objects`, or one resource such as `people:delete`), which write does not include. Writing the handbook needs `handbook:write`, which `write:objects` does not include. Prefer preset bundles (`read:objects`, `write:objects`, `admin:objects`, `admin`) for integrations rather than minting unrestricted keys. |
+| API key secrets | SHA-256 hashes; the key is shown once at creation, and the UI keeps only a display prefix and the last four characters. Scopes limit what each key can reach. A route with no scope rule is refused to a scoped key, so a new route is closed to scoped keys until it has a rule. A new key with no scopes named gets `read:objects` and `write:objects`; full access is asked for by name, and is stored as an empty scope list. A scoped key cannot create a key that reaches more than it does. A Decision from a key is a proposal until a member confirms it, unless the key has `decisions:commit`, which no preset includes. Deleting a record needs a delete scope (`delete:objects`, or one resource such as `people:delete`), which write does not include. Writing the handbook needs `handbook:write`, which `write:objects` does not include. Prefer preset bundles (`read:objects`, `write:objects`, `admin:objects`, `admin`) for integrations rather than minting unrestricted keys. |
 | Webhook signing secrets and agent auth headers | Encrypted (AES-256-GCM) under `SECRET_ENCRYPTION_KEY`, because the service must read them back to sign deliveries and authorise dispatches. |
 
 The rule behind the table: a value the service only checks is hashed; a value it must use again is encrypted. Rotating the encryption key is a supported, four-step procedure — see [Production](production.md#rotating-the-encryption-key).
@@ -48,6 +48,27 @@ Every response carries `Strict-Transport-Security`, `X-Content-Type-Options`, an
 ## The MCP endpoint
 
 `POST /mcp` accepts bearer API keys only — deliberately not the session cookie the rest of the API takes. A request carrying an `Origin` other than the deployment's own answers `403`, no CORS headers are ever sent, and `GET`/`DELETE` answer `405`. A hostile web page therefore has neither a way in nor an ambient credential to spend.
+
+## OAuth sign-in for MCP clients
+
+Anybody can register an OAuth client, so these endpoints trust nothing a client says about itself.
+
+**Redirect URIs.** A client may register three kinds, and every other scheme is refused: `https:` on any host; `http:` on `localhost`, `127.0.0.1` or `[::1]` only; and a private-use scheme of a desktop app, which is a reverse domain name with a dot in it (`com.example.app:/callback`) or one of `cursor:`, `vscode:`, `vscode-insiders:` and `windsurf:`. No fragment and no credentials in the URI. The rule applies to Dynamic Client Registration and to Client ID Metadata Documents, and again before each redirect. An earlier version refused a short list of schemes and allowed the rest, so an old row can hold a URI that is now refused. Such a client gets an error page until it registers again. This query lists them:
+
+```sql
+SELECT id, client_id, kind, client_name, redirect_uris
+FROM oauth_clients
+WHERE EXISTS (
+  SELECT 1 FROM unnest(redirect_uris) AS uri
+  WHERE uri !~* '^(https://|http://(localhost|127\.0\.0\.1|\[::1\])([:/?]|$)|(cursor|vscode|vscode-insiders|windsurf):|[a-z][a-z0-9+-]*(\.[a-z0-9+-]+)+:)'
+);
+```
+
+**Errors at `/oauth/authorize`.** A request that fails before the person reaches the consent page stops on an error page of your deployment. It is never sent on to the client's redirect URI, so a link to your Kelpie cannot be used to send somebody to another site. The browser goes to the redirect URI only after the person selects Allow or Deny.
+
+**Client ID Metadata Documents.** `/oauth/authorize` fetches the HTTPS URL that a client gives as its `client_id`. The request follows no redirect, stops after 5 seconds, reads at most 64 KB, and goes through the egress guard described below when `BLOCK_PRIVATE_EGRESS=true`. Each failure gives the caller the same sentence, so the answer does not show whether a host on your network replied. The reason is in the server log, as a `warn` line with the message `oauth client metadata document refused`; the log never holds the body. A cached document that no pending request, connection or grant refers to is deleted one hour after the last authorize request that named it.
+
+**The token endpoint.** An authorization code lasts 60 seconds and works once. The client, the `redirect_uri`, the PKCE verifier and the `resource` are checked before the code is spent, so a request that fails a check does not use the code up. A code that is presented after it was used ends the connection. Client credentials in an `Authorization: Basic` header that cannot be read answer `401 invalid_client`.
 
 ## Outbound requests
 

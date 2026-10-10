@@ -15,9 +15,11 @@ import { users } from '../auth/schema.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import { WORKSPACE_ACCESS } from '../workspace/capabilities.ts'
 import { workspaceMembers } from '../workspace/schema.ts'
+import { CLIENT_METADATA_REFUSED } from './clients.ts'
 import type { Fetch } from './clients.ts'
 import { createOAuthModule } from './index.ts'
-import { oauthConnections, oauthGrants, oauthTokens } from './schema.ts'
+import { oauthClients, oauthConnections, oauthGrants, oauthRequests, oauthTokens } from './schema.ts'
+import { UNUSED_METADATA_CLIENT_LIFETIME_MS } from './service.ts'
 
 /**
  * The authorization server end to end, against real Postgres: discovery, a
@@ -81,6 +83,8 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
   let harness: TestApp
   let metadataDocument: unknown
   let metadata: ReturnType<typeof metadataFetch>
+  /** What the metadata host does in place of serving `metadataDocument`, when a test sets it. */
+  let metadataFailure: Fetch | undefined
   /** The workspace the `workspace.access` gate refuses, when a test sets one. */
   let blockedWorkspaceId: string | undefined
 
@@ -105,6 +109,7 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       token_endpoint_auth_method: 'none',
     }
     metadata = metadataFetch(() => metadataDocument)
+    metadataFailure = undefined
     blockedWorkspaceId = undefined
 
     const entitlements = createEntitlementRegistry()
@@ -118,7 +123,11 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
     )
     harness = await createTestApp({
       modules: coreModules.map((module) =>
-        module.id === 'oauth' ? createOAuthModule(coreMigrationsDirectory, { fetch: metadata.fetch }) : module,
+        module.id === 'oauth'
+          ? createOAuthModule(coreMigrationsDirectory, {
+              fetch: (input, init) => (metadataFailure ?? metadata.fetch)(input, init),
+            })
+          : module,
       ),
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
@@ -418,22 +427,58 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       expect(await response.text()).toContain('not valid')
     })
 
-    it('sends an error back to the client for a resource other than /mcp', async () => {
-      const clientId = await registerPublicClient()
-      const response = await send('GET', authorizeUrl(clientId, { resource: `${TEST_APP_BASE_URL}/v1` }))
-      const location = new URL(response.headers.get('Location') ?? '')
+    /**
+     * Anybody can register a client. A request that fails before a person has
+     * agreed to anything must not send the browser on to that client's
+     * redirect URI, or a link to this deployment would be a way to send
+     * somebody anywhere.
+     */
+    describe('a request that fails before consent', () => {
+      const ATTACKER = 'https://attacker.example/landing'
 
-      expect(response.status).toBe(302)
-      expect(location.searchParams.get('error')).toBe('invalid_target')
-      expect(location.searchParams.get('iss')).toBe(TEST_APP_BASE_URL)
-    })
+      it.each([
+        { name: 'a response type other than code', overrides: { response_type: 'token' }, error: 'unsupported_response_type' },
+        { name: 'no response type', overrides: { response_type: null }, error: 'unsupported_response_type' },
+        { name: 'no PKCE challenge', overrides: { code_challenge: null }, error: 'invalid_request' },
+        { name: 'a plain PKCE method', overrides: { code_challenge_method: 'plain' }, error: 'invalid_request' },
+        { name: 'a resource other than /mcp', overrides: { resource: `${TEST_APP_BASE_URL}/v1` }, error: 'invalid_target' },
+        { name: 'a scope that is not known', overrides: { scope: 'read:objects nonsense' }, error: 'invalid_scope' },
+      ])('stops on a page of this deployment for $name', async ({ overrides, error }) => {
+        const clientId = await registerPublicClient([ATTACKER])
+        const response = await send('GET', authorizeUrl(clientId, { redirect_uri: ATTACKER, ...overrides }))
+        const page = await response.text()
 
-    it('requires PKCE', async () => {
-      const clientId = await registerPublicClient()
-      const response = await send('GET', authorizeUrl(clientId, { code_challenge: null }))
-      const location = new URL(response.headers.get('Location') ?? '')
+        expect(response.status).toBe(400)
+        expect(response.headers.get('Location')).toBeNull()
+        expect(response.headers.get('Content-Type')).toContain('text/html')
+        expect(response.headers.get('Cache-Control')).toBe('no-store')
+        expect(page).toContain('This connection request is not valid')
+        expect(page).toContain(`<code>${error}</code>`)
+        expect(page).not.toContain('attacker.example')
+        expect(await database.db.select().from(oauthRequests)).toHaveLength(0)
+      })
 
-      expect(location.searchParams.get('error')).toBe('invalid_request')
+      it('escapes what the page repeats from the request', async () => {
+        const clientId = await registerPublicClient()
+        const response = await send('GET', authorizeUrl(clientId, { scope: '<script>alert(1)</script>' }))
+        const page = await response.text()
+
+        expect(response.status).toBe(400)
+        expect(page).not.toContain('<script>')
+        expect(page).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+      })
+
+      it('changes nothing for a request that is valid', async () => {
+        const { cookie, workspaceId } = await owner()
+        const clientId = await registerPublicClient([WEB_REDIRECT])
+        const requestId = await startRequest(clientId, { ...FROM_WEB, scope: 'read:objects' })
+        const redirect = await approve(cookie, requestId, workspaceId, ['read:objects'])
+
+        expect(`${redirect.origin}${redirect.pathname}`).toBe(WEB_REDIRECT)
+        expect(redirect.searchParams.get('code')).toEqual(expect.any(String))
+        expect(redirect.searchParams.get('state')).toBe('xyz')
+        expect(redirect.searchParams.get('error')).toBeNull()
+      })
     })
 
     it('reports access_denied when the user denies', async () => {
@@ -443,8 +488,10 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       const response = await send('POST', `/v1/oauth/requests/${requestId}/deny`, { cookie })
       const redirect = new URL(readString(await response.json(), 'redirect_url'))
 
+      expect(`${redirect.origin}${redirect.pathname}`).toBe(REDIRECT)
       expect(redirect.searchParams.get('error')).toBe('access_denied')
       expect(redirect.searchParams.get('state')).toBe('xyz')
+      expect(redirect.searchParams.get('iss')).toBe(TEST_APP_BASE_URL)
     })
 
     it('lets the user remove requested scopes but not add others', async () => {
@@ -505,6 +552,240 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
       expect(response.status).toBe(400)
       expect(await response.json()).toMatchObject({ error: 'invalid_grant' })
+    })
+
+    it('leaves the code good after a wrong PKCE verifier, so the client it was issued to can still use it', async () => {
+      const { cookie, workspaceId } = await owner()
+      const clientId = await registerPublicClient()
+      const redirect = await approve(cookie, await startRequest(clientId), workspaceId, ['read:objects'])
+      const code = redirect.searchParams.get('code') ?? ''
+
+      for (const verifier of ['b'.repeat(43), 'too-short', '']) {
+        const refused = await exchange(clientId, code, verifier)
+
+        expect(refused.status, verifier).toBe(400)
+        expect(await refused.json(), verifier).toMatchObject({ error: 'invalid_grant' })
+      }
+
+      expect(await database.db.select().from(oauthTokens).where(eq(oauthTokens.kind, 'access'))).toHaveLength(0)
+
+      const accepted = await exchange(clientId, code)
+
+      expect(accepted.status).toBe(200)
+      expect((await callTool(readString(await accepted.json(), 'access_token'), 'people_list')).status).toBe(200)
+    })
+
+    it('leaves the code good after a wrong redirect_uri or resource', async () => {
+      const { cookie, workspaceId } = await owner()
+      const clientId = await registerPublicClient()
+      const redirect = await approve(cookie, await startRequest(clientId), workspaceId, ['read:objects'])
+      const code = redirect.searchParams.get('code') ?? ''
+      const fields = { grant_type: 'authorization_code', code, client_id: clientId, code_verifier: VERIFIER }
+      const wrongRedirect = await sendForm('/oauth/token', { ...fields, redirect_uri: 'http://127.0.0.1:1/other' })
+
+      expect(wrongRedirect.status).toBe(400)
+      expect(await wrongRedirect.json()).toMatchObject({ error: 'invalid_grant' })
+      expect((await exchange(clientId, code)).status).toBe(200)
+    })
+
+    it('does not let a wrong verifier revoke a connection after its code was used', async () => {
+      const { cookie, workspaceId } = await owner()
+      const clientId = await registerPublicClient()
+      const redirect = await approve(cookie, await startRequest(clientId), workspaceId, ['read:objects'])
+      const code = redirect.searchParams.get('code') ?? ''
+      const accessToken = readString(await (await exchange(clientId, code)).json(), 'access_token')
+
+      // The code itself was presented again, so this is still a replay.
+      expect((await exchange(clientId, code, 'b'.repeat(43))).status).toBe(400)
+      expect((await callTool(accessToken, 'people_list')).status).toBe(401)
+    })
+
+    it('issues tokens to one of two requests that present the same code together', async () => {
+      const { cookie, workspaceId } = await owner()
+      const clientId = await registerPublicClient()
+      const redirect = await approve(cookie, await startRequest(clientId), workspaceId, ['read:objects'])
+      const code = redirect.searchParams.get('code') ?? ''
+      const responses = await Promise.all([exchange(clientId, code), exchange(clientId, code), exchange(clientId, code)])
+
+      expect(responses.map((response) => response.status).sort()).toEqual([200, 400, 400])
+
+      const refused = await Promise.all(
+        responses.filter((response) => response.status === 400).map((response) => response.json()),
+      )
+
+      expect(refused).toEqual([
+        expect.objectContaining({ error: 'invalid_grant' }),
+        expect.objectContaining({ error: 'invalid_grant' }),
+      ])
+      // A code presented twice was copied, so what it issued is revoked.
+      expect(await database.db.select().from(oauthTokens)).toHaveLength(0)
+      expect(await database.db.select().from(oauthConnections)).toHaveLength(0)
+    })
+
+    it('refuses an expired code and does not spend it', async () => {
+      const { cookie, workspaceId } = await owner()
+      const clientId = await registerPublicClient()
+      const redirect = await approve(cookie, await startRequest(clientId), workspaceId, ['read:objects'])
+
+      await database.db
+        .update(oauthTokens)
+        .set({ expiresAt: new Date(Date.now() - 1_000) })
+        .where(eq(oauthTokens.kind, 'code'))
+
+      const response = await exchange(clientId, redirect.searchParams.get('code') ?? '')
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: 'invalid_grant' })
+      expect(await database.db.select().from(oauthTokens).where(eq(oauthTokens.kind, 'access'))).toHaveLength(0)
+    })
+
+    describe('a code that was approved and not yet used', () => {
+      const WIDE = ['read:objects', 'write:objects']
+
+      /** An approval with both scopes whose code nobody exchanged yet. */
+      async function approveWide(): Promise<{ clientId: string; cookie: string; workspaceId: string; code: string }> {
+        const { cookie, workspaceId } = await owner()
+        const clientId = await registerPublicClient()
+        const redirect = await approve(cookie, await startRequest(clientId), workspaceId, WIDE)
+
+        return { clientId, cookie, workspaceId, code: redirect.searchParams.get('code') ?? '' }
+      }
+
+      async function expectDead(clientId: string, code: string): Promise<void> {
+        const response = await exchange(clientId, code)
+
+        expect(response.status).toBe(400)
+        expect(await response.json()).toMatchObject({ error: 'invalid_grant' })
+        expect(await database.db.select().from(oauthTokens).where(eq(oauthTokens.kind, 'access'))).toHaveLength(0)
+      }
+
+      it('ends when the person approves the same client again with fewer scopes', async () => {
+        const { clientId, cookie, workspaceId, code } = await approveWide()
+        const narrow = await approve(cookie, await startRequest(clientId), workspaceId, ['read:objects'])
+
+        await expectDead(clientId, code)
+
+        const response = await exchange(clientId, narrow.searchParams.get('code') ?? '')
+
+        expect(await response.json()).toMatchObject({ scope: 'read:objects' })
+      })
+
+      it('ends when the person removes the workspace from Connected apps', async () => {
+        const { clientId, cookie, code } = await approveWide()
+        const [grant] = readList(await (await send('GET', '/v1/oauth/grants', { cookie })).json())
+
+        expect((await send('DELETE', `/v1/oauth/grants/${String(grant?.id)}`, { cookie })).status).toBe(204)
+        await expectDead(clientId, code)
+      })
+
+      it('ends when the person ends the connection', async () => {
+        const { clientId, cookie, code } = await approveWide()
+        const [grant] = readList(await (await send('GET', '/v1/oauth/grants', { cookie })).json())
+
+        expect(
+          (await send('DELETE', `/v1/oauth/connections/${String(grant?.connection_id)}`, { cookie })).status,
+        ).toBe(204)
+        await expectDead(clientId, code)
+      })
+
+      it('carries no scope that a grant of its connection lacks', async () => {
+        const { clientId, cookie, code } = await approveWide()
+        const second = await send('POST', '/v1/workspaces', {
+          body: { name: 'Second', timezone: 'Australia/Melbourne' },
+          cookie,
+        })
+        const secondId = readString(await second.json(), 'id')
+
+        // Another approval, for another workspace, with fewer scopes. The
+        // first connection keeps its workspace and its scopes, so its code
+        // still gives what the person approved for it and no more.
+        await approve(cookie, await startRequest(clientId), secondId, ['read:objects'])
+
+        const response = await exchange(clientId, code)
+
+        expect(await response.json()).toMatchObject({ scope: WIDE.join(' ') })
+
+        const codes = await database.db.select().from(oauthTokens).where(eq(oauthTokens.kind, 'code'))
+        const grants = await database.db.select().from(oauthGrants)
+
+        for (const row of codes) {
+          const under = grants.filter((grant) => grant.connectionId === row.connectionId)
+
+          expect(under.length).toBeGreaterThan(0)
+
+          for (const grant of under) {
+            expect(grant.scopes).toEqual(row.scopes)
+          }
+        }
+      })
+    })
+
+    /**
+     * RFC 6749 §5.2: a client that tried HTTP Basic and failed gets `401
+     * invalid_client` and a `WWW-Authenticate` header that names the scheme.
+     * Credentials that cannot be read are a failed try, never a server error.
+     */
+    describe('malformed Basic credentials', () => {
+      const base64 = (value: string): string => Buffer.from(value, 'utf8').toString('base64')
+      const malformed: readonly { name: string; header: string }[] = [
+        { name: 'no credentials', header: 'Basic' },
+        { name: 'only spaces after the scheme', header: 'Basic    ' },
+        { name: 'characters that are not base64', header: 'Basic !!!not-base64!!!' },
+        { name: 'base64url characters', header: `Basic ${base64('a:b?>>').replaceAll('+', '-').replaceAll('/', '_')}_-` },
+        { name: 'two values', header: `Basic ${base64('client:secret')} ${base64('more')}` },
+        { name: 'no colon', header: `Basic ${base64('client-and-secret')}` },
+        { name: 'an empty client id', header: `Basic ${base64(':secret')}` },
+        { name: 'only a colon', header: `Basic ${base64(':')}` },
+        { name: 'a percent sign that starts no escape in the id', header: `Basic ${base64('client%:secret')}` },
+        { name: 'a percent sign that starts no escape in the secret', header: `Basic ${base64('client:se%zzcret')}` },
+        { name: 'an escape cut short', header: `Basic ${base64('client:secret%2')}` },
+        { name: 'an escape that is not UTF-8', header: `Basic ${base64('client:%C3%28')}` },
+        { name: 'bytes that are not UTF-8', header: `Basic ${Buffer.from([0x63, 0xff, 0xfe, 0x3a, 0x73]).toString('base64')}` },
+        { name: 'the scheme in lower case with no colon', header: `basic ${base64('nocolon')}` },
+      ]
+
+      it.each(malformed)('answers 401 invalid_client at the token endpoint for $name', async ({ header }) => {
+        const response = await sendForm(
+          '/oauth/token',
+          { grant_type: 'authorization_code', code: 'x', code_verifier: VERIFIER },
+          { Authorization: header },
+        )
+
+        expect(response.status).toBe(401)
+        expect(await response.json()).toMatchObject({ error: 'invalid_client' })
+        expect(response.headers.get('WWW-Authenticate')).toBe('Basic realm="kelpie"')
+        expect(response.headers.get('Cache-Control')).toBe('no-store')
+      })
+
+      it.each(malformed)('answers 401 invalid_client at the revocation endpoint for $name', async ({ header }) => {
+        const response = await sendForm('/oauth/revoke', { token: 'x' }, { Authorization: header })
+
+        expect(response.status).toBe(401)
+        expect(await response.json()).toMatchObject({ error: 'invalid_client' })
+        expect(response.headers.get('WWW-Authenticate')).toBe('Basic realm="kelpie"')
+      })
+
+      it('names the scheme when well-formed Basic credentials are wrong', async () => {
+        const response = await sendForm(
+          '/oauth/token',
+          { grant_type: 'authorization_code', code: 'x', code_verifier: VERIFIER },
+          { Authorization: `Basic ${base64('no-such-client:secret')}` },
+        )
+
+        expect(response.status).toBe(401)
+        expect(response.headers.get('WWW-Authenticate')).toBe('Basic realm="kelpie"')
+      })
+
+      it('still reads the form when the header is another scheme', async () => {
+        const { clientId, refreshToken } = await connect()
+        const response = await sendForm(
+          '/oauth/token',
+          { grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId },
+          { Authorization: 'Bearer something-else' },
+        )
+
+        expect(response.status).toBe(200)
+      })
     })
 
     it('revokes the grant when a code is used twice', async () => {
@@ -1465,6 +1746,237 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
       expect(metadata.calls).toEqual([METADATA_CLIENT_ID])
       expect(view).toMatchObject({ client_name: 'Example Agent', client_host: 'client.example' })
+    })
+
+    it.each([
+      'javascript:alert(1)',
+      'data:text/html,hello',
+      'file:///etc/passwd',
+      'ftp://client.example/callback',
+      'intent://callback',
+      'myapp://callback',
+    ])('refuses the redirect URI %s', async (uri) => {
+      const response = await send('POST', '/oauth/register', { body: { redirect_uris: [REDIRECT, uri] } })
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: 'invalid_redirect_uri' })
+      expect(await database.db.select().from(oauthClients)).toHaveLength(0)
+    })
+
+    it('registers an app with a private-use scheme', async () => {
+      await registerPublicClient(['cursor://anysphere.cursor-mcp/oauth/callback', 'com.example.app:/oauth2redirect'])
+    })
+
+    describe('a redirect URI stored before the rule changed', () => {
+      const OLD = 'ftp://client.example/callback'
+
+      async function storeOldClient(): Promise<void> {
+        await database.db.insert(oauthClients).values({
+          id: 'oac_old',
+          clientId: 'client-old',
+          kind: 'registered',
+          clientName: 'Old client',
+          redirectUris: [OLD],
+        })
+      }
+
+      it('is not redirected to from an authorize request', async () => {
+        await storeOldClient()
+
+        const response = await send('GET', authorizeUrl('client-old', { redirect_uri: OLD }))
+
+        expect(response.status).toBe(400)
+        expect(response.headers.get('Location')).toBeNull()
+        expect(await database.db.select().from(oauthRequests)).toHaveLength(0)
+      })
+
+      it('is not redirected to from a request that was pending', async () => {
+        const { cookie, workspaceId } = await owner()
+
+        await storeOldClient()
+        await database.db.insert(oauthRequests).values({
+          id: 'orq_old',
+          clientRowId: 'oac_old',
+          redirectUri: OLD,
+          codeChallenge: CHALLENGE,
+          scopes: ['read:objects'],
+          resource: RESOURCE,
+          expiresAt: new Date(Date.now() + 60_000),
+        })
+
+        const approved = await send('POST', '/v1/oauth/requests/orq_old/approve', {
+          body: { workspace_ids: [workspaceId], scopes: ['read:objects'] },
+          cookie,
+        })
+
+        expect((await send('GET', '/v1/oauth/requests/orq_old', { cookie })).status).toBe(404)
+        expect(approved.status).toBe(404)
+        expect((await send('POST', '/v1/oauth/requests/orq_old/deny', { cookie })).status).toBe(404)
+        expect(await database.db.select().from(oauthTokens)).toHaveLength(0)
+      })
+    })
+
+    describe('a metadata document that cannot be used', () => {
+      const SECRET = 'internal-admin-token-41c9'
+      const respond =
+        (status: number, body: string): Fetch =>
+        () =>
+          Promise.resolve(new Response(body, { status }))
+
+      it('tells the caller the same thing whatever the host did, and logs the reason without the body', async () => {
+        const failures: readonly { reason: string; fetch: Fetch }[] = [
+          { reason: 'the request failed: TypeError: fetch failed', fetch: () => Promise.reject(new TypeError('fetch failed')) },
+          { reason: 'the host answered 404', fetch: respond(404, SECRET) },
+          { reason: 'the host answered 302', fetch: respond(302, SECRET) },
+          { reason: 'the document is not JSON', fetch: respond(200, `<html>${SECRET}</html>`) },
+          {
+            reason: 'the document is missing required fields or has fields of the wrong shape: client_id, redirect_uris',
+            fetch: respond(200, JSON.stringify({ secret: SECRET })),
+          },
+          {
+            reason: 'the document names a different client_id',
+            fetch: respond(200, JSON.stringify({ client_id: `https://other.example/${SECRET}`, redirect_uris: [WEB_REDIRECT] })),
+          },
+        ]
+        const pages: string[] = []
+
+        for (const failure of failures) {
+          metadataFailure = failure.fetch
+
+          const response = await send('GET', authorizeUrl(METADATA_CLIENT_ID, FROM_WEB))
+
+          expect(response.status, failure.reason).toBe(400)
+          expect(response.headers.get('Location'), failure.reason).toBeNull()
+          pages.push(await response.text())
+
+          const line = harness.logLines.findLast((logged) => logged.includes('metadata document refused')) ?? ''
+
+          expect(line).toContain('"level":"warn"')
+          expect(line).toContain(failure.reason)
+          expect(line).toContain(METADATA_CLIENT_ID)
+        }
+
+        expect(new Set(pages).size).toBe(1)
+        expect(pages[0]).toContain(CLIENT_METADATA_REFUSED)
+        expect(pages[0]).not.toContain(SECRET)
+        expect(harness.logLines.join('\n')).not.toContain(SECRET)
+        expect(await database.db.select().from(oauthClients)).toHaveLength(0)
+      })
+    })
+
+    describe('cached metadata-document clients', () => {
+      const OTHER_CLIENT_ID = 'https://client.example/oauth/other.json'
+      const LONG_AGO = new Date(Date.now() - UNUSED_METADATA_CLIENT_LIFETIME_MS - 60_000)
+
+      /** Makes every cached client look as if no authorize request named it for more than the lifetime. */
+      async function ageClients(): Promise<void> {
+        await database.db.update(oauthClients).set({ updatedAt: LONG_AGO })
+      }
+
+      /** An authorize request for a second document, which is what runs the prune. */
+      async function authorizeOther(): Promise<void> {
+        metadataDocument = { ...(metadataDocument as Record<string, unknown>), client_id: OTHER_CLIENT_ID }
+        await startRequest(OTHER_CLIENT_ID, FROM_WEB)
+      }
+
+      async function cachedClientIds(): Promise<string[]> {
+        const rows = await database.db.select().from(oauthClients)
+
+        return rows.map((row) => row.clientId).sort()
+      }
+
+      it('removes one that nothing refers to, when it was not named for an hour', async () => {
+        await startRequest(METADATA_CLIENT_ID, FROM_WEB)
+        await database.db.delete(oauthRequests)
+        await ageClients()
+        await authorizeOther()
+
+        expect(await cachedClientIds()).toEqual([OTHER_CLIENT_ID])
+      })
+
+      it('removes one whose only request has expired', async () => {
+        await startRequest(METADATA_CLIENT_ID, FROM_WEB)
+        await database.db.update(oauthRequests).set({ expiresAt: new Date(Date.now() - 1_000) })
+        await ageClients()
+        await authorizeOther()
+
+        expect(await cachedClientIds()).toEqual([OTHER_CLIENT_ID])
+      })
+
+      it('keeps one that was named a short time ago', async () => {
+        await startRequest(METADATA_CLIENT_ID, FROM_WEB)
+        await database.db.delete(oauthRequests)
+        await authorizeOther()
+
+        expect(await cachedClientIds()).toEqual([OTHER_CLIENT_ID, METADATA_CLIENT_ID].sort())
+      })
+
+      it('keeps one with a pending request', async () => {
+        const { cookie } = await owner()
+        const requestId = await startRequest(METADATA_CLIENT_ID, FROM_WEB)
+
+        await ageClients()
+        await authorizeOther()
+
+        expect(await cachedClientIds()).toEqual([OTHER_CLIENT_ID, METADATA_CLIENT_ID].sort())
+        expect((await send('GET', `/v1/oauth/requests/${requestId}`, { cookie })).status).toBe(200)
+      })
+
+      it('keeps one with a connection, and its code and tokens with it', async () => {
+        const { cookie, workspaceId } = await owner()
+        const first = await approve(cookie, await startRequest(METADATA_CLIENT_ID, FROM_WEB), workspaceId, ['read:objects'])
+        const exchangeFromWeb = (code: string): Promise<Response> =>
+          sendForm('/oauth/token', {
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: WEB_REDIRECT,
+            client_id: METADATA_CLIENT_ID,
+            code_verifier: VERIFIER,
+          })
+
+        await ageClients()
+        await authorizeOther()
+
+        // The code was not exchanged yet when the prune ran.
+        const tokens: unknown = await (await exchangeFromWeb(first.searchParams.get('code') ?? '')).json()
+
+        await ageClients()
+        await authorizeOther()
+
+        expect(await cachedClientIds()).toEqual([OTHER_CLIENT_ID, METADATA_CLIENT_ID].sort())
+        expect((await callTool(readString(tokens, 'access_token'), 'people_list')).status).toBe(200)
+      })
+
+      it('never removes a registered client on this path', async () => {
+        const clientId = await registerPublicClient()
+
+        await ageClients()
+        await authorizeOther()
+
+        expect(await cachedClientIds()).toEqual([OTHER_CLIENT_ID, clientId].sort())
+      })
+
+      it('keeps the cached row for the request that names it, without a second fetch', async () => {
+        await startRequest(METADATA_CLIENT_ID, FROM_WEB)
+        await database.db.delete(oauthRequests)
+        await ageClients()
+
+        // The request that names the client again must not lose it to its own prune.
+        const requestId = await startRequest(METADATA_CLIENT_ID, FROM_WEB)
+        const [row] = await database.db.select().from(oauthClients)
+
+        expect(metadata.calls).toEqual([METADATA_CLIENT_ID])
+        expect(await database.db.select().from(oauthRequests)).toMatchObject([{ id: requestId, clientRowId: row?.id }])
+        expect(row?.updatedAt.getTime()).toBeGreaterThan(LONG_AGO.getTime())
+      })
+
+      it('writes no row for a document that fails', async () => {
+        metadataFailure = () => Promise.resolve(new Response('nothing here', { status: 404 }))
+
+        await send('GET', authorizeUrl(METADATA_CLIENT_ID, FROM_WEB))
+
+        expect(await database.db.select().from(oauthClients)).toHaveLength(0)
+      })
     })
 
     it('refuses a metadata document that names a different client', async () => {

@@ -44,6 +44,7 @@ export function createOAuthModule(migrationsDirectory: string, options: OAuthMod
         appBaseUrl,
         egress,
         fetch: options.fetch ?? ((input, init) => egress.fetch(input, init)),
+        log: context.log,
         ...(options.newToken === undefined ? {} : { newToken: options.newToken }),
       })
       const handlers = createProtocolHandlers(service)

@@ -67,36 +67,110 @@ async function readForm(context: Context): Promise<Record<string, string | undef
   return form
 }
 
+/** The scheme of an `Authorization` header, when it is `Basic`, and what follows it. */
+const BASIC_AUTHORIZATION = /^Basic(?:\s+(?<value>.*))?$/isu
+
+/** What `Buffer.from(value, 'base64')` reads without dropping a character. */
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/u
+
 /**
- * The client's credentials from `Authorization: Basic` or the form.
- *
- * RFC 6749 §2.3.1: the id and secret are form-encoded before they are
- * base64-encoded, so each half is decoded again.
+ * True when the client tried HTTP Basic, whether or not what it sent can be
+ * read. RFC 6749 §5.2: a `401` to such a client names the scheme in
+ * `WWW-Authenticate`, so this is asked before the credentials are parsed.
  */
-function readClientCredentials(context: Context, form: Readonly<Record<string, string | undefined>>): ClientCredentials {
-  const header = context.req.header('Authorization')
-  const match = header === undefined ? null : /^Basic\s+(?<value>\S+)$/iu.exec(header)
-  const encoded = match?.groups?.value
+function attemptedBasic(context: Context): boolean {
+  return BASIC_AUTHORIZATION.test((context.req.header('Authorization') ?? '').trim())
+}
 
-  if (encoded !== undefined) {
-    const decoded = Buffer.from(encoded, 'base64').toString('utf8')
-    const separator = decoded.indexOf(':')
+/** RFC 6749 §5.2: credentials that cannot be read are `401 invalid_client`, as wrong ones are. */
+function malformedBasicCredentials(): OAuthError {
+  return new OAuthError(401, 'invalid_client', 'The Basic credentials are malformed')
+}
 
-    if (separator < 0) {
-      throw new OAuthError(401, 'invalid_client', 'The Basic credentials are malformed')
+/**
+ * One half of the Basic credentials. RFC 6749 §2.3.1: the id and secret are
+ * form-encoded before they are base64-encoded, so each half is decoded again.
+ *
+ * @throws OAuthError 401 `invalid_client` for a percent sign that starts no
+ *   valid escape, or an escape that is not UTF-8.
+ */
+function decodeFormComponent(value: string): string {
+  try {
+    return decodeURIComponent(value.replace(/\+/gu, ' '))
+  } catch (error: unknown) {
+    if (error instanceof URIError) {
+      throw malformedBasicCredentials()
     }
 
-    const clientId = decodeURIComponent(decoded.slice(0, separator).replace(/\+/gu, ' '))
-    const clientSecret = decodeURIComponent(decoded.slice(separator + 1).replace(/\+/gu, ' '))
+    throw error
+  }
+}
 
-    if (form.client_id !== undefined && form.client_id !== clientId) {
-      throw new OAuthError(401, 'invalid_client', 'client_id in the form does not match the Basic credentials')
-    }
+/**
+ * The client id and secret from an `Authorization` header, or undefined when
+ * the header is absent or is another scheme, and the form is read.
+ *
+ * @throws OAuthError 401 `invalid_client` when the header says Basic and the
+ *   rest is not base64 of UTF-8 text, has no colon, has a half that is not
+ *   form-encoded, or has an empty client id.
+ */
+function parseBasicCredentials(
+  header: string | undefined,
+): { readonly clientId: string; readonly clientSecret: string } | undefined {
+  const match = header === undefined ? null : BASIC_AUTHORIZATION.exec(header.trim())
 
-    return { clientId, clientSecret, viaBasic: true }
+  if (match === null) {
+    return undefined
   }
 
-  return { clientId: form.client_id, clientSecret: form.client_secret, viaBasic: false }
+  const encoded = match.groups?.value?.trim() ?? ''
+
+  if (!BASE64.test(encoded)) {
+    throw malformedBasicCredentials()
+  }
+
+  let decoded: string
+
+  try {
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(encoded, 'base64'))
+  } catch (error: unknown) {
+    // What a fatal decoder throws for bytes that are not UTF-8.
+    if (error instanceof TypeError) {
+      throw malformedBasicCredentials()
+    }
+
+    throw error
+  }
+
+  const separator = decoded.indexOf(':')
+
+  if (separator < 0) {
+    throw malformedBasicCredentials()
+  }
+
+  const clientId = decodeFormComponent(decoded.slice(0, separator))
+  const clientSecret = decodeFormComponent(decoded.slice(separator + 1))
+
+  if (clientId.length === 0) {
+    throw malformedBasicCredentials()
+  }
+
+  return { clientId, clientSecret }
+}
+
+/** The client's credentials from `Authorization: Basic` or the form. */
+function readClientCredentials(context: Context, form: Readonly<Record<string, string | undefined>>): ClientCredentials {
+  const basic = parseBasicCredentials(context.req.header('Authorization'))
+
+  if (basic === undefined) {
+    return { clientId: form.client_id, clientSecret: form.client_secret, viaBasic: false }
+  }
+
+  if (form.client_id !== undefined && form.client_id !== basic.clientId) {
+    throw new OAuthError(401, 'invalid_client', 'client_id in the form does not match the Basic credentials')
+  }
+
+  return { ...basic, viaBasic: true }
 }
 
 function escapeHtml(value: string): string {
@@ -109,11 +183,18 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * The page a person sees when a request names a client or a redirect URI that
- * cannot be trusted. There is nowhere safe to send them, so the error stops
- * here (RFC 6749 §4.1.2.1).
+ * The page a person sees when an authorize request cannot go on: the client or
+ * its redirect URI cannot be trusted (RFC 6749 §4.1.2.1), or the request is
+ * wrong in another way. The error stops here each time. Nobody has agreed to
+ * anything yet, and sending the browser on to a redirect URI that anybody
+ * could have registered would make this deployment an open redirector
+ * (RFC 9700 §4.11).
+ *
+ * `error` is the OAuth error code, shown for the developer of the client, who
+ * no longer receives it at the redirect URI. Every value is escaped: the
+ * message can repeat a parameter of the request.
  */
-function invalidRequestPage(context: Context, message: string): Response {
+function invalidRequestPage(context: Context, message: string, error: string | undefined): Response {
   context.header('Cache-Control', 'no-store')
 
   return context.html(
@@ -122,6 +203,7 @@ function invalidRequestPage(context: Context, message: string): Response {
       `<body style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5">` +
       `<h1 style="font-size: 1.25rem">This connection request is not valid</h1>` +
       `<p>${escapeHtml(message)}</p>` +
+      (error === undefined ? '' : `<p>Error code: <code>${escapeHtml(error)}</code></p>`) +
       `<p>Go back to the app that sent you here and try to connect again.</p>` +
       `</body></html>`,
     400,
@@ -182,11 +264,7 @@ export function createProtocolHandlers(service: OAuthService): OAuthProtocolHand
       const outcome = await service.authorize(context.req.query())
 
       if (outcome.kind === 'invalid') {
-        return invalidRequestPage(context, outcome.message)
-      }
-
-      if (outcome.kind === 'redirect') {
-        return context.redirect(outcome.url, 302)
+        return invalidRequestPage(context, outcome.message, outcome.error)
       }
 
       // Relative, so the browser stays on the origin it came in on.
@@ -194,14 +272,11 @@ export function createProtocolHandlers(service: OAuthService): OAuthProtocolHand
     },
 
     token: async (context) => {
-      let viaBasic = false
+      const viaBasic = attemptedBasic(context)
 
       try {
         const form = await readForm(context)
         const credentials = readClientCredentials(context, form)
-
-        viaBasic = credentials.viaBasic
-
         const tokens = await service.token(form, credentials)
 
         context.header('Cache-Control', 'no-store')
@@ -244,13 +319,12 @@ export function createProtocolHandlers(service: OAuthService): OAuthProtocolHand
 
     // RFC 7009.
     revoke: async (context) => {
-      let viaBasic = false
+      const viaBasic = attemptedBasic(context)
 
       try {
         const form = await readForm(context)
         const credentials = readClientCredentials(context, form)
 
-        viaBasic = credentials.viaBasic
         await service.revoke(form, credentials)
 
         return context.body(null, 200)

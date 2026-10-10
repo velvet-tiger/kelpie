@@ -15,6 +15,7 @@ import type { Database } from '../../lib/database.ts'
 import type { EgressGuard } from '../../lib/egress.ts'
 import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
+import type { Logger } from '../../lib/logger.ts'
 import { generateToken, hashToken, tokenHashesMatch } from '../../lib/tokens.ts'
 import * as authRepository from '../auth/repository.ts'
 import { MCP_ROUTE_PREFIX } from '../mcp/paths.ts'
@@ -26,6 +27,7 @@ import {
   isLocalRedirectUri,
   isMetadataDocumentClientId,
   redirectUriMatches,
+  redirectUriProblem,
   validateRegistration,
 } from './clients.ts'
 import type { Fetch, RegistrationBody } from './clients.ts'
@@ -113,6 +115,17 @@ function offeredExtraScopes(requested: readonly ApiKeyScope[]): ApiKeyScope[] {
 const UNUSED_CLIENT_LIFETIME_MS = 30 * 24 * 60 * 60_000
 
 /**
+ * A cached metadata-document client that nothing refers to is removed this
+ * long after the last authorize request that named it. Short, because any URL
+ * a stranger sends makes a row. Longer than a pending request lives, so a
+ * client whose user is still on the sign-in page is not fetched twice.
+ */
+export const UNUSED_METADATA_CLIENT_LIFETIME_MS = 60 * 60_000
+
+/** A `client_id` is a URL a stranger chose, of any length. The log keeps the start of it. */
+const MAX_LOGGED_CLIENT_ID_LENGTH = 300
+
+/**
  * An error the OAuth standards define, rendered as `{ error, error_description }`
  * rather than Kelpie's own error body, because the client reading it is an
  * OAuth library, not a Kelpie one.
@@ -138,7 +151,9 @@ export interface OAuthServiceDependencies {
   /** The deployment's `APP_BASE_URL`. The issuer is its origin. */
   readonly appBaseUrl: string
   readonly egress: EgressGuard
+  /** The egress guard's own `fetch` in production: the metadata document URL is a stranger's. */
   readonly fetch: Fetch
+  readonly log: Logger
   /** Injected only so tests can pin secrets. */
   readonly newToken?: () => string
 }
@@ -221,13 +236,17 @@ function parseRole(value: string): MemberRole {
 export type AuthorizeOutcome =
   /** Send the browser to the consent page for this request. */
   | { readonly kind: 'consent'; readonly requestId: string }
-  /** Send the browser back to the client with an error. */
-  | { readonly kind: 'redirect'; readonly url: string }
   /**
-   * The client or its redirect URI could not be trusted, so there is nowhere
-   * safe to send the browser. Shown to the person instead (RFC 6749 §4.1.2.1).
+   * The request cannot go on, and the person is shown why on a page of this
+   * deployment. Never a redirect: anybody can register a client with a
+   * redirect URI of their own and then make a link to `/oauth/authorize` that
+   * fails on purpose, and a server that answered with a redirect would send
+   * the person from a trusted address to that URI without a click (RFC 9700
+   * §4.11). `error` is the OAuth error code when the standards give one, for
+   * the developer of the client to read; a request with an untrusted client
+   * or redirect URI has none.
    */
-  | { readonly kind: 'invalid'; readonly message: string }
+  | { readonly kind: 'invalid'; readonly message: string; readonly error?: string }
 
 export interface ConsentView {
   readonly id: string
@@ -385,10 +404,38 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       now.getTime() - cached.metadataFetchedAt.getTime() < METADATA_DOCUMENT_TTL_MS
 
     if (cached !== undefined && fresh) {
-      return cached
+      const kept = await repository.touchMetadataClient(dependencies.db, cached.id, now)
+
+      if (kept !== undefined) {
+        return kept
+      }
     }
 
-    const document = await fetchClientMetadata(clientId, { egress: dependencies.egress, fetch: dependencies.fetch })
+    let document: Awaited<ReturnType<typeof fetchClientMetadata>>
+
+    try {
+      document = await fetchClientMetadata(clientId, { egress: dependencies.egress, fetch: dependencies.fetch })
+    } catch (error: unknown) {
+      if (error instanceof OAuthClientError) {
+        // The caller is told one sentence for every failure. This line is
+        // where an operator, or a developer who asks one, finds the cause.
+        dependencies.log.warn('oauth client metadata document refused', {
+          clientId: clientId.slice(0, MAX_LOGGED_CLIENT_ID_LENGTH),
+          reason: error.logReason ?? error.message,
+        })
+      }
+
+      throw error
+    }
+
+    // Housekeeping on the path that creates the rows, so the table stays
+    // bounded without a scheduled job. Requests first: an expired request
+    // must not keep its client from the prune after it.
+    await repository.deleteExpiredRequests(dependencies.db, now)
+    await repository.deleteUnusedMetadataClients(
+      dependencies.db,
+      new Date(now.getTime() - UNUSED_METADATA_CLIENT_LIFETIME_MS),
+    )
 
     return repository.upsertMetadataClient(dependencies.db, {
       id: cached?.id ?? dependencies.createId('oauthClient'),
@@ -402,6 +449,17 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       metadataFetchedAt: now,
       updatedAt: now,
     })
+  }
+
+  /**
+   * The pending request a person may still answer. A request stored by an
+   * earlier version can hold a redirect URI that `redirectUriProblem` refuses
+   * now; it is treated as gone, so no approval or denial sends a browser there.
+   */
+  async function findAnswerableRequest(id: string, now: Date): Promise<repository.OAuthRequestRecord | undefined> {
+    const request = await repository.findLiveRequest(dependencies.db, id, now)
+
+    return request !== undefined && redirectUriProblem(request.redirectUri) === undefined ? request : undefined
   }
 
   /**
@@ -454,43 +512,39 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
     return endpoints.resource
   }
 
-  async function issueTokens(
+  /**
+   * Inserts an access token and a refresh token under a connection. Takes the
+   * transaction, so the caller decides what else commits with them.
+   */
+  async function insertTokenPair(
+    tx: repository.Queryable,
+    now: Date,
     connectionId: string,
     resource: string,
     accessScopes: readonly ApiKeyScope[],
     refreshScopes: readonly ApiKeyScope[],
   ): Promise<TokenResponse> {
-    const now = dependencies.now()
     const access = mintSecret(ACCESS_TOKEN_PREFIX, newToken)
     const refresh = mintSecret(REFRESH_TOKEN_PREFIX, newToken)
 
-    await dependencies.db.transaction(async (tx) => {
-      await repository.insertToken(tx, {
-        id: dependencies.createId('oauthToken'),
-        connectionId,
-        kind: 'access',
-        tokenHash: access.hash,
-        resource,
-        scopes: [...accessScopes],
-        expiresAt: new Date(now.getTime() + ACCESS_TOKEN_LIFETIME_MS),
-      })
-      await repository.insertToken(tx, {
-        id: dependencies.createId('oauthToken'),
-        connectionId,
-        kind: 'refresh',
-        tokenHash: refresh.hash,
-        resource,
-        scopes: [...refreshScopes],
-        expiresAt: new Date(now.getTime() + REFRESH_TOKEN_LIFETIME_MS),
-      })
+    await repository.insertToken(tx, {
+      id: dependencies.createId('oauthToken'),
+      connectionId,
+      kind: 'access',
+      tokenHash: access.hash,
+      resource,
+      scopes: [...accessScopes],
+      expiresAt: new Date(now.getTime() + ACCESS_TOKEN_LIFETIME_MS),
     })
-
-    // Housekeeping on the path that creates rows, so the tables stay bounded
-    // without a scheduled job.
-    await repository.deleteExpiredTokens(dependencies.db, now)
-    // A workspace that was deleted took its grants with it through the cascade,
-    // and nothing here saw that happen.
-    await repository.deleteConnectionsWithoutGrants(dependencies.db)
+    await repository.insertToken(tx, {
+      id: dependencies.createId('oauthToken'),
+      connectionId,
+      kind: 'refresh',
+      tokenHash: refresh.hash,
+      resource,
+      scopes: [...refreshScopes],
+      expiresAt: new Date(now.getTime() + REFRESH_TOKEN_LIFETIME_MS),
+    })
 
     return {
       access_token: access.secret,
@@ -499,6 +553,14 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       refresh_token: refresh.secret,
       scope: accessScopes.join(' '),
     }
+  }
+
+  /** Housekeeping on the path that creates token rows, so the tables stay bounded without a scheduled job. */
+  async function sweepTokens(now: Date): Promise<void> {
+    await repository.deleteExpiredTokens(dependencies.db, now)
+    // A workspace that was deleted took its grants with it through the cascade,
+    // and nothing here saw that happen.
+    await repository.deleteConnectionsWithoutGrants(dependencies.db)
   }
 
   async function exchangeCode(
@@ -519,19 +581,28 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       throw new OAuthError(400, 'invalid_grant', 'The code is not valid')
     }
 
-    const now = dependencies.now()
-
-    if (!(await repository.spendToken(dependencies.db, record.id, now))) {
-      // A code presented twice was copied. OAuth 2.1 §4.1.3: revoke what it issued.
+    // A code presented twice was copied. OAuth 2.1 §4.1.3: revoke what it issued.
+    const refuseReplay = async (): Promise<never> => {
       await repository.deleteConnectionById(dependencies.db, connection.id)
 
       throw new OAuthError(400, 'invalid_grant', 'The code has already been used')
     }
 
+    if (record.usedAt !== null) {
+      return refuseReplay()
+    }
+
+    const now = dependencies.now()
+
     if (record.expiresAt.getTime() <= now.getTime()) {
       throw new OAuthError(400, 'invalid_grant', 'The code has expired')
     }
 
+    // Every check comes before the code is spent. A request that fails one
+    // leaves the code good, so a party that saw the code but lacks the
+    // verifier cannot use it up before the client it was issued to does. That
+    // party gets no useful number of tries: a verifier has 256 bits or more,
+    // the code lasts a minute, and the endpoint has a rate limit.
     if (form.redirect_uri !== undefined && form.redirect_uri !== record.redirectUri) {
       throw new OAuthError(400, 'invalid_grant', 'redirect_uri does not match the authorization request')
     }
@@ -553,7 +624,23 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
 
     const scopes = record.scopes as ApiKeyScope[]
 
-    return issueTokens(connection.id, record.resource, scopes, scopes)
+    // The code is spent in the transaction that inserts the tokens, so a code
+    // is never spent with nothing issued. Two requests can both pass the
+    // checks above; the conditional update in `spendToken` lets one of them
+    // through, and the other is a replay.
+    const tokens = await dependencies.db.transaction(async (tx) =>
+      (await repository.spendToken(tx, record.id, now))
+        ? insertTokenPair(tx, now, connection.id, record.resource, scopes, scopes)
+        : undefined,
+    )
+
+    if (tokens === undefined) {
+      return refuseReplay()
+    }
+
+    await sweepTokens(now)
+
+    return tokens
   }
 
   async function refresh(
@@ -607,7 +694,13 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
       accessScopes = requested
     }
 
-    return issueTokens(connection.id, record.resource, accessScopes, held)
+    const tokens = await dependencies.db.transaction((tx) =>
+      insertTokenPair(tx, now, connection.id, record.resource, accessScopes, held),
+    )
+
+    await sweepTokens(now)
+
+    return tokens
   }
 
   return {
@@ -640,11 +733,18 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         return { kind: 'invalid', message: 'The redirect_uri is not registered for this client.' }
       }
 
-      // From here the redirect URI is trusted, so errors go back to the client.
-      const state = parameters.state
+      // A client stored by an earlier version can hold a redirect URI that
+      // registration refuses now.
+      if (redirectUriProblem(redirectUri) !== undefined) {
+        return { kind: 'invalid', message: 'The redirect_uri of this client is not one Kelpie redirects to.' }
+      }
+
+      // The redirect URI is registered, but nobody has agreed to anything yet,
+      // so these errors stop on a page here too and do not go to the client.
       const fail = (error: string, description: string): AuthorizeOutcome => ({
-        kind: 'redirect',
-        url: redirectTo(redirectUri, { error, error_description: description, state }),
+        kind: 'invalid',
+        message: `${description}.`,
+        error,
       })
 
       if (parameters.response_type !== 'code') {
@@ -681,7 +781,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
         codeChallenge: challenge,
         scopes,
         resource: endpoints.resource,
-        state: state ?? null,
+        state: parameters.state ?? null,
         expiresAt: new Date(now.getTime() + REQUEST_LIFETIME_MS),
       })
 
@@ -690,7 +790,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
 
     async getRequest(actor, id) {
       const session = requireSessionActor(actor)
-      const request = await repository.findLiveRequest(dependencies.db, id, dependencies.now())
+      const request = await findAnswerableRequest(id, dependencies.now())
       const client =
         request === undefined ? undefined : await repository.findClientById(dependencies.db, request.clientRowId)
 
@@ -750,7 +850,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
     async approve(actor, id, workspaceIds, scopes) {
       const session = requireSessionActor(actor)
       const now = dependencies.now()
-      const request = await repository.findLiveRequest(dependencies.db, id, now)
+      const request = await findAnswerableRequest(id, now)
 
       if (request === undefined) {
         throw AppError.notFound('This connection request has expired or was already answered')
@@ -846,7 +946,7 @@ export function createOAuthService(dependencies: OAuthServiceDependencies): OAut
     async deny(actor, id) {
       requireSessionActor(actor)
 
-      const request = await repository.findLiveRequest(dependencies.db, id, dependencies.now())
+      const request = await findAnswerableRequest(id, dependencies.now())
 
       if (request === undefined || !(await repository.takeRequest(dependencies.db, request.id))) {
         throw AppError.notFound('This connection request has expired or was already answered')

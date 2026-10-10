@@ -12,6 +12,11 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`** — **A module declares the scopes of its routes.**
+  `context.routeScopes([{ methods, path, scope }])` names the scope a
+  scoped API key needs for a module's `/v1` routes. The type
+  `RouteScopeDeclaration` is a new export. A route with no declaration
+  needs a full-access key or a session. No migration.
 - **A prompt injection evaluation for the `ai` module.**
   `npm run eval:injection` sends the production prompts, with hostile text
   in a fixture record, to a real model. It reports what the model tried and
@@ -273,6 +278,10 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **Malformed `Authorization: Basic` credentials
+  answer `401`.** `/oauth/token` and `/oauth/revoke` answered `500` for a
+  bad percent escape. They now answer `401 invalid_client` with a
+  `WWW-Authenticate` header for every malformed form.
 - **`@kelpie/server`** — **A login with an over-long `email` answers
   `422`.** It answered `500`.
 - **`@kelpie/server`** — **A permanent email failure is not retried.** A
@@ -384,6 +393,34 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`/oauth/authorize` does not redirect on an error before consent.**
+  Anybody can register a client, so a link to a deployment could send a
+  browser on to a site of the sender's choice with no click. A bad
+  `response_type`, `scope`, `resource` or PKCE parameter now shows an
+  error page of the deployment with `400`. A redirect with
+  `error=access_denied` after the person presses Deny is unchanged.
+  - **Changed behaviour for an OAuth client:** a client that sends a bad
+    parameter gets no `error=...` at its callback.
+- **Redirect URIs use an allowlist.** The rule was a list of refused
+  schemes. A redirect URI must now be `https:`, `http:` on `localhost`,
+  `127.0.0.1` or `[::1]`, a reverse-domain scheme with a dot such as
+  `com.example.app:`, or one of `cursor:`, `vscode:`, `vscode-insiders:`
+  and `windsurf:`. The rule applies at registration, to a metadata
+  document, and again before each redirect.
+  - **Changed behaviour for an OAuth client:** another scheme, such as
+    `myapp:`, is refused. A client that registered one gets the error page
+    until it registers again. No row is changed. The query that finds such
+    clients is in `docs/self-hosting/security.md`.
+- **A failed token request does not spend the authorization code.** A
+  request with a wrong `code_verifier`, `redirect_uri` or `resource` used
+  up the code, so a party that saw a code could stop the real client. The
+  code is now spent in the transaction that issues the tokens.
+- **A Client ID Metadata Document failure gives one fixed message.** The
+  message showed what the host answered, to a caller with no credential.
+  The reason now goes to the server log as a `warn` line.
+- **Unused metadata-document clients are deleted.** A cached client that
+  no request, connection or grant refers to is deleted one hour after its
+  last authorize request. The rows grew without limit.
 - **Scope enforcement fails closed.** A scoped API key passed with no check
   on a `/v1` route that had no scope rule. It now gets `403`. Every core
   route has a rule, and a test fails when a new one has none. Full-access

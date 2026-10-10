@@ -15,8 +15,22 @@ import type { OAuthTokenAuthMethod } from './schema.ts'
  * written them.
  */
 
-/** Schemes that would run code or read local data if a browser followed them. */
-const FORBIDDEN_SCHEMES = new Set(['javascript:', 'data:', 'file:', 'vbscript:', 'about:', 'blob:', 'ws:', 'wss:'])
+/**
+ * Private-use schemes of desktop MCP clients that have no dot in them. Each
+ * one opens the app that registered it with the operating system, and no
+ * browser gives any of them a meaning of its own. A scheme goes here only when
+ * a real client redirects to it.
+ */
+const NATIVE_APP_SCHEMES = new Set(['cursor:', 'vscode:', 'vscode-insiders:', 'windsurf:'])
+
+/**
+ * A private-use scheme in the form RFC 8252 §7.1 asks for: a domain name the
+ * app's maker controls, reversed, such as `com.example.app`. The dot is the
+ * point. No scheme that a browser or an operating system handles itself has
+ * one, so a scheme with a dot can only be one that an app registered.
+ * `URL.protocol` is lower case already and ends with the colon.
+ */
+const REVERSE_DOMAIN_SCHEME = /^[a-z][a-z0-9+-]*(?:\.[a-z0-9+-]+)+:$/u
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
@@ -25,11 +39,18 @@ export type OAuthClientErrorCode = 'invalid_client_metadata' | 'invalid_redirect
 
 export class OAuthClientError extends Error {
   readonly code: OAuthClientErrorCode
+  /**
+   * What went wrong, for the server log only. Set when `message` must not say:
+   * the caller of an unauthenticated endpoint reads `message`, and the detail
+   * would tell it what a host of its choice answered.
+   */
+  readonly logReason: string | undefined
 
-  constructor(code: OAuthClientErrorCode, message: string) {
+  constructor(code: OAuthClientErrorCode, message: string, logReason?: string) {
     super(message)
     this.name = 'OAuthClientError'
     this.code = code
+    this.logReason = logReason
   }
 }
 
@@ -43,6 +64,10 @@ function parseUrl(value: string): URL | undefined {
 
 function isLoopback(url: URL): boolean {
   return url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname)
+}
+
+function isPrivateUseScheme(protocol: string): boolean {
+  return NATIVE_APP_SCHEMES.has(protocol) || REVERSE_DOMAIN_SCHEME.test(protocol)
 }
 
 /**
@@ -67,13 +92,18 @@ export function isLocalRedirectUri(value: string): boolean {
 }
 
 /**
- * The redirect URIs a client may register.
+ * The redirect URIs a client may register, and the ones a browser may be sent
+ * to. The service asks again before each redirect, because a row stored by an
+ * earlier version can hold a URI that this rule refuses.
  *
- * HTTPS anywhere. Plain HTTP only on a loopback address, which is what a CLI or
- * desktop client listens on (RFC 8252 §7.3). A private-use scheme
- * (`cursor://…`) for an app that registers one with the operating system
- * (RFC 8252 §7.1). Never a scheme a browser would execute, never a fragment,
- * never embedded credentials.
+ * Three kinds are allowed and every other scheme is refused. HTTPS anywhere.
+ * Plain HTTP only on a loopback address, which is what a CLI or desktop client
+ * listens on (RFC 8252 §7.3). A private-use scheme for an app that registers
+ * one with the operating system (RFC 8252 §7.1): a reverse domain name such as
+ * `com.example.app:/callback`, or one of `NATIVE_APP_SCHEMES`. A scheme that a
+ * browser would run or read local data through (`javascript:`, `data:`,
+ * `file:` and the like) is none of the three, so it needs no list of its own.
+ * Never a fragment, never embedded credentials.
  */
 export function redirectUriProblem(value: string): string | undefined {
   const url = parseUrl(value)
@@ -90,15 +120,15 @@ export function redirectUriProblem(value: string): string | undefined {
     return `"${value}" carries credentials`
   }
 
-  if (FORBIDDEN_SCHEMES.has(url.protocol)) {
-    return `"${value}" uses the ${url.protocol} scheme, which a redirect URI may not`
+  if (url.protocol === 'https:' || isPrivateUseScheme(url.protocol)) {
+    return undefined
   }
 
-  if (url.protocol === 'http:' && !isLoopback(url)) {
-    return `"${value}" is plain HTTP on a host other than a loopback address`
+  if (url.protocol === 'http:') {
+    return isLoopback(url) ? undefined : `"${value}" is plain HTTP on a host other than a loopback address`
   }
 
-  return undefined
+  return `"${value}" uses the ${url.protocol} scheme, which a redirect URI may not`
 }
 
 /**
@@ -262,6 +292,28 @@ export interface FetchedClientMetadata {
 
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>
 
+/**
+ * The one message for every way a metadata document can fail.
+ *
+ * `/oauth/authorize` takes no credential, so anybody can make the server ask
+ * an HTTPS URL for a document. A message that said "answered 404" or "is not
+ * JSON" would tell that caller whether a host that only the server can reach
+ * is there, and what it said. So the caller reads this sentence whatever
+ * happened, and the reason goes to the server log.
+ */
+export const CLIENT_METADATA_REFUSED =
+  'The client metadata document for this client_id could not be used. It must be at a public HTTPS address, ' +
+  'answer 200 with JSON, name its own URL as client_id, and list redirect URIs that are allowed.'
+
+function metadataRefused(logReason: string): OAuthClientError {
+  return new OAuthClientError('invalid_client', CLIENT_METADATA_REFUSED, logReason)
+}
+
+/** The name and message of a failed request. Never anything the host sent as a body. */
+function describeFailure(error: Error): string {
+  return `${error.name}: ${error.message}`
+}
+
 /** Reads at most `limit` bytes, so a hostile document cannot exhaust memory. */
 async function readCapped(response: Response, limit: number): Promise<string> {
   const reader = response.body?.getReader()
@@ -284,7 +336,7 @@ async function readCapped(response: Response, limit: number): Promise<string> {
 
     if (total > limit) {
       await reader.cancel()
-      throw new OAuthClientError('invalid_client', 'The client metadata document is too large')
+      throw metadataRefused(`the document is larger than ${String(limit)} bytes`)
     }
 
     chunks.push(value)
@@ -302,11 +354,13 @@ function httpsOrNull(value: string | undefined): string | null {
  *
  * The URL is one a stranger chose, so the request goes through the same
  * egress guard as a webhook delivery, follows no redirect, gives up after five
- * seconds, and reads at most 64 KB.
+ * seconds, and reads at most 64 KB. `dependencies.fetch` must be the guard's
+ * own `fetch`, which connects only to an address the guard accepted.
  *
  * @throws OAuthClientError when the document cannot be fetched, is not valid,
  *   names a different `client_id`, or asks for a client authentication method
- *   Kelpie does not support for metadata-document clients.
+ *   Kelpie does not support for metadata-document clients. The message is
+ *   `CLIENT_METADATA_REFUSED` each time, and `logReason` says which it was.
  */
 export async function fetchClientMetadata(
   clientId: string,
@@ -316,7 +370,12 @@ export async function fetchClientMetadata(
     await dependencies.egress.check(clientId)
   } catch (error: unknown) {
     if (error instanceof BlockedEgressError) {
-      throw new OAuthClientError('invalid_client', 'The client metadata document is on a private address')
+      throw metadataRefused(error.message)
+    }
+
+    // The guard resolves the host itself, and a name with no address fails here.
+    if (error instanceof Error) {
+      throw metadataRefused(`the host could not be checked: ${describeFailure(error)}`)
     }
 
     throw error
@@ -331,33 +390,55 @@ export async function fetchClientMetadata(
       redirect: 'manual',
       signal: AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS),
     })
-  } catch {
-    throw new OAuthClientError('invalid_client', 'The client metadata document could not be fetched')
+  } catch (error: unknown) {
+    // A refused connection, a timeout, a failed TLS handshake and an address
+    // the guard blocked at the socket all end here, each as an `Error`.
+    if (error instanceof Error) {
+      throw metadataRefused(`the request failed: ${describeFailure(error)}`)
+    }
+
+    throw error
   }
 
+  // A redirect is an answer other than 200 too: `redirect: 'manual'` hands it
+  // back here and nothing follows it.
   if (response.status !== 200) {
-    throw new OAuthClientError(
-      'invalid_client',
-      `The client metadata document answered ${String(response.status)}`,
-    )
+    await response.body?.cancel()
+    throw metadataRefused(`the host answered ${String(response.status)}`)
+  }
+
+  let text: string
+
+  try {
+    text = await readCapped(response, METADATA_MAX_BYTES)
+  } catch (error: unknown) {
+    // The timeout covers the body too, and a host can drop the connection
+    // part of the way through it.
+    if (error instanceof Error && !(error instanceof OAuthClientError)) {
+      throw metadataRefused(`the body could not be read: ${describeFailure(error)}`)
+    }
+
+    throw error
   }
 
   let raw: unknown
 
   try {
-    raw = JSON.parse(await readCapped(response, METADATA_MAX_BYTES))
+    raw = JSON.parse(text)
   } catch (error: unknown) {
-    if (error instanceof OAuthClientError) {
-      throw error
+    if (error instanceof SyntaxError) {
+      throw metadataRefused('the document is not JSON')
     }
 
-    throw new OAuthClientError('invalid_client', 'The client metadata document is not JSON')
+    throw error
   }
 
   const parsed = metadataDocument.safeParse(raw)
 
   if (!parsed.success) {
-    throw new OAuthClientError('invalid_client', 'The client metadata document is missing required fields')
+    const fields = parsed.error.issues.map((issue) => issue.path.join('.')).join(', ')
+
+    throw metadataRefused(`the document is missing required fields or has fields of the wrong shape: ${fields}`)
   }
 
   const document = parsed.data
@@ -365,24 +446,19 @@ export async function fetchClientMetadata(
   // The document must claim the URL it was fetched from. Anything else would
   // let one site's document stand in for another client.
   if (document.client_id !== clientId) {
-    throw new OAuthClientError('invalid_client', 'The client metadata document names a different client_id')
+    throw metadataRefused('the document names a different client_id')
   }
 
   // A document cannot hold a shared secret, and Kelpie does not verify
   // private_key_jwt, so a metadata-document client is always public.
   if (document.token_endpoint_auth_method !== undefined && document.token_endpoint_auth_method !== 'none') {
-    throw new OAuthClientError(
-      'invalid_client',
-      `The token endpoint auth method "${document.token_endpoint_auth_method}" is not supported`,
-    )
+    throw metadataRefused('the document asks for a token endpoint auth method other than none')
   }
 
-  for (const uri of document.redirect_uris) {
-    const problem = redirectUriProblem(uri)
-
-    if (problem !== undefined) {
-      throw new OAuthClientError('invalid_client', problem)
-    }
+  // The reasons name no value from the document: the log must not hold what
+  // an internal host answered.
+  if (document.redirect_uris.some((uri) => redirectUriProblem(uri) !== undefined)) {
+    throw metadataRefused('the document lists a redirect URI that is not allowed')
   }
 
   return {
