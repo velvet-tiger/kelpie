@@ -72,6 +72,15 @@ Recent runs appear on **Admin → AI → Agents** below the registered agents li
 
 When you click Run (or `POST /v1/agent-tasks/:task_id/run`), Kelpie resolves the task and POSTs the result to the registered endpoint.
 
+A scoped API key needs more than `agent_tasks:write` for these two calls. A session and a full-access key are not affected.
+
+| Call | Scopes a scoped key needs |
+| --- | --- |
+| `POST /v1/agent-tasks/:task_id/resolve` | `agent_tasks:write`, and the read scope of the target type: `companies:read` for a company, `handbook:read` for a handbook page, `dashboard:read` for a workspace task |
+| `POST /v1/agent-tasks/:task_id/run` | The scopes for resolve, and the write scopes of what the run may write: `notes:write`; the write scope of the target type for a person, a company, a pipeline record or an event; `plan_items:write` for a pipeline record or an event; `positions:write` for a person or a candidate; `decisions:write` when the task has `may_create_decision` |
+
+The rule is the same for every registered agent. Your own receiver writes with its own API key, so give that key only the scopes its tasks need.
+
 ### Request
 
 ```

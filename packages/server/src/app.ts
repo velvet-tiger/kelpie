@@ -176,7 +176,10 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
 
   app.use('/v1/*', workspaceAccessMiddleware)
 
-  app.use('/v1/*', createApiKeyScopeMiddleware(dependencies.credentials))
+  app.use(
+    '/v1/*',
+    createApiKeyScopeMiddleware(dependencies.credentials, dependencies.contributions.routeScopeRules),
+  )
 
   // Every module's `POST` gets this the same way, decided once here rather than
   // per route. It skips `/v1/public/*` itself — a public request has

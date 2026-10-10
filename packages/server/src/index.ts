@@ -131,6 +131,7 @@ export type {
   McpToolRegistry,
   ModuleCatalogEntry,
   ModuleContext,
+  RouteScopeDeclaration,
   SchemaContribution,
   VerifiedIdentity,
 } from './runtime/module.ts'

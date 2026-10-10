@@ -1,5 +1,6 @@
 import type { AgentRunStatus, AgentTaskDefinition, AgentTaskTargetType } from '@kelpie/schemas'
 
+import { requireApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import { changedKeys } from '../../lib/changes.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError, describeThrown } from '../../lib/errors.ts'
@@ -19,6 +20,7 @@ import * as repository from './repository.ts'
 import { AGENT_SORTS, DEFAULT_AGENT_SORT, DEFAULT_RUN_SORT, RUN_SORTS } from './repository.ts'
 import type { AgentRecord, RunFilters, RunRecord } from './repository.ts'
 import { assemblePromptInputs } from './resolve.ts'
+import { runScopes, targetReadScope } from './scopes.ts'
 import type { ResolvedTaskView } from './wire.ts'
 
 /**
@@ -31,6 +33,9 @@ import type { ResolvedTaskView } from './wire.ts'
  * agents, resolve tasks, run them, and read the run log. The auth header is the
  * one secret in the module and it is sealed and never returned, so a member
  * reading the list learns an endpoint name, not a credential.
+ *
+ * A scoped API key needs more than `agent_tasks:write` to resolve and to run:
+ * see `scopes.ts`.
  */
 
 export interface AgentTasksDependencies {
@@ -239,6 +244,10 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
 
       requireTargetType(definition, target.targetType)
 
+      // Before the read, so a refused caller does not learn whether the
+      // target exists.
+      requireApiKeyScope(actor, targetReadScope(target.targetType))
+
       return resolveView(workspaceId, definition, target)
     },
 
@@ -247,6 +256,14 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
       const definition = requireTask(taskId)
 
       requireTargetType(definition, input.targetType)
+
+      // The agent writes for the caller, with its own credential or as the
+      // hosted AI, which has every scope. So the caller must hold the scopes
+      // of what the run may write, or a key with `agent_tasks:write` alone
+      // could change any record through an agent.
+      for (const scope of runScopes(definition, input.targetType)) {
+        requireApiKeyScope(actor, scope)
+      }
 
       const agent = await requireAgent(workspaceId, input.agentId)
       const resolved = await resolveView(workspaceId, definition, input)

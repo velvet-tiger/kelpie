@@ -14,7 +14,13 @@ import {
   sensitiveApiKeyScopesHeld,
 } from '@kelpie/schemas'
 
-import { resolveRestScope } from './apiKeyScopes.ts'
+import type { Actor } from './actor.ts'
+import {
+  isScopedCredential,
+  isScopeExemptRoute,
+  resolveRestScope,
+  routeScopeRuleFor,
+} from './apiKeyScopes.ts'
 
 describe('expandApiKeyScopes', () => {
   it('expands read:objects to CRM read scopes', () => {
@@ -238,5 +244,123 @@ describe('resolveRestScope', () => {
     expect(resolveRestScope('POST', '/v1/ai/person-intake/identify')).toBe('ai:write')
     expect(resolveRestScope('POST', '/v1/ai/person-intake/research')).toBe('ai:write')
     expect(resolveRestScope('POST', '/v1/ai/person-intake/apply')).toBe('ai:write')
+  })
+})
+
+describe('isScopeExemptRoute', () => {
+  it('exempts the session-only and public surfaces', () => {
+    expect(isScopeExemptRoute('GET', '/v1/account')).toBe(true)
+    expect(isScopeExemptRoute('PATCH', '/v1/account/preferences')).toBe(true)
+    expect(isScopeExemptRoute('POST', '/v1/auth/login')).toBe(true)
+    expect(isScopeExemptRoute('GET', '/v1/public/config')).toBe(true)
+    expect(isScopeExemptRoute('POST', '/v1/workspaces')).toBe(true)
+  })
+
+  it('ends the account exemption at the path segment', () => {
+    expect(isScopeExemptRoute('GET', '/v1/accounts')).toBe(false)
+    expect(isScopeExemptRoute('GET', '/v1/accounting/ledgers')).toBe(false)
+  })
+
+  it('exempts no route that has a rule or none', () => {
+    expect(isScopeExemptRoute('GET', '/v1/people')).toBe(false)
+    expect(isScopeExemptRoute('GET', '/v1/no-such-thing')).toBe(false)
+  })
+})
+
+describe('routeScopeRuleFor', () => {
+  it('reads a route path under /v1, with parameters', () => {
+    const rule = routeScopeRuleFor(['GET'], '/invoices/:id', 'workspace:read')
+
+    expect(rule.pattern.test('/v1/invoices/inv_1')).toBe(true)
+    expect(rule.pattern.test('/v1/invoices')).toBe(false)
+    expect(rule.pattern.test('/v1/invoices/inv_1/lines')).toBe(false)
+    expect(rule.pattern.test('/v1/invoices/')).toBe(false)
+    expect(rule.pattern.test('/invoices/inv_1')).toBe(false)
+  })
+
+  it('reads a last * as the path before it and everything below', () => {
+    const rule = routeScopeRuleFor(['GET'], '/billing/*', 'workspace:read')
+
+    expect(rule.pattern.test('/v1/billing')).toBe(true)
+    expect(rule.pattern.test('/v1/billing/invoices/inv_1')).toBe(true)
+    expect(rule.pattern.test('/v1/billings')).toBe(false)
+  })
+
+  it('reads a dot as a dot', () => {
+    const rule = routeScopeRuleFor(['GET'], '/feeds/latest.json', 'workspace:read')
+
+    expect(rule.pattern.test('/v1/feeds/latest.json')).toBe(true)
+    expect(rule.pattern.test('/v1/feeds/latestxjson')).toBe(false)
+  })
+
+  it('refuses a path it cannot read, and one that would cover every route', () => {
+    for (const path of ['', '/', 'invoices', '/*', '/invoices/*/lines', '/invoices/:id{[0-9]+}', '/invoices/:id?', '/a b']) {
+      expect(() => routeScopeRuleFor(['GET'], path, 'workspace:read'), path).toThrow(/scope rule/u)
+    }
+
+    expect(() => routeScopeRuleFor([], '/invoices', 'workspace:read')).toThrow(/names no method/u)
+  })
+})
+
+describe('resolveRestScope with module rules', () => {
+  const moduleRules = [
+    routeScopeRuleFor(['GET'], '/invoices/:id', 'workspace:read'),
+    routeScopeRuleFor(['GET', 'DELETE'], '/people/:id', 'tags:read'),
+    routeScopeRuleFor(['GET'], '/account/export', 'workspace:read'),
+  ]
+
+  it('gives a module route the scope its module declared, for the declared methods', () => {
+    expect(resolveRestScope('GET', '/v1/invoices/inv_1', moduleRules)).toBe('workspace:read')
+    expect(resolveRestScope('POST', '/v1/invoices/inv_1', moduleRules)).toBeNull()
+    expect(resolveRestScope('GET', '/v1/invoices/inv_1')).toBeNull()
+  })
+
+  it('reads core rules first, so a module cannot change a core route or an exemption', () => {
+    expect(resolveRestScope('GET', '/v1/people/per_1', moduleRules)).toBe('people:read')
+    expect(resolveRestScope('DELETE', '/v1/people/per_1', moduleRules)).toBe('people:delete')
+    expect(resolveRestScope('GET', '/v1/account/export', moduleRules)).toBeNull()
+  })
+})
+
+describe('isScopedCredential', () => {
+  const key = {
+    kind: 'api_key',
+    apiKeyId: 'apik_1',
+    userId: null,
+    workspaceId: 'ws_1',
+    role: 'admin',
+    memberId: null,
+  } as const
+
+  it('is true for a key with scopes and for every OAuth grant', () => {
+    const grant: Actor = {
+      kind: 'oauth',
+      grantId: 'ogr_1',
+      connectionId: 'ocn_1',
+      clientId: 'ocl_1',
+      userId: 'usr_1',
+      workspaceId: 'ws_1',
+      role: 'member',
+      memberId: 'mem_1',
+      scopes: [],
+    }
+
+    expect(isScopedCredential({ ...key, scopes: ['people:read'] })).toBe(true)
+    expect(isScopedCredential(grant)).toBe(true)
+    expect(isScopedCredential({ ...grant, scopes: ['read:all'] })).toBe(true)
+  })
+
+  it('is false for a full-access key and for a session', () => {
+    expect(isScopedCredential({ ...key, scopes: [] })).toBe(false)
+    expect(
+      isScopedCredential({
+        kind: 'session',
+        userId: 'usr_1',
+        sessionId: 'ses_1',
+        workspaceId: 'ws_1',
+        role: 'owner',
+        memberId: 'mem_1',
+      }),
+    ).toBe(false)
   })
 })

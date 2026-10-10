@@ -1187,6 +1187,168 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
     })
   })
 
+  describe('scopes of a resolve and of a run', () => {
+    async function key(scopes: readonly string[]): Promise<string> {
+      const response = await client.send('POST', '/v1/api-keys', {
+        body:
+          scopes.length === 0
+            ? { name: 'agent', kind: 'workspace', full_access: true }
+            : { name: 'agent', kind: 'workspace', scopes },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(201)
+
+      return readString(await response.json(), 'secret')
+    }
+
+    async function errorMessage(response: Response): Promise<string> {
+      return readString(readRecord(await response.json()).error, 'message')
+    }
+
+    function resolveWith(bearer: string, taskId: string, targetType: string, targetId: string): Promise<Response> {
+      return client.send('POST', `/v1/agent-tasks/${taskId}/resolve`, {
+        body: { target_type: targetType, target_id: targetId },
+        bearer,
+      })
+    }
+
+    async function runCount(): Promise<number> {
+      const response = await client.send('GET', '/v1/agent-runs', { cookie: acme.cookie })
+
+      return readList(await response.json()).length
+    }
+
+    it('refuses a resolve to a key with agent_tasks:write and no read scope for the target', async () => {
+      const companyId = await createCompany('Brightline Health')
+      const tasksOnly = await key(['agent_tasks:write'])
+      const refused = await resolveWith(tasksOnly, 'company.score_icp', 'company', companyId)
+
+      expect(refused.status).toBe(403)
+
+      const body = await refused.text()
+
+      expect(body).toContain('This API key does not have the companies:read scope')
+      expect(body).not.toContain('Brightline Health')
+
+      // The read scope of another type does not help.
+      const wrongType = await resolveWith(
+        await key(['agent_tasks:write', 'people:read']),
+        'company.score_icp',
+        'company',
+        companyId,
+      )
+
+      expect(wrongType.status).toBe(403)
+
+      // The answer for a target that does not exist is the same, so the key
+      // cannot find out which ids exist.
+      const missing = await resolveWith(tasksOnly, 'company.score_icp', 'company', 'com_missing')
+
+      expect(missing.status).toBe(403)
+    })
+
+    it('resolves for a key that can read the target type, by name or through a preset', async () => {
+      const companyId = await createCompany('Brightline Health')
+
+      for (const scopes of [
+        ['agent_tasks:write', 'companies:read'],
+        ['agent_tasks:write', 'companies:write'],
+        ['agent_tasks:write', 'read:objects'],
+        [],
+      ]) {
+        const response = await resolveWith(await key(scopes), 'company.score_icp', 'company', companyId)
+
+        expect(response.status, scopes.join(',')).toBe(200)
+      }
+    })
+
+    it('needs dashboard:read to resolve a workspace task, and handbook:read for a handbook page', async () => {
+      const tasksOnly = await key(['agent_tasks:write'])
+      const workspaceTask = await resolveWith(tasksOnly, 'workspace.empty_field_sweep', 'workspace', acme.workspaceId)
+
+      expect(workspaceTask.status).toBe(403)
+      expect(await errorMessage(workspaceTask)).toBe('This API key does not have the dashboard:read scope')
+      expect(
+        (
+          await resolveWith(
+            await key(['agent_tasks:write', 'dashboard:read']),
+            'workspace.empty_field_sweep',
+            'workspace',
+            acme.workspaceId,
+          )
+        ).status,
+      ).toBe(200)
+
+      const handbookTask = await resolveWith(tasksOnly, 'handbook.draft_update', 'handbook', 'hbk_any')
+
+      expect(handbookTask.status).toBe(403)
+      expect(await errorMessage(handbookTask)).toBe('This API key does not have the handbook:read scope')
+    })
+
+    it('refuses a run to a key that lacks a scope for what the run may write, and starts nothing', async () => {
+      const companyId = await createCompany()
+      const agentId = readString(await createAgent(), 'id')
+      const start = (bearer: string, taskId = 'company.enrich'): Promise<Response> =>
+        client.send('POST', `/v1/agent-tasks/${taskId}/run`, {
+          body: { target_type: 'company', target_id: companyId, agent_id: agentId },
+          bearer,
+        })
+
+      const cases: readonly (readonly [readonly string[], string, string])[] = [
+        [['agent_tasks:write'], 'company.enrich', 'companies:read'],
+        [['agent_tasks:write', 'companies:read'], 'company.enrich', 'notes:write'],
+        [['agent_tasks:write', 'companies:read', 'notes:write'], 'company.enrich', 'companies:write'],
+        // This task may create a Decision, so it needs the scope to write one.
+        [['agent_tasks:write', 'companies:write', 'notes:write'], 'company.capture_decision', 'decisions:write'],
+      ]
+
+      for (const [scopes, taskId, missing] of cases) {
+        const refused = await start(await key(scopes), taskId)
+
+        expect(refused.status, scopes.join(',')).toBe(403)
+        expect(await errorMessage(refused)).toBe(`This API key does not have the ${missing} scope`)
+      }
+
+      expect(await runCount()).toBe(0)
+      expect(sent).toHaveLength(0)
+    })
+
+    it('starts a run for a key that holds every scope the run needs', async () => {
+      const companyId = await createCompany()
+      const agentId = readString(await createAgent(), 'id')
+      const start = (bearer: string, taskId: string): Promise<Response> =>
+        client.send('POST', `/v1/agent-tasks/${taskId}/run`, {
+          body: { target_type: 'company', target_id: companyId, agent_id: agentId },
+          bearer,
+        })
+
+      const granular = await start(
+        await key(['agent_tasks:write', 'companies:write', 'notes:write']),
+        'company.enrich',
+      )
+
+      expect(granular.status).toBe(201)
+
+      const withDecision = await start(
+        await key(['agent_tasks:write', 'companies:write', 'notes:write', 'decisions:write']),
+        'company.capture_decision',
+      )
+
+      expect(withDecision.status).toBe(201)
+
+      for (const scopes of [['write:admin', 'write:objects'], ['write:all'], []]) {
+        const response = await start(await key(scopes), 'company.capture_decision')
+
+        expect(response.status, scopes.join(',')).toBe(201)
+      }
+
+      for (const run of readList(await (await client.send('GET', '/v1/agent-runs', { cookie: acme.cookie })).json())) {
+        await settledRun(readString(run, 'id'))
+      }
+    })
+  })
+
   describe('services.secretEncryption precedence', () => {
     it('boots the module from services.secretEncryption when SECRET_ENCRYPTION_KEY is missing from the environment', async () => {
       // TEST_ENVIRONMENT normally carries SECRET_ENCRYPTION_KEY, so most suites

@@ -384,6 +384,28 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **Scope enforcement fails closed.** A scoped API key passed with no check
+  on a `/v1` route that had no scope rule. It now gets `403`. Every core
+  route has a rule, and a test fails when a new one has none. Full-access
+  keys and sessions are not affected.
+  - **Changed behaviour:** a scoped key gets `403`, not `404`, on a path
+    that does not exist. A `HEAD` request from a scoped key needs the scope
+    of the matching `GET`; it needed none.
+  - **Module authors:** a module route is refused to a scoped key until the
+    module declares its scope with the new `context.routeScopes(...)`. See
+    `docs/extending/writing-a-module.md`.
+- **A conversion needs the write scope of the target type.** A key with
+  `enquiries:write` alone could create a Deal through
+  `POST /v1/enquiries/:id/convert`. A scoped key now needs the write scope
+  of the source and of the target, on REST and on the convert tools.
+  `write:objects` has both.
+- **`agent_tasks:write` alone no longer resolves or runs a task.** Resolve
+  returned the name of the target, and a run made the agent write records,
+  with no other scope. Resolve now needs the read scope of the target type
+  (`dashboard:read` for a workspace task). Run needs that and the write
+  scopes of what the run can write.
+  - **Changed behaviour:** a key with `write:admin` and no object scopes
+    can no longer run a task. Add `read:objects` and `write:objects`.
 - **A workspace cannot end with two owners or none.** A transfer of
   ownership at the same time as another role change or a removal could
   leave a workspace with two owners or with none. Role changes and

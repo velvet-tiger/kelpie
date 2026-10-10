@@ -1,6 +1,7 @@
-import type { ConvertPipelineRecordInput, PipelineKind } from '@kelpie/schemas'
+import type { ApiKeyGranularScope, ConvertPipelineRecordInput, PipelineKind } from '@kelpie/schemas'
 
 import { toEventActor } from '../../lib/actor.ts'
+import { requireApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import { AppError } from '../../lib/errors.ts'
@@ -52,6 +53,15 @@ export interface ConversionsService {
     sourceId: string,
     body: ConvertPipelineRecordInput,
   ): Promise<ConvertPipelineRecordResult>
+}
+
+/** The scope a bearer credential needs to write a record of each pipeline kind. */
+export const PIPELINE_WRITE_SCOPES: Readonly<Record<PipelineKind, ApiKeyGranularScope>> = {
+  enquiry: 'enquiries:write',
+  deal: 'deals:write',
+  opportunity: 'opportunities:write',
+  raise: 'raises:write',
+  partnership: 'partnerships:write',
 }
 
 function conversionEventName(sourceKind: PipelineKind): EventName {
@@ -140,6 +150,14 @@ export function createConversionsService(dependencies: ConversionsDependencies):
           { field: 'target_type', message: `Already a ${objectLabelFor(sourceKind)}` },
         ])
       }
+
+      // A conversion changes the source and creates a record of the target
+      // type, so a scoped credential needs the write scope of both. The route
+      // rule and the tool declaration can name the source only: the target is
+      // in the body. Checked before any read, so a refused caller learns
+      // nothing about the source.
+      requireApiKeyScope(actor, PIPELINE_WRITE_SCOPES[sourceKind])
+      requireApiKeyScope(actor, PIPELINE_WRITE_SCOPES[targetKind])
 
       const source = await loadPipelineSnapshot(dependencies.db, workspaceId, sourceKind, sourceId)
 

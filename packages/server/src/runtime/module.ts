@@ -79,6 +79,24 @@ export interface McpToolRegistry {
   list(): readonly McpTool[]
 }
 
+/**
+ * The scope a scoped API key needs for one of a module's `/v1` routes.
+ *
+ * A module declares one for each route a scoped key may call. A route with no
+ * declaration is refused to a scoped key: only a full-access key and a
+ * session reach it.
+ */
+export interface RouteScopeDeclaration {
+  readonly methods: readonly ('GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE')[]
+  /**
+   * The route path as given to the router, so under `/v1`: `/invoices/:id`.
+   * A `:name` segment matches one path segment. A last segment of `*` matches
+   * the path before it and everything below.
+   */
+  readonly path: string
+  readonly scope: ApiKeyGranularScope
+}
+
 /** How an agent dispatch ended. The same shape whether it went over HTTP or in-process. */
 export interface AgentDispatchOutcome {
   readonly delivered: boolean
@@ -218,6 +236,17 @@ export interface ModuleServices {
 export interface ModuleContext extends ModuleServices {
   /** Registers routes. They mount under `/v1` and are public API like any other. */
   routes(mount: (router: Hono) => void): void
+  /**
+   * Declares the scope a scoped API key needs for routes this module mounts
+   * with `routes`. The scope is one of core's: the one that names the data the
+   * route reads or changes (`'people:read'`), or an admin one
+   * (`'workspace:write'`) for a route that manages the module.
+   *
+   * Without a declaration, a route is refused to every scoped key. Core's own
+   * rules are read first, so a declaration cannot change a core route. A GET
+   * declaration covers HEAD. A path this cannot read fails boot.
+   */
+  routeScopes(declarations: readonly RouteScopeDeclaration[]): void
   /**
    * Registers a named transactional-mail provider. `name` is what the assembly
    * puts in `kelpie.config.ts`'s `email.provider`; the runtime resolves that

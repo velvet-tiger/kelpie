@@ -10,6 +10,10 @@ import { AppError } from './errors.ts'
  *
  * Sessions are never scoped. An empty scope list on a key means full access.
  *
+ * Enforcement fails closed. A `/v1` route that has no rule here, none from a
+ * module, and no exemption is refused to a scoped credential. A route that
+ * nobody gave a scope must not be open to every scoped key.
+ *
  * A route that deletes a record of an object-data resource needs that
  * resource's delete scope, whatever its HTTP method. A route that deletes
  * workspace admin or object config (a webhook, an API key, a custom field, a
@@ -18,14 +22,21 @@ import { AppError } from './errors.ts'
  * resources have no delete scope.
  */
 
-interface RouteScopeRule {
+/** The scope one or more methods need on the paths a pattern matches. */
+export interface RouteScopeRule {
   readonly methods: readonly string[]
+  /** Tested against the whole request path, `/v1` included. */
   readonly pattern: RegExp
   readonly scope: ApiKeyGranularScope
 }
 
-/** Paths that need no scope check (session-only or unauthenticated). */
-function isExempt(method: string, path: string): boolean {
+/**
+ * Paths that need no scope check (session-only or unauthenticated).
+ *
+ * Each prefix ends at a path segment. `/v1/account` must not also exempt a
+ * later `/v1/accounts` or `/v1/accounting`.
+ */
+export function isScopeExemptRoute(method: string, path: string): boolean {
   if (path.startsWith('/v1/public/')) {
     return true
   }
@@ -34,7 +45,7 @@ function isExempt(method: string, path: string): boolean {
     return true
   }
 
-  if (path.startsWith('/v1/account')) {
+  if (path === '/v1/account' || path.startsWith('/v1/account/')) {
     return true
   }
 
@@ -237,8 +248,19 @@ export function requireScopesWithinActor(actor: Actor, requested: readonly ApiKe
   }
 }
 
-export function resolveRestScope(method: string, path: string): ApiKeyGranularScope | null {
-  if (isExempt(method, path)) {
+/**
+ * The scope a request needs, or null when no rule names one.
+ *
+ * Null has two meanings, which `isScopeExemptRoute` tells apart: the route is
+ * exempt, or nobody declared a scope for it. Core's rules are read before
+ * `moduleRules`, so a module cannot change the scope of a core route.
+ */
+export function resolveRestScope(
+  method: string,
+  path: string,
+  moduleRules: readonly RouteScopeRule[] = [],
+): ApiKeyGranularScope | null {
+  if (isScopeExemptRoute(method, path)) {
     return null
   }
 
@@ -246,13 +268,73 @@ export function resolveRestScope(method: string, path: string): ApiKeyGranularSc
     return 'workspace:write'
   }
 
-  for (const rule of ROUTE_SCOPE_RULES) {
+  for (const rule of [...ROUTE_SCOPE_RULES, ...moduleRules]) {
     if (rule.methods.includes(method) && rule.pattern.test(path)) {
       return rule.scope
     }
   }
 
   return null
+}
+
+const LITERAL_SEGMENT = /^[A-Za-z0-9._~-]+$/u
+const PARAMETER_SEGMENT = /^:[A-Za-z0-9_]+$/u
+
+/**
+ * Builds a rule from a route path as a module gives it to its router:
+ * `/invoices/:id`. A `:name` segment matches one path segment. A last segment
+ * of `*` matches the path before it and everything below. The path is under
+ * `/v1`, as the router is.
+ *
+ * @throws Error for a path this reader does not understand. A pattern read
+ *   wrongly would give a scope to routes its author did not mean.
+ */
+export function routeScopeRuleFor(
+  methods: readonly string[],
+  path: string,
+  scope: ApiKeyGranularScope,
+): RouteScopeRule {
+  if (methods.length === 0) {
+    throw new Error(`the scope rule for "${path}" names no method`)
+  }
+
+  if (!path.startsWith('/') || path.length === 1) {
+    throw new Error(`the scope rule path "${path}" must start with "/" and name a route`)
+  }
+
+  const segments = path.slice(1).split('/')
+  const parts = segments.map((segment, index) => {
+    if (LITERAL_SEGMENT.test(segment)) {
+      return `/${segment.replaceAll('.', '\\.')}`
+    }
+
+    if (PARAMETER_SEGMENT.test(segment)) {
+      return '/[^/]+'
+    }
+
+    if (segment === '*' && index === segments.length - 1 && index > 0) {
+      return '(?:/.*)?'
+    }
+
+    throw new Error(
+      `the scope rule path "${path}" has the segment "${segment}". Use a name, ":param", or a last "*"`,
+    )
+  })
+
+  return { methods, pattern: new RegExp(`^/v1${parts.join('')}$`, 'u'), scope }
+}
+
+/**
+ * True for a bearer credential that is limited to its scopes. A session is
+ * not, and an API key with an empty list is not: that list means full access.
+ * An OAuth grant always is, whatever its list holds.
+ */
+export function isScopedCredential(actor: Actor): boolean {
+  if (!isBearerActor(actor)) {
+    return false
+  }
+
+  return isOAuthActor(actor) || actor.scopes.length > 0
 }
 
 export function actorHasStoredScopes(actor: Actor): boolean {

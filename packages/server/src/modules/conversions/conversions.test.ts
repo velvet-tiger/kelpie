@@ -245,4 +245,164 @@ describe.skipIf(connectionString === undefined)('pipeline conversions', () => {
       target_id: readString(deal, 'id'),
     })
   })
+
+  describe('scopes of a conversion', () => {
+    async function key(scopes: readonly string[]): Promise<string> {
+      const response = await client.send('POST', '/v1/api-keys', {
+        body:
+          scopes.length === 0
+            ? { name: 'agent', kind: 'workspace', full_access: true }
+            : { name: 'agent', kind: 'workspace', scopes },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(201)
+
+      return readString(await response.json(), 'secret')
+    }
+
+    async function createEnquiry(): Promise<string> {
+      const response = await client.send('POST', '/v1/enquiries', {
+        body: { name: 'Inbound from site', company_id: await createCompany('Fabrikam') },
+        cookie: acme.cookie,
+      })
+
+      expect(response.status).toBe(201)
+
+      return readString(await response.json(), 'id')
+    }
+
+    /** One tool call over `/mcp`: whether the tool refused, and the JSON it answered. */
+    async function callTool(
+      bearer: string,
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<{ readonly isError: boolean; readonly payload: Record<string, unknown> }> {
+      const response = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      })
+      const result = readRecord(readRecord(await response.json()).result)
+      const [content] = result.content as { text: string }[]
+
+      return { isError: result.isError === true, payload: readRecord(JSON.parse(content?.text ?? 'null')) }
+    }
+
+    function errorMessage(payload: unknown): string {
+      return readString(readRecord(payload).error, 'message')
+    }
+
+    async function listOf(path: string): Promise<Record<string, unknown>[]> {
+      return readList(await (await client.send('GET', path, { cookie: acme.cookie })).json())
+    }
+
+    async function isConverted(path: string): Promise<boolean> {
+      const record = readRecord(await (await client.send('GET', path, { cookie: acme.cookie })).json())
+
+      return record.converted_to !== null && record.converted_to !== undefined
+    }
+
+    it('refuses a REST convert to a key with the source write scope and no target write scope', async () => {
+      const enquiryId = await createEnquiry()
+      const dealId = readString(await createDeal(), 'id')
+      const enquiriesOnly = await key(['enquiries:write'])
+      const dealsOnly = await key(['deals:write'])
+
+      // The target type fixed by the default: an enquiry becomes a Deal.
+      const toDeal = await client.send('POST', `/v1/enquiries/${enquiryId}/convert`, {
+        body: {},
+        bearer: enquiriesOnly,
+      })
+
+      expect(toDeal.status).toBe(403)
+      expect(errorMessage(await toDeal.json())).toBe('This API key does not have the deals:write scope')
+
+      // The target type chosen in the body.
+      const toOpportunity = await client.send('POST', `/v1/deals/${dealId}/convert`, {
+        body: { target_type: 'opportunity', kind: 'grant' },
+        bearer: dealsOnly,
+      })
+
+      expect(toOpportunity.status).toBe(403)
+      expect(errorMessage(await toOpportunity.json())).toBe(
+        'This API key does not have the opportunities:write scope',
+      )
+
+      // The target write scope alone is not enough either: the source changes.
+      const fromEnquiry = await client.send('POST', `/v1/enquiries/${enquiryId}/convert`, {
+        body: {},
+        bearer: dealsOnly,
+      })
+
+      expect(fromEnquiry.status).toBe(403)
+
+      expect(await listOf('/v1/deals')).toHaveLength(1)
+      expect(await listOf('/v1/opportunities')).toHaveLength(0)
+      expect(await isConverted(`/v1/enquiries/${enquiryId}`)).toBe(false)
+      expect(await isConverted(`/v1/deals/${dealId}`)).toBe(false)
+    })
+
+    it('refuses the convert tools over MCP in the same way', async () => {
+      const enquiryId = await createEnquiry()
+      const enquiriesOnly = await key(['enquiries:write'])
+
+      for (const [tool, args] of [
+        ['enquiries_convert_to_deal', { id: enquiryId }],
+        ['enquiries_convert', { id: enquiryId, target_type: 'deal' }],
+        ['enquiries_convert', { id: enquiryId, target_type: 'opportunity', kind: 'grant' }],
+      ] as const) {
+        const refused = await callTool(enquiriesOnly, tool, args)
+
+        expect(refused.isError, tool).toBe(true)
+        expect(errorMessage(refused.payload), tool).toMatch(
+          /^This API key does not have the (?:deals|opportunities):write scope$/u,
+        )
+      }
+
+      expect(await listOf('/v1/deals')).toHaveLength(0)
+      expect(await listOf('/v1/opportunities')).toHaveLength(0)
+      expect(await isConverted(`/v1/enquiries/${enquiryId}`)).toBe(false)
+    })
+
+    it('converts for a key with both write scopes, on REST and on MCP', async () => {
+      const both = await key(['enquiries:write', 'deals:write'])
+      const overRest = await client.send('POST', `/v1/enquiries/${await createEnquiry()}/convert`, {
+        body: {},
+        bearer: both,
+      })
+
+      expect(overRest.status).toBe(201)
+
+      const overMcp = await callTool(both, 'enquiries_convert', {
+        id: await createEnquiry(),
+        target_type: 'deal',
+      })
+
+      expect(overMcp.isError).toBe(false)
+      expect(await listOf('/v1/deals')).toHaveLength(2)
+    })
+
+    it('converts for a preset that holds both, a full-access key and a session, as before', async () => {
+      for (const scopes of [['write:objects'], []]) {
+        const response = await client.send('POST', `/v1/enquiries/${await createEnquiry()}/convert`, {
+          body: {},
+          bearer: await key(scopes),
+        })
+
+        expect(response.status, scopes.join(',')).toBe(201)
+      }
+
+      const bySession = await client.send('POST', `/v1/enquiries/${await createEnquiry()}/convert`, {
+        body: {},
+        cookie: acme.cookie,
+      })
+
+      expect(bySession.status).toBe(201)
+    })
+  })
 })

@@ -3,7 +3,8 @@ import type { Context, Handler, MiddlewareHandler } from 'hono'
 
 import type { Actor } from '../lib/actor.ts'
 import { requireWorkspaceId } from '../lib/actor.ts'
-import { requireApiKeyScope } from '../lib/apiKeyScopes.ts'
+import { requireApiKeyScope, routeScopeRuleFor } from '../lib/apiKeyScopes.ts'
+import type { RouteScopeRule } from '../lib/apiKeyScopes.ts'
 import { CAPTCHA_PROVIDER_VARIABLE } from '../lib/captcha.ts'
 import type { CaptchaAccess, CaptchaProvider } from '../lib/captcha.ts'
 import type { Environment } from '../lib/config.ts'
@@ -47,6 +48,11 @@ export interface ModuleContributions {
   readonly appRoutes: readonly AppRouteContribution[]
   readonly schemas: readonly SchemaContribution[]
   readonly mcpTools: readonly McpTool[]
+  /**
+   * The scopes modules declared for their own `/v1` routes. The scope
+   * middleware reads them after core's rules.
+   */
+  readonly routeScopeRules: readonly RouteScopeRule[]
   /** In-process agent dispatchers, keyed by the `managed_by` value (the providing module's id). */
   readonly agentDispatchers: ReadonlyMap<string, AgentDispatcher>
   /** What the MCP endpoint's `401` advertises. Undefined when no module installed it. */
@@ -285,6 +291,7 @@ interface Accumulator {
   readonly appRoutes: AppRouteContribution[]
   readonly schemas: SchemaContribution[]
   readonly mcpTools: McpTool[]
+  readonly routeScopeRules: RouteScopeRule[]
   readonly agentDispatchers: Map<string, AgentDispatcher>
   mcpAuthorization?: { readonly value: McpAuthorization; readonly installedBy: string }
 }
@@ -513,6 +520,24 @@ function createModuleContext(
       accumulator.publicRouters.push({ moduleId: module.id, router })
     },
 
+    routeScopes(declarations) {
+      for (const declaration of declarations) {
+        try {
+          accumulator.routeScopeRules.push(
+            routeScopeRuleFor(declaration.methods, declaration.path, declaration.scope),
+          )
+        } catch (error: unknown) {
+          // `routeScopeRuleFor` throws a plain Error for a path it cannot
+          // read, and nothing else. Boot names the module that declared it.
+          if (!(error instanceof Error)) {
+            throw error
+          }
+
+          throw new ModuleBootError([`module "${module.id}": ${error.message}`])
+        }
+      }
+    },
+
     // No gate on either, unlike `routes`: a surface declared here owns its
     // own access rules, and a per-module `module.<id>` check would hand
     // workspaces a switch over deployment tooling they do not own.
@@ -663,6 +688,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     appRoutes: [],
     schemas: [],
     mcpTools: [],
+    routeScopeRules: [],
     agentDispatchers: new Map(),
   }
   const moduleCatalog: readonly ModuleCatalogEntry[] = ordered.map((module) => ({
@@ -810,6 +836,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     appRoutes: accumulator.appRoutes,
     schemas: accumulator.schemas,
     mcpTools: accumulator.mcpTools,
+    routeScopeRules: accumulator.routeScopeRules,
     agentDispatchers: accumulator.agentDispatchers,
     mcpAuthorization: accumulator.mcpAuthorization?.value,
     events,

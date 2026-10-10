@@ -34,6 +34,25 @@ export const flags: KelpieModule = {
 - `requires` names other module ids; registration order is resolved from it.
 - `context.config(schema)` validates your environment variables at boot. A deployment can also lock any of them in code through the assembly's `env` section ([Configuration](../self-hosting/configuration.md#module-settings)).
 
+## Scopes for your routes
+
+An API key can be limited to scopes. A scoped key reaches a `/v1` route only when a scope is declared for that route. Declare one for each route a scoped key may call:
+
+```ts
+context.routeScopes([
+  { methods: ['GET'], path: '/flags/status', scope: 'workspace:read' },
+  { methods: ['POST', 'PATCH'], path: '/flags/:id', scope: 'workspace:write' },
+])
+```
+
+- `path` is the path you gave the router, so it is under `/v1`. A `:name` segment matches one path segment. A last segment of `*` matches the path before it and everything below (`/flags/*`). Any other pattern fails boot.
+- `scope` is one of core's scopes. Use the scope of the data the route reads or changes (`'people:read'`), or an admin scope such as `'workspace:write'` for a route that manages your module. A module cannot add a scope name.
+- A `GET` declaration covers `HEAD`.
+- A route with no declaration answers `403` to every scoped key. A full-access key and a session still reach it. This is the default, so a route you forget is closed and not open.
+- Core's rules are read first. A declaration for a core route changes nothing.
+
+Routes from `publicRoutes` take no credentials and need no declaration. MCP tools declare their scope on the tool, as the next section shows.
+
 ## Tables and migrations
 
 `context.schema(tables, migrationsDirectory)` registers your Drizzle tables and a migrations directory of your own. Each directory gets its own migrations tracking table, and your migrations run in the same pipeline as core's, in module registration order. Follow core's conventions: a `workspace_id` column on every table, indexes leading with it.

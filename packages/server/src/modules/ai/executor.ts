@@ -556,7 +556,7 @@ async function applyOne(operation: Operation, input: ApplyProposalInput): Promis
 }
 
 /** The MCP write tool for an `update_target`. Mirrors `TARGET_READ_TOOL`. */
-const TARGET_UPDATE_TOOL: Readonly<Record<AgentTaskTargetType, string | undefined>> = {
+export const TARGET_UPDATE_TOOL: Readonly<Record<AgentTaskTargetType, string | undefined>> = {
   person: 'people_update',
   company: 'companies_update',
   deal: 'deals_update',
