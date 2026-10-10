@@ -213,11 +213,38 @@ export async function findUsablePasswordResetToken(
   return found
 }
 
-export async function markPasswordResetTokenUsed(db: Queryable, id: string, now: Date): Promise<void> {
+/**
+ * Marks a reset token used. Answers false when it is already used or has
+ * expired, which is how two requests holding the same link are told apart
+ * without a read-then-write race: the second one waits on the row, then finds
+ * `used_at` set and updates nothing.
+ */
+export async function spendPasswordResetToken(db: Queryable, id: string, now: Date): Promise<boolean> {
+  const spent = await db
+    .update(passwordResetTokens)
+    .set({ usedAt: now })
+    .where(
+      and(
+        eq(passwordResetTokens.id, id),
+        isNull(passwordResetTokens.usedAt),
+        gt(passwordResetTokens.expiresAt, now),
+      ),
+    )
+    .returning({ id: passwordResetTokens.id })
+
+  return spent.length > 0
+}
+
+/**
+ * Marks every unused reset token of one account used, so no link sent before
+ * the password moved can move it again. Marked rather than deleted, like a
+ * spent token, so each one is refused as a replay.
+ */
+export async function closeOpenPasswordResetTokens(db: Queryable, userId: string, now: Date): Promise<void> {
   await db
     .update(passwordResetTokens)
     .set({ usedAt: now })
-    .where(eq(passwordResetTokens.id, id))
+    .where(and(eq(passwordResetTokens.userId, userId), isNull(passwordResetTokens.usedAt)))
 }
 
 export async function insertEmailVerificationToken(
@@ -248,11 +275,21 @@ export async function findUsableEmailVerificationToken(
   return found
 }
 
-export async function markEmailVerificationTokenUsed(db: Queryable, id: string, now: Date): Promise<void> {
-  await db
+/** Marks a verification token used. Answers false when it is already used or has expired. */
+export async function spendEmailVerificationToken(db: Queryable, id: string, now: Date): Promise<boolean> {
+  const spent = await db
     .update(emailVerificationTokens)
     .set({ usedAt: now })
-    .where(eq(emailVerificationTokens.id, id))
+    .where(
+      and(
+        eq(emailVerificationTokens.id, id),
+        isNull(emailVerificationTokens.usedAt),
+        gt(emailVerificationTokens.expiresAt, now),
+      ),
+    )
+    .returning({ id: emailVerificationTokens.id })
+
+  return spent.length > 0
 }
 
 /**

@@ -12,6 +12,8 @@ import {
 import { generateToken, hashToken } from '../../lib/tokens.ts'
 import type { VerifiedIdentity } from '../../runtime/module.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import * as apiKeyRepository from '../api-keys/repository.ts'
+import * as oauthRepository from '../oauth/repository.ts'
 import type { MemberRole } from '../workspace/roles.ts'
 import { parseMemberRole } from '../workspace/roles.ts'
 import type { SessionActor } from './actor.ts'
@@ -673,7 +675,12 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       })
     },
 
-    /** Ends every session on success: a reset is how you recover a stolen account. */
+    /**
+     * A reset is how you recover a stolen account, so success ends everything
+     * the thief could still hold: every session, every other reset link, every
+     * personal API key and every connected app. Workspace keys belong to the
+     * workspace, not the account, and stay.
+     */
     async confirmPasswordReset(token: string, newPassword: string): Promise<void> {
       if (newPassword.length < MINIMUM_PASSWORD_LENGTH) {
         throw AppError.validationFailed('Password is too short', [
@@ -699,13 +706,28 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           throw AppError.unauthorized('That reset link is invalid or has expired')
         }
 
-        await repository.markPasswordResetTokenUsed(tx, record.id, now)
+        // The read above is not the guard: two requests can both pass it with
+        // the same link. Only the one whose update lands may go on.
+        if (!(await repository.spendPasswordResetToken(tx, record.id, now))) {
+          throw AppError.unauthorized('That reset link is invalid or has expired')
+        }
+
+        await repository.closeOpenPasswordResetTokens(tx, record.userId, now)
         await repository.updateUserPassword(tx, record.userId, passwordHash, now)
         await repository.deleteAllSessionsForUser(tx, record.userId)
+        await apiKeyRepository.deletePersonalKeysForUser(tx, record.userId)
+        await oauthRepository.deleteConnectionsForUser(tx, record.userId)
       })
     },
 
-    /** Keeps the caller signed in and ends every other session. */
+    /**
+     * Keeps the caller signed in, ends every other session, and closes every
+     * open reset link.
+     *
+     * Personal API keys and connected apps stay. A routine change is not a
+     * report of compromise, and ending them would stop integrations the
+     * caller set up and can still revoke one by one. A reset ends them.
+     */
     async changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<void> {
       if (newPassword.length < MINIMUM_PASSWORD_LENGTH) {
         throw AppError.validationFailed('Password is too short', [
@@ -729,6 +751,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       await dependencies.transaction(async ({ tx }) => {
         await repository.updateUserPassword(tx, user.id, passwordHash, now)
         await repository.deleteOtherSessionsForUser(tx, user.id, actor.sessionId)
+        await repository.closeOpenPasswordResetTokens(tx, user.id, now)
       })
     },
 
@@ -772,7 +795,12 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           throw AppError.unauthorized('That verification link is invalid or has expired')
         }
 
-        await repository.markEmailVerificationTokenUsed(tx, record.id, now)
+        // The read above is not the guard: two requests can both pass it with
+        // the same link. Only the one whose update lands may go on.
+        if (!(await repository.spendEmailVerificationToken(tx, record.id, now))) {
+          throw AppError.unauthorized('That verification link is invalid or has expired')
+        }
+
         await repository.markEmailAddressVerified(tx, record.userId, email, now)
       })
     },

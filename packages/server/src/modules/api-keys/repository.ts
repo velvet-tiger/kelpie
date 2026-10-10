@@ -77,6 +77,14 @@ export async function deleteApiKey(db: Queryable, workspaceId: string, id: strin
   return deleted.length
 }
 
+/**
+ * Revokes every personal key of one user, in every workspace. Workspace keys
+ * have no user behind them and are never touched.
+ */
+export async function deletePersonalKeysForUser(db: Queryable, userId: string): Promise<void> {
+  await db.delete(apiKeys).where(eq(apiKeys.userId, userId))
+}
+
 export async function touchLastUsed(db: Queryable, id: string, now: Date): Promise<void> {
   await db.update(apiKeys).set({ lastUsedAt: now }).where(eq(apiKeys.id, id))
 }

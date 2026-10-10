@@ -17,6 +17,7 @@ import {
   SEND_VERIFICATION_EMAIL_JOB,
   sendVerificationEmail,
 } from './emailJobs.ts'
+import { oauthClients, oauthConnections, oauthTokens } from '../oauth/schema.ts'
 import { emailVerificationTokens, passwordResetTokens, userPreferences, users } from './schema.ts'
 
 /**
@@ -155,6 +156,33 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     await harness.runQueuedJobs()
 
     return sessionCookieFrom(response)
+  }
+
+  async function verifiedCookie(email = SIGNUP.email): Promise<string> {
+    const response = await post('/v1/auth/signup', { ...SIGNUP, email })
+    expect(response.status).toBe(201)
+    const cookie = sessionCookieFrom(response)
+    await harness.runQueuedJobs()
+    const confirmed = await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() })
+    expect(confirmed.status).toBe(204)
+
+    return cookie
+  }
+
+  async function createWorkspace(cookie: string, name: string): Promise<string> {
+    const response = await post(
+      '/v1/workspaces',
+      { name, timezone: 'UTC' },
+      cookie,
+    )
+    expect(response.status).toBe(201)
+    const payload: unknown = await response.json()
+
+    if (!isRecord(payload) || typeof payload.id !== 'string') {
+      throw new Error(`Expected a workspace, got ${JSON.stringify(payload)}`)
+    }
+
+    return payload.id
   }
 
   describe('signup', () => {
@@ -1071,6 +1099,182 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
   })
 
+  describe('what a new password revokes', () => {
+    const NEW_PASSWORD = 'a brand new long password'
+
+    /** Every reset token emailed so far, oldest first. */
+    function resetTokensFromEmails(): string[] {
+      return harness.services.sentEmails.flatMap((message) => {
+        const token = /reset-password\?token=([^\s]+)/u.exec(message.body)?.[1]
+
+        return token === undefined ? [] : [token]
+      })
+    }
+
+    async function requestReset(): Promise<string> {
+      expect((await post('/v1/auth/password-reset', { email: SIGNUP.email })).status).toBe(202)
+      await harness.runQueuedJobs()
+      const token = resetTokensFromEmails().at(-1)
+
+      if (token === undefined) {
+        throw new Error('Expected the reset email to have been sent')
+      }
+
+      return token
+    }
+
+    async function mintKey(cookie: string, kind: 'personal' | 'workspace'): Promise<string> {
+      const minted = await post('/v1/api-keys', { name: `${kind} key`, kind, full_access: true }, cookie)
+      expect(minted.status).toBe(201)
+      const payload: unknown = await minted.json()
+
+      if (!isRecord(payload) || typeof payload.secret !== 'string') {
+        throw new Error(`Expected a minted key, got ${JSON.stringify(payload)}`)
+      }
+
+      return payload.secret
+    }
+
+    async function statusWithKey(secret: string): Promise<number> {
+      return (await harness.app.request('/v1/people', { headers: { Authorization: `Bearer ${secret}` } })).status
+    }
+
+    /** A connected app for the one account in the table, written as the consent page would. */
+    async function connectApp(): Promise<void> {
+      const [user] = await database.db.select().from(users)
+
+      if (user === undefined) {
+        throw new Error('Expected an account to connect the app to')
+      }
+
+      await database.db.insert(oauthClients).values({
+        id: 'oac_test',
+        clientId: 'client-test',
+        kind: 'registered',
+        clientName: 'Test client',
+        redirectUris: ['https://client.example/callback'],
+      })
+      await database.db
+        .insert(oauthConnections)
+        .values({ id: 'ocn_test', userId: user.id, clientRowId: 'oac_test' })
+      await database.db.insert(oauthTokens).values({
+        id: 'oat_test',
+        connectionId: 'ocn_test',
+        kind: 'refresh',
+        tokenHash: 'not-a-real-hash',
+        resource: `${TEST_APP_BASE_URL}/mcp`,
+        scopes: ['people:read'],
+        expiresAt: new Date('2999-01-01T00:00:00.000Z'),
+      })
+    }
+
+    it('a reset ends the other reset links, personal keys and connected apps, and keeps workspace keys', async () => {
+      const cookie = await verifiedCookie()
+      await createWorkspace(cookie, 'Acme')
+      const personalKey = await mintKey(cookie, 'personal')
+      const workspaceKey = await mintKey(cookie, 'workspace')
+      await connectApp()
+      const otherLink = await requestReset()
+      const usedLink = await requestReset()
+      expect(otherLink).not.toBe(usedLink)
+      expect(await statusWithKey(personalKey)).toBe(200)
+
+      const confirmed = await post('/v1/auth/password-reset/confirm', {
+        token: usedLink,
+        password: NEW_PASSWORD,
+      })
+
+      expect(confirmed.status).toBe(204)
+      expect(
+        (await post('/v1/auth/password-reset/confirm', { token: otherLink, password: 'the thief wants this one' }))
+          .status,
+      ).toBe(401)
+      expect((await post('/v1/auth/login', { email: SIGNUP.email, password: NEW_PASSWORD })).status).toBe(200)
+      expect(await statusWithKey(personalKey)).toBe(401)
+      expect(await statusWithKey(workspaceKey)).toBe(200)
+      expect(await database.db.select().from(oauthConnections)).toHaveLength(0)
+      expect(await database.db.select().from(oauthTokens)).toHaveLength(0)
+      expect((await get('/v1/auth/me', cookie)).status).toBe(401)
+    })
+
+    it('a reset leaves another account\'s personal keys and reset links alone', async () => {
+      const mine = await verifiedCookie()
+      await createWorkspace(mine, 'Acme')
+      const theirs = await verifiedCookie('grace@example.com')
+      await createWorkspace(theirs, 'Globex')
+      const theirKey = await mintKey(theirs, 'personal')
+      expect((await post('/v1/auth/password-reset', { email: 'grace@example.com' })).status).toBe(202)
+      await harness.runQueuedJobs()
+      const theirLink = resetTokensFromEmails().at(-1) ?? ''
+
+      const confirmed = await post('/v1/auth/password-reset/confirm', {
+        token: await requestReset(),
+        password: NEW_PASSWORD,
+      })
+
+      expect(confirmed.status).toBe(204)
+      expect(await statusWithKey(theirKey)).toBe(200)
+      expect(
+        (await post('/v1/auth/password-reset/confirm', { token: theirLink, password: NEW_PASSWORD })).status,
+      ).toBe(204)
+    })
+
+    it('a change ends the open reset links, and keeps the session, personal keys and connected apps', async () => {
+      const cookie = await verifiedCookie()
+      await createWorkspace(cookie, 'Acme')
+      const personalKey = await mintKey(cookie, 'personal')
+      await connectApp()
+      const openLink = await requestReset()
+
+      const changed = await patch(
+        '/v1/auth/password',
+        { current_password: SIGNUP.password, new_password: NEW_PASSWORD },
+        cookie,
+      )
+
+      expect(changed.status).toBe(204)
+      expect(
+        (await post('/v1/auth/password-reset/confirm', { token: openLink, password: 'the thief wants this one' }))
+          .status,
+      ).toBe(401)
+      expect((await post('/v1/auth/login', { email: SIGNUP.email, password: NEW_PASSWORD })).status).toBe(200)
+      expect((await get('/v1/auth/me', cookie)).status).toBe(200)
+      expect(await statusWithKey(personalKey)).toBe(200)
+      expect(await database.db.select().from(oauthConnections)).toHaveLength(1)
+    })
+
+    it('lets one of two simultaneous requests with the same reset link through', async () => {
+      await signUp()
+      const token = await requestReset()
+      const passwords = ['the first long password', 'the second long password']
+
+      const responses = await Promise.all(
+        passwords.map((password) => post('/v1/auth/password-reset/confirm', { token, password })),
+      )
+
+      expect(responses.map((response) => response.status).toSorted()).toEqual([204, 401])
+      const logins = await Promise.all(
+        passwords.map((password) => post('/v1/auth/login', { email: SIGNUP.email, password })),
+      )
+      // The password that stands is the one from the request that was let through.
+      expect(logins.map((response) => response.status)).toEqual(
+        responses.map((response) => (response.status === 204 ? 200 : 401)),
+      )
+    })
+
+    it('lets one of two simultaneous requests with the same verification link through', async () => {
+      await signUp()
+      const token = verificationTokenFromEmail()
+
+      const responses = await Promise.all([
+        post('/v1/auth/verify-email/confirm', { token }),
+        post('/v1/auth/verify-email/confirm', { token }),
+      ])
+
+      expect(responses.map((response) => response.status).toSorted()).toEqual([204, 401])
+    })
+  })
+
   describe('email verification', () => {
     it('emails a link at signup, and leaves the account unverified', async () => {
       const response = await post('/v1/auth/signup', SIGNUP)
@@ -1169,33 +1373,6 @@ describe.skipIf(connectionString === undefined)('auth', () => {
   })
 
   describe('workspace switching', () => {
-    async function verifiedCookie(email = SIGNUP.email): Promise<string> {
-      const response = await post('/v1/auth/signup', { ...SIGNUP, email })
-      expect(response.status).toBe(201)
-      const cookie = sessionCookieFrom(response)
-      await harness.runQueuedJobs()
-      const confirmed = await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() })
-      expect(confirmed.status).toBe(204)
-
-      return cookie
-    }
-
-    async function createWorkspace(cookie: string, name: string): Promise<string> {
-      const response = await post(
-        '/v1/workspaces',
-        { name, timezone: 'UTC' },
-        cookie,
-      )
-      expect(response.status).toBe(201)
-      const payload: unknown = await response.json()
-
-      if (!isRecord(payload) || typeof payload.id !== 'string') {
-        throw new Error(`Expected a workspace, got ${JSON.stringify(payload)}`)
-      }
-
-      return payload.id
-    }
-
     it('lists nothing before the account has a workspace', async () => {
       const cookie = await verifiedCookie()
 

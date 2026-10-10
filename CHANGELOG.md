@@ -382,6 +382,17 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **A password reset ends everything a thief could still hold.** A reset
+  ended every session. It now also ends every other open reset link, every
+  personal API key of the account, and every connected app (OAuth
+  connection) of the account. A password change now also ends every open
+  reset link; it keeps personal API keys and connected apps. Workspace API
+  keys are not affected.
+  - **Changed behaviour:** after a password reset, a person must create
+    their personal API keys again and connect their MCP clients again.
+- **A reset link and a verification link work once.** Two requests sent at
+  the same time with one link could both succeed. The second now gets
+  `401`. No migration.
 - **A Decision from an agent is a proposal until a member confirms it.** An
   API key or an OAuth token could write a Decision, and it was a commitment
   at once. Later agents treat a commitment as a fact, so text in a record

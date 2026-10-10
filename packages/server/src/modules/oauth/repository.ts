@@ -178,6 +178,11 @@ export async function deleteConnection(db: Queryable, userId: string, id: string
   return deleted.length
 }
 
+/** Ends every connection of one user, in every workspace, through the same cascade. */
+export async function deleteConnectionsForUser(db: Queryable, userId: string): Promise<void> {
+  await db.delete(oauthConnections).where(eq(oauthConnections.userId, userId))
+}
+
 /**
  * Deletes the connections that have no grant left, and their tokens with them.
  *
