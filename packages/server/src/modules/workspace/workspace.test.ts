@@ -867,6 +867,30 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
         expect(response.status).toBe(409)
         expect(await ownerCount(workspaceId)).toBe(1)
       })
+
+      it('refuses a removal from a caller who is an admin no longer', async () => {
+        const owner = await signUp('ada@example.com')
+        const workspaceId = await createWorkspace(owner)
+        const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+        const henry = await addMember(owner, workspaceId, 'henry@example.com', 'admin')
+
+        beforeNextTransaction = async () => {
+          await database.db
+            .update(workspaceMembers)
+            .set({ role: 'member' })
+            .where(eq(workspaceMembers.id, henry.memberId))
+        }
+
+        const response = await send(
+          'DELETE',
+          `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+          undefined,
+          henry.cookie,
+        )
+
+        expect(response.status).toBe(403)
+        expect(await database.db.select().from(workspaceMembers).where(eq(workspaceMembers.id, grace.memberId))).toHaveLength(1)
+      })
     })
 
     it('leaves one owner when an admin demotes a member who is being made the owner', async () => {

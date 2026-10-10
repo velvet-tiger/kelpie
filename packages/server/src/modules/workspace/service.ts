@@ -679,8 +679,11 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         await dependencies.transaction(async ({ tx, events }) => {
           await repository.lockMembershipChanges(tx, workspaceId)
 
-          // Read again under the lock: a transfer that finished after the
-          // check above can have made this member the owner.
+          // Read again under the lock. A role change that finished after the
+          // checks above can have taken the caller's right to remove a
+          // member, or made this member the owner.
+          await requireMembership(actor, workspaceId, 'admin', tx)
+
           const current = await requireTarget(workspaceId, memberId, tx)
 
           if (current.role === 'owner') {
