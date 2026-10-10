@@ -33,7 +33,14 @@ SECRET_ENCRYPTION_KEY=__SECRET_ENCRYPTION_KEY__
 # comes from `@kelpie/module-smtp-email`, which reads the SMTP variables
 # below. A different provider module (Resend, Postmark, …) registers its
 # own name — set EMAIL_PROVIDER to that name to use it.
+#
+# `log` is for development. When NODE_ENV=production it writes no message
+# body, so the log has no invitation or password-reset links, and the
+# service warns at boot that no email is sent. EMAIL_LOG_BODY=true or false
+# decides in every mode. With true in production, everybody who can read the
+# log can use a link to sign in.
 EMAIL_PROVIDER=log
+# EMAIL_LOG_BODY=true
 # One address, or a name and an address: Kelpie <kelpie@example.com>
 EMAIL_FROM=__EMAIL_FROM__
 
@@ -42,10 +49,17 @@ EMAIL_FROM=__EMAIL_FROM__
 #
 # SMTP_SECURE is "true" for a server that expects TLS from the first byte
 # (usually port 465), "false" for one you connect to in plain text and that
-# upgrades with STARTTLS (usually port 587 or 25).
+# upgrades with STARTTLS (usually port 587 or 25). The upgrade is required:
+# a server that does not offer STARTTLS fails the send, so the password and
+# the mail never go in plain text. A server on this machine (localhost, a
+# .localhost name, a loopback address) is exempt, so a local catch-all works.
+#
+# SMTP_REQUIRE_TLS=false turns the rule off for a relay on a private network
+# that you trust. SMTP_REQUIRE_TLS=true applies it to this machine too.
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
+# SMTP_REQUIRE_TLS=false
 SMTP_USER=
 SMTP_PASSWORD=
 

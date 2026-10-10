@@ -144,6 +144,21 @@ describe('scaffold', () => {
     expect(environment).toContain('APP_BASE_URL=http://localhost:5173')
   })
 
+  it('leaves the email safety settings unset in .env, so the safe defaults apply', () => {
+    const directory = scratch()
+
+    scaffold(optionsFor(directory))
+
+    const environment = readFileSync(join(directory, '.env'), 'utf8')
+
+    // Both are in the file as comments only. An active line would permit
+    // plain-text SMTP, or put sign-in links in a production log.
+    expect(environment).toContain('# SMTP_REQUIRE_TLS=false')
+    expect(environment).toContain('# EMAIL_LOG_BODY=true')
+    expect(environment).not.toMatch(/^SMTP_REQUIRE_TLS=/mu)
+    expect(environment).not.toMatch(/^EMAIL_LOG_BODY=/mu)
+  })
+
   it('omits docker-compose.yml when the project brings its own database', () => {
     const directory = scratch()
 

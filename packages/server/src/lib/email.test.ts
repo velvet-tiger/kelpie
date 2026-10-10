@@ -11,6 +11,8 @@ import {
   emailConfigSchema,
   emailHeadersProblem,
   isPermanentEmailError,
+  logEmailConfigSchema,
+  logEmailWritesBody,
 } from './email.ts'
 import { createCaptureTransport, createLogger } from './logger.ts'
 
@@ -38,7 +40,7 @@ const message: EmailMessage = {
 describe('createLogEmailSender', () => {
   it('writes the message to the log instead of sending it', async () => {
     const { logger, lines } = capture()
-    const sender = createLogEmailSender(logger, 'kelpie@example.com')
+    const sender = createLogEmailSender(logger, 'kelpie@example.com', { writeBody: true })
 
     await sender.send(message)
 
@@ -53,7 +55,7 @@ describe('createLogEmailSender', () => {
 
   it('writes the full plaintext body, and no field the message does not set', async () => {
     const { logger, lines } = capture()
-    const sender = createLogEmailSender(logger, 'kelpie@example.com')
+    const sender = createLogEmailSender(logger, 'kelpie@example.com', { writeBody: true })
     const body = 'Use this link:\n\nhttps://kelpie.test/reset?token=abc123\n'
 
     await sender.send({ ...message, body })
@@ -70,7 +72,7 @@ describe('createLogEmailSender', () => {
 
   it('writes the From name, the Reply-To, the headers and the length of the HTML part', async () => {
     const { logger, lines } = capture()
-    const sender = createLogEmailSender(logger, 'kelpie@example.com')
+    const sender = createLogEmailSender(logger, 'kelpie@example.com', { writeBody: true })
     const html = '<p>Follow this link.</p>'
 
     await sender.send({
@@ -96,6 +98,65 @@ describe('createLogEmailSender', () => {
     // The markup itself is not in the log.
     expect(line).not.toHaveProperty('html')
     expect(lines[0]).not.toContain('<p>')
+  })
+
+  it.each([
+    ['no options', undefined],
+    ['writeBody false', { writeBody: false }],
+  ])('writes the length of the body and not the body, with %s', async (_name, options) => {
+    const { logger, lines } = capture()
+    const sender =
+      options === undefined
+        ? createLogEmailSender(logger, 'kelpie@example.com')
+        : createLogEmailSender(logger, 'kelpie@example.com', options)
+    const body = 'Use this link:\n\nhttps://kelpie.test/reset?token=abc123\n'
+
+    await sender.send({ ...message, body, html: '<a href="https://kelpie.test/reset?token=abc123">Reset</a>' })
+
+    const line: Record<string, unknown> = JSON.parse(lines[0] ?? '')
+
+    expect(line).toMatchObject({
+      message: 'email not sent: no provider module registered',
+      from: 'kelpie@example.com',
+      to: message.to,
+      subject: message.subject,
+      bodyLength: body.length,
+    })
+    expect(line).not.toHaveProperty('body')
+    // No part of the line holds the link or its token.
+    expect(lines[0]).not.toContain('token=')
+    expect(lines[0]).not.toContain('abc123')
+  })
+})
+
+describe('logEmailWritesBody', () => {
+  it('writes the body in development and test mode when nothing is set', () => {
+    expect(logEmailWritesBody('development', undefined)).toBe(true)
+    expect(logEmailWritesBody('test', undefined)).toBe(true)
+  })
+
+  it('does not write the body in production when nothing is set', () => {
+    expect(logEmailWritesBody('production', undefined)).toBe(false)
+  })
+
+  it.each(['development', 'test', 'production'] as const)('obeys the setting in %s mode', (runtimeMode) => {
+    expect(logEmailWritesBody(runtimeMode, true)).toBe(true)
+    expect(logEmailWritesBody(runtimeMode, false)).toBe(false)
+  })
+})
+
+describe('logEmailConfigSchema', () => {
+  it('reads true and false, and accepts no value', () => {
+    expect(logEmailConfigSchema.parse({ EMAIL_LOG_BODY: 'true' }).EMAIL_LOG_BODY).toBe(true)
+    expect(logEmailConfigSchema.parse({ EMAIL_LOG_BODY: 'false' }).EMAIL_LOG_BODY).toBe(false)
+    expect(logEmailConfigSchema.parse({}).EMAIL_LOG_BODY).toBeUndefined()
+  })
+
+  it.each(['yes', '1', 'TRUE', ''])('refuses "%s", naming the key', (value) => {
+    const result = logEmailConfigSchema.safeParse({ EMAIL_LOG_BODY: value })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.path).toEqual(['EMAIL_LOG_BODY'])
   })
 })
 

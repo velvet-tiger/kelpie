@@ -111,7 +111,13 @@ export async function bootAssembly(
     // built in; `'smtp'` is registered by the built-in `smtp-email` core
     // module; other names come from third-party provider modules listed in
     // `kelpie.config.ts`. `from` is the address on every outgoing message.
-    email: { provider: config.email.EMAIL_PROVIDER, from: config.email.EMAIL_FROM },
+    // `runtimeMode` decides what the log provider may write: in production it
+    // leaves the message body out and the runtime warns that no mail is sent.
+    email: {
+      provider: config.email.EMAIL_PROVIDER,
+      from: config.email.EMAIL_FROM,
+      runtimeMode: config.runtimeMode,
+    },
   })
 
   return { config, logger, database, createId, credentials, contributions, jobs }

@@ -3,11 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { AppError } from '../lib/errors.ts'
-import { createLogger } from '../lib/logger.ts'
+import { createCaptureTransport, createLogger } from '../lib/logger.ts'
 import { TEST_EMAIL_FROM, TEST_EMAIL_PROVIDER, createTestServices } from '../testing/services.ts'
 import { createTestApp } from '../testing/app.ts'
 import { workspaceKeyActor } from '../testing/fixtures.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
+import type { Environment, RuntimeMode } from '../lib/config.ts'
 import type { KelpieModule } from './module.ts'
 import { ModuleBootError } from './order.ts'
 import { registerModules } from './registry.ts'
@@ -672,6 +673,116 @@ describe('registration failures', () => {
         services: createTestServices(),
         email: { provider: 'log', from: TEST_EMAIL_FROM },
       })
+    })
+
+    describe("the 'log' provider", () => {
+      const resetMessage: EmailMessage = {
+        to: 'ada@example.com',
+        subject: 'Reset your password',
+        body: 'Use this link:\n\nhttps://kelpie.test/reset?token=abc123\n',
+      }
+
+      /** Boots with the log provider, sends one reset email, and gives back every log line. */
+      async function logLinesFor(
+        runtimeMode: RuntimeMode | undefined,
+        environment: Environment,
+      ): Promise<Record<string, unknown>[]> {
+        const lines: string[] = []
+        let email: EmailSender | undefined
+
+        await registerModules({
+          modules: [
+            {
+              id: 'consumer',
+              register(context) {
+                email = context.email
+                return Promise.resolve()
+              },
+            },
+          ],
+          environment,
+          logger: createLogger({ level: 'info', transports: [createCaptureTransport((line) => lines.push(line))] }),
+          services: createTestServices(),
+          email: { provider: 'log', from: TEST_EMAIL_FROM, ...(runtimeMode === undefined ? {} : { runtimeMode }) },
+        })
+
+        if (email === undefined) {
+          throw new Error('the consumer module did not register')
+        }
+
+        await email.send(resetMessage)
+
+        return lines.map((line) => JSON.parse(line) as Record<string, unknown>)
+      }
+
+      const warnings = (lines: readonly Record<string, unknown>[]): string[] =>
+        lines.filter((line) => line.level === 'warn').map((line) => String(line.message))
+      const sent = (lines: readonly Record<string, unknown>[]): Record<string, unknown> | undefined =>
+        lines.find((line) => line.message === 'email not sent: no provider module registered')
+
+      it.each(['development', 'test'] as const)('writes the body and gives no warning in %s mode', async (mode) => {
+        const lines = await logLinesFor(mode, {})
+
+        expect(sent(lines)?.body).toBe(resetMessage.body)
+        expect(warnings(lines)).toEqual([])
+      })
+
+      it('keeps the body out of the log in production, and warns that no email is sent', async () => {
+        const lines = await logLinesFor('production', {})
+
+        expect(sent(lines)).toMatchObject({ to: resetMessage.to, subject: resetMessage.subject })
+        expect(sent(lines)).not.toHaveProperty('body')
+        expect(JSON.stringify(lines)).not.toContain('token=')
+        expect(warnings(lines)).toHaveLength(1)
+        expect(warnings(lines)[0]).toContain('EMAIL_PROVIDER is "log" in production')
+      })
+
+      it('uses the production rule when the assembly gives no mode', async () => {
+        const lines = await logLinesFor(undefined, {})
+
+        expect(sent(lines)).not.toHaveProperty('body')
+        expect(JSON.stringify(lines)).not.toContain('token=')
+        expect(warnings(lines)).toHaveLength(1)
+      })
+
+      it('writes the body in production when EMAIL_LOG_BODY is true, and warns that the links are in the log', async () => {
+        const lines = await logLinesFor('production', { EMAIL_LOG_BODY: 'true' })
+
+        expect(sent(lines)?.body).toBe(resetMessage.body)
+        expect(warnings(lines)).toHaveLength(1)
+        expect(warnings(lines)[0]).toContain('each message body is in the log')
+      })
+
+      it('keeps the body out of the log in development when EMAIL_LOG_BODY is false', async () => {
+        const lines = await logLinesFor('development', { EMAIL_LOG_BODY: 'false' })
+
+        expect(sent(lines)).not.toHaveProperty('body')
+        expect(warnings(lines)).toEqual([])
+      })
+
+      it('fails boot on an EMAIL_LOG_BODY that is not true or false, naming the key', async () => {
+        const thrown: unknown = await logLinesFor('production', { EMAIL_LOG_BODY: 'yes' }).catch(
+          (error: unknown) => error,
+        )
+
+        expect(thrown).toBeInstanceOf(ModuleBootError)
+        expect((thrown as ModuleBootError).problems[0]).toContain('EMAIL_LOG_BODY')
+      })
+    })
+
+    it('gives no log-provider warning in production when another provider is picked', async () => {
+      const lines: string[] = []
+
+      await registerModules({
+        modules: [],
+        environment: {},
+        logger: createLogger({ level: 'info', transports: [createCaptureTransport((line) => lines.push(line))] }),
+        services: createTestServices(),
+        email: { provider: TEST_EMAIL_PROVIDER, from: TEST_EMAIL_FROM, runtimeMode: 'production' },
+        additionalEmailProviders: new Map([[TEST_EMAIL_PROVIDER, { send: () => Promise.resolve() }]]),
+      })
+
+      expect(lines.join('\n')).not.toContain('EMAIL_PROVIDER is "log"')
     })
 
     it('routes sends through the module registered under the picked name', async () => {

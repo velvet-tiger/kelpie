@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import { z } from 'zod'
 
+import { isLoopbackHost } from '../../lib/deploymentChecks.ts'
 import { describeThrown } from '../../lib/errors.ts'
 import { EMAIL_FROM_PROBLEM, PermanentEmailError, emailFromSchema, emailHeadersProblem } from '../../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../../lib/email.ts'
@@ -23,6 +24,14 @@ import type { KelpieModule } from '../../runtime/module.ts'
  * exactly one fails boot: a half-configured credential pair is a bug, not a
  * mode.
  *
+ * The connection is always encrypted before the sign-in and the message go to
+ * a relay on another machine. `SMTP_SECURE=true` uses TLS from the first byte.
+ * `SMTP_SECURE=false` starts in plain text and must upgrade with STARTTLS: a
+ * relay that does not offer it fails the send. Without that rule a party on
+ * the network can remove the offer, and then read the SMTP password and every
+ * reset link. Two cases are exempt (`smtpRequiresStartTls`): a relay on this
+ * machine, and a relay the operator names with `SMTP_REQUIRE_TLS=false`.
+ *
  * A commercial email integration (Resend, Postmark) belongs in its own module
  * following the same shape, registered under a different name.
  */
@@ -41,6 +50,11 @@ export const smtpEmailConfigSchema = z
     SMTP_HOST: z.string().min(1),
     SMTP_PORT: z.coerce.number().int().positive().max(65535),
     SMTP_SECURE: z.enum(['true', 'false']).transform((value) => value === 'true'),
+    // Optional: unset means "required, except for a relay on this machine".
+    SMTP_REQUIRE_TLS: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
     SMTP_USER: z.string().min(1).optional(),
     SMTP_PASSWORD: z.string().min(1).optional(),
   })
@@ -110,6 +124,83 @@ export const SMTP_TIMEOUTS: SmtpTimeouts = {
 }
 
 /**
+ * Whether a connection that starts in plain text must upgrade with STARTTLS
+ * before anything else goes over it. Applies when `SMTP_SECURE` is `false`.
+ *
+ * `SMTP_REQUIRE_TLS` decides when it is set. Unset, the upgrade is required
+ * for every host except this machine (`localhost`, a `.localhost` name, a
+ * loopback address): traffic to it does not go on a network, and a local mail
+ * catcher (maildev, MailHog, smtp4dev) has no TLS.
+ */
+export function smtpRequiresStartTls(
+  config: Pick<SmtpEmailConfig, 'SMTP_HOST' | 'SMTP_REQUIRE_TLS'>,
+): boolean {
+  return config.SMTP_REQUIRE_TLS ?? !isLoopbackHost(config.SMTP_HOST)
+}
+
+/**
+ * The warning for a config that lets mail go in plain text to another machine,
+ * or `undefined` when there is nothing to say. The module writes it at boot.
+ */
+export function smtpPlainTextWarning(
+  config: Pick<SmtpEmailConfig, 'SMTP_HOST' | 'SMTP_SECURE' | 'SMTP_REQUIRE_TLS'>,
+): string | undefined {
+  if (config.SMTP_SECURE || smtpRequiresStartTls(config) || isLoopbackHost(config.SMTP_HOST)) {
+    return undefined
+  }
+
+  return (
+    'SMTP_REQUIRE_TLS is "false" and SMTP_HOST is not this machine. ' +
+    'When the relay does not offer STARTTLS, the SMTP password and each message go in plain text. ' +
+    'Use this only for a relay on a private network that you trust.'
+  )
+}
+
+/**
+ * The options the nodemailer transport is built with. Declared here, and not
+ * taken from nodemailer's types, so this module's public types need no type
+ * package from the assembly that installs it.
+ */
+export interface SmtpConnectionOptions {
+  readonly host: string
+  readonly port: number
+  readonly secure: boolean
+  /** Set only when `secure` is `false`. */
+  readonly requireTLS?: boolean
+  readonly dnsTimeout: number
+  readonly connectionTimeout: number
+  readonly greetingTimeout: number
+  readonly socketTimeout: number
+  readonly auth?: { readonly user: string; readonly pass: string }
+}
+
+/**
+ * Builds the connection options from the config. A function of its own so a
+ * test can read the TLS rule without opening a connection.
+ *
+ * `tls.rejectUnauthorized` is not set, so the server certificate is always
+ * checked.
+ */
+export function smtpConnectionOptions(config: SmtpEmailConfig, timeouts: SmtpTimeouts): SmtpConnectionOptions {
+  return {
+    host: config.SMTP_HOST,
+    port: config.SMTP_PORT,
+    secure: config.SMTP_SECURE,
+    // Without `requireTLS` nodemailer upgrades only when the server offers
+    // STARTTLS, and sends the sign-in and the message in plain text when it
+    // does not. With it, a missing or refused upgrade fails the send first.
+    ...(config.SMTP_SECURE ? {} : { requireTLS: smtpRequiresStartTls(config) }),
+    dnsTimeout: timeouts.dns,
+    connectionTimeout: timeouts.connection,
+    greetingTimeout: timeouts.greeting,
+    socketTimeout: timeouts.socket,
+    ...(config.SMTP_USER !== undefined && config.SMTP_PASSWORD !== undefined
+      ? { auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD } }
+      : {}),
+  }
+}
+
+/**
  * A transport that opens a real SMTP connection. `timeouts` is a parameter so
  * a test can use short limits against a local server; a deployment uses the
  * default.
@@ -118,18 +209,7 @@ export function createNodemailerTransport(
   config: SmtpEmailConfig,
   timeouts: SmtpTimeouts = SMTP_TIMEOUTS,
 ): SmtpTransport {
-  const authenticated = config.SMTP_USER !== undefined && config.SMTP_PASSWORD !== undefined
-
-  return nodemailer.createTransport({
-    host: config.SMTP_HOST,
-    port: config.SMTP_PORT,
-    secure: config.SMTP_SECURE,
-    dnsTimeout: timeouts.dns,
-    connectionTimeout: timeouts.connection,
-    greetingTimeout: timeouts.greeting,
-    socketTimeout: timeouts.socket,
-    ...(authenticated ? { auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD } } : {}),
-  })
+  return nodemailer.createTransport({ ...smtpConnectionOptions(config, timeouts) })
 }
 
 /**
@@ -247,7 +327,8 @@ export interface SmtpEmailModuleOptions {
  * only if the assembly's `email.provider` picks this module. Boot fails loudly
  * on a missing or malformed required variable, or on a half-set
  * `SMTP_USER` / `SMTP_PASSWORD` pair. Omitting both credentials is valid and
- * makes the module connect without SMTP AUTH.
+ * makes the module connect without SMTP AUTH. A config that permits plain text
+ * to another machine boots with a warning (`smtpPlainTextWarning`).
  *
  * The module stays in `coreModules` unconditionally: on any other provider
  * (e.g. `EMAIL_PROVIDER=log`) the factory never runs, so the SMTP environment
@@ -261,6 +342,11 @@ export function createSmtpEmailModule(options: SmtpEmailModuleOptions = {}): Kel
     register(context) {
       context.provideEmailSender(SMTP_EMAIL_PROVIDER, () => {
         const config = context.config(smtpEmailConfigSchema)
+        const plainTextWarning = smtpPlainTextWarning(config)
+
+        if (plainTextWarning !== undefined) {
+          context.log.warn(plainTextWarning)
+        }
 
         return options.transport === undefined
           ? createSmtpEmailSender(config, context.log)

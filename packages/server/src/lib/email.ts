@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import type { RuntimeMode } from './config.ts'
 import { parseSenderAddress } from './emailAddress.ts'
 import { describeThrown } from './errors.ts'
 import type { Logger } from './logger.ts'
@@ -241,17 +242,61 @@ export const emailConfigSchema = z.object({
 export type EmailConfig = z.infer<typeof emailConfigSchema>
 
 /**
+ * `EMAIL_LOG_BODY`: whether the log provider writes the message body. Optional.
+ * A value that is not `true` or `false` stops boot.
+ */
+export const logEmailConfigSchema = z.object({
+  EMAIL_LOG_BODY: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
+})
+
+/**
+ * Whether the log provider writes the message body.
+ *
+ * The body of an invitation or a password reset holds a link that signs a
+ * person in. A developer copies the link from the log. In production the log
+ * is kept and more people read it, so the body stays out unless the operator
+ * asks for it.
+ *
+ * @param runtimeMode The mode the deployment runs in.
+ * @param setting The value of `EMAIL_LOG_BODY`, when one is set. It decides in every mode.
+ */
+export function logEmailWritesBody(runtimeMode: RuntimeMode, setting: boolean | undefined): boolean {
+  return setting ?? runtimeMode !== 'production'
+}
+
+/** What `createLogEmailSender` writes for each message. */
+export interface LogEmailSenderOptions {
+  /**
+   * `true` writes the full plaintext part as `body`. `false`, the default,
+   * writes only its length, as `bodyLength`. The default is the safe one: a
+   * caller must ask for the body.
+   */
+  readonly writeBody?: boolean | undefined
+}
+
+/**
  * Writes the message to the log instead of sending it. The registry default,
  * swapped out for a real sender by picking a different provider name in
  * `email.provider` (`'smtp'` for the built-in SMTP module, or any name a
  * third-party provider module registers).
  *
- * The line holds each field a real sender would use. `body` is the full
- * plaintext part, which is where a developer copies a link from. The HTML
- * part shows the same content with much markup, so the line gives only its
- * length, `htmlLength`. A field the message does not set is not on the line.
+ * The line holds each field a real sender would use, except the content. With
+ * `writeBody`, `body` is the full plaintext part, which is where a developer
+ * copies a link from. Without it the line gives only `bodyLength`, so no link
+ * is in the log. The HTML part shows the same content with much markup, so
+ * the line gives only its length, `htmlLength`. A field the message does not
+ * set is not on the line.
  */
-export function createLogEmailSender(logger: Logger, from: string): EmailSender {
+export function createLogEmailSender(
+  logger: Logger,
+  from: string,
+  options: LogEmailSenderOptions = {},
+): EmailSender {
+  const writeBody = options.writeBody === true
+
   return {
     send(message) {
       logger.info('email not sent: no provider module registered', {
@@ -261,7 +306,7 @@ export function createLogEmailSender(logger: Logger, from: string): EmailSender 
         ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
         subject: message.subject,
         ...(message.headers === undefined ? {} : { headers: message.headers }),
-        body: message.body,
+        ...(writeBody ? { body: message.body } : { bodyLength: message.body.length }),
         ...(message.html === undefined ? {} : { htmlLength: message.html.length }),
       })
 

@@ -54,11 +54,11 @@ Expected: `{"status":"ok","database":"up"}`. A `"status":"degraded"` body means 
 
 Open `http://localhost:5173/signup`. Passwords need at least 12 characters. Signup verifies your email address, then names your workspace, offers sample data, invites your team, and lands you in the app with a starter handbook in place.
 
-Out of the box `EMAIL_PROVIDER=log`, so the verification link (and every invitation and password reset) is written to the API's log instead of sent. Watch the `npm run dev` output and copy the link from there.
+Out of the box `EMAIL_PROVIDER=log`, so the verification link (and every invitation and password reset) is written to the API's log instead of sent. Watch the `npm run dev` output and copy the link from there. This applies to development: with `NODE_ENV=production` the log has no message body and no link.
 
 ## Sending real email
 
-Set `EMAIL_PROVIDER=smtp` in `.env` and fill in `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, and `SMTP_PASSWORD`. The built-in `smtp-email` module sends the mail; nothing to install. A third-party provider module (Resend, Postmark, and the like) registers its own provider name instead — install it, add it to `kelpie.config.ts`'s `modules:`, and set `EMAIL_PROVIDER` to that name. Details: [Configuration](configuration.md#email).
+Set `EMAIL_PROVIDER=smtp` in `.env` and fill in `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, and `SMTP_PASSWORD`. With `SMTP_SECURE=false` the server must offer STARTTLS, unless it is on the same machine. The built-in `smtp-email` module sends the mail; nothing to install. A third-party provider module (Resend, Postmark, and the like) registers its own provider name instead — install it, add it to `kelpie.config.ts`'s `modules:`, and set `EMAIL_PROVIDER` to that name. Details: [Configuration](configuration.md#email).
 
 ## Set it up with an AI agent
 

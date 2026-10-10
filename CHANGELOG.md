@@ -401,6 +401,26 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **SMTP must upgrade with STARTTLS when `SMTP_SECURE=false`.** The
+  connection upgraded only when the relay offered STARTTLS. A party on the
+  network could remove the offer, and the SMTP password and each message
+  then went in plain text. A relay that does not offer STARTTLS now fails
+  the send. A relay on the same machine (`localhost`, a `.localhost` name,
+  a loopback address) is exempt.
+  - **Action can be necessary:** if your relay has no STARTTLS and is on a
+    private network that you trust, set the new `SMTP_REQUIRE_TLS=false`.
+    The service then warns at boot. Without it, no mail goes out.
+- **In production, the `log` email provider does not write the message
+  body.** With `EMAIL_PROVIDER=log`, password-reset and invitation links
+  were in the log. The log now has `bodyLength` and no body, and the
+  service warns at boot that no email is sent. Development and test are
+  unchanged.
+  - **Action can be necessary:** set the new `EMAIL_LOG_BODY=true` to write
+    the body again, or configure a provider that sends.
+  - **For an assembly that calls the runtime directly:** `registerModules`
+    takes `email.runtimeMode`. Without it, the `log` provider uses the
+    production rule. `createLogEmailSender` writes the body only with
+    `{ writeBody: true }`.
 - **An anonymous form submit never changes a record that already
   existed.** A submit filled blank fields, merged tags and could set
   `do_not_contact` on a person it matched by email, and could set the

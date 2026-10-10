@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { isPermanentEmailError } from '../../lib/email.ts'
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
+import { registerModules } from '../../runtime/registry.ts'
+import { createTestServices } from '../../testing/services.ts'
 
 import type { EmailMessage, SmtpEmailConfig, SmtpTimeouts, SmtpTransport } from './index.ts'
 import {
@@ -15,7 +17,10 @@ import {
   createSmtpEmailModule,
   createSmtpEmailSender,
   isPermanentSmtpFailure,
+  smtpConnectionOptions,
   smtpEmailConfigSchema,
+  smtpPlainTextWarning,
+  smtpRequiresStartTls,
 } from './index.ts'
 
 const fixedTime = (): Date => new Date('2026-08-12T00:00:00.000Z')
@@ -421,6 +426,84 @@ describe('createNodemailerTransport', () => {
     expect(isPermanentEmailError(thrown)).toBe(false)
   })
 
+  /**
+   * A server with no STARTTLS: it does not offer it in its `EHLO` answer and
+   * refuses the command. This is what a relay looks like after a party on the
+   * network removes the offer. It accepts every other command, and `commands`
+   * holds each line the client sent.
+   */
+  function listenWithoutStartTls(commands: string[]): Promise<number> {
+    return listen((socket) => {
+      let inData = false
+
+      socket.write('220 localhost ESMTP\r\n')
+      socket.on('data', (chunk) => {
+        for (const line of chunk.toString('utf8').split('\r\n')) {
+          if (inData) {
+            if (line === '.') {
+              inData = false
+              socket.write('250 OK queued\r\n')
+            }
+          } else if (line.length > 0) {
+            commands.push(line)
+
+            if (/^EHLO/iu.test(line)) {
+              socket.write('250-localhost\r\n250 AUTH PLAIN LOGIN\r\n')
+            } else if (/^STARTTLS/iu.test(line)) {
+              socket.write('502 5.5.1 Command not implemented\r\n')
+            } else if (/^AUTH/iu.test(line)) {
+              socket.write('235 2.7.0 Authenticated\r\n')
+            } else if (/^DATA/iu.test(line)) {
+              inData = true
+              socket.write('354 End data with <CR><LF>.<CR><LF>\r\n')
+            } else if (/^QUIT/iu.test(line)) {
+              socket.write('221 Bye\r\n')
+            } else {
+              socket.write('250 OK\r\n')
+            }
+          }
+        }
+      })
+    })
+  }
+
+  /** Sends one message with credentials to a local server, and gives back the failure if there is one. */
+  async function sendWithCredentials(port: number, requireTls: boolean | undefined): Promise<unknown> {
+    const { logger } = capture()
+    const config: SmtpEmailConfig = {
+      ...localConfig(port),
+      SMTP_USER: 'kelpie',
+      SMTP_PASSWORD: 'a-real-password',
+      ...(requireTls === undefined ? {} : { SMTP_REQUIRE_TLS: requireTls }),
+    }
+    const sender = createSmtpEmailSender(config, logger, createNodemailerTransport(config, longTimeouts))
+
+    return sender.send(message).catch((error: unknown) => error)
+  }
+
+  it('fails the send before the sign-in when STARTTLS is required and the server has none', async () => {
+    const commands: string[] = []
+    const port = await listenWithoutStartTls(commands)
+
+    // The local server is on a loopback address, so the rule is set by name.
+    const thrown = await sendWithCredentials(port, true)
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect((thrown as Error).message).toContain('STARTTLS')
+    // A relay that is repaired can take the message later.
+    expect(isPermanentEmailError(thrown)).toBe(false)
+    // Neither the password nor the message went over the plain connection.
+    expect(commands.some((command) => /^(?:AUTH|MAIL FROM|RCPT TO|DATA)/iu.test(command))).toBe(false)
+  })
+
+  it('sends in plain text to a server on this machine that has no STARTTLS', async () => {
+    const commands: string[] = []
+    const port = await listenWithoutStartTls(commands)
+
+    expect(await sendWithCredentials(port, undefined)).toBeUndefined()
+    expect(commands.some((command) => /^MAIL FROM/iu.test(command))).toBe(true)
+  })
+
   it('sends with limits short enough for a send inside an HTTP request', () => {
     expect(SMTP_TIMEOUTS).toEqual({ dns: 10_000, connection: 10_000, greeting: 10_000, socket: 30_000 })
   })
@@ -458,6 +541,84 @@ describe('isPermanentSmtpFailure', () => {
   })
 })
 
+describe('smtpRequiresStartTls', () => {
+  it.each(['smtp.example.com', 'maildev', 'mail.internal', '10.0.0.5', '192.168.1.20', 'localhost.example.com'])(
+    'requires STARTTLS for %s when nothing is set',
+    (host) => {
+      expect(smtpRequiresStartTls({ SMTP_HOST: host })).toBe(true)
+    },
+  )
+
+  it.each(['localhost', 'LOCALHOST', 'mail.localhost', '127.0.0.1', '::1', '[::1]'])(
+    'does not require STARTTLS for %s when nothing is set',
+    (host) => {
+      expect(smtpRequiresStartTls({ SMTP_HOST: host })).toBe(false)
+    },
+  )
+
+  it('obeys SMTP_REQUIRE_TLS for every host', () => {
+    expect(smtpRequiresStartTls({ SMTP_HOST: 'smtp.example.com', SMTP_REQUIRE_TLS: false })).toBe(false)
+    expect(smtpRequiresStartTls({ SMTP_HOST: 'localhost', SMTP_REQUIRE_TLS: true })).toBe(true)
+  })
+})
+
+describe('smtpConnectionOptions', () => {
+  it('requires STARTTLS for a plain-text connection to another machine', () => {
+    expect(smtpConnectionOptions(smtpConfig, SMTP_TIMEOUTS)).toMatchObject({
+      host: 'smtp.example.com',
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      auth: { user: 'kelpie', pass: 'a-real-password' },
+    })
+  })
+
+  it('does not require STARTTLS for a mail catcher on this machine', () => {
+    const options = smtpConnectionOptions(
+      { EMAIL_FROM: 'kelpie@example.com', SMTP_HOST: 'localhost', SMTP_PORT: 1025, SMTP_SECURE: false },
+      SMTP_TIMEOUTS,
+    )
+
+    expect(options.requireTLS).toBe(false)
+    expect(options).not.toHaveProperty('auth')
+  })
+
+  it('does not require STARTTLS when the operator sets SMTP_REQUIRE_TLS to false', () => {
+    expect(smtpConnectionOptions({ ...smtpConfig, SMTP_REQUIRE_TLS: false }, SMTP_TIMEOUTS).requireTLS).toBe(false)
+  })
+
+  it('leaves the STARTTLS rule out when TLS starts at the first byte', () => {
+    const options = smtpConnectionOptions({ ...smtpConfig, SMTP_PORT: 465, SMTP_SECURE: true }, SMTP_TIMEOUTS)
+
+    expect(options.secure).toBe(true)
+    expect(options).not.toHaveProperty('requireTLS')
+  })
+
+  it('never turns off the check of the server certificate', () => {
+    for (const config of [smtpConfig, { ...smtpConfig, SMTP_REQUIRE_TLS: false }, { ...smtpConfig, SMTP_SECURE: true }]) {
+      expect(smtpConnectionOptions(config, SMTP_TIMEOUTS)).not.toHaveProperty('tls')
+    }
+  })
+})
+
+describe('smtpPlainTextWarning', () => {
+  it('warns when plain text is permitted to another machine', () => {
+    const warning = smtpPlainTextWarning({ SMTP_HOST: 'mail.internal', SMTP_SECURE: false, SMTP_REQUIRE_TLS: false })
+
+    expect(warning).toContain('SMTP_REQUIRE_TLS is "false"')
+    expect(warning).toContain('plain text')
+  })
+
+  it.each([
+    ['STARTTLS is required', { SMTP_HOST: 'smtp.example.com', SMTP_SECURE: false }],
+    ['the relay is on this machine', { SMTP_HOST: 'localhost', SMTP_SECURE: false }],
+    ['the relay is on this machine and the rule is off', { SMTP_HOST: '127.0.0.1', SMTP_SECURE: false, SMTP_REQUIRE_TLS: false }],
+    ['TLS starts at the first byte', { SMTP_HOST: 'smtp.example.com', SMTP_SECURE: true, SMTP_REQUIRE_TLS: false }],
+  ])('says nothing when %s', (_name, config) => {
+    expect(smtpPlainTextWarning(config)).toBeUndefined()
+  })
+})
+
 describe('smtpEmailConfigSchema', () => {
   const baseEnv = {
     EMAIL_FROM: 'kelpie@example.com',
@@ -482,6 +643,19 @@ describe('smtpEmailConfigSchema', () => {
 
     expect(parsed.SMTP_USER).toBeUndefined()
     expect(parsed.SMTP_PASSWORD).toBeUndefined()
+  })
+
+  it('reads SMTP_REQUIRE_TLS as true or false, and leaves it unset when it is absent', () => {
+    expect(smtpEmailConfigSchema.parse({ ...baseEnv, SMTP_REQUIRE_TLS: 'true' }).SMTP_REQUIRE_TLS).toBe(true)
+    expect(smtpEmailConfigSchema.parse({ ...baseEnv, SMTP_REQUIRE_TLS: 'false' }).SMTP_REQUIRE_TLS).toBe(false)
+    expect(smtpEmailConfigSchema.parse(baseEnv).SMTP_REQUIRE_TLS).toBeUndefined()
+  })
+
+  it.each(['no', '0', 'FALSE', ''])('rejects SMTP_REQUIRE_TLS "%s", naming the key', (value) => {
+    const result = smtpEmailConfigSchema.safeParse({ ...baseEnv, SMTP_REQUIRE_TLS: value })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain('SMTP_REQUIRE_TLS')
   })
 
   it('accepts EMAIL_FROM with a display name', () => {
@@ -530,6 +704,47 @@ describe('createSmtpEmailModule', () => {
   it('has the "smtp-email" id and is structural', () => {
     expect(createSmtpEmailModule().id).toBe('smtp-email')
     expect(createSmtpEmailModule().structural).toBe(true)
+  })
+
+  /** Boots the module as the picked provider, and gives back the warnings it wrote. */
+  async function bootWarnings(smtpEnvironment: Readonly<Record<string, string>>): Promise<string[]> {
+    const { logger, lines } = capture()
+
+    await registerModules({
+      modules: [createSmtpEmailModule({ transport: fakeTransport().transport })],
+      environment: { EMAIL_FROM: 'kelpie@example.com', SMTP_PORT: '587', SMTP_SECURE: 'false', ...smtpEnvironment },
+      logger,
+      services: createTestServices(),
+      email: { provider: SMTP_EMAIL_PROVIDER, from: 'kelpie@example.com', runtimeMode: 'production' },
+    })
+
+    return lines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line.level === 'warn')
+      .map((line) => String(line.message))
+  }
+
+  it('warns at boot when plain text is permitted to another machine, and does not name the password', async () => {
+    const warnings = await bootWarnings({
+      SMTP_HOST: 'mail.internal',
+      SMTP_REQUIRE_TLS: 'false',
+      SMTP_USER: 'kelpie',
+      SMTP_PASSWORD: 'a-real-password',
+    })
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('SMTP_REQUIRE_TLS is "false"')
+    expect(warnings[0]).not.toContain('a-real-password')
+  })
+
+  it('gives no warning at boot when STARTTLS is required', async () => {
+    expect(await bootWarnings({ SMTP_HOST: 'smtp.example.com' })).toEqual([])
+  })
+
+  it('fails boot on an SMTP_REQUIRE_TLS that is not true or false', async () => {
+    await expect(bootWarnings({ SMTP_HOST: 'smtp.example.com', SMTP_REQUIRE_TLS: 'no' })).rejects.toThrow(
+      /SMTP_REQUIRE_TLS/u,
+    )
   })
 
   it('exports the provider name it registers under so an assembly can name it', () => {

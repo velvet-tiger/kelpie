@@ -7,8 +7,14 @@ import { requireApiKeyScope, routeScopeRuleFor } from '../lib/apiKeyScopes.ts'
 import type { RouteScopeRule } from '../lib/apiKeyScopes.ts'
 import { CAPTCHA_PROVIDER_VARIABLE } from '../lib/captcha.ts'
 import type { CaptchaAccess, CaptchaProvider } from '../lib/captcha.ts'
-import type { Environment } from '../lib/config.ts'
-import { createLogEmailSender, emailHeadersProblem } from '../lib/email.ts'
+import type { Environment, RuntimeMode } from '../lib/config.ts'
+import { logEmailProviderWarning } from '../lib/deploymentChecks.ts'
+import {
+  createLogEmailSender,
+  emailHeadersProblem,
+  logEmailConfigSchema,
+  logEmailWritesBody,
+} from '../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import { AppError, describeThrown, describeValidationIssue, toErrorDetails } from '../lib/errors.ts'
 import type { JobRegistry } from '../lib/jobs.ts'
@@ -244,10 +250,16 @@ export interface ModuleRuntimeOptions {
    * `from` is the address on every outgoing message. The log provider uses it
    * verbatim; other providers may read the same value through their own
    * `context.config` if they need to.
+   *
+   * `runtimeMode` is the mode the deployment runs in. In `production` the log
+   * provider writes no message body, unless `EMAIL_LOG_BODY=true`, and the
+   * runtime warns when that provider is the one picked. An assembly that
+   * omits the field gets the production rule, which is the safe one.
    */
   readonly email: {
     readonly provider: string
     readonly from: string
+    readonly runtimeMode?: RuntimeMode | undefined
   }
   /**
    * Extra named providers seeded into the registry before any module runs.
@@ -373,6 +385,22 @@ class ExternalSignInProxy {
  * that tries to register under this name fails boot.
  */
 const LOG_PROVIDER_NAME = 'log'
+
+/**
+ * Whether the built-in log sender writes message bodies, from the mode and
+ * `EMAIL_LOG_BODY`.
+ *
+ * @throws ModuleBootError when `EMAIL_LOG_BODY` is set and is not `true` or `false`.
+ */
+function resolveLogEmailBody(runtimeMode: RuntimeMode, environment: Environment): boolean {
+  const result = logEmailConfigSchema.safeParse(environment)
+
+  if (!result.success) {
+    throw new ModuleBootError(result.error.issues.map((issue) => `email ${describeValidationIssue(issue)}`))
+  }
+
+  return logEmailWritesBody(runtimeMode, result.data.EMAIL_LOG_BODY)
+}
 
 /**
  * Records which module registered a given provider name, so a collision error
@@ -659,8 +687,13 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
 
   // The built-in log provider is always available, no module required. Named
   // 'log' in kelpie.config.ts's email.provider picks this one. Built eagerly
-  // because it has no env to parse and never fails.
-  const logSender = createLogEmailSender(options.logger, options.email.from)
+  // because it never fails once its one optional variable is read.
+  //
+  // An assembly that gives no mode is treated as production, so a caller that
+  // was written before the field existed puts no sign-in link in its log.
+  const emailRuntimeMode = options.email.runtimeMode ?? 'production'
+  const logEmailBody = resolveLogEmailBody(emailRuntimeMode, options.environment)
+  const logSender = createLogEmailSender(options.logger, options.email.from, { writeBody: logEmailBody })
 
   emailProviders.set(LOG_PROVIDER_NAME, {
     build: () => logSender,
@@ -792,6 +825,16 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   }
 
   emailProxy.setTarget(chosenSender)
+
+  const logProviderWarning = logEmailProviderWarning(
+    emailRuntimeMode,
+    options.email.provider === LOG_PROVIDER_NAME,
+    logEmailBody,
+  )
+
+  if (logProviderWarning !== undefined) {
+    options.logger.warn(logProviderWarning)
+  }
 
   // The CAPTCHA provider resolves the same way, with one difference: no name
   // is a valid choice, and leaves `context.captcha.current()` undefined.

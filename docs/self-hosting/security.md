@@ -27,6 +27,10 @@ A password reset request answers `202` for every address and does the same work 
 
 Emailed links hold a single-use token, and the database stores only its hash. The job that sends the email makes the token when it runs, so no job payload holds one.
 
+The `log` email provider writes each message to the log, and a message body holds its link. In production it writes the length of the body and not the body, so a person who can read the log cannot sign in as another person. `EMAIL_LOG_BODY=true` puts the body back. The service logs a warning at boot when a production deployment uses the `log` provider.
+
+Mail to an SMTP server on another machine is always encrypted. With `SMTP_SECURE=false` the connection must upgrade with STARTTLS before the password or a message goes over it, and a server that does not offer the upgrade fails the send. The server certificate is always checked. `SMTP_REQUIRE_TLS=false` turns the rule off for a relay on a private network that you trust. Both variables: [Configuration](configuration.md#email).
+
 An account must verify its email address before it can create a workspace; accepting an invitation verifies as a side effect, since the invite link already proves control of the address. Every emailed link is built server-side from your `APP_BASE_URL` plus a fixed path — a caller can never supply the link target, which closes the classic account-takeover path.
 
 ## Request size
