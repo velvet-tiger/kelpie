@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createEgressGuard } from '../../lib/egress.ts'
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
 import { createSecretCipher } from '../../lib/secrets.ts'
+import type { Transaction } from '../../runtime/transaction.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestClient, readList, readRecord, readString } from '../../testing/client.ts'
@@ -32,7 +33,7 @@ import type {
 } from './delivery.ts'
 import { createWebhooksModule } from './index.ts'
 import { DEFAULT_MAX_WEBHOOKS_PER_WORKSPACE } from './limits.ts'
-import { lockRegistrations } from './repository.ts'
+import { lockRegistrations, rotateWebhookSecret } from './repository.ts'
 import { webhookDeliveries, webhooks } from './schema.ts'
 import { DELIVERY_HEADER, EVENT_HEADER, SIGNATURE_HEADER } from './signing.ts'
 
@@ -844,6 +845,118 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       const id = readString(await createWebhook(), 'id')
 
       expect((await rotate(id, { overlap_hours: 72 })).status).toBe(422)
+    })
+
+    /**
+     * The outgoing secret is moved by the rotation's own statement, from the
+     * value the column holds at that moment. Each test plays a write that
+     * lands between the request's arrival and its write: the suite holds it
+     * open in a transaction, starts the rotation, and commits once the
+     * rotation is waiting on the row. A rotation that carried a copy it read
+     * on arrival would write that stale copy.
+     */
+    describe('a write that lands while a rotation is in flight', () => {
+      const current = createSecretCipher({ SECRET_ENCRYPTION_KEY: TEST_SECRET_ENCRYPTION_KEY })
+      /** A key the service no longer seals under: the previous key of an encryption key rotation. */
+      const underPreviousKey = createSecretCipher({
+        SECRET_ENCRYPTION_KEY: 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=',
+      })
+
+      /** Rotates with an overlap around a write the suite has not committed when the request arrives. */
+      async function rotateAround(id: string, write: (tx: Transaction) => Promise<void>): Promise<Response> {
+        let settled = false
+        let rotating: Promise<Response> | undefined
+
+        await database.db.transaction(async (tx) => {
+          await write(tx)
+
+          rotating = rotate(id, { overlap: true }).finally(() => {
+            settled = true
+          })
+
+          // Commit only once the rotation is waiting on the row.
+          await expect
+            .poll(async () => settled || (await countLockWaits(database.db)) > 0)
+            .toBe(true)
+        })
+
+        if (rotating === undefined) {
+          throw new Error('unreachable: the rotation starts inside the transaction')
+        }
+
+        return rotating
+      }
+
+      async function storedSecrets(id: string): Promise<{ current: string; previous: string | null }> {
+        const [row] = await database.db
+          .select({ current: webhooks.secretEncrypted, previous: webhooks.previousSecretEncrypted })
+          .from(webhooks)
+          .where(eq(webhooks.id, id))
+
+        if (row === undefined) {
+          throw new Error(`No webhook ${id}`)
+        }
+
+        return row
+      }
+
+      /**
+       * The reseal pass re-seals the secret under the current key after the
+       * rotation request arrived and before it wrote. The secret the rotation
+       * retires must be the re-sealed one, or the previous key's ciphertext
+       * is back in the row after the pass reported it gone.
+       */
+      it('retires the secret as the reseal pass left it, under the current key', async () => {
+        const created = await createWebhook()
+        const id = readString(created, 'id')
+        const original = readString(created, 'secret')
+
+        // As the row is in the middle of an encryption key rotation.
+        await database.db
+          .update(webhooks)
+          .set({ secretEncrypted: underPreviousKey.seal(original) })
+          .where(eq(webhooks.id, id))
+
+        const response = await rotateAround(id, async (tx) => {
+          await tx
+            .update(webhooks)
+            .set({ secretEncrypted: current.seal(original) })
+            .where(eq(webhooks.id, id))
+        })
+        const replacement = readString(readRecord(await response.json()), 'secret')
+        const row = await storedSecrets(id)
+
+        expect(response.status).toBe(200)
+        expect(current.open(row.current)).toBe(replacement)
+        // Opens with the current key alone, so the previous key can go.
+        expect(current.open(row.previous ?? '')).toBe(original)
+      })
+
+      /**
+       * Two rotations at the same moment behave as one after the other: the
+       * second retires the secret the first one issued. If each carried the
+       * secret it read on arrival, the first one's secret would be in neither
+       * column, and the admin who was just given it would hold a secret that
+       * verifies nothing.
+       */
+      it('retires the secret of a rotation that finished first, not the one both began from', async () => {
+        const created = await createWebhook()
+        const id = readString(created, 'id')
+
+        const response = await rotateAround(id, async (tx) => {
+          await rotateWebhookSecret(tx, acme.workspaceId, id, {
+            secretEncrypted: current.seal('whsec_from_the_first_rotation'),
+            secretPrefix: 'whsec_…tion',
+            previousSecretExpiresAt: new Date(Date.now() + 60_000),
+            updatedAt: new Date(),
+          })
+        })
+        const replacement = readString(readRecord(await response.json()), 'secret')
+        const row = await storedSecrets(id)
+
+        expect(current.open(row.current)).toBe(replacement)
+        expect(current.open(row.previous ?? '')).toBe('whsec_from_the_first_rotation')
+      })
     })
   })
 

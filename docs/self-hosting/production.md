@@ -126,11 +126,18 @@ Replacing `SECRET_ENCRYPTION_KEY` outright makes every sealed secret unreadable,
 
 1. Move the current key to `SECRET_ENCRYPTION_KEY_PREVIOUS` and put a new key in `SECRET_ENCRYPTION_KEY`.
 2. Deploy. New secrets seal under the new key; existing ones still open with the previous one.
-3. Run `npm run reseal`. It rewrites every row still sealed under the old key, is safe to run more than once, and exits non-zero naming any row it could not open.
-4. Run `npm run reseal` again, until the report ends with `Nothing to do`.
-5. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
+3. Run `npm run reseal`. It rewrites every row still sealed under the old key, and it is safe to run more than once. Continue only when it exits with 0.
+4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
 
-The service runs while the reseal runs. A person can rotate a webhook secret, change an agent auth header or replace an AI key during that time. The reseal writes a row only when the row still has the value that the reseal read, so it never puts an old secret back. A value that changed is not a failure. The report counts it as `changed during the run`, the exit code is 0, and the report tells you to run the command again. Do not skip step 4. A value that the service wrote during the run can be sealed under the previous key, and only a run that writes nothing has read every value under the current key.
+The service runs while the reseal runs. A person can rotate a webhook secret, change an agent auth header or replace an AI key during that time. The reseal writes a row only when the row still has the value that the reseal read, so it never puts an old secret back. One command reads every value again after each round that re-sealed or skipped a value. It stops after a round that found every value under the new key.
+
+| Exit code | Meaning | What to do |
+| --- | --- | --- |
+| `0` | The last round read every value and found each one under the new key. The report says that you can remove `SECRET_ENCRYPTION_KEY_PREVIOUS`. | Do step 4. |
+| `1` | A value opened under neither key. The report names each row. | Do not remove the previous key. Set `SECRET_ENCRYPTION_KEY_PREVIOUS` to the key that sealed those rows and run the command again, or create those records again. |
+| `2` | After 5 rounds, a round still re-sealed or skipped a value. The report starts with `Not finished`. | Do not remove the previous key. Make sure that every instance of the service runs with the new `SECRET_ENCRYPTION_KEY`, then run the command again. |
+
+Because a failed run is not `0`, a script such as `npm run reseal && <remove the previous key>` stops when the reseal did not finish.
 
 ## Background work
 

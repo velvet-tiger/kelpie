@@ -132,7 +132,7 @@ export interface ResealColumnOutcome {
    * service wrote them. Counted in `examined` and not in `resealed`.
    *
    * Counted and not named: an operator does nothing to these rows by hand.
-   * The next run reads them again.
+   * `runReseal` reads them again in its next round.
    *
    * Optional, so a pass written before this field still fits the type. A
    * pass that leaves it out reports none.
@@ -202,11 +202,10 @@ export async function resealStoredSecrets(
       // new key, where the customer's new one should be. So the write applies
       // only to the value that was read, and the service's value stays.
       //
-      // A changed value is counted and not assumed current. The service seals
-      // a new secret under the current key, but an overlapping rotation moves
-      // the outgoing secret to `previous_secret_encrypted` as the ciphertext
-      // it read, and that can be from before this pass re-sealed it. The next
-      // run reads the row again and settles it.
+      // A changed value is counted and not assumed current. `runReseal`
+      // reads every column again after a round that changed or skipped a
+      // value, and says the previous key can go only after a round that
+      // found every value under the current key.
       if (await column.replace(db, row.id, row.sealed, next)) {
         resealed += 1
       } else {
@@ -265,10 +264,118 @@ function defaultReportFatal(message: string): void {
 }
 
 /**
- * Runs every reseal pass under the current `SECRET_ENCRYPTION_KEY` and
- * prints a report. Returns the exit code a script should return: 1 if any row
- * was unreadable, 0 otherwise. A value that changed while a pass ran is not a
- * failure, so it does not make the exit code 1; the report says to run again.
+ * How many rounds one run makes before it gives up. A round is every pass,
+ * one time.
+ *
+ * The usual run is two rounds: one that re-seals, and one that reads
+ * everything again and finds nothing to do. A further round is needed only
+ * when the service changed a secret during the round before it, and a person
+ * who rotates a secret at that moment does so once or twice, not in every
+ * round. A run that is still writing after five rounds is not catching up
+ * with people. Something seals under the previous key all the time, which is
+ * an instance of the service still running with the old key as its current
+ * one, and no number of rounds ends that.
+ */
+export const MAX_RESEAL_ROUNDS = 5
+
+/** Every value is under the current key. The previous key can go. */
+export const RESEAL_EXIT_SETTLED = 0
+
+/** Some value opened under neither key. Nothing here can recover it. */
+export const RESEAL_EXIT_UNREADABLE = 1
+
+/**
+ * The last round still re-sealed or skipped a value. Not zero, so a script
+ * that removes the previous key after a successful reseal stops here.
+ */
+export const RESEAL_EXIT_UNSETTLED = 2
+
+/** One column's figures over every round of a run. */
+interface ColumnTotals {
+  /** From the last round: how many values the column holds now. */
+  examined: number
+  /** Summed over the rounds. */
+  resealed: number
+  /** Summed over the rounds. */
+  changed: number
+  /** From the last round: a row that stays unreadable is one row, not one for each round. */
+  unreadable: readonly string[]
+}
+
+/** What the rounds of one run came to. */
+interface ResealRun {
+  /** By column label, in the order the passes reported them. A label names one column, so two passes never share one. */
+  readonly totals: ReadonlyMap<string, ColumnTotals>
+  readonly rounds: number
+  /** What the last round wrote and skipped. Both zero is what `settled` means. */
+  readonly lastRound: { readonly resealed: number; readonly changed: number }
+  readonly settled: boolean
+}
+
+/**
+ * Runs every pass, round after round, until a round re-seals nothing and
+ * skips nothing, or `MAX_RESEAL_ROUNDS` is reached.
+ */
+async function resealUntilSettled(
+  passes: readonly ResealPass[],
+  db: Database,
+  cipher: SecretCipher,
+): Promise<ResealRun> {
+  const totals = new Map<string, ColumnTotals>()
+  let rounds = 0
+  let lastRound = { resealed: 0, changed: 0 }
+  let settled = false
+
+  while (!settled && rounds < MAX_RESEAL_ROUNDS) {
+    rounds += 1
+    lastRound = { resealed: 0, changed: 0 }
+
+    // Sequential rather than `Promise.all`, so two full-table passes never
+    // contend for the pool at once. Each pass is idempotent; a run that
+    // dies halfway leaves the finished rows current and re-running
+    // completes the rest.
+    for (const pass of passes) {
+      const outcome = await pass(db, cipher)
+
+      // From the columns and not from the outcome's own totals, so a pass
+      // that fills in one and not the other is still counted.
+      for (const column of outcome.columns) {
+        const before = totals.get(column.label)
+        const changedInColumn = countChanged(column)
+
+        totals.set(column.label, {
+          examined: column.examined,
+          resealed: (before?.resealed ?? 0) + column.resealed,
+          changed: (before?.changed ?? 0) + changedInColumn,
+          unreadable: column.unreadable,
+        })
+        lastRound.resealed += column.resealed
+        lastRound.changed += changedInColumn
+      }
+    }
+
+    settled = lastRound.resealed === 0 && lastRound.changed === 0
+  }
+
+  return { totals, rounds, lastRound, settled }
+}
+
+/**
+ * Runs every reseal pass under the current `SECRET_ENCRYPTION_KEY`, again and
+ * again until a round re-seals nothing and skips nothing, and prints one
+ * report for the whole run.
+ *
+ * The service runs while this does, so one round is not proof. A person can
+ * rotate a secret during it, and a row can change between its read and its
+ * write. Only a round that wrote nothing and skipped nothing has read every
+ * value and found each one under the current key. So that round is what ends
+ * the run, and what lets the report say the previous key can go.
+ *
+ * @returns The exit code a script should return. `RESEAL_EXIT_SETTLED` (0)
+ *   when the last round found every value under the current key.
+ *   `RESEAL_EXIT_UNREADABLE` (1) when a value opened under neither key.
+ *   `RESEAL_EXIT_UNSETTLED` (2) when `MAX_RESEAL_ROUNDS` rounds were not
+ *   enough: the previous key must stay, and the run must be repeated.
  *
  * The rotation procedure, in full:
  *
@@ -277,15 +384,9 @@ function defaultReportFatal(message: string): void {
  *   2. Deploy. Deliveries keep signing: new secrets seal under the new key,
  *      and existing ones still open under the previous one.
  *   3. Run the reseal script. It rewrites every row still sealed under the
- *      old key.
- *   4. Run it again, until it reports nothing to do.
- *   5. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
- *
- * Step 4 is there because the service runs during step 3. A run that wrote
- * nothing has read every value and found each one under the current key. A
- * run that re-sealed or skipped a value cannot say that: the service can
- * write a ciphertext it read before the run reached that row, and that
- * ciphertext is still under the previous key.
+ *      old key, and exits 0 only when it has read every value again and
+ *      found each one under the new key.
+ *   4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
  *
  * Safe to run at any point, including with no previous key set, where it
  * reports that everything is already current and writes nothing.
@@ -334,28 +435,19 @@ export async function runReseal(options: RunResealOptions): Promise<number> {
   const passes: readonly ResealPass[] = [resealStoredSecrets, ...(options.extraPasses ?? [])]
 
   try {
-    // Sequential rather than `Promise.all`, so two full-table passes never
-    // contend for the pool at once. Each pass is idempotent; a run that
-    // dies halfway leaves the finished rows current and re-running
-    // completes the rest.
-    const outcomes: ResealOutcome[] = []
-    for (const pass of passes) {
-      outcomes.push(await pass(database.db, cipher))
-    }
+    const { totals, rounds, lastRound, settled } = await resealUntilSettled(passes, database.db, cipher)
 
-    const columns = outcomes.flatMap((outcome) => outcome.columns)
-    const examined = outcomes.reduce((total, outcome) => total + outcome.examined, 0)
-    const resealed = outcomes.reduce((total, outcome) => total + outcome.resealed, 0)
-    const unreadable = outcomes.reduce((total, outcome) => total + outcome.unreadable, 0)
-    // From the columns and not from each outcome's own total, so a pass that
-    // fills in one and not the other is still counted.
-    const changed = columns.reduce((total, column) => total + countChanged(column), 0)
+    const columns = [...totals.entries()]
+    const examined = columns.reduce((total, [, column]) => total + column.examined, 0)
+    const resealed = columns.reduce((total, [, column]) => total + column.resealed, 0)
+    const changed = columns.reduce((total, [, column]) => total + column.changed, 0)
+    const unreadable = columns.reduce((total, [, column]) => total + column.unreadable.length, 0)
 
-    for (const column of columns) {
-      const changedInColumn = countChanged(column)
-
+    // One line for each column for the whole run. A block for each round
+    // would repeat every column up to five times to say the same thing.
+    for (const [label, column] of columns) {
       report(
-        `${column.label}: ${String(column.examined)} examined, ${String(column.resealed)} re-sealed, ${String(column.unreadable.length)} unreadable${changedInColumn === 0 ? '' : `, ${String(changedInColumn)} changed during the run`}`,
+        `${label}: ${String(column.examined)} examined, ${String(column.resealed)} re-sealed, ${String(column.unreadable.length)} unreadable${column.changed === 0 ? '' : `, ${String(column.changed)} changed during the run`}`,
       )
 
       for (const id of column.unreadable) {
@@ -363,34 +455,42 @@ export async function runReseal(options: RunResealOptions): Promise<number> {
       }
     }
 
+    if (!settled) {
+      reportFatal(
+        `\nNot finished. After ${String(MAX_RESEAL_ROUNDS)} rounds, the last round still re-sealed ${String(lastRound.resealed)} value(s) and found ${String(lastRound.changed)} that changed while it ran. Do not remove SECRET_ENCRYPTION_KEY_PREVIOUS. Something still seals secrets under the previous key: check that every instance of the service runs with the new SECRET_ENCRYPTION_KEY. Then run this again.`,
+      )
+    }
+
     if (unreadable > 0) {
       reportFatal(
         `\n${String(unreadable)} value(s) opened under neither key. They were sealed under a key that is not configured, or the rows have been altered. Nothing here can recover them: set SECRET_ENCRYPTION_KEY_PREVIOUS to the key they were sealed with and run this again, or have those records re-created.`,
       )
 
-      return 1
+      return RESEAL_EXIT_UNREADABLE
     }
+
+    if (!settled) {
+      return RESEAL_EXIT_UNSETTLED
+    }
+
+    const removable = hasPrevious ? ' You can now remove SECRET_ENCRYPTION_KEY_PREVIOUS.' : ''
 
     if (resealed === 0 && changed === 0) {
       report(
-        `\nNothing to do: all ${String(examined)} value(s) are already sealed under the current key.${hasPrevious ? ' You can now remove SECRET_ENCRYPTION_KEY_PREVIOUS.' : ''}`,
+        `\nNothing to do: all ${String(examined)} value(s) are already sealed under the current key.${removable}`,
       )
 
-      return 0
+      return RESEAL_EXIT_SETTLED
     }
 
     const skipped =
-      changed === 0
-        ? ''
-        : ` ${String(changed)} value(s) changed during the run and were left as the service wrote them.`
+      changed === 0 ? '' : ` ${String(changed)} value(s) changed during the run and were read again.`
 
-    // Not a failure, so the exit code stays 0. But only a run that writes
-    // nothing has seen every value under the current key.
     report(
-      `\nRe-sealed ${String(resealed)} of ${String(examined)} value(s).${skipped} Run this again. Remove SECRET_ENCRYPTION_KEY_PREVIOUS after a run that reports nothing to do.`,
+      `\nRe-sealed ${String(resealed)} value(s) in ${String(rounds)} rounds.${skipped} All ${String(examined)} value(s) are now sealed under the current key.${removable}`,
     )
 
-    return 0
+    return RESEAL_EXIT_SETTLED
   } finally {
     await database.close()
   }

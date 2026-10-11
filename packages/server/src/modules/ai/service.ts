@@ -270,6 +270,25 @@ function isUsable(credentials: AiCredentials): boolean {
   return credentials.problem === null && credentials.provider !== null && credentials.apiKey !== null
 }
 
+/** Whether the request moves the workspace to another provider than the stored one. */
+function changesProvider(stored: AiSettingsRow | undefined, changes: AiSettingsChanges): boolean {
+  return changes.provider !== undefined && changes.provider !== stored?.provider
+}
+
+/**
+ * Whether the request itself decides the stored key: it sends one, it clears
+ * it, or it changes provider, which drops the key of the old one.
+ *
+ * A request that does none of these keeps the key, and a request that keeps
+ * the key must not write the key column. The stored row was read before the
+ * write, and its ciphertext can be stale by then: another admin may have
+ * replaced the key, or the reseal pass may have re-sealed it under a new
+ * encryption key. Writing the copy back would undo either.
+ */
+function decidesKey(stored: AiSettingsRow | undefined, changes: AiSettingsChanges): boolean {
+  return changes.apiKey !== undefined || changesProvider(stored, changes)
+}
+
 /**
  * The row the settings would become, before anything is written.
  *
@@ -282,7 +301,7 @@ function prospectiveRow(
   changes: AiSettingsChanges,
   sealedNewKey: string | undefined,
 ): AiSettingsRow {
-  const providerChanged = changes.provider !== undefined && changes.provider !== stored?.provider
+  const providerChanged = changesProvider(stored, changes)
   const keptKey = providerChanged ? null : (stored?.apiKeyEncrypted ?? null)
   const keptModel = providerChanged ? null : (stored?.model ?? null)
   const now = new Date(0)
@@ -429,7 +448,13 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
           {
             workspaceId,
             ...(dependencies.keyMode === 'workspace'
-              ? { provider: next.provider, model: next.model, apiKeyEncrypted: next.apiKeyEncrypted }
+              ? {
+                  provider: next.provider,
+                  model: next.model,
+                  // Left out when the request keeps the key, and the upsert
+                  // then leaves the column as it is in the row at that moment.
+                  ...(decidesKey(stored, changes) ? { apiKeyEncrypted: next.apiKeyEncrypted } : {}),
+                }
               : {}),
             ...(changes.webSearch === undefined ? {} : { webSearch: changes.webSearch }),
           },

@@ -1,5 +1,5 @@
 import type { WebhookDeliveryStatus, WebhookEvent, WebhookStatus } from '@kelpie/schemas'
-import { and, arrayContains, count, desc, eq, inArray, lt, ne } from 'drizzle-orm'
+import { and, arrayContains, count, desc, eq, inArray, lt, ne, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
@@ -192,6 +192,57 @@ export async function updateWebhook(
     .returning()
 
   return updated
+}
+
+/** What a rotation writes. The outgoing secret is not here: the statement moves it. */
+export interface SecretRotation {
+  readonly secretEncrypted: string
+  readonly secretPrefix: string
+  /**
+   * When the outgoing secret stops being signed with. Null for a rotation
+   * with no overlap, which discards the outgoing secret at once.
+   */
+  readonly previousSecretExpiresAt: Date | null
+  readonly updatedAt: Date
+}
+
+/**
+ * Replaces a webhook's signing secret, and keeps or discards the one it
+ * replaces.
+ *
+ * With an overlap, the outgoing secret is the value the column holds when
+ * this statement runs, and the statement itself moves it to
+ * `previous_secret_encrypted`. It is not a value the caller read earlier. A
+ * value read earlier can be stale by the time it is written: the reseal pass
+ * may have re-sealed the column under a new key since, and a stale copy would
+ * put the old key's ciphertext back. A second rotation at the same moment
+ * would lose the first one's secret from the overlap for the same reason.
+ * Postgres evaluates the right side against the row as it is under the row
+ * lock, so two rotations at once behave as one after the other.
+ *
+ * The moved ciphertext is not re-sealed. It is already under a key the
+ * service holds, and the reseal pass covers the column it lands in.
+ */
+export async function rotateWebhookSecret(
+  db: Queryable,
+  workspaceId: string,
+  id: string,
+  rotation: SecretRotation,
+): Promise<WebhookRecord | undefined> {
+  const [rotated] = await db
+    .update(webhooks)
+    .set({
+      secretEncrypted: rotation.secretEncrypted,
+      secretPrefix: rotation.secretPrefix,
+      previousSecretEncrypted:
+        rotation.previousSecretExpiresAt === null ? null : sql`${webhooks.secretEncrypted}`,
+      previousSecretExpiresAt: rotation.previousSecretExpiresAt,
+      updatedAt: rotation.updatedAt,
+    })
+    .where(and(eq(webhooks.workspaceId, workspaceId), eq(webhooks.id, id)))
+    .returning()
+
+  return rotated
 }
 
 /**

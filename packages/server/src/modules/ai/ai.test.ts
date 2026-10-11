@@ -1934,6 +1934,169 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
   })
 
+  /**
+   * A save of the settings reads the row and writes it later. A save that
+   * keeps the key must not write the key column: the ciphertext it read can be
+   * stale by the time it writes. The service here runs as it does in the
+   * middle of an encryption key rotation, with the key being rotated away
+   * from as its previous key.
+   */
+  describe('a settings save that keeps the workspace key', () => {
+    const NEXT_KEY = 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI='
+    /** Opens only what is sealed under the current key, as the service will once the rotation ends. */
+    const current = createSecretCipher({ SECRET_ENCRYPTION_KEY: NEXT_KEY })
+    /** The key being rotated away from. */
+    const previous = createSecretCipher({ SECRET_ENCRYPTION_KEY: TEST_SECRET_ENCRYPTION_KEY })
+
+    let h: Harness
+
+    afterAll(async () => {
+      await h.close()
+    })
+
+    beforeAll(async () => {
+      h = await buildHarness(database, {
+        keyMode: 'workspace',
+        environment: {
+          SECRET_ENCRYPTION_KEY: NEXT_KEY,
+          SECRET_ENCRYPTION_KEY_PREVIOUS: TEST_SECRET_ENCRYPTION_KEY,
+          // A fallback, so a request that removes the workspace key is still usable.
+          AI_PROVIDER: 'openai',
+          AI_API_KEY: 'sk-fallback-key-0009',
+        },
+      })
+    })
+
+    beforeEach(async () => {
+      await database.truncateAll()
+      h.provider.reset()
+    })
+
+    /** A workspace whose key is still sealed under the previous key. */
+    async function workspaceWithOldSealedKey(email: string): Promise<{ cookie: string; workspaceId: string }> {
+      const owner = await enabledWorkspace(h, email, { provider: 'openai', api_key: 'sk-openai-before' })
+
+      await h.app.services.db
+        .update(aiSettings)
+        .set({ apiKeyEncrypted: previous.seal('sk-openai-before') })
+        .where(eq(aiSettings.workspaceId, owner.workspaceId))
+
+      return owner
+    }
+
+    async function storedKey(workspaceId: string): Promise<string | null> {
+      const [row] = await h.app.services.db.select().from(aiSettings).where(eq(aiSettings.workspaceId, workspaceId))
+
+      if (row === undefined) {
+        throw new Error(`No settings row for ${workspaceId}`)
+      }
+
+      return row.apiKeyEncrypted
+    }
+
+    /**
+     * Saves `body` around a write to the key that the suite has not committed
+     * when the request reads the row. The suite commits once the request is
+     * waiting on the row, so the order is: the request reads, the other write
+     * lands, the request writes.
+     */
+    async function saveAround(
+      owner: { readonly cookie: string; readonly workspaceId: string },
+      body: Record<string, unknown>,
+      apiKeyEncrypted: string,
+    ): Promise<Response> {
+      let settled = false
+      let saving: Promise<Response> | undefined
+
+      await h.app.services.db.transaction(async (tx) => {
+        await tx.update(aiSettings).set({ apiKeyEncrypted }).where(eq(aiSettings.workspaceId, owner.workspaceId))
+
+        saving = h.client.send('POST', '/v1/ai/settings', { cookie: owner.cookie, body }).finally(() => {
+          settled = true
+        })
+
+        await expect
+          .poll(async () => settled || (await countLockWaits(h.app.services.db)) > 0)
+          .toBe(true)
+      })
+
+      if (saving === undefined) {
+        throw new Error('unreachable: the save starts inside the transaction')
+      }
+
+      return saving
+    }
+
+    /**
+     * The reseal pass re-seals the key under the current key after the save
+     * read the row and before it wrote. Writing the copy back would return the
+     * previous key's ciphertext after the pass reported it gone.
+     */
+    it('leaves the key as the reseal pass left it, under the current key', async () => {
+      const owner = await workspaceWithOldSealedKey('keep-resealed@example.com')
+
+      const response = await saveAround(owner, { web_search: false }, current.seal('sk-openai-before'))
+
+      expect(response.status).toBe(200)
+      expect(readRecord(await response.json())).toMatchObject({ web_search: false })
+      // Opens with the current key alone, so the previous key can go.
+      expect(current.open((await storedKey(owner.workspaceId)) ?? '')).toBe('sk-openai-before')
+    })
+
+    it('does not write over a key that another admin replaced while it was in flight', async () => {
+      const owner = await workspaceWithOldSealedKey('keep-replaced@example.com')
+
+      const response = await saveAround(owner, { web_search: false }, current.seal('sk-openai-after'))
+
+      expect(response.status).toBe(200)
+      expect(current.open((await storedKey(owner.workspaceId)) ?? '')).toBe('sk-openai-after')
+    })
+
+    it('leaves the stored ciphertext byte for byte when nothing else writes', async () => {
+      const owner = await workspaceWithOldSealedKey('keep-quiet@example.com')
+      const before = await storedKey(owner.workspaceId)
+
+      const response = await h.client.send('POST', '/v1/ai/settings', {
+        cookie: owner.cookie,
+        body: { web_search: false, model: 'gpt-5' },
+      })
+
+      expect(response.status).toBe(200)
+      expect(await storedKey(owner.workspaceId)).toBe(before)
+    })
+
+    it('still replaces the key when the request sends one', async () => {
+      const owner = await workspaceWithOldSealedKey('replace@example.com')
+
+      const response = await h.client.send('POST', '/v1/ai/settings', {
+        cookie: owner.cookie,
+        body: { api_key: 'sk-openai-replacement' },
+      })
+
+      expect(response.status).toBe(200)
+      expect(current.open((await storedKey(owner.workspaceId)) ?? '')).toBe('sk-openai-replacement')
+    })
+
+    it('still removes the key when the request clears it, and when it changes provider', async () => {
+      const cleared = await workspaceWithOldSealedKey('clear@example.com')
+      const switched = await workspaceWithOldSealedKey('switch@example.com')
+
+      expect(
+        (await h.client.send('POST', '/v1/ai/settings', { cookie: cleared.cookie, body: { api_key: null } })).status,
+      ).toBe(200)
+      expect(await storedKey(cleared.workspaceId)).toBeNull()
+
+      // A key for one provider means nothing to another, so the old one goes with the change.
+      const response = await h.client.send('POST', '/v1/ai/settings', {
+        cookie: switched.cookie,
+        body: { provider: 'anthropic', api_key: 'sk-ant-other-provider' },
+      })
+
+      expect(response.status).toBe(200)
+      expect(current.open((await storedKey(switched.workspaceId)) ?? '')).toBe('sk-ant-other-provider')
+    })
+  })
+
   describe('workspace key mode with an environment fallback', () => {
     let h: Harness
 

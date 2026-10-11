@@ -294,22 +294,19 @@ export function createWebhooksService(dependencies: WebhooksDependencies): Webho
      */
     async rotateSecret(actor, id, input) {
       const workspaceId = requireAdminWorkspace(actor)
-      const existing = await require(workspaceId, id)
       const { secret, secretPrefix } = mintSecret(newToken)
       const now = dependencies.now()
 
+      // No read of the row before the write. The statement moves the outgoing
+      // secret itself, so nothing here can carry a stale copy of it, and a
+      // webhook that is not there is the statement touching no row.
       const rotated = await dependencies.transaction(async ({ tx }) => {
-        const row = await repository.updateWebhook(tx, workspaceId, id, {
+        const row = await repository.rotateWebhookSecret(tx, workspaceId, id, {
           secretEncrypted: dependencies.cipher.seal(secret),
           secretPrefix,
-          // The outgoing ciphertext is carried across as it is. It is already
-          // sealed under the current SECRET_ENCRYPTION_KEY, so re-sealing it
-          // would only spend a fresh IV to store the same plaintext.
-          //
           // Without an overlap both columns are cleared, which is also what
           // discards the previous secret from an earlier overlapping rotation
           // rather than leaving its ciphertext at rest indefinitely.
-          previousSecretEncrypted: input.overlap ? existing.secretEncrypted : null,
           previousSecretExpiresAt: input.overlap
             ? new Date(now.getTime() + SECRET_OVERLAP_MS)
             : null,

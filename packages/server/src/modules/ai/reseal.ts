@@ -68,8 +68,8 @@ export async function resealAiSecrets(db: Database, cipher: SecretCipher): Promi
 
     // A save between the read and this write put a new value in the column,
     // or cleared it. That value stays: writing ours would put the old secret
-    // back where the admin's new one should be. It is counted, so the report
-    // asks for another run, and that run reads whatever the service wrote.
+    // back where the admin's new one should be. It is counted, so that
+    // `runReseal` reads the row again in another round.
     if (await replaceSealedSetting(db, workspaceId, column, sealed, replacement, new Date())) {
       tally.resealed += 1
     } else {
