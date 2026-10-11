@@ -46,7 +46,7 @@ A scaffolded project reads one file: `.env`, loaded by every script through `--e
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `SECRET_ENCRYPTION_KEY` | yes | 32 bytes of base64. Seals the secrets Kelpie must read back: webhook signing keys and agent-task auth headers. The scaffolder generates one per project. |
-| `SECRET_ENCRYPTION_KEY_PREVIOUS` | rotation only | The key being rotated away from. Set it during a rotation and remove it after `npm run reseal`. Procedure: [Production](production.md#rotating-the-encryption-key). |
+| `SECRET_ENCRYPTION_KEY_PREVIOUS` | rotation only | The key being rotated away from. Set it during a rotation and remove it after `npm run reseal` reports `Nothing to do`. Procedure: [Production](production.md#rotating-the-encryption-key). |
 
 Generate a key:
 

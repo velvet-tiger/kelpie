@@ -495,23 +495,43 @@ export async function listSettingsRows(db: Queryable): Promise<readonly AiSettin
   return db.select().from(aiSettings)
 }
 
-export async function updateSealedSettings(
+/** The two sealed columns of a settings row. */
+export type SealedSettingColumn = 'dispatchSecretEncrypted' | 'apiKeyEncrypted'
+
+/**
+ * Writes `replacement` over `expected` in one sealed column, and over nothing
+ * else.
+ *
+ * The reseal pass reads a row and writes it later, and an admin can replace
+ * the key or save the settings in between. One statement for each column, each
+ * with its own condition, so a change to one column neither stops the other's
+ * write nor is overwritten by it.
+ *
+ * @returns False when the column no longer holds `expected`, or the row is
+ *   gone. Nothing was written.
+ */
+export async function replaceSealedSetting(
   db: Queryable,
   workspaceId: string,
-  changes: {
-    readonly dispatchSecretEncrypted?: string
-    readonly apiKeyEncrypted?: string
-  },
+  column: SealedSettingColumn,
+  expected: string,
+  replacement: string,
   now: Date,
-): Promise<void> {
-  const update: Record<string, unknown> = { updatedAt: now }
+): Promise<boolean> {
+  const replaced =
+    column === 'apiKeyEncrypted'
+      ? await db
+          .update(aiSettings)
+          .set({ apiKeyEncrypted: replacement, updatedAt: now })
+          .where(and(eq(aiSettings.workspaceId, workspaceId), eq(aiSettings.apiKeyEncrypted, expected)))
+          .returning({ workspaceId: aiSettings.workspaceId })
+      : await db
+          .update(aiSettings)
+          .set({ dispatchSecretEncrypted: replacement, updatedAt: now })
+          .where(
+            and(eq(aiSettings.workspaceId, workspaceId), eq(aiSettings.dispatchSecretEncrypted, expected)),
+          )
+          .returning({ workspaceId: aiSettings.workspaceId })
 
-  if (changes.dispatchSecretEncrypted !== undefined) {
-    update.dispatchSecretEncrypted = changes.dispatchSecretEncrypted
-  }
-  if (changes.apiKeyEncrypted !== undefined) {
-    update.apiKeyEncrypted = changes.apiKeyEncrypted
-  }
-
-  await db.update(aiSettings).set(update).where(eq(aiSettings.workspaceId, workspaceId))
+  return replaced.length > 0
 }

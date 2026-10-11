@@ -407,6 +407,26 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`npm run reseal` does not put an old secret back.** The reseal read
+  every sealed value, and then wrote each one again. A webhook secret
+  rotated, an agent auth header changed, or an AI key replaced between the
+  read and the write was overwritten with the old secret, sealed under the
+  new key. Each write now applies only when the column still has the value
+  that the reseal read. No migration.
+  - A value that changed during the run is left as the service wrote it.
+    The report line of its column ends with `N changed during the run`, and
+    the exit code is 0.
+  - The last line of the report now says `Run this again` after a run that
+    re-sealed or skipped a value. Only a run that reports `Nothing to do`
+    has read every value under the current key, and only that line says
+    that you can remove `SECRET_ENCRYPTION_KEY_PREVIOUS`. The procedure in
+    `docs/self-hosting/production.md` has a new step for this.
+  - **`@kelpie/server`** — `ResealColumnOutcome` and `ResealOutcome` have a
+    new optional field, `changed`. A `ResealPass` of your own compiles
+    without it and reports as before. Make each write of your pass apply
+    only to the value it read, and count the others in `changed`.
+  - In the `ai` pass, each of the two sealed columns of a row has its own
+    write, so a change to one does not stop or overwrite the other.
 - **The webhook guide says how a receiver refuses a delivery that was sent
   again.** The signature covers the body only, and the guide named the
   `Kelpie-Delivery` header as the dedupe key. A person with one signed

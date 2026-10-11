@@ -19,6 +19,7 @@ import type { TestClient } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT, TEST_SECRET_ENCRYPTION_KEY } from '../../testing/environment.ts'
+import { countLockWaits } from '../../testing/lockWaits.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { createAgentTasksModule } from '../agent-tasks/index.ts'
 import { agentRegistrations } from '../agent-tasks/schema.ts'
@@ -1803,6 +1804,111 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(createSecretCipher({ SECRET_ENCRYPTION_KEY: NEXT_KEY }).open(row!.apiKeyEncrypted!)).toBe(
         'sk-openai-workspace-0005',
       )
+    })
+
+    /**
+     * The service runs while the pass does. Each test plays a save that is in
+     * flight: the suite holds it open in a transaction, starts the pass, and
+     * commits once the pass is waiting on the row. The pass has then read the
+     * old row, and its writes arrive after the save. One row holds two sealed
+     * columns, and a change to one must neither stop the other's write nor be
+     * overwritten by it.
+     */
+    describe('a row that changes while the reseal pass runs', () => {
+      const NEXT_KEY = 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI='
+      const rotating = createSecretCipher({
+        SECRET_ENCRYPTION_KEY: NEXT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: TEST_SECRET_ENCRYPTION_KEY,
+      })
+      const next = createSecretCipher({ SECRET_ENCRYPTION_KEY: NEXT_KEY })
+
+      type SettingsChange = Partial<Pick<typeof aiSettings.$inferInsert, 'apiKeyEncrypted' | 'dispatchSecretEncrypted'>>
+
+      /** A workspace with both sealed columns under the key being rotated away from. */
+      async function workspaceWithBothSecrets(email: string): Promise<string> {
+        const { workspaceId } = await enabledWorkspace(h, email, {
+          provider: 'openai',
+          api_key: 'sk-openai-workspace-before',
+        })
+
+        await h.app.services.db
+          .update(aiSettings)
+          .set({ dispatchSecretEncrypted: cipher.seal('Bearer aidsp_before') })
+          .where(eq(aiSettings.workspaceId, workspaceId))
+
+        return workspaceId
+      }
+
+      /** Runs one pass around a save the service has not committed when the pass reads. */
+      async function resealAround(workspaceId: string, change: SettingsChange): Promise<Awaited<ReturnType<typeof resealAiSecrets>>> {
+        let finished = false
+        let pass: ReturnType<typeof resealAiSecrets> | undefined
+
+        await h.app.services.db.transaction(async (tx) => {
+          await tx.update(aiSettings).set(change).where(eq(aiSettings.workspaceId, workspaceId))
+
+          pass = resealAiSecrets(h.app.services.db, rotating).finally(() => {
+            finished = true
+          })
+
+          await expect
+            .poll(async () => finished || (await countLockWaits(h.app.services.db)) > 0)
+            .toBe(true)
+        })
+
+        if (pass === undefined) {
+          throw new Error('unreachable: the pass starts inside the transaction')
+        }
+
+        return pass
+      }
+
+      it('keeps a key replaced during the pass, and still re-seals the other column', async () => {
+        const workspaceId = await workspaceWithBothSecrets('replace-key@example.com')
+
+        const outcome = await resealAround(workspaceId, {
+          apiKeyEncrypted: next.seal('sk-openai-workspace-after'),
+        })
+
+        const [row] = await h.app.services.db.select().from(aiSettings).where(eq(aiSettings.workspaceId, workspaceId))
+
+        // The admin's new key, not the one the pass read.
+        expect(next.open(row?.apiKeyEncrypted ?? '')).toBe('sk-openai-workspace-after')
+        // The column nobody touched is re-sealed all the same.
+        expect(next.open(row?.dispatchSecretEncrypted ?? '')).toBe('Bearer aidsp_before')
+        expect(outcome.columns).toMatchObject([
+          { label: 'ai_settings.dispatch_secret_encrypted', examined: 1, resealed: 1, changed: 0 },
+          { label: 'ai_settings.api_key_encrypted', examined: 1, resealed: 0, changed: 1 },
+        ])
+        expect(outcome).toMatchObject({ examined: 2, resealed: 1, changed: 1, unreadable: 0 })
+      })
+
+      /** Every save clears the dispatch secret. The pass must not bring it back. */
+      it('leaves a dispatch secret cleared during the pass, and still re-seals the key', async () => {
+        const workspaceId = await workspaceWithBothSecrets('clear-dispatch@example.com')
+
+        const outcome = await resealAround(workspaceId, { dispatchSecretEncrypted: null })
+
+        const [row] = await h.app.services.db.select().from(aiSettings).where(eq(aiSettings.workspaceId, workspaceId))
+
+        expect(row?.dispatchSecretEncrypted).toBeNull()
+        expect(next.open(row?.apiKeyEncrypted ?? '')).toBe('sk-openai-workspace-before')
+        expect(outcome.columns).toMatchObject([
+          { label: 'ai_settings.dispatch_secret_encrypted', examined: 1, resealed: 0, changed: 1 },
+          { label: 'ai_settings.api_key_encrypted', examined: 1, resealed: 1, changed: 0 },
+        ])
+        expect(outcome).toMatchObject({ examined: 2, resealed: 1, changed: 1, unreadable: 0 })
+      })
+
+      it('reports no changed value when nothing changed', async () => {
+        await workspaceWithBothSecrets('quiet@example.com')
+
+        expect(await resealAiSecrets(h.app.services.db, rotating)).toMatchObject({
+          examined: 2,
+          resealed: 2,
+          changed: 0,
+        })
+      })
     })
   })
 

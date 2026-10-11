@@ -77,7 +77,7 @@ export default defineKelpieConfig({
   // Keys that seal stored secrets. Generate one with:
   //   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
   // To rotate, set the current key as `previousKey`, put the new key here,
-  // deploy, then run `npm run reseal`.
+  // deploy, then run `npm run reseal` until it reports nothing to do.
   secretEncryption: {
     key: fromEnv('SECRET_ENCRYPTION_KEY', secretEncryptionConfigSchema.shape.SECRET_ENCRYPTION_KEY),
     previousKey: fromEnv<string | undefined>(

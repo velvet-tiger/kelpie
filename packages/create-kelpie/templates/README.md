@@ -112,7 +112,10 @@ unreadable, so rotate rather than replace:
    previous one.
 3. Run `npm run reseal`. It rewrites every row still sealed under the old key.
    Safe to run more than once.
-4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
+4. Run `npm run reseal` again, until the report ends with `Nothing to do`. The
+   service runs during the reseal, and a secret that changes in that time is
+   left as the service wrote it.
+5. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
 
 More detail, including backups and what is sealed under the key:
 [docs/self-hosting/production.md](https://github.com/velvet-tiger/kelpie/blob/main/docs/self-hosting/production.md).

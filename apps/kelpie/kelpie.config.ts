@@ -89,7 +89,8 @@ export default defineKelpieConfig({
 
   // Keys that seal stored secrets (webhook signing keys, agent-task auth
   // headers). Rotate by moving the current key into `previousKey`, setting the
-  // new key here, deploying, then running `npm run reseal`. See README.md.
+  // new key here, deploying, then running `npm run reseal` until it reports
+  // nothing to do. See README.md.
   secretEncryption: {
     key: fromEnv('SECRET_ENCRYPTION_KEY', secretEncryptionConfigSchema.shape.SECRET_ENCRYPTION_KEY),
     previousKey: fromEnv<string | undefined>(

@@ -8,10 +8,13 @@ import { createIdFactory } from '../lib/ids.ts'
 import { createLogger } from '../lib/logger.ts'
 import { SecretDecryptionError, createSecretCipher } from '../lib/secrets.ts'
 import type { SecretCipher, SecretEncryptionConfig } from '../lib/secrets.ts'
+import type { Transaction } from '../runtime/transaction.ts'
 import * as schema from '../schema/index.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../testing/database.ts'
 import type { TestDatabase } from '../testing/database.ts'
 import { insertWorkspaceFixture } from '../testing/fixtures.ts'
+import { countLockWaits } from '../testing/lockWaits.ts'
+import { agentRegistrations } from './agent-tasks/schema.ts'
 import { RESEALED_COLUMNS, resealStoredSecrets, runReseal } from './reseal.ts'
 import type { ResealOutcome, ResealPass } from './reseal.ts'
 import { webhooks } from './webhooks/schema.ts'
@@ -291,6 +294,212 @@ describe.skipIf(connectionString === undefined)('re-sealing stored secrets', () 
     expect(outcome.unreadable).toBe(1)
     expect(() => rotating.open('not-a-sealed-value')).toThrow(SecretDecryptionError)
   })
+
+  /**
+   * The service runs while the pass does. Each test plays a write by the
+   * service that is in flight: the suite holds it open in a transaction,
+   * starts the pass, and commits once the pass is waiting on the row. The
+   * pass has then read the old value, and its write arrives after the new
+   * one. A pass that wrote regardless would put the old secret back.
+   */
+  describe('a secret that changes while the pass runs', () => {
+    /** Runs one pass around a write the service has not committed when the pass reads. */
+    async function resealAround(write: (tx: Transaction) => Promise<void>): Promise<ResealOutcome> {
+      let finished = false
+      let pass: Promise<ResealOutcome> | undefined
+
+      await database.db.transaction(async (tx) => {
+        await write(tx)
+
+        pass = resealStoredSecrets(database.db, rotating).finally(() => {
+          finished = true
+        })
+
+        // Commit only once the pass is waiting on the row. If it finishes
+        // first it wrote nothing here, and the assertions say so.
+        await expect
+          .poll(async () => finished || (await countLockWaits(database.db)) > 0)
+          .toBe(true)
+      })
+
+      if (pass === undefined) {
+        throw new Error('unreachable: the pass starts inside the transaction')
+      }
+
+      return pass
+    }
+
+    async function storedRow(id: string): Promise<{ current: string; previous: string | null }> {
+      const [row] = await database.db
+        .select({ current: webhooks.secretEncrypted, previous: webhooks.previousSecretEncrypted })
+        .from(webhooks)
+        .where(eq(webhooks.id, id))
+
+      if (row === undefined) {
+        throw new Error(`No webhook ${id}`)
+      }
+
+      return row
+    }
+
+    function columnNamed(outcome: ResealOutcome, label: string): ResealOutcome['columns'][number] | undefined {
+      return outcome.columns.find((column) => column.label === label)
+    }
+
+    /**
+     * What `rotateSecret` writes with an overlap: a new secret sealed under
+     * the current key, and the outgoing ciphertext carried across as it is.
+     */
+    it('keeps a secret rotated with an overlap, and re-seals the one the rotation retired', async () => {
+      const id = await insertWebhook('whsec_before', underPrevious)
+      const outgoing = await storedSecret(id)
+
+      const outcome = await resealAround(async (tx) => {
+        await tx
+          .update(webhooks)
+          .set({
+            secretEncrypted: settled.seal('whsec_after'),
+            previousSecretEncrypted: outgoing,
+            previousSecretExpiresAt: new Date(Date.now() + 60_000),
+          })
+          .where(eq(webhooks.id, id))
+      })
+
+      const row = await storedRow(id)
+
+      // The customer's new secret, not the one the pass read.
+      expect(settled.open(row.current)).toBe('whsec_after')
+      // The retired one moved to the other column under the previous key, and
+      // the pass reached that column after the rotation committed.
+      expect(settled.open(row.previous ?? '')).toBe('whsec_before')
+
+      expect(columnNamed(outcome, 'webhooks.secret_encrypted')).toMatchObject({
+        examined: 1,
+        resealed: 0,
+        changed: 1,
+      })
+      expect(columnNamed(outcome, 'webhooks.previous_secret_encrypted')).toMatchObject({
+        examined: 1,
+        resealed: 1,
+        changed: 0,
+      })
+      expect(outcome).toMatchObject({ resealed: 1, changed: 1, unreadable: 0 })
+    })
+
+    /** A rotation with no overlap discards the previous secret. The pass must not bring it back. */
+    it('leaves a previous secret discarded when a rotation discards it', async () => {
+      const id = await insertWebhook('whsec_current', settled)
+
+      await database.db
+        .update(webhooks)
+        .set({
+          previousSecretEncrypted: underPrevious.seal('whsec_retired'),
+          previousSecretExpiresAt: new Date(Date.now() + 60_000),
+        })
+        .where(eq(webhooks.id, id))
+
+      const outcome = await resealAround(async (tx) => {
+        await tx
+          .update(webhooks)
+          .set({
+            secretEncrypted: settled.seal('whsec_next'),
+            previousSecretEncrypted: null,
+            previousSecretExpiresAt: null,
+          })
+          .where(eq(webhooks.id, id))
+      })
+
+      const row = await storedRow(id)
+
+      expect(row.previous).toBeNull()
+      expect(settled.open(row.current)).toBe('whsec_next')
+      expect(columnNamed(outcome, 'webhooks.previous_secret_encrypted')).toMatchObject({
+        examined: 1,
+        resealed: 0,
+        changed: 1,
+      })
+      expect(outcome).toMatchObject({ resealed: 0, changed: 1 })
+    })
+
+    it('keeps an agent auth header replaced while the pass runs', async () => {
+      const id = createId('agentRegistration')
+
+      await database.db.insert(agentRegistrations).values({
+        id,
+        workspaceId,
+        name: 'Enrichment agent',
+        endpoint: 'https://agents.example.com/run',
+        authHeaderEncrypted: underPrevious.seal('Bearer before'),
+      })
+
+      const outcome = await resealAround(async (tx) => {
+        await tx
+          .update(agentRegistrations)
+          .set({ authHeaderEncrypted: settled.seal('Bearer after') })
+          .where(eq(agentRegistrations.id, id))
+      })
+
+      const [row] = await database.db
+        .select({ sealed: agentRegistrations.authHeaderEncrypted })
+        .from(agentRegistrations)
+        .where(eq(agentRegistrations.id, id))
+
+      expect(settled.open(row?.sealed ?? '')).toBe('Bearer after')
+      expect(columnNamed(outcome, 'agent_registrations.auth_header_encrypted')).toMatchObject({
+        examined: 1,
+        resealed: 0,
+        changed: 1,
+      })
+    })
+
+    it('counts a row deleted while the pass runs as changed, and does not say it re-sealed it', async () => {
+      const id = await insertWebhook('whsec_going', underPrevious)
+
+      const outcome = await resealAround(async (tx) => {
+        await tx.delete(webhooks).where(eq(webhooks.id, id))
+      })
+
+      expect(outcome).toMatchObject({ examined: 1, resealed: 0, changed: 1, unreadable: 0 })
+    })
+
+    /**
+     * A changed value is not always under the current key. An overlapping
+     * rotation carries the outgoing ciphertext across as it read it, and that
+     * can be from before the pass re-sealed it. This plays that write. The
+     * report asks for another run for this reason, and the next run settles it.
+     */
+    it('reports a changed value that is still under the previous key, and the next run re-seals it', async () => {
+      const id = await insertWebhook('whsec_current', settled)
+
+      await database.db
+        .update(webhooks)
+        .set({
+          previousSecretEncrypted: underPrevious.seal('whsec_older'),
+          previousSecretExpiresAt: new Date(Date.now() + 60_000),
+        })
+        .where(eq(webhooks.id, id))
+
+      const first = await resealAround(async (tx) => {
+        await tx
+          .update(webhooks)
+          .set({ previousSecretEncrypted: underPrevious.seal('whsec_carried') })
+          .where(eq(webhooks.id, id))
+      })
+
+      expect(first).toMatchObject({ resealed: 0, changed: 1 })
+      // Left as the service wrote it, which the current key alone cannot open.
+      const carried = (await storedRow(id)).previous ?? ''
+
+      expect(() => settled.open(carried)).toThrow(SecretDecryptionError)
+
+      const second = await resealStoredSecrets(database.db, rotating)
+
+      expect(second).toMatchObject({ resealed: 1, changed: 0 })
+      expect(settled.open((await storedRow(id)).previous ?? '')).toBe('whsec_carried')
+
+      expect(await resealStoredSecrets(database.db, rotating)).toMatchObject({ resealed: 0, changed: 0 })
+    })
+  })
 })
 
 /**
@@ -489,5 +698,131 @@ describe.skipIf(connectionString === undefined)('runReseal', () => {
 
     expect(exit).toBe(0)
     expect(sinks.err).toEqual([])
+  })
+
+  /**
+   * The service runs during a pass, so only a run that writes nothing has
+   * seen every value under the current key. A run that re-sealed says to run
+   * again, and the run after it says the key can go.
+   */
+  it('says to run again after it re-seals, and that the key can go after a run with nothing to do', async () => {
+    const { workspaceId } = await insertWorkspaceFixture(database.db)
+
+    await database.db.insert(webhooks).values({
+      id: createId('webhook'),
+      workspaceId,
+      url: 'https://example.com/hooks/kelpie',
+      events: ['record.created'],
+      secretEncrypted: underPrevious.seal('whsec_rotate_me'),
+      secretPrefix: 'whsec_…e_me',
+    })
+
+    const config = buildConfig({
+      secretEncryption: {
+        SECRET_ENCRYPTION_KEY: CURRENT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: PREVIOUS_KEY,
+      },
+    })
+    const first = makeSinks()
+    const second = makeSinks()
+
+    expect(await runReseal({ config, logger: silentLogger, ...first })).toBe(0)
+    expect(await runReseal({ config, logger: silentLogger, ...second })).toBe(0)
+
+    const firstSummary = first.out.at(-1) ?? ''
+    const secondSummary = second.out.at(-1) ?? ''
+
+    expect(firstSummary).toContain('Re-sealed 1 of 1 value(s). Run this again.')
+    expect(firstSummary).not.toContain('You can now remove')
+    expect(secondSummary).toContain('Nothing to do')
+    expect(secondSummary).toContain('You can now remove SECRET_ENCRYPTION_KEY_PREVIOUS')
+  })
+
+  it('does not say a key can go when there is no previous key', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({ secretEncryption: { SECRET_ENCRYPTION_KEY: CURRENT_KEY } })
+
+    expect(await runReseal({ config, logger: silentLogger, ...sinks })).toBe(0)
+    expect(sinks.out.at(-1)).toContain('Nothing to do')
+    expect(sinks.out.at(-1)).not.toContain('You can now remove')
+  })
+
+  /**
+   * A value that changed during a pass is not a failure: the service wrote
+   * it. The exit code stays 0, and the report says to run again before the
+   * previous key goes, because the changed value can still be under it.
+   */
+  it('returns 0 for a value that changed during a pass, and says to run again', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({
+      secretEncryption: {
+        SECRET_ENCRYPTION_KEY: CURRENT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: PREVIOUS_KEY,
+      },
+    })
+
+    const racing: ResealPass = async (): Promise<ResealOutcome> => ({
+      columns: [{ label: 'made_up.col', examined: 3, resealed: 1, unreadable: [], changed: 2 }],
+      examined: 3,
+      resealed: 1,
+      unreadable: 0,
+      changed: 2,
+    })
+
+    const exit = await runReseal({ config, logger: silentLogger, extraPasses: [racing], ...sinks })
+
+    expect(exit).toBe(0)
+    expect(sinks.err).toEqual([])
+    expect(sinks.out).toContain('made_up.col: 3 examined, 1 re-sealed, 0 unreadable, 2 changed during the run')
+    expect(sinks.out.at(-1)).toContain('2 value(s) changed during the run')
+    expect(sinks.out.at(-1)).toContain('Run this again')
+    expect(sinks.out.at(-1)).not.toContain('You can now remove')
+  })
+
+  it('says to run again when a value changed and nothing was re-sealed', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({
+      secretEncryption: {
+        SECRET_ENCRYPTION_KEY: CURRENT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: PREVIOUS_KEY,
+      },
+    })
+
+    const racing: ResealPass = async (): Promise<ResealOutcome> => ({
+      columns: [{ label: 'made_up.col', examined: 1, resealed: 0, unreadable: [], changed: 1 }],
+      examined: 1,
+      resealed: 0,
+      unreadable: 0,
+      changed: 1,
+    })
+
+    expect(await runReseal({ config, logger: silentLogger, extraPasses: [racing], ...sinks })).toBe(0)
+    expect(sinks.out.at(-1)).toContain('Run this again')
+    expect(sinks.out.at(-1)).not.toContain('Nothing to do')
+  })
+
+  /**
+   * A module outside this package implements `ResealPass`, and one written
+   * before `changed` existed leaves it out. Its report must read as before.
+   */
+  it('reports a pass that does not say how many values changed as it did before', async () => {
+    const sinks = makeSinks()
+    const config = buildConfig({
+      secretEncryption: {
+        SECRET_ENCRYPTION_KEY: CURRENT_KEY,
+        SECRET_ENCRYPTION_KEY_PREVIOUS: PREVIOUS_KEY,
+      },
+    })
+
+    const older: ResealPass = async (): Promise<ResealOutcome> => ({
+      columns: [{ label: 'older_module.col', examined: 2, resealed: 0, unreadable: [] }],
+      examined: 2,
+      resealed: 0,
+      unreadable: 0,
+    })
+
+    expect(await runReseal({ config, logger: silentLogger, extraPasses: [older], ...sinks })).toBe(0)
+    expect(sinks.out).toContain('older_module.col: 2 examined, 0 re-sealed, 0 unreadable')
+    expect(sinks.out.at(-1)).toContain('Nothing to do: all 2 value(s)')
   })
 })

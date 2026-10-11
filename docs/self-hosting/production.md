@@ -127,7 +127,10 @@ Replacing `SECRET_ENCRYPTION_KEY` outright makes every sealed secret unreadable,
 1. Move the current key to `SECRET_ENCRYPTION_KEY_PREVIOUS` and put a new key in `SECRET_ENCRYPTION_KEY`.
 2. Deploy. New secrets seal under the new key; existing ones still open with the previous one.
 3. Run `npm run reseal`. It rewrites every row still sealed under the old key, is safe to run more than once, and exits non-zero naming any row it could not open.
-4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
+4. Run `npm run reseal` again, until the report ends with `Nothing to do`.
+5. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
+
+The service runs while the reseal runs. A person can rotate a webhook secret, change an agent auth header or replace an AI key during that time. The reseal writes a row only when the row still has the value that the reseal read, so it never puts an old secret back. A value that changed is not a failure. The report counts it as `changed during the run`, the exit code is 0, and the report tells you to run the command again. Do not skip step 4. A value that the service wrote during the run can be sealed under the previous key, and only a run that writes nothing has read every value under the current key.
 
 ## Background work
 

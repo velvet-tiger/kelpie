@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { ConfigurationError } from '../lib/config.ts'
 import type { KelpieConfig } from '../lib/config.ts'
@@ -29,6 +29,11 @@ import { webhooks } from './webhooks/schema.ts'
  * rest still readable under the previous key. Re-running finishes the job.
  * Wrapping fifty thousand rows in one transaction would buy nothing and hold a
  * write lock across the lot.
+ *
+ * The service runs while this does, so a secret can be rotated or replaced
+ * between the read of a row and its write. Each write therefore applies only
+ * to the value that was read, and a row that changed is left as the service
+ * wrote it.
  */
 
 /** One sealed column, and how to read and rewrite it. */
@@ -36,7 +41,13 @@ interface SealedColumn {
   /** `table.column`, for a report an operator can act on. */
   readonly label: string
   readonly read: (db: Database) => Promise<readonly { id: string; sealed: string | null }[]>
-  readonly write: (db: Database, id: string, sealed: string) => Promise<unknown>
+  /**
+   * Writes `sealed` over `expected`, and over nothing else.
+   *
+   * @returns False when the column no longer holds `expected`, or the row is
+   *   gone. Nothing was written.
+   */
+  readonly replace: (db: Database, id: string, expected: string, sealed: string) => Promise<boolean>
 }
 
 /**
@@ -59,16 +70,28 @@ const SEALED_COLUMNS: readonly SealedColumn[] = [
   {
     label: 'webhooks.secret_encrypted',
     read: async (db) => db.select({ id: webhooks.id, sealed: webhooks.secretEncrypted }).from(webhooks),
-    write: async (db, id, sealed) => {
-      await db.update(webhooks).set({ secretEncrypted: sealed }).where(eq(webhooks.id, id))
+    replace: async (db, id, expected, sealed) => {
+      const replaced = await db
+        .update(webhooks)
+        .set({ secretEncrypted: sealed })
+        .where(and(eq(webhooks.id, id), eq(webhooks.secretEncrypted, expected)))
+        .returning({ id: webhooks.id })
+
+      return replaced.length > 0
     },
   },
   {
     label: 'webhooks.previous_secret_encrypted',
     read: async (db) =>
       db.select({ id: webhooks.id, sealed: webhooks.previousSecretEncrypted }).from(webhooks),
-    write: async (db, id, sealed) => {
-      await db.update(webhooks).set({ previousSecretEncrypted: sealed }).where(eq(webhooks.id, id))
+    replace: async (db, id, expected, sealed) => {
+      const replaced = await db
+        .update(webhooks)
+        .set({ previousSecretEncrypted: sealed })
+        .where(and(eq(webhooks.id, id), eq(webhooks.previousSecretEncrypted, expected)))
+        .returning({ id: webhooks.id })
+
+      return replaced.length > 0
     },
   },
   {
@@ -77,11 +100,14 @@ const SEALED_COLUMNS: readonly SealedColumn[] = [
       db
         .select({ id: agentRegistrations.id, sealed: agentRegistrations.authHeaderEncrypted })
         .from(agentRegistrations),
-    write: async (db, id, sealed) => {
-      await db
+    replace: async (db, id, expected, sealed) => {
+      const replaced = await db
         .update(agentRegistrations)
         .set({ authHeaderEncrypted: sealed })
-        .where(eq(agentRegistrations.id, id))
+        .where(and(eq(agentRegistrations.id, id), eq(agentRegistrations.authHeaderEncrypted, expected)))
+        .returning({ id: agentRegistrations.id })
+
+      return replaced.length > 0
     },
   },
 ]
@@ -101,6 +127,17 @@ export interface ResealColumnOutcome {
    * useful output is which rows an operator has to deal with by hand.
    */
   readonly unreadable: readonly string[]
+  /**
+   * Values that changed between the read and the write, and were left as the
+   * service wrote them. Counted in `examined` and not in `resealed`.
+   *
+   * Counted and not named: an operator does nothing to these rows by hand.
+   * The next run reads them again.
+   *
+   * Optional, so a pass written before this field still fits the type. A
+   * pass that leaves it out reports none.
+   */
+  readonly changed?: number
 }
 
 export interface ResealOutcome {
@@ -108,6 +145,8 @@ export interface ResealOutcome {
   readonly examined: number
   readonly resealed: number
   readonly unreadable: number
+  /** The sum of the columns' `changed`. Optional for the same reason; absent means none. */
+  readonly changed?: number
 }
 
 /**
@@ -117,6 +156,9 @@ export interface ResealOutcome {
  * Does not throw for a row it cannot open. One unreadable row must not stop the
  * pass from fixing every other one, so it is reported and the caller decides
  * what a non-empty `unreadable` means.
+ *
+ * Never writes over a value it did not read. A row that changed during the
+ * pass is counted in `changed` and left alone.
  */
 export async function resealStoredSecrets(
   db: Database,
@@ -133,6 +175,7 @@ export async function resealStoredSecrets(
     )
     const unreadable: string[] = []
     let resealed = 0
+    let changed = 0
 
     for (const row of rows) {
       let next: string | undefined
@@ -154,11 +197,24 @@ export async function resealStoredSecrets(
         continue
       }
 
-      await column.write(db, row.id, next)
-      resealed += 1
+      // The service may have rotated or replaced this secret since the read.
+      // Writing regardless would put the old secret back, sealed under the
+      // new key, where the customer's new one should be. So the write applies
+      // only to the value that was read, and the service's value stays.
+      //
+      // A changed value is counted and not assumed current. The service seals
+      // a new secret under the current key, but an overlapping rotation moves
+      // the outgoing secret to `previous_secret_encrypted` as the ciphertext
+      // it read, and that can be from before this pass re-sealed it. The next
+      // run reads the row again and settles it.
+      if (await column.replace(db, row.id, row.sealed, next)) {
+        resealed += 1
+      } else {
+        changed += 1
+      }
     }
 
-    columns.push({ label: column.label, examined: rows.length, resealed, unreadable })
+    columns.push({ label: column.label, examined: rows.length, resealed, unreadable, changed })
   }
 
   return {
@@ -166,7 +222,13 @@ export async function resealStoredSecrets(
     examined: columns.reduce((total, column) => total + column.examined, 0),
     resealed: columns.reduce((total, column) => total + column.resealed, 0),
     unreadable: columns.reduce((total, column) => total + column.unreadable.length, 0),
+    changed: columns.reduce((total, column) => total + countChanged(column), 0),
   }
+}
+
+/** A pass written before `changed` existed leaves it out, and reported no such value. */
+function countChanged(outcome: { readonly changed?: number }): number {
+  return outcome.changed ?? 0
 }
 
 /**
@@ -204,8 +266,9 @@ function defaultReportFatal(message: string): void {
 
 /**
  * Runs every reseal pass under the current `SECRET_ENCRYPTION_KEY` and
- * prints a report. Returns the exit code a script should return: 0 if every
- * examined value is now under the current key, 1 if any row was unreadable.
+ * prints a report. Returns the exit code a script should return: 1 if any row
+ * was unreadable, 0 otherwise. A value that changed while a pass ran is not a
+ * failure, so it does not make the exit code 1; the report says to run again.
  *
  * The rotation procedure, in full:
  *
@@ -215,7 +278,14 @@ function defaultReportFatal(message: string): void {
  *      and existing ones still open under the previous one.
  *   3. Run the reseal script. It rewrites every row still sealed under the
  *      old key.
- *   4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
+ *   4. Run it again, until it reports nothing to do.
+ *   5. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
+ *
+ * Step 4 is there because the service runs during step 3. A run that wrote
+ * nothing has read every value and found each one under the current key. A
+ * run that re-sealed or skipped a value cannot say that: the service can
+ * write a ciphertext it read before the run reached that row, and that
+ * ciphertext is still under the previous key.
  *
  * Safe to run at any point, including with no previous key set, where it
  * reports that everything is already current and writes nothing.
@@ -277,10 +347,15 @@ export async function runReseal(options: RunResealOptions): Promise<number> {
     const examined = outcomes.reduce((total, outcome) => total + outcome.examined, 0)
     const resealed = outcomes.reduce((total, outcome) => total + outcome.resealed, 0)
     const unreadable = outcomes.reduce((total, outcome) => total + outcome.unreadable, 0)
+    // From the columns and not from each outcome's own total, so a pass that
+    // fills in one and not the other is still counted.
+    const changed = columns.reduce((total, column) => total + countChanged(column), 0)
 
     for (const column of columns) {
+      const changedInColumn = countChanged(column)
+
       report(
-        `${column.label}: ${String(column.examined)} examined, ${String(column.resealed)} re-sealed, ${String(column.unreadable.length)} unreadable`,
+        `${column.label}: ${String(column.examined)} examined, ${String(column.resealed)} re-sealed, ${String(column.unreadable.length)} unreadable${changedInColumn === 0 ? '' : `, ${String(changedInColumn)} changed during the run`}`,
       )
 
       for (const id of column.unreadable) {
@@ -296,10 +371,23 @@ export async function runReseal(options: RunResealOptions): Promise<number> {
       return 1
     }
 
+    if (resealed === 0 && changed === 0) {
+      report(
+        `\nNothing to do: all ${String(examined)} value(s) are already sealed under the current key.${hasPrevious ? ' You can now remove SECRET_ENCRYPTION_KEY_PREVIOUS.' : ''}`,
+      )
+
+      return 0
+    }
+
+    const skipped =
+      changed === 0
+        ? ''
+        : ` ${String(changed)} value(s) changed during the run and were left as the service wrote them.`
+
+    // Not a failure, so the exit code stays 0. But only a run that writes
+    // nothing has seen every value under the current key.
     report(
-      resealed === 0
-        ? `\nNothing to do: all ${String(examined)} value(s) are already sealed under the current key.`
-        : `\nRe-sealed ${String(resealed)} of ${String(examined)} value(s). You can now remove SECRET_ENCRYPTION_KEY_PREVIOUS.`,
+      `\nRe-sealed ${String(resealed)} of ${String(examined)} value(s).${skipped} Run this again. Remove SECRET_ENCRYPTION_KEY_PREVIOUS after a run that reports nothing to do.`,
     )
 
     return 0
