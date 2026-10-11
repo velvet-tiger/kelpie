@@ -8,7 +8,7 @@ import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { SecretCipher } from '../../lib/secrets.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
-import type { DeliveryLimiter } from './deliveryLimiter.ts'
+import type { DeliveryLimiter, RefusingLimit } from './deliveryLimiter.ts'
 import type { WebhookEventPayload } from './payloads.ts'
 import * as repository from './repository.ts'
 import type { WebhookRecord } from './repository.ts'
@@ -29,9 +29,14 @@ import type { DeliveryEnvelope } from './signing.ts'
  * is not held open for minutes waiting for an endpoint that is already gone.
  *
  * The process serves every workspace, so the engine runs a bounded number of
- * deliveries at one time and keeps a bounded number waiting
- * (`deliveryLimiter.ts`). A delivery that finds no room to wait is recorded as
- * failed without an attempt.
+ * deliveries at one time and keeps a bounded number waiting, with a smaller
+ * share of each for one workspace (`deliveryLimiter.ts`). A delivery that
+ * finds no room to wait is recorded as failed without an attempt.
+ *
+ * A delivery can wait for its slot, and then retry, for longer than an admin
+ * takes to pause, change or delete the registration. So the engine reads the
+ * registration again when the delivery starts, and no delivery result is
+ * ever written over `paused`.
  */
 
 /** How long one attempt may take before it counts as failed. */
@@ -190,11 +195,15 @@ export interface DeliveryDependencies {
 }
 
 /**
- * Why a delivery was not attempted, for the server log. It names the settings
- * so an operator who reads it knows what to raise.
+ * Why a delivery was not attempted, for the server log. Each names the setting
+ * that left no room, so an operator who reads it knows whether one workspace
+ * is over its share or the whole service is full.
  */
-export const DELIVERY_REFUSED_REASON =
-  'the service is at its webhook delivery limit: every slot is in use (WEBHOOK_MAX_CONCURRENT_DELIVERIES) and the waiting line is full (WEBHOOK_MAX_WAITING_DELIVERIES)'
+export const DELIVERY_REFUSED_REASONS: Readonly<Record<RefusingLimit, string>> = {
+  workspace:
+    'the workspace has its share of webhook deliveries waiting (WEBHOOK_MAX_WAITING_DELIVERIES_PER_WORKSPACE)',
+  process: 'the service has no room for a webhook delivery to wait (WEBHOOK_MAX_WAITING_DELIVERIES)',
+}
 
 export interface DeliveryEngine {
   /** Fans one event out to every subscribed webhook in its workspace. */
@@ -213,6 +222,9 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
    * The status is a report on the endpoint, and an endpoint that was never
    * called has said nothing: marking it `failing` would send the customer
    * debugging their own server for a limit that is Kelpie's.
+   *
+   * A registration deleted since the delivery began gets nothing written: its
+   * log went with it, and a row for it would break the foreign key.
    *
    * Retention is enforced here rather than by a schedule because there is no
    * scheduler in the service, and the log only grows through this function —
@@ -235,6 +247,10 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
     const nextStatus = delivery.outcome.delivered ? 'active' : 'failing'
 
     const pruned = await dependencies.transaction(async ({ tx }) => {
+      if (!(await repository.holdWebhook(tx, webhook.workspaceId, webhook.id))) {
+        return undefined
+      }
+
       await repository.insertDelivery(tx, {
         id: delivery.id,
         workspaceId: webhook.workspaceId,
@@ -260,15 +276,25 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
         retentionCutoff(dependencies.now(), dependencies.retentionDays),
       )
 
-      // A paused webhook is never selected for delivery, so the only statuses
-      // reachable here are the two the engine owns. Leaving an unchanged one
-      // alone keeps a healthy endpoint from being rewritten on every event.
-      if (attempted && webhook.status !== nextStatus) {
+      // The statement itself leaves `paused` and an unchanged status alone.
+      // The row this delivery started from is no guide: an admin may have
+      // paused the registration, or another delivery moved it, since then.
+      if (attempted) {
         await repository.setWebhookStatus(tx, webhook.id, nextStatus)
       }
 
       return expired
     })
+
+    if (pruned === undefined) {
+      dependencies.log.debug('webhook delivery not recorded: the webhook was deleted', {
+        webhookId: webhook.id,
+        deliveryId: delivery.id,
+        event: payload.event,
+      })
+
+      return
+    }
 
     // After the transaction settles: a rollback would make this line a lie.
     if (pruned > 0) {
@@ -330,7 +356,51 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
     return signatures
   }
 
-  async function deliverTo(webhook: WebhookRecord, payload: WebhookEventPayload): Promise<void> {
+  /**
+   * The registration as it is now, or undefined when this event should no
+   * longer reach it.
+   *
+   * The row the fan-out listed can be minutes old by the time the delivery
+   * has its slot. Sent from that row, a delivery would post to an address the
+   * admin has replaced, sign with a secret the admin has retired, or reach an
+   * endpoint the admin has paused or deleted. Nothing is recorded for a
+   * registration that has gone, paused or dropped the event: not sending is
+   * what the admin asked for, and it is not a failure.
+   */
+  async function currentSubscription(
+    listed: WebhookRecord,
+    payload: WebhookEventPayload,
+  ): Promise<WebhookRecord | undefined> {
+    const webhook = await repository.findWebhook(dependencies.db, payload.workspaceId, listed.id)
+    const reason =
+      webhook === undefined
+        ? 'deleted'
+        : webhook.status === 'paused'
+          ? 'paused'
+          : webhook.events.includes(payload.event)
+            ? undefined
+            : 'unsubscribed'
+
+    if (reason === undefined) {
+      return webhook
+    }
+
+    dependencies.log.debug('webhook delivery skipped', {
+      webhookId: listed.id,
+      event: payload.event,
+      reason,
+    })
+
+    return undefined
+  }
+
+  async function deliverTo(listed: WebhookRecord, payload: WebhookEventPayload): Promise<void> {
+    const webhook = await currentSubscription(listed, payload)
+
+    if (webhook === undefined) {
+      return
+    }
+
     const deliveryId = dependencies.createId('webhookDelivery')
     const envelope: DeliveryEnvelope = {
       deliveryId,
@@ -371,7 +441,12 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
    * attempts, so the customer's log shows that the event happened and that
    * nothing was sent. Nothing is signed: no request leaves the process.
    */
-  async function recordRefused(webhook: WebhookRecord, payload: WebhookEventPayload): Promise<void> {
+  async function recordRefused(
+    webhook: WebhookRecord,
+    payload: WebhookEventPayload,
+    limit: RefusingLimit,
+  ): Promise<void> {
+    const reason = DELIVERY_REFUSED_REASONS[limit]
     const deliveryId = dependencies.createId('webhookDelivery')
     const sentAt = dependencies.now()
     const body = deliveryBody({
@@ -383,10 +458,12 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
     })
 
     dependencies.log.warn('webhook delivery not attempted', {
+      workspaceId: payload.workspaceId,
       webhookId: webhook.id,
       deliveryId,
       event: payload.event,
-      reason: DELIVERY_REFUSED_REASON,
+      limit,
+      reason,
     })
 
     await record(webhook, payload, {
@@ -394,24 +471,26 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
       sentAt,
       body,
       attempts: 0,
-      outcome: { delivered: false, status: null, reason: DELIVERY_REFUSED_REASON },
+      outcome: { delivered: false, status: null, reason },
     })
   }
 
   /**
-   * The envelope is built inside the slot, in `deliverTo`, and not when the
-   * delivery joins the line. `created_at` is then the moment of the first
-   * attempt, however long the wait was, which is what a receiver that refuses
-   * an old delivery measures from.
+   * The registration is read and the envelope is built inside the slot, in
+   * `deliverTo`, and not when the delivery joins the line. `created_at` is
+   * then the moment of the first attempt, however long the wait was, which is
+   * what a receiver that refuses an old delivery measures from.
    */
   async function deliverWithinLimits(
     webhook: WebhookRecord,
     payload: WebhookEventPayload,
   ): Promise<void> {
-    const limited = await dependencies.limiter.run(() => deliverTo(webhook, payload))
+    const limited = await dependencies.limiter.run(payload.workspaceId, () =>
+      deliverTo(webhook, payload),
+    )
 
     if (!limited.admitted) {
-      await recordRefused(webhook, payload)
+      await recordRefused(webhook, payload, limited.limit)
     }
   }
 

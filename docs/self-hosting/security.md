@@ -82,7 +82,9 @@ When the guard refuses an agent endpoint, the run fails and its reason names the
 
 A webhook signature covers the request body and not the headers. The body holds the delivery `id` and `created_at`, and those are what a receiver uses to refuse a delivery that somebody recorded and sent again. The receiver's part is in [Verifying a signature](../agents/api-and-webhooks.md#verifying-a-signature): compare in constant time, verify before parsing, refuse a `created_at` more than 5 minutes old, and dedupe on the `id` in the body.
 
-Webhooks run in the process that serves every workspace, so two limits bound what one workspace can take. A workspace registers at most 20 webhooks (`WEBHOOK_MAX_PER_WORKSPACE`). The process runs at most 20 deliveries at one time and lets 1000 wait (`WEBHOOK_MAX_CONCURRENT_DELIVERIES`, `WEBHOOK_MAX_WAITING_DELIVERIES`). A delivery over both is recorded as failed and is not sent. The limits are for the whole process, so one workspace that fills the waiting line can cause a delivery of another workspace to be refused.
+Webhooks run in the process that serves every workspace, so two limits bound what one workspace can take. A workspace registers at most 20 webhooks (`WEBHOOK_MAX_PER_WORKSPACE`). The process runs at most 20 deliveries at one time and lets 1000 wait (`WEBHOOK_MAX_CONCURRENT_DELIVERIES`, `WEBHOOK_MAX_WAITING_DELIVERIES`). One workspace has at most 5 of the running deliveries and 250 of the waiting ones (`WEBHOOK_MAX_CONCURRENT_DELIVERIES_PER_WORKSPACE`, `WEBHOOK_MAX_WAITING_DELIVERIES_PER_WORKSPACE`), so one workspace cannot take every place and stop delivery for the others. A delivery with no place to wait is recorded as failed and is not sent. The service does not start when a workspace limit is above its process limit. With the defaults, four workspaces at their limits together fill the process limits.
+
+A delivery reads its registration again when it starts, and a delivery result never changes `paused`. An admin who pauses or deletes a webhook, changes its URL or rotates its secret thus stops the old URL and the old secret from that moment, also for a delivery that was waiting.
 
 ## Roles and gates
 

@@ -116,7 +116,9 @@ Rotate from the Webhooks admin page (or the API). You choose: an immediate rotat
 - A non-2xx response is a failure — and so is a redirect, which is never followed. Register the final URL.
 - Failures retry three times, 1, 5 and 15 seconds apart. Each retry sends the same body with the same `id` and `created_at`. When attempts run out the registration reads `failing`, and it returns to `active` on its own when a delivery lands. `paused` is your own switch and stops delivery entirely.
 - The delivery log keeps 30 days by default (operator-configurable) and is visible on the admin page.
-- The service runs a limited number of deliveries at one time, and the others wait. When too many wait, a delivery is not sent. The log shows it as `failed` with `attempts: 0`, and the registration keeps its status, because your endpoint was not called.
+- The service runs a limited number of deliveries at one time, and the others wait. Each workspace has its own share of both. When too many wait, a delivery is not sent. The log shows it as `failed` with `attempts: 0`, and the registration keeps its status, because your endpoint was not called.
+- A delivery uses the registration as it is when the delivery starts. If you change the URL or rotate the secret, a delivery that was waiting uses the new one. If you pause or delete the registration, or remove the event from it, a delivery that was waiting is not sent and the log shows nothing for it.
+- A pause is yours. A delivery that was sent before you paused can end after it, and its result is in the log. The result does not change `paused`.
 
 ## Limits to design around
 

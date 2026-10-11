@@ -197,6 +197,12 @@ export async function updateWebhook(
 /**
  * Moves a webhook between `active` and `failing` after a delivery settles.
  *
+ * Never out of `paused`. Pausing is the admin's, and a delivery that began
+ * before the pause can settle after it. The condition is in the statement and
+ * not in a read before it, so no pause can land between the two. A status
+ * that is already right is left alone as well, which keeps a healthy endpoint
+ * from being rewritten on every event.
+ *
  * Deliberately does not touch `updated_at`. That column answers "when did
  * somebody last change this registration", and a customer compares it against
  * `last_delivery_at` to see whether their fix took effect. The engine moving it
@@ -205,9 +211,34 @@ export async function updateWebhook(
 export async function setWebhookStatus(
   db: Queryable,
   id: string,
-  status: WebhookStatus,
+  status: Exclude<WebhookStatus, 'paused'>,
 ): Promise<void> {
-  await db.update(webhooks).set({ status }).where(eq(webhooks.id, id))
+  await db
+    .update(webhooks)
+    .set({ status })
+    .where(and(eq(webhooks.id, id), ne(webhooks.status, 'paused'), ne(webhooks.status, status)))
+}
+
+/**
+ * Keeps a webhook from being deleted until the caller's transaction ends.
+ *
+ * A delivery row refers to its webhook, and the webhook can be deleted while
+ * the delivery waits or retries. The engine holds the row first, so it knows
+ * whether there is still a log to write to before it writes.
+ *
+ * `KEY SHARE` is the lock the foreign key takes for the insert that follows.
+ * It stops a delete and nothing else: a pause or a rotation goes ahead.
+ *
+ * @returns False when the webhook is gone.
+ */
+export async function holdWebhook(tx: Transaction, workspaceId: string, id: string): Promise<boolean> {
+  const held = await tx
+    .select({ id: webhooks.id })
+    .from(webhooks)
+    .where(and(eq(webhooks.workspaceId, workspaceId), eq(webhooks.id, id)))
+    .for('key share')
+
+  return held.length > 0
 }
 
 export async function deleteWebhook(

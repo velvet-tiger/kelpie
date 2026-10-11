@@ -83,6 +83,8 @@ export function createWebhooksModule(
         limiter: createDeliveryLimiter({
           maxConcurrent: limits.WEBHOOK_MAX_CONCURRENT_DELIVERIES,
           maxWaiting: limits.WEBHOOK_MAX_WAITING_DELIVERIES,
+          maxConcurrentPerWorkspace: limits.WEBHOOK_MAX_CONCURRENT_DELIVERIES_PER_WORKSPACE,
+          maxWaitingPerWorkspace: limits.WEBHOOK_MAX_WAITING_DELIVERIES_PER_WORKSPACE,
         }),
         log: context.log,
       })
