@@ -39,6 +39,22 @@ export class ScaffoldError extends Error {
 }
 
 /**
+ * The output file that holds secrets: `SECRET_ENCRYPTION_KEY` and the
+ * database URL with its password.
+ */
+const ENVIRONMENT_FILE = '.env'
+
+/**
+ * Read and write for the owner only. Without it the file gets the default
+ * mode, which on most machines lets every user of the machine read it.
+ * Windows ignores the mode: access there comes from the directory's ACL.
+ */
+const OWNER_ONLY_MODE = 0o600
+
+/** What Node gives a new file when no mode is named. The umask then removes bits. */
+const DEFAULT_MODE = 0o666
+
+/**
  * Template path to output path.
  *
  * `env` and `gitignore` are renamed rather than stored under their real names
@@ -59,7 +75,7 @@ const TEMPLATE_FILES: ReadonlyMap<string, string> = new Map([
   ['tsconfig.server.json', 'tsconfig.server.json'],
   ['tsconfig.web.json', 'tsconfig.web.json'],
   ['README.md', 'README.md'],
-  ['env', '.env'],
+  ['env', ENVIRONMENT_FILE],
   ['gitignore', '.gitignore'],
 ])
 
@@ -141,7 +157,11 @@ export function scaffold(options: ScaffoldOptions): readonly string[] {
     const destination = join(options.directory, target)
 
     mkdirSync(dirname(destination), { recursive: true })
-    writeFileSync(destination, render(template, tokens, source))
+    // The mode applies because the file is new: `assertWritable` refused a
+    // directory that held anything.
+    writeFileSync(destination, render(template, tokens, source), {
+      mode: target === ENVIRONMENT_FILE ? OWNER_ONLY_MODE : DEFAULT_MODE,
+    })
     written.push(target)
   }
 

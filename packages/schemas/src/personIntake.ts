@@ -75,8 +75,16 @@ const longText = text.max(8000)
 const keySchema = z.string().trim().min(1).max(40)
 const tagList = z.array(text.min(1).max(80)).max(20)
 
+/**
+ * A URL the wizard shows as a link: `http` or `https` only. A model that read
+ * web pages wrote it, and `z.url()` alone also accepts `javascript:`, `data:`
+ * and `file:`. Only the scheme is narrowed. `z.httpUrl()` also needs a dotted
+ * domain name, and that refuses `localhost` and an IP address.
+ */
+const webUrl = z.url({ protocol: /^https?$/u }).max(2000)
+
 export const personIntakeSourceWireSchema = z.strictObject({
-  url: z.url().max(2000),
+  url: webUrl,
   title: shortText,
 })
 
@@ -96,7 +104,7 @@ export const personIntakeCandidateWireSchema = z.strictObject({
   title: shortText.nullable(),
   location: shortText.nullable(),
   email: shortText.nullable(),
-  profile_urls: z.array(z.url().max(2000)).max(10),
+  profile_urls: z.array(webUrl).max(10),
   evidence: longText,
   confidence: z.enum(PERSON_INTAKE_CONFIDENCES),
   existing_people: z.array(personIntakeExistingPersonWireSchema).max(10),
@@ -120,7 +128,7 @@ export const personIntakePersonFieldsWireSchema = z.strictObject({
   email: shortText.nullable().optional(),
   phones: z.array(text.min(1).max(60)).max(10).optional(),
   social_profiles: z
-    .array(z.strictObject({ network: z.enum(SOCIAL_NETWORK_IDS), url: z.url().max(2000) }))
+    .array(z.strictObject({ network: z.enum(SOCIAL_NETWORK_IDS), url: webUrl }))
     .max(10)
     .optional(),
   timezone: shortText.nullable().optional(),

@@ -10,7 +10,7 @@ A missing or invalid required value stops the service at boot with a message lis
 
 ## Environment files
 
-A scaffolded project reads one file: `.env`, loaded by every script through `--env-file-if-exists`. A variable already set in the shell beats it, which is how a deployment injects real values without editing the file. If `.env` is missing, the service does not crash on the flag; it stops at boot with a configuration error listing the variables it needed. Commit nothing secret: `.gitignore` already excludes `.env`.
+A scaffolded project reads one file: `.env`, loaded by every script through `--env-file-if-exists`. A variable already set in the shell beats it, which is how a deployment injects real values without editing the file. If `.env` is missing, the service does not crash on the flag; it stops at boot with a configuration error listing the variables it needed. Commit nothing secret: `.gitignore` already excludes `.env`. The scaffolder writes `.env` with mode `0600`, so only the user who made the project can read it. Windows ignores the mode, and a copy you make for a deployment gets the mode you give it.
 
 ## Core
 

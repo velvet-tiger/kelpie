@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -142,6 +142,32 @@ describe('scaffold', () => {
     // Required at boot since 0.5.0: a scaffolded project must carry it or the
     // service it just wrote refuses to start.
     expect(environment).toContain('APP_BASE_URL=http://localhost:5173')
+  })
+
+  // Windows has no owner, group and other bits; Node reports 0o666 for every
+  // writable file there, so there is nothing to assert.
+  it.skipIf(process.platform === 'win32')('lets only the owner read .env, which holds the key', () => {
+    const directory = scratch()
+
+    scaffold(optionsFor(directory))
+
+    expect(statSync(join(directory, '.env')).mode & 0o777).toBe(0o600)
+  })
+
+  it('gives every other file the mode a new file gets by default', () => {
+    const directory = scratch()
+
+    scaffold(optionsFor(directory))
+
+    // A file this test writes with no mode shows what the umask of this
+    // process allows, so the test does not have to change the umask.
+    const control = join(directory, 'control.txt')
+    writeFileSync(control, '')
+    const defaultMode = statSync(control).mode & 0o777
+
+    for (const file of ['README.md', 'package.json', '.gitignore', 'src/server.ts', 'docker-compose.yml']) {
+      expect(statSync(join(directory, file)).mode & 0o777, file).toBe(defaultMode)
+    }
   })
 
   it('leaves the email safety settings unset in .env, so the safe defaults apply', () => {

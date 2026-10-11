@@ -407,6 +407,30 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`safeNext` refuses a backslash and a control character, the scaffolder
+  writes `.env` for its owner only, and a person-intake link must be `http`
+  or `https`.** No migration.
+  - **`@kelpie/ui`** — `safeNext('/\evil.example')` returned its argument.
+    A browser reads `\` as `/`, and removes a tab or a line break from a
+    URL, so that value names another site. `safeNext` now returns
+    `/dashboard` for a value that holds a backslash or a control character
+    (U+0000 to U+001F, U+007F to U+009F). A path with a query and a hash
+    passes as before. This matters to a module that gives the result to
+    `window.location`.
+  - **`create-kelpie`** — the scaffolder wrote `.env` with the default
+    mode, which on most machines lets each user of the machine read it. The
+    file holds `SECRET_ENCRYPTION_KEY` and the database URL. It is now
+    written with mode `0600`. Windows ignores the mode. **A project from an
+    earlier release keeps the mode it has.** Run `chmod 600 .env` in it.
+  - **`@kelpie/schemas`** — `personIntakeSourceWireSchema`, `profile_urls`
+    of `personIntakeCandidateWireSchema` and `social_profiles[].url` of
+    `personIntakePersonFieldsWireSchema` accepted a URL with any scheme,
+    such as `javascript:`, `data:` or `file:`. A model that read web pages
+    writes these values, and the intake wizard shows them as links. They
+    now accept `http` and `https` only. **Changed behaviour:**
+    `POST /v1/ai/person-intake/research` and
+    `POST /v1/ai/person-intake/apply` answer `422` to a body with another
+    scheme.
 - **A module path that skips the module gate, or that matches core's
   paths, now stops the boot.** `@kelpie/server`. No core module used such a
   path. **A module of your own that used one now fails at boot.** The error
