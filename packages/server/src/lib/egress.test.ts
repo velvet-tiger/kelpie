@@ -56,6 +56,19 @@ describe('createEgressGuard', () => {
       ).rejects.toBeInstanceOf(BlockedEgressError)
     })
 
+    /**
+     * A sender stores the message where the person who typed the URL reads it.
+     * What the name resolves to is for the log, so it is a field and not text.
+     */
+    it('names the host in the message, and gives the address it refused as a field', async () => {
+      await expect(
+        guardResolving(['93.184.216.34', '10.1.2.3']).check('https://mixed.example/x'),
+      ).rejects.toMatchObject({
+        message: 'Refusing to connect to mixed.example: the host has a private or reserved address',
+        address: '10.1.2.3',
+      })
+    })
+
     it('refuses IPv6 loopback and unique-local literals', async () => {
       const guard = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, literalOnly)
 
@@ -211,6 +224,15 @@ describe('createEgressGuard', () => {
 
       await expect(guard.fetch('http://pinned.example/x')).rejects.toBeInstanceOf(BlockedEgressError)
       expect(lookups).toBe(1)
+    })
+
+    it('keeps the address out of the message when the connection is what refuses', async () => {
+      const guard = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () => Promise.resolve(['203.0.113.10']))
+
+      await expect(guard.fetch('http://pinned.example/x')).rejects.toMatchObject({
+        message: 'Refusing to connect to pinned.example: the host has a private or reserved address',
+        address: '203.0.113.10',
+      })
     })
   })
 })

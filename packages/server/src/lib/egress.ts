@@ -35,11 +35,22 @@ export const egressConfigSchema = z.object({
 
 export type EgressConfig = z.infer<typeof egressConfigSchema>
 
-/** Thrown when a target resolves to an address the guard refuses. */
+/**
+ * Thrown when a target resolves to an address the guard refuses.
+ *
+ * The message names the host and never the address. A sender stores the
+ * message where the person who typed the URL reads it, and the address would
+ * tell that person what a name resolves to inside the deployment's network.
+ * `address` is for the server log only.
+ */
 export class BlockedEgressError extends Error {
+  /** The address the guard refused. For a literal in the URL, the literal itself. */
+  readonly address: string
+
   constructor(host: string, address: string) {
-    super(`Refusing to connect to ${host}: ${address} is a private or reserved address`)
+    super(`Refusing to connect to ${host}: the host has a private or reserved address`)
     this.name = 'BlockedEgressError'
+    this.address = address
   }
 }
 

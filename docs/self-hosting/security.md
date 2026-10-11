@@ -78,6 +78,8 @@ WHERE EXISTS (
 
 Webhook deliveries and agent-task dispatches are the two places Kelpie POSTs to URLs your users typed. Redirects are never followed — a moved endpoint should be seen and fixed, not silently posted to wherever the old address now points. With `BLOCK_PRIVATE_EGRESS=true`, URLs resolving to private or reserved addresses are refused, and the connection goes only to an address that passed that check, so a host cannot give a public address for the check and a private one for the connection. It defaults off because self-hosted installs legitimately post to internal automation. Hosted, multi-tenant deployments should turn it on and add network-level egress policy behind it.
 
+When the guard refuses an agent endpoint, the run fails and its reason names the host. The reason does not name the address that the host resolved to, because every member reads a run. The address is in the server log: the `warn` line `agent dispatch failed` has it in `blockedAddress`.
+
 ## Roles and gates
 
 Three roles: owner, admin, member. Administration, API keys, imports and exports, the AI run log, and the sample-data installer are admin work. Webhooks require admin **for reads too**, because a delivery URL routinely carries a credential in its path. Deleting a workspace is the owner's alone and takes the workspace name typed as confirmation, checked in the request itself. There is no read-only role today; every CRM record is open to any member.

@@ -407,6 +407,13 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **A failed agent run does not show the address that its endpoint
+  resolves to.** With `BLOCK_PRIVATE_EGRESS=true`, the failure reason of a
+  refused dispatch held the private address, and every member reads a run.
+  The reason now names the host only. The server log has the address: the
+  `agent dispatch failed` line has it in `blockedAddress`, and the reason
+  on the `oauth client metadata document refused` line ends with it. The
+  reason on the `webhook delivery failed` line names the host only.
 - **SMTP must upgrade with STARTTLS when `SMTP_SECURE=false`.** The
   connection upgraded only when the relay offered STARTTLS. A party on the
   network could remove the offer, and the SMTP password and each message

@@ -8,6 +8,7 @@ import type { KelpieEvent } from '@kelpie/schemas'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { createEgressGuard } from '../../lib/egress.ts'
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
 import { createSecretCipher } from '../../lib/secrets.ts'
 import { createTestApp } from '../../testing/app.ts'
@@ -20,7 +21,7 @@ import { TEST_ENVIRONMENT, TEST_SECRET_ENCRYPTION_KEY } from '../../testing/envi
 import { createTestServices } from '../../testing/services.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
-import { createDispatchEngine } from './dispatch.ts'
+import { createDispatchEngine, createHttpSender } from './dispatch.ts'
 import type { DispatchEngine, DispatchOutcome, DispatchRequest, SendDispatch } from './dispatch.ts'
 import type { AgentRunSettledData } from './events.ts'
 import { createAgentTasksModule } from './index.ts'
@@ -922,6 +923,66 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
       expect(response.status).toBe(404)
       expect(sent).toHaveLength(0)
+    })
+  })
+
+  /**
+   * The real sender behind an egress guard whose resolver is injected, so no
+   * request leaves. Every member reads a run's reason, and what a host name
+   * resolves to inside the deployment's network is not theirs to learn.
+   */
+  describe('an endpoint the egress guard refuses', () => {
+    const REFUSED_ADDRESS = '10.0.0.5'
+
+    it.each([
+      { name: 'before the request', answers: [[REFUSED_ADDRESS]] },
+      // DNS rebinding: the check sees a public address, and the connection a private one.
+      { name: 'at the connection', answers: [['93.184.216.34'], [REFUSED_ADDRESS]] },
+    ])('keeps the address off the run and gives it to the log, $name', async ({ answers }) => {
+      const remaining = [...answers]
+      const guard = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () =>
+        Promise.resolve(remaining.shift() ?? [REFUSED_ADDRESS]),
+      )
+      const { runId, logLines, dispatch } = await directDispatch(createHttpSender(guard))
+
+      await dispatch()
+
+      const response = await client.send('GET', `/v1/agent-runs/${runId}`, { cookie: acme.cookie })
+      const body = await response.text()
+      const [row] = await database.db.select().from(agentRuns).where(eq(agentRuns.id, runId))
+
+      expect(row?.status).toBe('failed')
+      expect(row?.failureReason).toBe(
+        'BlockedEgressError: Refusing to connect to agents.example.com: the host has a private or reserved address',
+      )
+      expect(JSON.stringify(row)).not.toContain(REFUSED_ADDRESS)
+      expect(body).toContain('private or reserved address')
+      expect(body).not.toContain(REFUSED_ADDRESS)
+
+      const failures = logLines
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => line.message === 'agent dispatch failed')
+
+      expect(failures).toHaveLength(1)
+      expect(failures[0]).toMatchObject({ level: 'warn', runId, blockedAddress: REFUSED_ADDRESS })
+    })
+
+    it('adds no address to the log line of a failure the guard did not cause', async () => {
+      const { logLines, dispatch } = await directDispatch(
+        createHttpSender(createEgressGuard({ BLOCK_PRIVATE_EGRESS: false }), () =>
+          Promise.reject(new TypeError('fetch failed')),
+        ),
+      )
+
+      await dispatch()
+
+      const failures = logLines
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => line.message === 'agent dispatch failed')
+
+      expect(failures).toHaveLength(1)
+      expect(failures[0]).toMatchObject({ reason: 'TypeError: fetch failed' })
+      expect(failures[0]).not.toHaveProperty('blockedAddress')
     })
   })
 

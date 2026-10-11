@@ -309,9 +309,15 @@ function metadataRefused(logReason: string): OAuthClientError {
   return new OAuthClientError('invalid_client', CLIENT_METADATA_REFUSED, logReason)
 }
 
-/** The name and message of a failed request. Never anything the host sent as a body. */
+/**
+ * The name and message of a failed request. Never anything the host sent as a
+ * body. The message of a `BlockedEgressError` leaves out the address the
+ * guard refused; it is added here because this text goes to the log only.
+ */
 function describeFailure(error: Error): string {
-  return `${error.name}: ${error.message}`
+  const refused = error instanceof BlockedEgressError ? ` (${error.address})` : ''
+
+  return `${error.name}: ${error.message}${refused}`
 }
 
 /** Reads at most `limit` bytes, so a hostile document cannot exhaust memory. */
@@ -370,7 +376,7 @@ export async function fetchClientMetadata(
     await dependencies.egress.check(clientId)
   } catch (error: unknown) {
     if (error instanceof BlockedEgressError) {
-      throw metadataRefused(error.message)
+      throw metadataRefused(`${error.message} (${error.address})`)
     }
 
     // The guard resolves the host itself, and a name with no address fails here.

@@ -1,4 +1,5 @@
 import type { Database } from '../../lib/database.ts'
+import { BlockedEgressError } from '../../lib/egress.ts'
 import type { EgressGuard } from '../../lib/egress.ts'
 import { describeThrown } from '../../lib/errors.ts'
 import type { Logger } from '../../lib/logger.ts'
@@ -36,8 +37,18 @@ export interface DispatchRequest {
 /** The same shape as the runtime's, so an in-process dispatcher's answer lands on the run unchanged. */
 export type DispatchOutcome = AgentDispatchOutcome
 
+/**
+ * What the sender answers: the outcome for the run, and what only the server
+ * log may hold. `reason` is stored on the run, where every member of the
+ * workspace reads it, so an address that a host resolved to never goes in it.
+ */
+export interface SendOutcome extends DispatchOutcome {
+  /** The address the egress guard refused. Absent on every other outcome. */
+  readonly blockedAddress?: string
+}
+
 /** The outbound port. Injected so no test makes a network call. */
-export type SendDispatch = (request: DispatchRequest) => Promise<DispatchOutcome>
+export type SendDispatch = (request: DispatchRequest) => Promise<SendOutcome>
 
 /**
  * The real sender. Redirects are not followed, the webhook rule: an endpoint
@@ -47,8 +58,9 @@ export type SendDispatch = (request: DispatchRequest) => Promise<DispatchOutcome
  * The catch is broad because this is the process boundary: `fetch` rejects
  * with anything from a DNS failure to an abort, and turning all of it into one
  * outcome is the port's whole job. Nothing is swallowed — the reason lands on
- * the run. A blocked private address (`egress.check`) reaches the same catch
- * and lands on the run the same way.
+ * the run. A blocked private address (`egress.check`, or the guard's `fetch`
+ * at the connection) reaches the same catch and lands on the run the same
+ * way, with the address beside the reason for the log.
  */
 export function createHttpSender(
   egress: EgressGuard,
@@ -74,7 +86,9 @@ export function createHttpSender(
             reason: `agent endpoint answered ${String(response.status)}`,
           }
     } catch (error: unknown) {
-      return { delivered: false, status: null, reason: describeThrown(error) }
+      const failed = { delivered: false, status: null, reason: describeThrown(error) }
+
+      return error instanceof BlockedEgressError ? { ...failed, blockedAddress: error.address } : failed
     }
   }
 }
@@ -233,6 +247,7 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
             taskId: run.taskId,
             status: outcome.status,
             reason: outcome.reason,
+            ...(outcome.blockedAddress === undefined ? {} : { blockedAddress: outcome.blockedAddress }),
           })
         }
 

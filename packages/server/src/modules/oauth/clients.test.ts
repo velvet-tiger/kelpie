@@ -160,7 +160,8 @@ describe('fetchClientMetadata', () => {
       name: 'an address the guard refuses before the request',
       fetch: answer(JSON.stringify(DOCUMENT)),
       egress: { check: () => Promise.reject(new BlockedEgressError('client.example', '10.0.0.5')), fetch },
-      reason: /private or reserved address/u,
+      // The address is in the error's field and not in its message. The log still gets it.
+      reason: /^Refusing to connect to client\.example: .+ private or reserved address \(10\.0\.0\.5\)$/u,
     },
     {
       name: 'a host with no address',
@@ -171,7 +172,7 @@ describe('fetchClientMetadata', () => {
     {
       name: 'an address the guard refuses at the connection',
       fetch: () => Promise.reject(new BlockedEgressError('client.example', '10.0.0.5')),
-      reason: /^the request failed: BlockedEgressError/u,
+      reason: /^the request failed: BlockedEgressError: Refusing to connect to client\.example: .+ \(10\.0\.0\.5\)$/u,
     },
     {
       name: 'a host that does not answer',
