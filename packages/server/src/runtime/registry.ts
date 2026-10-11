@@ -228,9 +228,9 @@ function routerUsePattern(moduleId: string, first: unknown): string {
 /**
  * Reads the first argument of `router.route` as the path a sub-router mounts on.
  *
- * `gateRouter` gates a sub-router with a middleware on `<path>/*`. At the root
- * that pattern is `/*`, and below a pattern segment (`/:name`) it matches the
- * routes of other modules, so both fail.
+ * Each route of the sub-router lands below this path, with the module gate
+ * ahead of it. At the root, or below a pattern segment (`/:name`), such a route
+ * can match the routes of other modules, so both fail.
  *
  * @throws ModuleBootError naming the module and the path.
  */
@@ -241,16 +241,45 @@ function routerRoutePath(moduleId: string, path: unknown): string {
     ])
   }
 
-  // A path of slashes only is the root too: the gate pattern drops them.
-  if (isRootPath(path.replace(/\/+$/, ''))) {
+  if (isRootPath(path)) {
     throw new ModuleBootError([
-      `module "${moduleId}" called router.route() with the path "${path}". The sub-router would mount on "/v1" itself, so the module gate would run for every module's routes. Mount it below a segment of the module ("/things").`,
+      `module "${moduleId}" called router.route() with the path "${path}". The sub-router would mount on "/v1" itself, where its routes can match the routes of other modules. Mount it below a segment of the module ("/things").`,
     ])
   }
 
   assertModuleLocalPath(moduleId, 'route', path)
 
   return path
+}
+
+/**
+ * Registers `gate` on `router` for each route of `subApp`, at the place where
+ * `router.route(mountPath, subApp)` puts that route.
+ *
+ * The gate gets the method and the path of the route itself, so Hono matches
+ * the two for the same requests, whatever pattern the mount path or the route
+ * path holds. One gate on `<mountPath>/*` did not do that. From a path that
+ * ends with an optional parameter (`/things/:group?`) Hono makes two routes,
+ * and from a pattern that ends with `*` it makes one. The route without the
+ * parameter then had no gate.
+ *
+ * Call it before `router.route`, so that each gate is ahead of its handler.
+ */
+function gateSubRouterRoutes(router: Hono, mountPath: string, subApp: Hono, gate: MiddlewareHandler): void {
+  // The base path that `router.route` gives the sub-router. Hono then joins it
+  // to the path of a gate exactly as it joins it to the path of the handler.
+  const mounted = router.basePath(mountPath)
+  const gated = new Set<string>()
+
+  for (const route of subApp.routes) {
+    const key = `${route.method} ${route.path}`
+
+    // A route with two handlers is in the list twice. One gate is enough.
+    if (!gated.has(key)) {
+      gated.add(key)
+      mounted.on(route.method, route.path, gate)
+    }
+  }
 }
 
 /**
@@ -290,8 +319,9 @@ function routerOnPaths(moduleId: string, path: unknown): readonly string[] {
  * - HTTP verbs (`ROUTER_VERB_METHODS`) and `on`: prepend `gate`, then the
  *   module's handlers.
  * - `use(pattern, ...)` at a specific path: prepend `gate`, then the mw.
- * - `route(subPath, subApp)`: attach `gate` as middleware on `subPath/*`,
- *   then mount `subApp`, so every route it contributes runs the gate first.
+ * - `route(subPath, subApp)`: register `gate` on the method and the path of
+ *   each route of `subApp`, then mount `subApp`, so every route it
+ *   contributes runs the gate first (`gateSubRouterRoutes`).
  *
  * And the calls that cannot be made module-local through wrapping fail at
  * boot with a message naming the module, rather than shipping a subtle leak:
@@ -315,8 +345,8 @@ function routerOnPaths(moduleId: string, path: unknown): readonly string[] {
  *   not a leak. They cover no route of the module, and an author who writes
  *   one expects that it covers all of them.
  * - `route('/')`, `route('')` and a `route` path that does not start with a
- *   literal segment (`/:name`): the gate pattern would be `/v1/*` or would
- *   match the routes of other modules.
+ *   literal segment (`/:name`): a route of the sub-router, and its gate,
+ *   could then match the routes of other modules.
  * - `notFound` / `onError`: fire for every unmatched or failing `/v1`
  *   request once the router is flattened, so a module's handler would run
  *   for other modules' traffic. Handle failures inside the module's own
@@ -379,12 +409,9 @@ function gateRouter(router: Hono, moduleId: string, gate: MiddlewareHandler): Ho
 
           // The sub-app's routes were registered on it before this call, so a
           // proxy over `subApp` cannot retroactively prepend the gate to them.
-          // Instead attach the gate as middleware scoped to the sub-router's
-          // mount prefix on this router — once flattened onto `/v1`, the
-          // middleware covers exactly `/v1${path}/*`, which is the module's
-          // own routes. `use` must land before `route` so composition order
-          // runs the gate first.
-          target.use(`${mountPath.replace(/\/+$/, '')}/*`, gate)
+          // The gates go on this router first, one for each route, so that
+          // composition order runs the gate ahead of the handler.
+          gateSubRouterRoutes(target, mountPath, subApp, gate)
           target.route(mountPath, subApp)
           return proxy
         }

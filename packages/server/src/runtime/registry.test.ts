@@ -1629,11 +1629,8 @@ describe('module gate isolation', () => {
     },
   )
 
-  /**
-   * The wrapper gates a sub-router with a middleware on `<path>/*`. At the
-   * root that is `/*`, which is every route of every module.
-   */
-  it.each(['/', '', '///'])(
+  /** At the root a route of the sub-router, and its gate, can match the routes of other modules. */
+  it.each(['/', ''])(
     'refuses router.route at the root path "%s" at boot, naming the module',
     async (path) => {
       await expect(
@@ -1644,7 +1641,7 @@ describe('module gate isolation', () => {
     },
   )
 
-  it.each(['/:x', '/:x/things', '/*', '*', '/:x{.+}', '//things'])(
+  it.each(['/:x', '/:x/things', '/*', '*', '/:x{.+}', '//things', '///'])(
     'refuses a router.route path that does not start with a literal segment at boot: %s',
     async (path) => {
       await expect(
@@ -1666,34 +1663,142 @@ describe('module gate isolation', () => {
     ).rejects.toThrow('module "spanning" called router.route() with a path that is not a string')
   })
 
-  it.each(['/nested', '/nested/', 'nested', '/nested/:group'])(
+  /** A gated module whose only routes are those of one sub-router, mounted at `mountPath`. */
+  const nestedModuleAt = (mountPath: string, subPaths: readonly string[]): KelpieModule => ({
+    id: 'nested',
+    register(context) {
+      context.routes((router) => {
+        const inner = new Hono()
+
+        for (const subPath of subPaths) {
+          inner.get(subPath, (requestContext) => requestContext.json({ nested: true }))
+        }
+
+        router.route(mountPath, inner)
+      })
+      return Promise.resolve()
+    },
+  })
+
+  /** Boots `nestedModuleAt` beside another module, with the nested module on or off for the workspace. */
+  const nestedApp = async (
+    mountPath: string,
+    subPaths: readonly string[],
+    enabled: boolean,
+  ): Promise<Awaited<ReturnType<typeof createTestApp>>['app']> => {
+    const { app } = await createTestApp({
+      modules: [nestedModuleAt(mountPath, subPaths), gatedBModule],
+      moduleConfig: { nested: enabled },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    return app
+  }
+
+  /**
+   * The last three ended with an optional parameter. Hono makes two routes
+   * from such a path, one with the parameter and one without it. The gate was
+   * a middleware on `<mount path>/*`, which Hono does not expand, so the route
+   * without the parameter answered for a workspace that had the module off.
+   */
+  it.each([
+    ['/nested', ['/v1/nested', '/v1/nested/deep']],
+    ['/nested/', ['/v1/nested/', '/v1/nested/deep']],
+    ['nested', ['/v1/nested', '/v1/nested/deep']],
+    ['/nested/:group', ['/v1/nested/a', '/v1/nested/a/deep']],
+    ['/nested/:group?', ['/v1/nested', '/v1/nested/a', '/v1/nested/a/deep']],
+    ['/nested/:a?/:b?', ['/v1/nested', '/v1/nested/a', '/v1/nested/a/b', '/v1/nested/a/b/deep']],
+    ['/nested/:id{[0-9]+}?', ['/v1/nested', '/v1/nested/7']],
+  ] as const)(
     'gates each route of a sub-router mounted at %s, and no route of another module',
-    async (path) => {
-      const nestedModule: KelpieModule = {
-        id: 'nested',
-        register(context) {
-          context.routes((router) => {
-            const inner = new Hono()
-            inner.get('/', (requestContext) => requestContext.json({ top: true }))
-            inner.get('/deep', (requestContext) => requestContext.json({ deep: true }))
-            router.route(path, inner)
-          })
-          return Promise.resolve()
-        },
+    async (mountPath, urls) => {
+      const on = await nestedApp(mountPath, ['/', '/deep'], true)
+
+      for (const url of urls) {
+        expect([url, (await on.request(url)).status]).toEqual([url, 200])
       }
 
-      const { app } = await createTestApp({
-        modules: [nestedModule, gatedBModule],
-        moduleConfig: { nested: false },
-        resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
-      })
-      const mounted = path === '/nested/:group' ? '/v1/nested/a' : '/v1/nested'
+      const off = await nestedApp(mountPath, ['/', '/deep'], false)
 
-      expect((await app.request(mounted)).status).toBe(403)
-      expect((await app.request(`${mounted}/deep`)).status).toBe(403)
-      expect((await app.request('/v1/gated-b/thing')).status).toBe(200)
+      for (const url of urls) {
+        expect([url, (await off.request(url)).status]).toEqual([url, 403])
+      }
+
+      expect((await off.request('/v1/gated-b/thing')).status).toBe(200)
     },
   )
+
+  /**
+   * The gate goes on the method and the path of each route of the sub-router,
+   * so no form of mount path can leave a route without it. For each mount
+   * path, no request below the mount point gets an answer from a handler.
+   */
+  it.each([
+    '/nested',
+    '/nested/',
+    '/nested//',
+    '/nested//sub',
+    '/nested/:group',
+    '/nested/:group?',
+    '/nested/:group?/x',
+    '/nested/:a?/:b?',
+    '/nested/:id{[0-9]+}',
+    '/nested/:id{[0-9]+}?',
+    '/nested/:rest{.+}',
+    '/nested/:rest{a/b}',
+    '/nested/*',
+    '/nested/*/x',
+    'nested/:group?',
+  ])('serves no route of a sub-router mounted at %s for a workspace that has the module off', async (mountPath) => {
+    const middles = ['', '/', '/a', '/7', '/a/b', '/a/x', '//', '//sub', '/*', '/a/b/c', '/7/x']
+    const tails = ['', '/', '/leaf', '/deep/er', '/other', '/other/more']
+    const answered: string[] = []
+
+    for (const subPath of ['/', '', '/leaf', '/deep/er', '/:leaf', '/*', '*']) {
+      const app = await nestedApp(mountPath, [subPath], false)
+
+      for (const middle of middles) {
+        for (const tail of tails) {
+          const url = `/v1/nested${middle}${tail}`
+
+          if ((await app.request(url)).status === 200) {
+            answered.push(`${subPath} ${url}`)
+          }
+        }
+      }
+    }
+
+    expect(answered).toEqual([])
+  })
+
+  /** The gate is on the routes and not on the whole mount path, as for a route from a verb call. */
+  it('answers 404 below a sub-router for a path that matches no route, with the module off', async () => {
+    const app = await nestedApp('/nested', ['/deep'], false)
+
+    expect((await app.request('/v1/nested/deep')).status).toBe(403)
+    expect((await app.request('/v1/nested/no-such-route')).status).toBe(404)
+  })
+
+  it('gates both routes of a verb path that ends with an optional parameter', async () => {
+    const optionalModule: KelpieModule = {
+      id: 'optional',
+      register(context) {
+        context.routes((router) => {
+          router.get('/optional/:group?', (requestContext) => requestContext.json({ optional: true }))
+        })
+        return Promise.resolve()
+      },
+    }
+
+    const { app } = await createTestApp({
+      modules: [optionalModule],
+      moduleConfig: { optional: false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    expect((await app.request('/v1/optional')).status).toBe(403)
+    expect((await app.request('/v1/optional/a')).status).toBe(403)
+  })
 
   /** `QUERY` is a verb in this Hono version. The wrapper did not know it, so its routes had no gate. */
   it('gates a route for the QUERY method', async () => {

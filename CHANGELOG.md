@@ -496,6 +496,13 @@ While the major version is `0`, a minor bump may break the API.
   - A path for `router.route` must start with a segment of the same
     characters. `/`, the empty path and `/:name` passed, and the gate of
     the module then ran for the routes of other modules.
+  - The gate of a sub-router is now on each of its routes. It was one
+    middleware on `<path>/*`. With a mount path that ends with an optional
+    parameter (`/things/:group?`), the route of the sub-router at `/things`
+    had no gate, so it answered for a workspace that had the module off.
+    **One answer changes.** For a module that is off, a path below the
+    mount path that matches no route now answers `404`, as below every
+    other module path. It answered `403`.
   - The router from `context.routes` now has `get`, `post`, `put`, `patch`,
     `delete`, `options`, `query`, `all`, `on`, `use` and `route` only. Each
     other member that is a function or an object stops the boot: `mount`,
