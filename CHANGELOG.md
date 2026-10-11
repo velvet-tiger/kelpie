@@ -436,7 +436,11 @@ While the major version is `0`, a minor bump may break the API.
   - `POST /v1/ai/settings` writes the key only when the request sends a
     key, clears the key, or changes the provider. A save that keeps the
     key no longer writes over a key that another admin replaced at the
-    same time.
+    same time. A save now reads the settings, decides and writes under one
+    lock for the workspace, and `DELETE /v1/ai/settings` takes the same
+    lock. Two saves at the same time behave as one after the other, so the
+    provider, the model and the key of a workspace always come from one
+    save.
   - In the `ai` pass, each of the two sealed columns of a row has its own
     write, so a change to one does not stop or overwrite the other.
   - **`@kelpie/server`** — `ResealColumnOutcome` and `ResealOutcome` have a

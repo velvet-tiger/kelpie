@@ -1,4 +1,4 @@
-import type { Queryable } from '../../runtime/transaction.ts'
+import type { Queryable, Transaction } from '../../runtime/transaction.ts'
 import { and, count, desc, eq, gte, inArray, lt, notInArray, sql } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
@@ -6,6 +6,7 @@ import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 
 import type { OperationOutcome } from './proposal.ts'
 import type { AiRunStatus } from '@kelpie/schemas'
+import { workspaces } from '../workspace/schema.ts'
 import { aiRuns, aiSettings } from './schema.ts'
 
 /**
@@ -124,6 +125,29 @@ export async function findSettings(
     .limit(1)
 
   return rows[0]
+}
+
+/**
+ * Makes the caller's transaction the only one that saves or removes this
+ * workspace's settings, until it ends.
+ *
+ * A save decides from the row it reads: which provider stays, and whether
+ * the stored key still fits it. Without the lock, two saves can read the same
+ * row and both write, and the row ends with one admin's provider beside
+ * another admin's key. Read the row again after this returns; a read from
+ * before it may be out of date.
+ *
+ * The lock is on the workspace row, at `NO KEY UPDATE` strength, the lock a
+ * membership change and a webhook registration take. It cannot be on the
+ * settings row: a workspace that has not enabled AI has none. A stronger
+ * lock would also stop every insert of a row that refers to the workspace.
+ */
+export async function lockSettings(tx: Transaction, workspaceId: string): Promise<void> {
+  await tx
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .for('no key update')
 }
 
 /**

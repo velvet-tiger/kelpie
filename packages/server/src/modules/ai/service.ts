@@ -30,6 +30,7 @@ import {
   insertRunIfNew,
   insertRunningRun,
   listRuns,
+  lockSettings,
   DEFAULT_RUN_SORT,
   RUN_SORTS,
   trimRuns,
@@ -281,9 +282,9 @@ function changesProvider(stored: AiSettingsRow | undefined, changes: AiSettingsC
  *
  * A request that does none of these keeps the key, and a request that keeps
  * the key must not write the key column. The stored row was read before the
- * write, and its ciphertext can be stale by then: another admin may have
- * replaced the key, or the reseal pass may have re-sealed it under a new
- * encryption key. Writing the copy back would undo either.
+ * write, and its ciphertext can be stale by then: the reseal pass takes no
+ * lock on the settings, and may have re-sealed the key under a new encryption
+ * key in between. Writing the copy back would undo that.
  */
 function decidesKey(stored: AiSettingsRow | undefined, changes: AiSettingsChanges): boolean {
   return changes.apiKey !== undefined || changesProvider(stored, changes)
@@ -425,24 +426,33 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
         throw new AppError('bad_request', DEPLOYMENT_MANAGED_MESSAGE)
       }
 
-      const stored = await findSettings(dependencies.db, workspaceId)
       const sealedNewKey =
         typeof changes.apiKey === 'string' ? dependencies.cipher.seal(changes.apiKey) : undefined
-      const next = prospectiveRow(workspaceId, stored, changes, sealedNewKey)
-      const credentials = dependencies.credentials.forRow(
-        dependencies.keyMode === 'workspace' ? next : undefined,
-      )
-
-      if (credentials.problem !== null) {
-        throw AppError.conflict(credentials.problem)
-      }
-      if (!isUsable(credentials)) {
-        throw AppError.conflict(NOT_CONFIGURED_MESSAGE[dependencies.keyMode])
-      }
-
       const now = dependencies.now()
 
-      await dependencies.transaction(async ({ tx }) => {
+      // One save reads the row, decides from it, and writes, all under the
+      // lock. Two saves that each decided from the same earlier row could
+      // leave one admin's provider beside the other's key, and every run
+      // would then send that key to the wrong provider. A refusal below
+      // rolls the transaction back, so it writes nothing. Nothing in here
+      // calls a provider or the network: the credentials are resolved from
+      // the row and the environment alone.
+      const credentials = await dependencies.transaction(async ({ tx }) => {
+        await lockSettings(tx, workspaceId)
+
+        const stored = await findSettings(tx, workspaceId)
+        const next = prospectiveRow(workspaceId, stored, changes, sealedNewKey)
+        const resolved = dependencies.credentials.forRow(
+          dependencies.keyMode === 'workspace' ? next : undefined,
+        )
+
+        if (resolved.problem !== null) {
+          throw AppError.conflict(resolved.problem)
+        }
+        if (!isUsable(resolved)) {
+          throw AppError.conflict(NOT_CONFIGURED_MESSAGE[dependencies.keyMode])
+        }
+
         await upsertSettings(
           tx,
           {
@@ -467,6 +477,8 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
           AI_SERVICE_LABELS[dependencies.serviceName],
           now,
         )
+
+        return resolved
       })
 
       // Never the key, and never its hint: the provider and where the key
@@ -485,6 +497,9 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       const workspaceId = requireWorkspace(actor)
 
       await dependencies.transaction(async ({ tx }) => {
+        // The same lock a save takes, so a save that is deciding from the row
+        // finishes before the row goes, or starts after and finds none.
+        await lockSettings(tx, workspaceId)
         await removeKelpieRegistration(tx, workspaceId)
         await deleteSettings(tx, workspaceId)
       })

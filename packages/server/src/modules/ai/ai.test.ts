@@ -11,6 +11,7 @@ import { createSecretCipher } from '../../lib/secrets.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { createJobsRuntime } from '../../runtime/jobs.ts'
 import { runMigrations } from '../../runtime/migrate.ts'
+import type { Transaction } from '../../runtime/transaction.ts'
 import type { AgentDispatchOutcome, McpTool } from '../../runtime/module.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
@@ -32,6 +33,7 @@ import type { AiModuleOptions } from './index.ts'
 import type { AiRunSettledData } from './events.ts'
 import type { AiCompletionRequest, AiCompletionResult, AiProviderPort, AiTokenUsage } from './provider.ts'
 import { resealAiSecrets } from './reseal.ts'
+import { lockSettings } from './repository.ts'
 import { AI_RUNS_LIMIT, monthWindowStart } from './rules.ts'
 import { aiRuns, aiSettings } from './schema.ts'
 
@@ -2094,6 +2096,119 @@ describe.skipIf(connectionString === undefined)('ai', () => {
 
       expect(response.status).toBe(200)
       expect(current.open((await storedKey(switched.workspaceId)) ?? '')).toBe('sk-ant-other-provider')
+    })
+
+    /**
+     * One save reads the row, decides from it, and writes, under a lock that
+     * every save and every disable of the workspace takes. Each test plays
+     * the other admin: the suite takes the lock, makes that admin's change,
+     * and commits once the save under test is waiting. A save that decided
+     * from a row it read on arrival would write its provider and model
+     * beside the other admin's key.
+     */
+    describe('beside another change to the same settings', () => {
+      /** Saves `body` behind a change the suite makes under the settings lock and has not committed. */
+      async function saveBehind(
+        owner: { readonly cookie: string; readonly workspaceId: string },
+        body: Record<string, unknown>,
+        other: (tx: Transaction) => Promise<void>,
+      ): Promise<Response> {
+        let settled = false
+        let saving: Promise<Response> | undefined
+
+        await h.app.services.db.transaction(async (tx) => {
+          await lockSettings(tx, owner.workspaceId)
+          await other(tx)
+
+          saving = h.client.send('POST', '/v1/ai/settings', { cookie: owner.cookie, body }).finally(() => {
+            settled = true
+          })
+
+          await expect
+            .poll(async () => settled || (await countLockWaits(h.app.services.db)) > 0)
+            .toBe(true)
+        })
+
+        if (saving === undefined) {
+          throw new Error('unreachable: the save starts inside the transaction')
+        }
+
+        return saving
+      }
+
+      async function storedRow(workspaceId: string): Promise<typeof aiSettings.$inferSelect | undefined> {
+        const [row] = await h.app.services.db.select().from(aiSettings).where(eq(aiSettings.workspaceId, workspaceId))
+
+        return row
+      }
+
+      it('keeps the provider, model and key of a save that changed all three', async () => {
+        const owner = await enabledWorkspace(h, 'two-saves@example.com', {
+          provider: 'openai',
+          api_key: 'sk-openai-first-admin',
+          model: 'gpt-5',
+        })
+
+        const response = await saveBehind(owner, { web_search: false }, async (tx) => {
+          await tx
+            .update(aiSettings)
+            .set({ provider: 'anthropic', model: null, apiKeyEncrypted: current.seal('sk-ant-second-admin') })
+            .where(eq(aiSettings.workspaceId, owner.workspaceId))
+        })
+        const row = await storedRow(owner.workspaceId)
+
+        expect(response.status).toBe(200)
+        // The other admin's provider with the other admin's key, and this
+        // save's own field on top.
+        expect(row?.provider).toBe('anthropic')
+        expect(row?.model).toBeNull()
+        expect(current.open(row?.apiKeyEncrypted ?? '')).toBe('sk-ant-second-admin')
+        expect(row?.webSearch).toBe(false)
+      })
+
+      it('keeps the provider and key of a save that enabled AI first, when there was no row on arrival', async () => {
+        const owner = await h.client.owner('no-row-yet@example.com')
+
+        expect(await storedRow(owner.workspaceId)).toBeUndefined()
+
+        const response = await saveBehind(owner, { web_search: false }, async (tx) => {
+          await tx.insert(aiSettings).values({
+            workspaceId: owner.workspaceId,
+            provider: 'anthropic',
+            apiKeyEncrypted: current.seal('sk-ant-second-admin'),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+        })
+        const row = await storedRow(owner.workspaceId)
+
+        expect(response.status).toBe(200)
+        expect(row?.provider).toBe('anthropic')
+        expect(current.open(row?.apiKeyEncrypted ?? '')).toBe('sk-ant-second-admin')
+        expect(row?.webSearch).toBe(false)
+      })
+
+      /**
+       * The disable wins the lock, so the save finds no row. It is then an
+       * enable from nothing with what the request sent: the deployment's
+       * provider and key, and none of the row that was removed.
+       */
+      it('decides from no row when a disable finished first', async () => {
+        const owner = await enabledWorkspace(h, 'save-and-disable@example.com', {
+          provider: 'anthropic',
+          api_key: 'sk-ant-removed',
+          model: 'claude-opus-5',
+        })
+
+        const response = await saveBehind(owner, { web_search: false }, async (tx) => {
+          await tx.delete(aiSettings).where(eq(aiSettings.workspaceId, owner.workspaceId))
+        })
+        const row = await storedRow(owner.workspaceId)
+
+        expect(response.status).toBe(200)
+        expect(readRecord(await response.json())).toMatchObject({ provider: 'openai', key_source: 'environment' })
+        expect(row).toMatchObject({ provider: null, model: null, apiKeyEncrypted: null, webSearch: false })
+      })
     })
   })
 
