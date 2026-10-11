@@ -136,9 +136,9 @@ A module reads its own variables through its own schema, validated at boot like 
 | `WEBHOOK_MAX_WAITING_DELIVERIES` | no | The most deliveries that wait for a place. Default 1000. A delivery over this limit is not sent. The delivery log shows it as failed with 0 attempts, and the server log has the `warn` line `webhook delivery not attempted`. `0` refuses a delivery whenever no place is free. |
 | `WEBHOOK_MAX_CONCURRENT_DELIVERIES_PER_WORKSPACE` | no | The most of the running deliveries that one workspace can have. Default 5. It keeps one workspace with slow endpoints from taking every place. It cannot be above `WEBHOOK_MAX_CONCURRENT_DELIVERIES`: the service does not start. |
 | `WEBHOOK_MAX_WAITING_DELIVERIES_PER_WORKSPACE` | no | The most of the waiting deliveries that one workspace can have. Default 250. A delivery over this limit is not sent, as above, and the log line has `limit: "workspace"`. It cannot be above `WEBHOOK_MAX_WAITING_DELIVERIES`: the service does not start. |
+| `BLOCK_PRIVATE_EGRESS` | no | Described above; read by the webhooks and agent-tasks modules. |
 
 If you lower a process limit below the default for one workspace, set the workspace limit too. The service does not lower it for you. A deployment with one workspace can set each workspace limit equal to its process limit.
-| `BLOCK_PRIVATE_EGRESS` | no | Described above; read by the webhooks and agent-tasks modules. |
 
 You can lock any module variable in code by adding an `env` section to `kelpie.config.ts`:
 

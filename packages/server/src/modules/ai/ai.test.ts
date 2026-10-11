@@ -1771,6 +1771,28 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect(afterDemotion).not.toContain('WXYZ')
     })
 
+    /**
+     * A workspace key belongs to no person. It acts with the admin role, which
+     * is fixed, so it reads what an admin reads.
+     */
+    it('gives the key hint to a workspace API key, which acts as an admin', async () => {
+      const owner = await enabledWorkspace(h, 'workspace-key-owner@example.com', {
+        provider: 'anthropic',
+        api_key: 'sk-ant-workspace-key-WXYZ',
+      })
+      const minted = await h.client.send('POST', '/v1/api-keys', {
+        body: { name: 'workspace key', kind: 'workspace', full_access: true },
+        cookie: owner.cookie,
+      })
+      expect(minted.status).toBe(201)
+      const bearer = readString(await minted.json(), 'secret')
+
+      expect(JSON.parse(await settingsText({ bearer }))).toMatchObject({
+        key_source: 'workspace',
+        key_hint: 'WXYZ',
+      })
+    })
+
     it('forgets the key on disable', async () => {
       const { cookie, workspaceId } = await enabledWorkspace(h, 'forget@example.com', {
         provider: 'openai',

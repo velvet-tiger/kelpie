@@ -81,6 +81,11 @@ Never compare the whole header to one expected string. It carries one value almo
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
 function signatureMatches(rawBody, header, secret) {
+  // A request with no signature header is refused, the same as a wrong signature.
+  if (typeof header !== 'string') {
+    return false
+  }
+
   const expected = Buffer.from(`sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`)
 
   return header.split(',').some((value) => {
@@ -92,19 +97,21 @@ function signatureMatches(rawBody, header, secret) {
 }
 ```
 
-`rawBody` is the bytes of the request as they arrived. `timingSafeEqual` throws on buffers of different lengths, so check the length first and treat a different length as no match. The length of a correct signature is not a secret.
+`rawBody` is the bytes of the request as they arrived. `header` is the value of `Kelpie-Signature`; refuse a request that has none. `timingSafeEqual` throws on buffers of different lengths, so check the length first and treat a different length as no match. The length of a correct signature is not a secret.
 
 **Verify before you parse.** Do these steps in this order:
 
 1. Read the raw body. Do not parse it.
 2. Verify the signature. If no value matches, answer `401` and stop.
 3. Parse the body.
-4. Refuse a body whose `created_at` is more than 5 minutes old.
+4. Refuse a body whose `created_at` is more than 5 minutes old, or more than 1 minute in the future.
 5. Look up the `id` from the body. If you have processed it, answer `2xx` and do nothing more.
 
 **Refuse an old delivery.** Step 4 stops a person who recorded a delivery from sending it again later. It does not refuse a retry. A retry sends the same body, so it has the same `id`, the same `created_at` and the same signature. Kelpie waits 1, 5 and 15 seconds between attempts, and waits 10 seconds at most for the answer to each attempt. The last attempt thus arrives about one minute after `created_at` at the latest. `created_at` is the time the delivery starts, so a delivery that waited for a place on a busy service is not older. The 5 minutes also allow for a difference between your clock and the clock of the service.
 
-**Dedupe on the `id` in the body.** Keep each `id` for as long as your age limit, or longer. A copy that arrives after that fails step 4.
+**Refuse a delivery from the future.** The clock of the service can be ahead of yours. A body with a `created_at` in the future stays inside the age limit for longer than 5 minutes of your time. Thus accept a `created_at` that is at most 1 minute ahead of your clock, and refuse one that is further ahead.
+
+**Dedupe on the `id` in the body.** Keep each `id` until `created_at` plus 5 minutes, the age limit. Count from the `created_at` in the body, not from the time the delivery arrived. If you count from arrival and the clock of the service is ahead of yours, you forget the `id` while a copy still passes step 4. After `created_at` plus 5 minutes, a copy fails step 4, and you can forget the `id`.
 
 ## Rotating a secret
 
@@ -118,6 +125,7 @@ Rotate from the Webhooks admin page (or the API). You choose: an immediate rotat
 - The delivery log keeps 30 days by default (operator-configurable) and is visible on the admin page.
 - The service runs a limited number of deliveries at one time, and the others wait. Each workspace has its own share of both. When too many wait, a delivery is not sent. The log shows it as `failed` with `attempts: 0`, and the registration keeps its status, because your endpoint was not called.
 - A delivery uses the registration as it is when the delivery starts. If you change the URL or rotate the secret, a delivery that was waiting uses the new one. If you pause or delete the registration, or remove the event from it, a delivery that was waiting is not sent and the log shows nothing for it.
+- A delivery that has started finishes with the URL and the secret that it started with. Its retries send the same request again, for about one minute at the most.
 - A pause is yours. A delivery that was sent before you paused can end after it, and its result is in the log. The result does not change `paused`.
 
 ## Limits to design around

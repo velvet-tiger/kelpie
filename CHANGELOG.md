@@ -433,9 +433,11 @@ While the major version is `0`, a minor bump may break the API.
   delivery could send it again with another header. Documentation only:
   nothing on the wire changes. `docs/agents/api-and-webhooks.md` now tells
   a receiver to compare signatures in constant time, to verify before it
-  parses, to refuse a body whose `created_at` is more than 5 minutes old,
-  and to dedupe on the `id` in the body. A retry sends the same body within
-  about one minute, so the age check does not refuse it.
+  parses, to refuse a body whose `created_at` is more than 5 minutes old
+  or more than 1 minute in the future, and to dedupe on the `id` in the
+  body. The receiver keeps each `id` until `created_at` plus 5 minutes. A
+  retry sends the same body within about one minute, so the age check does
+  not refuse it.
 - **Webhooks have a limit for each workspace and a limit for the process.**
   A workspace had no limit on its webhooks, and the process had no limit
   on the deliveries it ran at one time. An admin with many slow endpoints
@@ -468,6 +470,8 @@ While the major version is `0`, a minor bump may break the API.
     posts to the URL and signs with the secret that the registration has
     at that time. It sends nothing and records nothing for a registration
     that was paused or deleted, or that dropped the event, after the event.
+    A delivery that has started finishes its retries with the URL and the
+    secret that it started with.
   - No delivery result changes `paused`. A delivery that was sent before a
     pause, and ended after it, moved the registration to `active` or
     `failing`. The rule is now in the `UPDATE` statement.

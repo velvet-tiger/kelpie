@@ -994,6 +994,59 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       expect(await countRegistrations(acme.workspaceId)).toBe(2)
     })
 
+    /**
+     * The tool calls the same service as the route, so an agent at the limit
+     * gets the refusal a person gets, and cannot register past it.
+     */
+    it('gives the webhooks_create MCP tool the same refusal as the REST route', async () => {
+      const narrow = await appWith({ WEBHOOK_MAX_PER_WORKSPACE: '1' })
+      const minted = await narrow.client.send('POST', '/v1/api-keys', {
+        body: { name: 'agent', kind: 'workspace', full_access: true },
+        cookie: acme.cookie,
+      })
+      expect(minted.status).toBe(201)
+      const bearer = readString(await minted.json(), 'secret')
+
+      async function createByTool(url: string): Promise<{ isError: boolean; payload: Record<string, unknown> }> {
+        const response = await narrow.app.app.request('/mcp', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            Authorization: `Bearer ${bearer}`,
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'webhooks_create', arguments: { url, events: ['record.created'] } },
+          }),
+        })
+        const result = readRecord(readRecord(await response.json()).result)
+        const [content] = result.content as { text: string }[]
+
+        return { isError: result.isError === true, payload: readRecord(JSON.parse(content?.text ?? 'null')) }
+      }
+
+      // The tool registers while there is room, so the refusal below is the limit's.
+      const first = await createByTool('https://example.com/by-tool')
+
+      expect(first.isError).toBe(false)
+      expect(readString(first.payload, 'secret').startsWith('whsec_')).toBe(true)
+
+      const byTool = await createByTool('https://example.com/by-tool-2')
+      const byRoute = await register(narrow.client, 'https://example.com/by-route')
+
+      expect(byRoute.status).toBe(409)
+      expect(byTool.isError).toBe(true)
+      expect(readRecord(byTool.payload.error)).toMatchObject({
+        code: 'conflict',
+        message: 'A workspace may register at most 1 webhooks',
+      })
+      expect(byTool.payload).toEqual(readRecord(await byRoute.json()))
+      expect(await countRegistrations(acme.workspaceId)).toBe(1)
+    })
+
     /** A bad value stops boot. It does not run the service with no limit. */
     it('refuses to boot on a limit that is not a whole number', async () => {
       await expect(appWith({ WEBHOOK_MAX_PER_WORKSPACE: 'plenty' })).rejects.toThrow()
