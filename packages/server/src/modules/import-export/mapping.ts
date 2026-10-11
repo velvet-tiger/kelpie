@@ -39,6 +39,26 @@ export function mapRow(
   return mapped
 }
 
+/**
+ * The Kelpie columns that read any of these source headers.
+ *
+ * The parser names the headers whose cell it could not keep as the file wrote
+ * it. This turns them into the columns a row error names. A header that no
+ * column reads gives nothing: the row does not use that cell.
+ */
+export function columnsReading(
+  headers: readonly string[],
+  columnMap: ImportColumnMap,
+): readonly string[] {
+  if (headers.length === 0) {
+    return []
+  }
+
+  return Object.entries(columnMap).flatMap(([column, header]) =>
+    header !== null && headers.includes(header) ? [column] : [],
+  )
+}
+
 /** A pipe-separated cell (`a|b|c`). Blank entries are dropped. */
 export function splitList(value: string | undefined): readonly string[] {
   return (value ?? '')

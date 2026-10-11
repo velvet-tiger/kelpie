@@ -532,6 +532,30 @@ While the major version is `0`, a minor bump may break the API.
     other. One case was wrong: a file with a column headed `constructor`,
     for a custom field with the key `constructor`, lost that column when
     the request sent no `column_map`. The derived map now has it.
+  - A fault in the server during a dry run or a commit inside the request
+    no longer puts cells of the file in the server log, and no longer
+    leaves the job in `pending` or `committing`. The request answered `500`
+    through the general handler, which logs the message of the error. For a
+    query error that message holds the SQL and its parameters. The import
+    service now logs the cause itself, without the message of a query
+    error, and ends the job as `failed`. **The body of that `500`
+    changes:** the message is "The import failed because of a server
+    error". A `failed` job can be deleted. Before, a commit that stopped
+    this way left a job that answered `409` to a delete and to a second
+    commit. The `import_preview` and `import_commit` MCP tools follow the
+    same rule.
+  - **A cell with a NUL character is a row error, and the rest of the file
+    imports.** Postgres cannot store a NUL, so such a row could never
+    import. It made the dry run or the commit of the whole file fail with
+    the fault above. The row now fails with "This cell holds a character
+    that cannot be stored, such as a NUL" on the column that reads the
+    cell, and the dry run forecasts it. The preview and the stored row have
+    U+FFFD in place of the character. A NUL in a column that the import
+    does not read does not fail the row. A file with a NUL in a header
+    answers `422` on `file`, and a file name with one answers `422` on
+    `file_name`. Half of a surrogate pair, which a tool call can send, is
+    handled in the same way. A `consent_purpose_id` with a NUL answers the
+    same `422` as an unknown id.
 - **A CSV export no longer writes a cell that a spreadsheet runs as a
   formula.** A record value such as `=HYPERLINK(...)` went into the file as
   it was, and a spreadsheet that opened the file ran it. A stranger can put

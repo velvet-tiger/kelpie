@@ -26,7 +26,7 @@ import { DrizzleQueryError } from 'drizzle-orm'
 
 import { describeWriteFailure } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
-import { AppError, describeThrown } from '../../lib/errors.ts'
+import { AppError, describeThrown, internalErrorBody } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
@@ -158,10 +158,10 @@ function emitImportedRecordUpdated(
       throw new Error(`import produced an unexpected object type: ${objectType}`)
   }
 }
-import { CsvFormatError, csvLine, fileDigest, parseCsv } from './csv.ts'
+import { CsvFormatError, csvLine, fileDigest, isStorableText, parseCsv } from './csv.ts'
 import type { CsvRow, ParsedCsv } from './csv.ts'
 import { templateHeadersFor } from './exportRows.ts'
-import { buildMatchKey, mapRow, splitList } from './mapping.ts'
+import { buildMatchKey, columnsReading, mapRow, splitList } from './mapping.ts'
 import { applyWrite } from './writes.ts'
 import { countPlans, planRow, planRows } from './plan.ts'
 import type { ImportLookups, MappedRow, PlanContext, PlannedRow } from './plan.ts'
@@ -299,6 +299,17 @@ function describeForLog(error: unknown): string {
   return error instanceof DrizzleQueryError ? describeWriteFailure(error) : describeThrown(error)
 }
 
+/**
+ * The `500` for a fault that is not the caller's.
+ *
+ * An `AppError`, because the handler in `app.ts` returns one as it is and logs
+ * nothing. It logs the message of any other error, and the message of a query
+ * error holds the SQL and its parameters.
+ */
+function serverFault(message: string): AppError {
+  return new AppError('internal_error', message)
+}
+
 /** The stored job minus tenancy, the failure reason, and the file digest. */
 function toView(job: ImportJobRecord): ImportJobView {
   const {
@@ -360,11 +371,11 @@ export function createImportExportService(
    * @throws AppError 422 when no purpose in this workspace has the id.
    */
   async function requireOwnConsentPurpose(workspaceId: string, id: string): Promise<void> {
-    const [purpose] = await consentPurposesRepository.listPurposesByIds(
-      dependencies.db,
-      workspaceId,
-      [id],
-    )
+    // An id the database cannot hold names no purpose, and the query for it
+    // would fail and not answer.
+    const [purpose] = isStorableText(id)
+      ? await consentPurposesRepository.listPurposesByIds(dependencies.db, workspaceId, [id])
+      : []
 
     if (purpose === undefined) {
       throw AppError.validationFailed('consent_purpose_id does not name a consent purpose', [
@@ -388,6 +399,51 @@ export function createImportExportService(
       }
 
       throw error
+    }
+  }
+
+  /**
+   * Refuses a file name the job could not store.
+   *
+   * The name goes on the job and into the timeline entry of every record the
+   * import writes, so it is refused here and not at the first of those writes.
+   *
+   * @throws AppError 422 when the name holds a NUL or half of a surrogate pair.
+   */
+  function requireStorableFileName(fileName: string | null): void {
+    if (fileName !== null && !isStorableText(fileName)) {
+      throw AppError.validationFailed('The name of the file cannot be stored', [
+        { field: 'file_name', message: 'Holds a character that cannot be stored, such as a NUL' },
+      ])
+    }
+  }
+
+  /**
+   * Runs the work of one request, and keeps a fault from leaving with its
+   * message.
+   *
+   * An `AppError` is an answer and passes. Any other error stops here: the
+   * cause goes to the log through `describeForLog`, and the caller gets a
+   * `500` that says nothing. Both callers of this service, the routes and the
+   * MCP tools, log the message of an error they do not know.
+   *
+   * @param request What to name in the log: the operation, and the job when
+   *   the request names one.
+   */
+  async function answering<T>(
+    request: { readonly operation: string; readonly jobId?: string },
+    work: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await work()
+    } catch (error: unknown) {
+      if (error instanceof AppError) {
+        throw error
+      }
+
+      dependencies.log.error('import request failed', { ...request, error: describeForLog(error) })
+
+      throw serverFault(internalErrorBody().error.message)
     }
   }
 
@@ -690,7 +746,11 @@ export function createImportExportService(
     parsed: ParsedCsv,
   ): { rows: MappedRow[]; values: Map<number, CsvRow> } {
     return {
-      rows: parsed.rows.map((row) => ({ row: row.number, mapped: mapRow(row.values, job.columnMap) })),
+      rows: parsed.rows.map((row) => ({
+        row: row.number,
+        mapped: mapRow(row.values, job.columnMap),
+        unstorable: columnsReading(row.unstorable, job.columnMap),
+      })),
       values: new Map(parsed.rows.map((row) => [row.number, row])),
     }
   }
@@ -897,6 +957,25 @@ export function createImportExportService(
     void work().catch((error: unknown) => failJob(workspaceId, jobId, error))
   }
 
+  /**
+   * Runs work on a job inside the request that asked for it.
+   *
+   * It ends the way `detach` ends: a throw fails the job, so no job stays in
+   * `pending`, `validating` or `committing` with nothing to move it on. The
+   * difference is that there is a caller to answer. An `AppError` goes to them
+   * as it is. Any other error becomes a `500` with the reason the job keeps,
+   * because its own message is not for a caller or for the log of one.
+   */
+  async function attach<T>(workspaceId: string, jobId: string, work: () => Promise<T>): Promise<T> {
+    try {
+      return await work()
+    } catch (error: unknown) {
+      await failJob(workspaceId, jobId, error)
+
+      throw error instanceof AppError ? error : serverFault(JOB_SERVER_ERROR)
+    }
+  }
+
   /** Applies one line, in its own transaction, and returns what it did. */
   async function commitRow(
     workspaceId: string,
@@ -907,7 +986,8 @@ export function createImportExportService(
     const object = job.object as ImportObject
     const matchKey = requireMatchKey(object, job.matchKey)
     const mapped = mapRow(line.values, job.columnMap)
-    const row: MappedRow = { row: line.number, mapped }
+    const unstorable = columnsReading(line.unstorable, job.columnMap)
+    const row: MappedRow = { row: line.number, mapped, unstorable }
 
     return dependencies.transaction(async ({ tx, events }) => {
       // Resolved inside the transaction, against the rows this commit has
@@ -915,7 +995,7 @@ export function createImportExportService(
       // create it once, and what lets an interrupted commit be re-run.
       const { definitions } = await customFieldContext(workspaceId, object)
       const lookups = await buildLookups(tx, workspaceId, object, matchKey, [row])
-      const plan = planRow(contextFor(job, lookups, definitions), mapped)
+      const plan = planRow(contextFor(job, lookups, definitions), mapped, unstorable)
 
       const outcome: repository.RowOutcome = {
         rowNumber: line.number,
@@ -1035,7 +1115,8 @@ export function createImportExportService(
           }
 
           // Its own statement: the transaction that would have carried this one
-          // is the one that just rolled back.
+          // is the one that just rolled back. When this fails too, the row has
+          // no account of itself, so the throw leaves the loop and ends the job.
           await repository.recordRowOutcome(
             dependencies.db,
             workspaceId,
@@ -1112,10 +1193,16 @@ export function createImportExportService(
     return workspaceId
   }
 
-  return {
+  /**
+   * The service before `answering` is put around it. Kept apart so that the
+   * rule about faults is in one place, below, and no method can leave it out.
+   */
+  const unguarded: ImportExportService = {
     async createJob(actor, input) {
       const workspaceId = requireAdminWorkspace(actor)
       const parsed = readCsv(input.csv)
+
+      requireStorableFileName(input.fileName)
 
       const matchKey = requireMatchKey(input.object, input.matchKeyId)
       const { keys: customFieldKeys } = await customFieldContext(workspaceId, input.object)
@@ -1185,15 +1272,17 @@ export function createImportExportService(
       })
 
       if (parsed.rows.length <= SYNC_IMPORT_ROWS) {
-        await runDryRun(workspaceId, id, parsed)
+        await attach(workspaceId, id, () => runDryRun(workspaceId, id, parsed))
 
         return viewOf(await requireJob(workspaceId, id))
       }
 
-      const validating = await repository.updateJob(dependencies.db, workspaceId, id, {
-        status: 'validating',
-        updatedAt: dependencies.now(),
-      })
+      const validating = await attach(workspaceId, id, () =>
+        repository.updateJob(dependencies.db, workspaceId, id, {
+          status: 'validating',
+          updatedAt: dependencies.now(),
+        }),
+      )
 
       detach(workspaceId, id, () => runDryRun(workspaceId, id, parsed))
 
@@ -1248,7 +1337,7 @@ export function createImportExportService(
       }
 
       if (claimed.counts.total <= SYNC_IMPORT_ROWS) {
-        await runCommit(workspaceId, actor, id, parsed)
+        await attach(workspaceId, id, () => runCommit(workspaceId, actor, id, parsed))
 
         return viewOf(await requireJob(workspaceId, id))
       }
@@ -1306,5 +1395,21 @@ export function createImportExportService(
         csvLine(templateHeadersFor(object, definitions)),
       )
     },
+  }
+
+  return {
+    createJob: (actor, input) =>
+      answering({ operation: 'create' }, () => unguarded.createJob(actor, input)),
+    getJob: (actor, id) =>
+      answering({ operation: 'get', jobId: id }, () => unguarded.getJob(actor, id)),
+    commit: (actor, id, csv) =>
+      answering({ operation: 'commit', jobId: id }, () => unguarded.commit(actor, id, csv)),
+    deleteJob: (actor, id) =>
+      answering({ operation: 'delete', jobId: id }, () => unguarded.deleteJob(actor, id)),
+    // Not wrapped: it is a stream, and a fault in it comes after the answer has
+    // started. Its queries carry a workspace id and a record id, and no cell.
+    exportCsv: (actor, object) => unguarded.exportCsv(actor, object),
+    templateCsv: (actor, object) =>
+      answering({ operation: 'template' }, () => unguarded.templateCsv(actor, object)),
   }
 }

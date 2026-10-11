@@ -39,8 +39,16 @@ export interface CsvRow {
   /**
    * Source header → cell. Cells are trimmed, after the apostrophe an export put
    * in front of a formula is removed; a short row's missing cells are `''`.
+   * A character the database cannot store is U+FFFD here, so every cell can go
+   * into a query, a preview and a stored row.
    */
   readonly values: Readonly<Record<string, string>>
+  /**
+   * The headers whose cell held a character the database cannot store. The
+   * cell in `values` is not what the file said, so a column that reads one of
+   * these is a row error.
+   */
+  readonly unstorable: readonly string[]
 }
 
 export interface ParsedCsv {
@@ -96,6 +104,37 @@ const SIGNED_NUMBER = /^[+-][0-9 ().-]*$/u
  * stored as the row's own property and is a header like any other.
  */
 const UNSTORABLE_HEADER = '__proto__'
+
+/** Postgres refuses this character in `text` and in `jsonb`. */
+const NUL = '\u0000'
+
+/**
+ * Half of a surrogate pair, which `jsonb` refuses. With the `u` flag this
+ * class matches a surrogate only when it has no partner. A file a browser
+ * uploads is decoded from UTF-8 and cannot hold one, but the `csv` argument of
+ * a tool call is JSON and can.
+ */
+const LONE_SURROGATE = /[\uD800-\uDFFF]/u
+
+/** The same, for replacing every one in a cell. */
+const LONE_SURROGATES = /[\uD800-\uDFFF]/gu
+
+/** What a cell holds in place of a character the database cannot store. */
+const REPLACEMENT_CHARACTER = '\uFFFD'
+
+/**
+ * Whether Postgres can store this text, in a `text` column or inside `jsonb`.
+ *
+ * Exported for text that comes with a file and is not a cell, such as its name.
+ */
+export function isStorableText(text: string): boolean {
+  return !text.includes(NUL) && !LONE_SURROGATE.test(text)
+}
+
+/** The text with U+FFFD in place of each character the database cannot store. */
+function toStorableText(text: string): string {
+  return text.replaceAll(NUL, REPLACEMENT_CHARACTER).replace(LONE_SURROGATES, REPLACEMENT_CHARACTER)
+}
 
 /** A cell `neutraliseFormula` wrote: at least one apostrophe, then a formula character. */
 const NEUTRALISED_FORMULA = /^'+[=+\-@\t\r]/u
@@ -225,11 +264,16 @@ function splitRows(text: string, limits: CsvLimits): PhysicalRow[] {
 }
 
 /**
+ * A cell with a character the database cannot store is read, not refused: the
+ * character becomes U+FFFD and the row names the header in `unstorable`. One
+ * bad cell is then one row error, and the rest of the file imports.
+ *
  * @throws CsvFormatError when the file has no header row, when a header is
- *   blank, when two headers are the same, when a header is `__proto__`, or
- *   when the file is over a limit. The first three make a `column_map`
- *   unanswerable rather than merely inconvenient. The fourth is a column no
- *   row can hold.
+ *   blank, when two headers are the same, when a header is `__proto__`, when a
+ *   header holds a character the database cannot store, or when the file is
+ *   over a limit. The first three make a `column_map` unanswerable rather than
+ *   merely inconvenient. The fourth is a column no row can hold, and the fifth
+ *   is a column no job can record.
  */
 export function parseCsv(text: string, limits: CsvLimits = DEFAULT_LIMITS): ParsedCsv {
   const [headerRow, ...dataRows] = splitRows(text, limits)
@@ -252,6 +296,16 @@ export function parseCsv(text: string, limits: CsvLimits = DEFAULT_LIMITS): Pars
     throw new CsvFormatError(`Column ${String(blank + 1)} of the header row has no name`)
   }
 
+  const unstorable = headers.findIndex((header) => !isStorableText(header))
+
+  // The message gives the place and not the name: the name is what cannot be
+  // stored, and a caller's log of this answer should be able to hold it.
+  if (unstorable >= 0) {
+    throw new CsvFormatError(
+      `Column ${String(unstorable + 1)} of the header row holds a character that cannot be stored`,
+    )
+  }
+
   const seen = new Set<string>()
 
   for (const header of headers) {
@@ -268,12 +322,21 @@ export function parseCsv(text: string, limits: CsvLimits = DEFAULT_LIMITS): Pars
 
   const rows = dataRows.map(({ number, cells }): CsvRow => {
     const values: Record<string, string> = {}
+    const unstorableHeaders: string[] = []
 
     headers.forEach((header, column) => {
-      values[header] = restoreFormula(cells[column] ?? '').trim()
+      const cell = restoreFormula(cells[column] ?? '').trim()
+
+      if (isStorableText(cell)) {
+        values[header] = cell
+        return
+      }
+
+      values[header] = toStorableText(cell)
+      unstorableHeaders.push(header)
     })
 
-    return { number, values }
+    return { number, values, unstorable: unstorableHeaders }
   })
 
   return { headers, rows }

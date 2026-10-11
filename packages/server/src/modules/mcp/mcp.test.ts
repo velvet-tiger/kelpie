@@ -882,5 +882,46 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       })
       expect(unknown).toEqual(foreign)
     })
+
+    /**
+     * A tool argument is JSON, so it can carry what an uploaded file cannot:
+     * half of a surrogate pair, which `jsonb` refuses, as well as a NUL.
+     */
+    it('reads a cell or a file name the database cannot store as the REST route does', async () => {
+      const preview = { source: 'custom', object: 'companies' }
+      const job = readRecord(
+        await callTool('import_preview', {
+          ...preview,
+          csv: 'name,domain\nBad\uD83DName SECRETCELL,bad.test\nAcme,acme.com',
+        }),
+      )
+
+      expect(job).toMatchObject({
+        status: 'ready',
+        counts: { total: 2, create: 1, error: 1 },
+        errors: [
+          { row: 2, field: 'name', message: 'This cell holds a character that cannot be stored, such as a NUL' },
+        ],
+        preview: [{ row: 2, values: { name: 'Bad\uFFFDName SECRETCELL' } }, { row: 3 }],
+      })
+
+      for (const fileName of ['SECRETCELL\u0000.csv', 'SECRETCELL\uD83D.csv']) {
+        const error = await callToolError('import_preview', {
+          ...preview,
+          csv: 'name,domain\nAcme,acme.com',
+          file_name: fileName,
+        })
+
+        expect(error).toMatchObject({
+          code: 'validation_failed',
+          details: [{ field: 'file_name', message: 'Holds a character that cannot be stored, such as a NUL' }],
+        })
+      }
+
+      const lines = harness.logLines.join('\n')
+
+      expect(lines).not.toContain('SECRETCELL')
+      expect(lines).not.toContain('Failed query')
+    })
   })
 })

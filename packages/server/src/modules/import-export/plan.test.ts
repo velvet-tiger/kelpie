@@ -96,6 +96,33 @@ describe('planRow', () => {
     ])
   })
 
+  /**
+   * The parser puts U+FFFD where a cell held a NUL, and names the header. A
+   * record cannot hold what the file meant, so the row is an error, and it is
+   * the one thing the caller has to fix.
+   */
+  it('reports a cell the database cannot store, and nothing behind it', () => {
+    const plan = planRow(
+      contextFor('people'),
+      { name: 'A\uFFFDa', email: '', influence: 'sponsor' },
+      ['name', 'influence'],
+    )
+
+    expect(plan.action === 'error' && plan.errors).toEqual([
+      { field: 'name', message: 'This cell holds a character that cannot be stored, such as a NUL' },
+      { field: 'influence', message: 'This cell holds a character that cannot be stored, such as a NUL' },
+    ])
+  })
+
+  it('plans a whole file, with an error for the row that has such a cell', () => {
+    const planned = planRows(contextFor('companies'), [
+      { row: 2, mapped: { name: 'Acme', domain: 'acme.com' } },
+      { row: 3, mapped: { name: 'B\uFFFDd', domain: 'bad.test' }, unstorable: ['name'] },
+    ])
+
+    expect(planned.map((row) => row.plan.action)).toEqual(['create', 'error'])
+  })
+
   it('reports a missing required cell instead of the shape problems behind it', () => {
     const plan = planRow(contextFor('people'), { name: 'Ada', email: '' })
 

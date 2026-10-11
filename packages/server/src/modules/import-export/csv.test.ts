@@ -1,7 +1,7 @@
 import { MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
-import { CsvFormatError, csvLine, parseCsv, serialiseCsv } from './csv.ts'
+import { CsvFormatError, csvLine, isStorableText, parseCsv, serialiseCsv } from './csv.ts'
 
 describe('parseCsv', () => {
   it('reads a header row and keys every row by it', () => {
@@ -143,6 +143,55 @@ describe('parseCsv', () => {
         { [header]: 'first', name: 'Acme' },
         { [header]: '', name: 'Harbour' },
       ])
+    })
+  })
+
+  /**
+   * Postgres stores no NUL in `text` or `jsonb`, and no half of a surrogate
+   * pair in `jsonb`. The parser is where a file's text comes in, so it is where
+   * such a character stops.
+   */
+  describe('a character the database cannot store', () => {
+    it.each([
+      ['a NUL', 'Bad\u0000Name', 'Bad\uFFFDName'],
+      ['two of them', '\u0000Bad\u0000', '\uFFFDBad\uFFFD'],
+      ['a high surrogate with no low one', 'Bad\uD83DName', 'Bad\uFFFDName'],
+      ['a low surrogate with no high one', 'Bad\uDE00Name', 'Bad\uFFFDName'],
+    ])('puts U+FFFD where a cell has %s, and names the header', (_, cell, stored) => {
+      const [row] = parseCsv(`name,domain\n${cell},acme.com\n`).rows
+
+      expect(row?.values).toEqual({ name: stored, domain: 'acme.com' })
+      expect(row?.unstorable).toEqual(['name'])
+    })
+
+    it('names every header of a row with such a cell, and no header of a row without', () => {
+      const parsed = parseCsv('name,domain,note\nA\u0000,a.test,\u0000\nB,b.test,fine\n')
+
+      expect(parsed.rows.map((row) => row.unstorable)).toEqual([['name', 'note'], []])
+    })
+
+    it('leaves a whole surrogate pair and U+FFFD itself alone', () => {
+      const [row] = parseCsv('name,note\nSmile \u{1F600},already \uFFFD\n').rows
+
+      expect(row?.values).toEqual({ name: 'Smile \u{1F600}', note: 'already \uFFFD' })
+      expect(row?.unstorable).toEqual([])
+    })
+
+    it.each(['no\u0000te', 'no\uD83Dte'])('refuses the header %j', (header) => {
+      expect(() => parseCsv(`name,${header}\nAcme,x\n`)).toThrow(CsvFormatError)
+      expect(() => parseCsv(`name,${header}\nAcme,x\n`)).toThrow(
+        'Column 2 of the header row holds a character that cannot be stored',
+      )
+    })
+
+    it.each([
+      ['plain', true],
+      ['Smile \u{1F600}', true],
+      ['', true],
+      ['a\u0000b', false],
+      ['a\uD83Db', false],
+    ])('says whether %j can be stored', (text, storable) => {
+      expect(isStorableText(text)).toBe(storable)
     })
   })
 

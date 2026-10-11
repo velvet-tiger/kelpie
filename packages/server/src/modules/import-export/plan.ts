@@ -192,7 +192,15 @@ export interface PlannedRow {
 export interface MappedRow {
   readonly row: number
   readonly mapped: Readonly<Record<string, string>>
+  /**
+   * The Kelpie columns whose cell held a character the database cannot store.
+   * Absent means none. The cell in `mapped` has U+FFFD in its place.
+   */
+  readonly unstorable?: readonly string[]
 }
+
+/** The row error for a cell that held a character the database cannot store. */
+const UNSTORABLE_CELL = 'This cell holds a character that cannot be stored, such as a NUL'
 
 function error(...errors: readonly StoredRowError[]): RowPlan {
   return { action: 'error', errors }
@@ -654,10 +662,22 @@ function withAddressWarnings(
 
 /**
  * @param mapped The row's cells by Kelpie column, from `mapRow`.
+ * @param unstorable The columns of `mapped` whose cell held a character the
+ *   database cannot store, from `columnsReading`.
  * @returns What this row would do. `create` when its key matches nothing;
  *   otherwise the job's conflict mode decides between `skip` and `update`.
  */
-export function planRow(context: PlanContext, mapped: Readonly<Record<string, string>>): RowPlan {
+export function planRow(
+  context: PlanContext,
+  mapped: Readonly<Record<string, string>>,
+  unstorable: readonly string[] = [],
+): RowPlan {
+  // Before every other check. The cell is not what the file said, so a
+  // complaint about its shape would be about a value the caller never wrote.
+  if (unstorable.length > 0) {
+    return error(...unstorable.map((field) => ({ field, message: UNSTORABLE_CELL })))
+  }
+
   const invalid = validateRow(context.object, context.matchKey, mapped, {
     baseColumnKeys: context.baseColumnKeys,
     customFieldDefinitions: context.customFieldDefinitions,
@@ -719,7 +739,7 @@ export function planRows(context: PlanContext, rows: readonly MappedRow[]): read
   const withOverlay: PlanContext = { ...context, lookups: { ...context.lookups, existing } }
 
   return rows.map((row) => {
-    const plan = planRow(withOverlay, row.mapped)
+    const plan = planRow(withOverlay, row.mapped, row.unstorable)
 
     if (plan.action === 'create') {
       existing.set(plan.key, '')

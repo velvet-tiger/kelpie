@@ -75,6 +75,9 @@ const ROW_SERVER_ERROR = 'This row could not be saved because of a server error'
 /** The same for a whole job, as `import_jobs.failure_reason` stores it. */
 const JOB_SERVER_ERROR = 'The import failed because of a server error'
 
+/** The row error for a cell with a NUL, or with half of a surrogate pair. */
+const UNSTORABLE_CELL = 'This cell holds a character that cannot be stored, such as a NUL'
+
 describe.skipIf(connectionString === undefined)('import and export', () => {
   let database: TestDatabase
   let harness: TestApp
@@ -938,6 +941,323 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
         },
       ])
       expect(harness.logLines.filter((line) => line.includes('import row failed'))).toHaveLength(0)
+    })
+  })
+
+  /**
+   * Postgres stores no NUL in `text` or in `jsonb`. A cell that holds one can
+   * never be a record, and the job's preview and the stored row could not hold
+   * it either. So the parser puts U+FFFD in its place, and the row is an error
+   * the dry run forecasts.
+   */
+  describe('a character the database cannot store', () => {
+    const tenRows = [
+      'name,domain',
+      ...Array.from({ length: 8 }, (_, index) => `Company ${String(index)},company-${String(index)}.test`),
+      'Bad\u0000Name SECRETCELL,bad.test',
+      'Last Co,last.test',
+    ].join('\n')
+
+    function storedValues(jobId: string, rowNumber: number): Promise<{ action: string; values: unknown }[]> {
+      return database.db
+        .select({ action: importJobRows.action, values: importJobRows.values })
+        .from(importJobRows)
+        .where(and(eq(importJobRows.jobId, jobId), eq(importJobRows.rowNumber, rowNumber)))
+    }
+
+    /** Nothing the server wrote to its log may hold a cell, or the text of a query. */
+    function expectQuietLog(): void {
+      const lines = harness.logLines.join('\n')
+
+      expect(lines).not.toContain('SECRETCELL')
+      expect(lines).not.toContain('Failed query')
+      expect(lines).not.toContain('unhandled error')
+    }
+
+    it('fails only the row with a NUL in it, and the job still finishes', async () => {
+      const job = await createJob(tenRows)
+      const jobId = readString(job, 'id')
+
+      expect(job).toMatchObject({
+        status: 'ready',
+        counts: { total: 10, create: 9, error: 1 },
+        errors: [{ row: 10, field: 'name', message: UNSTORABLE_CELL }],
+      })
+
+      const committed = await commit(jobId, tenRows)
+
+      expect(committed).toMatchObject({
+        status: 'completed',
+        counts: { total: 10, create: 9, error: 1 },
+        errors: [{ row: 10, field: 'name', message: UNSTORABLE_CELL }],
+      })
+      // The rows either side of it import, the one after it included.
+      expect(
+        await database.db.select().from(companies).where(eq(companies.workspaceId, acme.workspaceId)),
+      ).toHaveLength(9)
+      expect(await database.db.select().from(companies).where(eq(companies.domain, 'last.test'))).toHaveLength(1)
+      expect(await storedValues(jobId, 10)).toEqual([
+        { action: 'error', values: { name: 'Bad\uFFFDName SECRETCELL', domain: 'bad.test' } },
+      ])
+      expectQuietLog()
+
+      // The job is finished, so it takes a second commit and a delete.
+      expect((await sendCommit(jobId, tenRows)).status).toBe(200)
+      expect(
+        (await client.send('DELETE', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })).status,
+      ).toBe(204)
+    })
+
+    it('forecasts a NUL in one of the preview rows, in a column the lookups read', async () => {
+      const csv = 'name,domain\nAcme,ac\u0000me.com SECRETCELL\nHarbour Lane,harbour.io'
+      const job = await createJob(csv)
+
+      expect(job).toMatchObject({
+        status: 'ready',
+        counts: { total: 2, create: 1, error: 1 },
+        errors: [{ row: 2, field: 'domain', message: UNSTORABLE_CELL }],
+        preview: [
+          { row: 2, action: 'error', values: { name: 'Acme', domain: 'ac\uFFFDme.com SECRETCELL' } },
+          { row: 3, action: 'create' },
+        ],
+      })
+      expect(await commit(readString(job, 'id'), csv)).toMatchObject({
+        status: 'completed',
+        counts: { total: 2, create: 1, error: 1 },
+      })
+      expectQuietLog()
+    })
+
+    it('imports a row whose NUL is in a column the map does not read', async () => {
+      const csv = 'name,domain,scratch\nAcme,acme.com,left\u0000over'
+      const job = await createJob(csv)
+      const jobId = readString(job, 'id')
+
+      expect(job).toMatchObject({ status: 'ready', counts: { total: 1, create: 1, error: 0 } })
+      expect(await commit(jobId, csv)).toMatchObject({
+        status: 'completed',
+        counts: { total: 1, create: 1, error: 0 },
+      })
+      expect(await storedValues(jobId, 2)).toEqual([
+        { action: 'create', values: { name: 'Acme', domain: 'acme.com', scratch: 'left\uFFFDover' } },
+      ])
+      expectQuietLog()
+    })
+
+    it('refuses a file with a NUL in a header', async () => {
+      const response = await upload('name,domain,no\u0000te SECRETCELL\nAcme,acme.com,x')
+
+      expect(response.status).toBe(422)
+      expect(await errorDetails(response)).toEqual([
+        { field: 'file', message: 'Column 3 of the header row holds a character that cannot be stored' },
+      ])
+      expect(await database.db.select().from(importJobs)).toHaveLength(0)
+      expectQuietLog()
+    })
+
+    it('refuses a file whose name has a NUL in it', async () => {
+      const response = await upload(COMPANIES_CSV, {}, { fileName: 'SECRETCELL\u0000.csv' })
+
+      expect(response.status).toBe(422)
+      expect(await errorDetails(response)).toEqual([
+        { field: 'file_name', message: 'Holds a character that cannot be stored, such as a NUL' },
+      ])
+      expect(await database.db.select().from(importJobs)).toHaveLength(0)
+      expectQuietLog()
+    })
+
+    it('answers an unknown purpose for a consent_purpose_id with a NUL in it', async () => {
+      const response = await upload('name,email,consent_status\nGrace Hopper,grace@acme.com,granted', {
+        object: 'people',
+        consent_purpose_id: 'cnp_\u0000',
+      })
+
+      expect(response.status).toBe(422)
+      expect(await errorDetails(response)).toEqual([
+        { field: 'consent_purpose_id', message: 'No consent purpose in this workspace has that id' },
+      ])
+      expectQuietLog()
+    })
+  })
+
+  /**
+   * The handler in `app.ts` logs the message of an error it does not know, and
+   * the message of a query error holds the SQL and its parameters: cells of the
+   * file. So no such error leaves the service. It logs the cause itself, ends
+   * the job, and answers a `500` that says no more than that.
+   */
+  describe('a fault of the server inside the request', () => {
+    const csv = 'name,domain\nAcme,acme.com SECRETCELL\nHarbour Lane,harbour.io\nNorthwind,northwind.test'
+
+    async function errorOf(response: Response): Promise<unknown> {
+      return { status: response.status, error: readRecord(await response.json()).error }
+    }
+
+    function jobs(): Promise<{ id: string; status: string; failureReason: string | null }[]> {
+      return database.db
+        .select({ id: importJobs.id, status: importJobs.status, failureReason: importJobs.failureReason })
+        .from(importJobs)
+    }
+
+    /** The lines at `error` level, parsed. None may hold a cell or the text of a query. */
+    function errorLines(): Record<string, unknown>[] {
+      const lines = harness.logLines.join('\n')
+
+      expect(lines).not.toContain('SECRETCELL')
+      expect(lines).not.toContain('Failed query')
+      expect(lines).not.toContain('unhandled error')
+
+      return harness.logLines
+        .map((line) => readRecord(JSON.parse(line)))
+        .filter((line) => line.level === 'error')
+    }
+
+    it('fails the job when the database refuses the write that ends a dry run', async () => {
+      await database.db.execute(
+        sql`ALTER TABLE import_jobs ADD CONSTRAINT test_never_ready CHECK (status <> 'ready') NOT VALID`,
+      )
+
+      try {
+        expect(await errorOf(await upload(csv))).toEqual({
+          status: 500,
+          error: { code: 'internal_error', message: JOB_SERVER_ERROR },
+        })
+
+        const [job] = await jobs()
+
+        // Not left `pending`, which nothing would ever move on.
+        expect(job).toMatchObject({ status: 'failed', failureReason: JOB_SERVER_ERROR })
+        expect(errorLines()).toMatchObject([
+          {
+            message: 'import job failed',
+            jobId: job?.id,
+            error: 'Error code=23514 constraint=test_never_ready table=import_jobs',
+          },
+        ])
+      } finally {
+        await database.db.execute(sql`ALTER TABLE import_jobs DROP CONSTRAINT IF EXISTS test_never_ready`)
+      }
+    })
+
+    it('fails the job when the outcome of a row cannot be recorded', async () => {
+      const jobId = readString(await createJob(csv), 'id')
+
+      await database.db.execute(
+        sql`ALTER TABLE import_job_rows ADD CONSTRAINT test_no_row_three CHECK (row_number <> 3) NOT VALID`,
+      )
+
+      try {
+        expect(await errorOf(await sendCommit(jobId, csv))).toEqual({
+          status: 500,
+          error: { code: 'internal_error', message: JOB_SERVER_ERROR },
+        })
+      } finally {
+        await database.db.execute(
+          sql`ALTER TABLE import_job_rows DROP CONSTRAINT IF EXISTS test_no_row_three`,
+        )
+      }
+
+      expect(await jobs()).toEqual([{ id: jobId, status: 'failed', failureReason: JOB_SERVER_ERROR }])
+      expect(errorLines()).toMatchObject([
+        {
+          message: 'import row failed',
+          jobId,
+          row: 3,
+          error: 'Error code=23514 constraint=test_no_row_three table=import_job_rows',
+        },
+        {
+          message: 'import job failed',
+          jobId,
+          error: 'Error code=23514 constraint=test_no_row_three table=import_job_rows',
+        },
+      ])
+      // The row before it is written and stays. The same file imports again as a new job.
+      expect(await database.db.select().from(companies).where(eq(companies.workspaceId, acme.workspaceId))).toHaveLength(1)
+
+      // The job is not left `committing`: it reads as failed, and it can be deleted.
+      const reread = await client.send('GET', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })
+
+      expect(readRecord(await reread.json())).toMatchObject({ status: 'failed' })
+      expect(await errorOf(await sendCommit(jobId, csv))).toMatchObject({
+        status: 409,
+        error: { message: 'An import job in status "failed" cannot be committed' },
+      })
+      expect(
+        (await client.send('DELETE', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })).status,
+      ).toBe(204)
+    })
+
+    it('answers a plain 500 when the database refuses the job itself', async () => {
+      await database.db.execute(
+        sql`ALTER TABLE import_jobs ADD CONSTRAINT test_never_pending CHECK (status <> 'pending') NOT VALID`,
+      )
+
+      try {
+        expect(await errorOf(await upload(csv, {}, { fileName: 'SECRETCELL.csv' }))).toEqual({
+          status: 500,
+          error: { code: 'internal_error', message: 'Internal server error' },
+        })
+      } finally {
+        await database.db.execute(sql`ALTER TABLE import_jobs DROP CONSTRAINT IF EXISTS test_never_pending`)
+      }
+
+      expect(await jobs()).toEqual([])
+      expect(errorLines()).toMatchObject([
+        {
+          message: 'import request failed',
+          operation: 'create',
+          error: 'Error code=23514 constraint=test_never_pending table=import_jobs',
+        },
+      ])
+    })
+
+    it('leaves the job ready when the database refuses the claim of a commit', async () => {
+      const jobId = readString(await createJob(csv), 'id')
+
+      await database.db.execute(
+        sql`ALTER TABLE import_jobs ADD CONSTRAINT test_never_committing CHECK (status <> 'committing') NOT VALID`,
+      )
+
+      try {
+        expect(await errorOf(await sendCommit(jobId, csv))).toEqual({
+          status: 500,
+          error: { code: 'internal_error', message: 'Internal server error' },
+        })
+      } finally {
+        await database.db.execute(
+          sql`ALTER TABLE import_jobs DROP CONSTRAINT IF EXISTS test_never_committing`,
+        )
+      }
+
+      expect(errorLines()).toMatchObject([
+        {
+          message: 'import request failed',
+          operation: 'commit',
+          jobId,
+          error: 'Error code=23514 constraint=test_never_committing table=import_jobs',
+        },
+      ])
+      // Nothing was claimed, so the same commit goes through now.
+      expect(await commit(jobId, csv)).toMatchObject({ status: 'completed', counts: { create: 3 } })
+    })
+
+    /**
+     * A read and a delete go through the same rule. The id in the path has a
+     * NUL in it, which Postgres refuses in a query parameter.
+     */
+    it.each([
+      ['GET', 'get'],
+      ['DELETE', 'delete'],
+    ] as const)('keeps the query of a refused %s out of the log', async (method, operation) => {
+      const response = await client.send(method, '/v1/import/jobs/imp_%00', { cookie: acme.cookie })
+
+      expect(await errorOf(response)).toEqual({
+        status: 500,
+        error: { code: 'internal_error', message: 'Internal server error' },
+      })
+      expect(errorLines()).toMatchObject([
+        { message: 'import request failed', operation, error: 'Error code=22021' },
+      ])
     })
   })
 

@@ -27,6 +27,8 @@ The commit re-checks every row against the workspace as it stands rather than re
 
 A row that fails shows the reason. When the reason is a fault in the server, the row says "This row could not be saved because of a server error" and no more. The server log has the cause, with the job and the row number.
 
+A fault in the server can also stop a dry run or a commit. The request then answers "The import failed because of a server error", and the job ends as failed. A failed job cannot be committed. Upload the file again. The rows that the commit wrote before the fault stay, and the new import finds them, so nothing is duplicated.
+
 ## Rules worth knowing
 
 - **Blank cells write nothing.** An unmapped column, or a mapped column with an empty cell, is never written — so a partial export with an empty Summary column cannot erase every summary in your workspace. Clearing a field is an edit on the record, not an import.
@@ -35,6 +37,7 @@ A row that fails shows the reason. When the reason is a fault in the server, the
 - **A deal with no matching company fails its row.** Kelpie does not create stub companies to hang deals on.
 - **`owner_email` must name a workspace member.** Otherwise the row fails, rather than silently assigning the deal to whoever ran the import. Unmap the column to import without owners.
 - **A column cannot be headed `__proto__`.** Kelpie refuses a file that has such a column. Rename the column and upload the file again.
+- **A cell cannot hold a NUL character.** The database cannot store one. A row with a NUL in a column that the import reads fails, and the dry run shows it. The other rows import. The preview shows `�` where the NUL was. Kelpie refuses a file with a NUL in a header or in its name.
 - **A people file can carry a company and title.** The import then creates or renames the person's position at that company. If the company is not in the workspace yet, you choose: skip the link and import the person with a warning (the default), or create the company from the row.
 
 ## Large files

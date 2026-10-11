@@ -3,7 +3,7 @@ import type { MatchKeyOption } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
 import { parseCsv } from './csv.ts'
-import { buildMatchKey, centsToMoney, mapRow, moneyToCents, splitList } from './mapping.ts'
+import { buildMatchKey, centsToMoney, columnsReading, mapRow, moneyToCents, splitList } from './mapping.ts'
 import { aliasedStageSlug, defaultColumnMap } from './presets.ts'
 
 function keyFor(object: 'companies' | 'people' | 'positions' | 'deals', id: string): MatchKeyOption {
@@ -58,6 +58,19 @@ describe('mapRow', () => {
       })
     },
   )
+})
+
+describe('columnsReading', () => {
+  it('names the Kelpie columns that read any of the headers', () => {
+    const columnMap = { name: 'Name', domain: 'Website', industry: null, summary: 'Notes' }
+
+    expect(columnsReading(['Website', 'Notes', 'Scratch'], columnMap)).toEqual(['domain', 'summary'])
+  })
+
+  it('names nothing for a header no column reads, and for no headers', () => {
+    expect(columnsReading(['Scratch'], { name: 'Name' })).toEqual([])
+    expect(columnsReading([], { name: 'Name' })).toEqual([])
+  })
 })
 
 describe('splitList', () => {
