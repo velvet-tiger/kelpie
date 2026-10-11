@@ -484,6 +484,24 @@ While the major version is `0`, a minor bump may break the API.
     answers. `/` alone is now refused. The compare with the three reserved
     names now ignores letter case, so `/V1/x` is refused. A later segment
     can still be a pattern (`/auth/:provider/callback`).
+  - `router.query` (the HTTP `QUERY` method) now has the `module.<id>`
+    gate and the two path rules above. A `query` route had no gate, so it
+    answered for a workspace that had the module off.
+  - A pattern for `router.use` must start with a segment of the same
+    characters. `/:name/*` passed, and the gate and the middleware of the
+    module then ran for the routes of other modules. A call with no
+    pattern, `*` and `/*` fail as before. `/` fails as before, with a new
+    message, and the empty pattern now fails with it: such a middleware
+    runs for `/v1` alone.
+  - A path for `router.route` must start with a segment of the same
+    characters. `/`, the empty path and `/:name` passed, and the gate of
+    the module then ran for the routes of other modules.
+  - The router from `context.routes` now has `get`, `post`, `put`, `patch`,
+    `delete`, `options`, `query`, `all`, `on`, `use` and `route` only. Each
+    other member that is a function or an object stops the boot: `mount`,
+    `basePath`, `fetch`, `request`, `fire`, `routes` and `router`. `mount`
+    and `basePath` stopped the boot before, with a `TypeError`. A verb
+    that a later version of Hono adds stops the boot until core gates it.
   - See `docs/extending/writing-a-module.md`.
 - **An import no longer returns the text of a database error, checks the
   consent purpose of a job, and refuses a `__proto__` header.**

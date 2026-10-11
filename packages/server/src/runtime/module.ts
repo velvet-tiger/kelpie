@@ -237,10 +237,13 @@ export interface ModuleContext extends ModuleServices {
   /**
    * Registers routes. They mount under `/v1` and are public API like any other.
    *
-   * For a toggleable module the runtime checks each path at boot. A verb or
-   * `on` call must name its path as a string, and the path must start with a
-   * literal segment (`/things/:id`), so that it cannot match the routes of
-   * another module. `/` is the one route at `/v1` itself.
+   * For a toggleable module the runtime checks each path at boot. A verb,
+   * `on`, `use` or `route` call must name its path as a string, and the path
+   * must start with a literal segment (`/things/:id`), so that it cannot
+   * match the routes of another module. `/` is the one route at `/v1` itself,
+   * and passes on a verb and on `on` only. The router provides those calls
+   * and no other member of a Hono router: `mount`, `basePath`, `notFound`
+   * and `onError` fail at boot.
    */
   routes(mount: (router: Hono) => void): void
   /**

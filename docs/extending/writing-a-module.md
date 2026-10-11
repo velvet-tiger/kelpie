@@ -41,9 +41,12 @@ Core checks the paths of a module when the server starts. A path that breaks a r
 **The router from `context.routes`.** Core mounts every module router on `/v1`. A path that starts with a pattern matches the routes of other modules, and the switch of your module then applies to them.
 
 - Start each path with a segment of plain text: letters, digits, `.`, `_`, `~` or `-`. `/flags`, `/flags/:id` and `/flags/*` pass. `*`, `/*`, `/:id` and `/:tenant/flags` fail.
-- `/` passes. It is the one route at `/v1`.
+- `/` passes on a verb and on `on`. It is the one route at `/v1`.
 - Give the path in each call. `router.get('/flags', list).post(create)` fails, because the second call has no path. Write `router.get('/flags', list).post('/flags', create)`.
-- These rules apply to `get`, `post`, `put`, `patch`, `delete`, `options`, `all` and `on`. Each path in a list that you give to `on` must pass.
+- These rules apply to `get`, `post`, `put`, `patch`, `delete`, `options`, `query`, `all` and `on`. Each path in a list that you give to `on` must pass.
+- `router.use` needs a pattern that starts with a segment of plain text. `/flags/*` passes. A call with no pattern, `*`, `/*` and `/:tenant/*` fail. `/` fails too: it covers `/v1` alone, and no route of your module.
+- `router.route` needs a path that starts with a segment of plain text. `/flags` passes. `/` and `/:tenant` fail.
+- The router gives you these methods and no others. `mount`, `basePath`, `notFound`, `onError`, `fetch`, `request` and `routes` fail. A verb that a later version of Hono adds fails until core supports it.
 
 Core checks the router of a toggleable module. Keep to the same rules in a structural module.
 

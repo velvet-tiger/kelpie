@@ -1412,6 +1412,7 @@ describe('module gate isolation', () => {
     ['delete', (router: Hono): Hono => router.delete((requestContext) => requestContext.json({}))],
     ['options', (router: Hono): Hono => router.options((requestContext) => requestContext.json({}))],
     ['all', (router: Hono): Hono => router.all((requestContext) => requestContext.json({}))],
+    ['query', (router: Hono): Hono => router.query((requestContext) => requestContext.json({}))],
   ] as const)('refuses router.%s() with a handler and no path at boot', async (verb, call) => {
     await expect(bootMounting('pathless', call)).rejects.toThrow(
       `module "pathless" called router.${verb}() without a path`,
@@ -1545,7 +1546,6 @@ describe('module gate isolation', () => {
   it.each([
     ['*', '"\\*"'],
     ['/*', '"/\\*"'],
-    ['/', '"/"'],
   ])('refuses an app-wide router.use(%s) at boot, naming the module', async (pattern, quoted) => {
     const spanning: KelpieModule = {
       id: 'spanning',
@@ -1567,6 +1567,221 @@ describe('module gate isolation', () => {
         resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
       }),
     ).rejects.toThrow(new RegExp(`module "spanning".*app-wide pattern \\(${quoted}\\)`))
+  })
+
+  it('refuses router.use with a middleware and no path at boot, naming the module', async () => {
+    await expect(
+      bootMounting('spanning', (router) => {
+        router.use(async (_requestContext, next) => next())
+      }),
+    ).rejects.toThrow('module "spanning" called router.use() with an app-wide pattern (no path)')
+  })
+
+  /**
+   * Once Hono flattens the router onto `/v1`, a `use` at the root runs for
+   * `/v1` alone. It covers no route of the module, so a guard there guards
+   * nothing.
+   */
+  it.each(['/', ''])('refuses router.use at the root path "%s" at boot, naming the module', async (pattern) => {
+    await expect(
+      bootMounting('spanning', (router) => {
+        router.use(pattern, async (_requestContext, next) => next())
+      }),
+    ).rejects.toThrow(`module "spanning" called router.use() with the path "${pattern}"`)
+  })
+
+  /** The gate goes ahead of the middleware, so each of these ran the gate for the routes of other modules. */
+  it.each(['/:any/*', '/:any{.+}', '/*/thing', '*/thing', '/:any', '//thing', '//'])(
+    'refuses a router.use pattern that does not start with a literal segment at boot: %s',
+    async (pattern) => {
+      await expect(
+        bootMounting('spanning', (router) => {
+          router.use(pattern, async (_requestContext, next) => next())
+        }),
+      ).rejects.toThrow(
+        `module "spanning" called router.use() with a path that does not start with a literal segment ("${pattern}")`,
+      )
+    },
+  )
+
+  it.each(['/usable/*', '/usable/:id', 'usable/*'])(
+    'keeps a router.use pattern below a literal segment local to the module: %s',
+    async (pattern) => {
+      const usableModule: KelpieModule = {
+        id: 'usable',
+        register(context) {
+          context.routes((router) => {
+            router.use(pattern, async (_requestContext, next) => next())
+            router.get('/usable/7', (requestContext) => requestContext.json({ usable: true }))
+          })
+          return Promise.resolve()
+        },
+      }
+
+      const { app } = await createTestApp({
+        modules: [usableModule, gatedBModule],
+        moduleConfig: { usable: false },
+        resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+      })
+
+      expect((await app.request('/v1/usable/7')).status).toBe(403)
+      expect((await app.request('/v1/gated-b/thing')).status).toBe(200)
+    },
+  )
+
+  /**
+   * The wrapper gates a sub-router with a middleware on `<path>/*`. At the
+   * root that is `/*`, which is every route of every module.
+   */
+  it.each(['/', '', '///'])(
+    'refuses router.route at the root path "%s" at boot, naming the module',
+    async (path) => {
+      await expect(
+        bootMounting('spanning', (router) => {
+          router.route(path, new Hono())
+        }),
+      ).rejects.toThrow(`module "spanning" called router.route() with the path "${path}"`)
+    },
+  )
+
+  it.each(['/:x', '/:x/things', '/*', '*', '/:x{.+}', '//things'])(
+    'refuses a router.route path that does not start with a literal segment at boot: %s',
+    async (path) => {
+      await expect(
+        bootMounting('spanning', (router) => {
+          router.route(path, new Hono())
+        }),
+      ).rejects.toThrow(
+        `module "spanning" called router.route() with a path that does not start with a literal segment ("${path}")`,
+      )
+    },
+  )
+
+  it('refuses a router.route path that is not a string at boot, naming the module', async () => {
+    await expect(
+      bootMounting('spanning', (router) => {
+        // Hono's types refuse this call, which is why it goes through `Reflect.apply`.
+        Reflect.apply(router.route, router, [new Hono()])
+      }),
+    ).rejects.toThrow('module "spanning" called router.route() with a path that is not a string')
+  })
+
+  it.each(['/nested', '/nested/', 'nested', '/nested/:group'])(
+    'gates each route of a sub-router mounted at %s, and no route of another module',
+    async (path) => {
+      const nestedModule: KelpieModule = {
+        id: 'nested',
+        register(context) {
+          context.routes((router) => {
+            const inner = new Hono()
+            inner.get('/', (requestContext) => requestContext.json({ top: true }))
+            inner.get('/deep', (requestContext) => requestContext.json({ deep: true }))
+            router.route(path, inner)
+          })
+          return Promise.resolve()
+        },
+      }
+
+      const { app } = await createTestApp({
+        modules: [nestedModule, gatedBModule],
+        moduleConfig: { nested: false },
+        resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+      })
+      const mounted = path === '/nested/:group' ? '/v1/nested/a' : '/v1/nested'
+
+      expect((await app.request(mounted)).status).toBe(403)
+      expect((await app.request(`${mounted}/deep`)).status).toBe(403)
+      expect((await app.request('/v1/gated-b/thing')).status).toBe(200)
+    },
+  )
+
+  /** `QUERY` is a verb in this Hono version. The wrapper did not know it, so its routes had no gate. */
+  it('gates a route for the QUERY method', async () => {
+    const queryModule: KelpieModule = {
+      id: 'querying',
+      register(context) {
+        context.routes((router) => {
+          router.query('/querying/thing', (requestContext) => requestContext.json({ queried: true }))
+        })
+        return Promise.resolve()
+      },
+    }
+
+    const { app } = await createTestApp({
+      modules: [queryModule],
+      moduleConfig: { querying: false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    const response = await app.request('/v1/querying/thing', { method: 'QUERY' })
+
+    expect(response.status).toBe(403)
+    expect((await response.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: 'entitlement_required' },
+    })
+  })
+
+  it('serves a QUERY route of a module that is on', async () => {
+    const queryModule: KelpieModule = {
+      id: 'querying',
+      register(context) {
+        context.routes((router) => {
+          router.query('/querying/thing', (requestContext) => requestContext.json({ queried: true }))
+        })
+        return Promise.resolve()
+      },
+    }
+
+    const { app } = await createTestApp({
+      modules: [queryModule],
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    const response = await app.request('/v1/querying/thing', { method: 'QUERY' })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ queried: true })
+  })
+
+  it('refuses a router.query path that does not start with a literal segment at boot', async () => {
+    await expect(
+      bootMounting('spanning', (router) => {
+        router.query('/*', (requestContext) => requestContext.json({}))
+      }),
+    ).rejects.toThrow(
+      'module "spanning" called router.query() with a path that does not start with a literal segment ("/*")',
+    )
+  })
+
+  /**
+   * The wrapper fails closed. A member of the router that it does not wrap is
+   * a way to register that the gate does not cover: `mount`, `basePath`, the
+   * `routes` list, or a verb that a later Hono version adds.
+   */
+  it.each([
+    ['mount', (router: Hono): unknown => router.mount('/unwrapped', () => new Response(null))],
+    ['basePath', (router: Hono): unknown => router.basePath('/unwrapped')],
+    ['fire', (router: Hono): unknown => router.fire],
+    ['fetch', (router: Hono): unknown => router.fetch],
+    ['request', (router: Hono): unknown => router.request],
+    ['routes', (router: Hono): unknown => router.routes],
+    ['router', (router: Hono): unknown => router.router],
+  ] as const)('refuses router.%s at boot, naming the module', async (member, use) => {
+    await expect(
+      bootMounting('unwrapped', (router) => {
+        use(router)
+      }),
+    ).rejects.toThrow(`module "unwrapped" used router.${member}, which the module gate does not cover`)
+  })
+
+  it('hands over what every object has, and what is not a function or an object', async () => {
+    const seen: unknown[] = []
+
+    await bootMounting('plain', (router) => {
+      seen.push(typeof router.toString, typeof router.constructor, Reflect.get(router, 'then'))
+    })
+
+    expect(seen).toEqual(['function', 'function', undefined])
   })
 
   it('refuses router.notFound at boot, naming the module', async () => {

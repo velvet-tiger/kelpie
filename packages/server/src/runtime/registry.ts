@@ -151,8 +151,12 @@ function assertMountablePath(moduleId: string, kind: string, path: string): void
   }
 }
 
-/** Verb methods a module can call on the router — full Hono set. */
-const ROUTER_VERB_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'all'] as const
+/**
+ * The verb methods of a Hono router. `query` is the HTTP `QUERY` method. A
+ * verb that a later Hono version adds is not here, and `gateRouter` refuses a
+ * member that it does not know, so that verb fails at boot until it is added.
+ */
+const ROUTER_VERB_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'query', 'all'] as const
 type RouterVerbMethod = (typeof ROUTER_VERB_METHODS)[number]
 
 function isRouterVerbMethod(name: string): name is RouterVerbMethod {
@@ -175,7 +179,7 @@ function isRouterVerbMethod(name: string): name is RouterVerbMethod {
  * @throws ModuleBootError naming the module and the path.
  */
 function assertModuleLocalPath(moduleId: string, call: string, path: string): void {
-  if (path === '/' || path === '') {
+  if (isRootPath(path)) {
     return
   }
 
@@ -184,6 +188,69 @@ function assertModuleLocalPath(moduleId: string, call: string, path: string): vo
       `module "${moduleId}" called router.${call}() with a path that does not start with a literal segment ("${path}"). Hono flattens the module router onto "/v1", so this would fire for other modules' routes. Start the path with a segment of ${LITERAL_SEGMENT_CHARACTERS} ("/things/:id").`,
     ])
   }
+}
+
+/** Whether a path on a module router is the router's own root, which Hono mounts at `/v1` itself. */
+function isRootPath(path: string): boolean {
+  return path === '/' || path === ''
+}
+
+/**
+ * Reads the first argument of `router.use` as the pattern of the middleware.
+ *
+ * Three cases fail, each with its own message. No path, `*` and `/*` cover
+ * every route of every module. The root covers `/v1` alone, so a guard there
+ * guards no route of the module. Any other pattern must be local to the
+ * module, as for a verb.
+ *
+ * @throws ModuleBootError naming the module and the pattern.
+ */
+function routerUsePattern(moduleId: string, first: unknown): string {
+  if (typeof first !== 'string' || first === '*' || first === '/*') {
+    throw new ModuleBootError([
+      `module "${moduleId}" called router.use() with an app-wide pattern (${
+        typeof first === 'string' ? `"${first}"` : 'no path'
+      }). Hono flattens the module router onto "/v1", so this would fire for every module's routes. Name a specific path ("/things/*") or attach middleware per route.`,
+    ])
+  }
+
+  if (isRootPath(first)) {
+    throw new ModuleBootError([
+      `module "${moduleId}" called router.use() with the path "${first}". Hono flattens the module router onto "/v1", so this middleware would run for "/v1" alone and for no route of the module. Name a specific path ("/things/*") or attach middleware per route.`,
+    ])
+  }
+
+  assertModuleLocalPath(moduleId, 'use', first)
+
+  return first
+}
+
+/**
+ * Reads the first argument of `router.route` as the path a sub-router mounts on.
+ *
+ * `gateRouter` gates a sub-router with a middleware on `<path>/*`. At the root
+ * that pattern is `/*`, and below a pattern segment (`/:name`) it matches the
+ * routes of other modules, so both fail.
+ *
+ * @throws ModuleBootError naming the module and the path.
+ */
+function routerRoutePath(moduleId: string, path: unknown): string {
+  if (typeof path !== 'string') {
+    throw new ModuleBootError([
+      `module "${moduleId}" called router.route() with a path that is not a string. Name the path as a string ("/things").`,
+    ])
+  }
+
+  // A path of slashes only is the root too: the gate pattern drops them.
+  if (isRootPath(path.replace(/\/+$/, ''))) {
+    throw new ModuleBootError([
+      `module "${moduleId}" called router.route() with the path "${path}". The sub-router would mount on "/v1" itself, so the module gate would run for every module's routes. Mount it below a segment of the module ("/things").`,
+    ])
+  }
+
+  assertModuleLocalPath(moduleId, 'route', path)
+
+  return path
 }
 
 /**
@@ -220,10 +287,11 @@ function routerOnPaths(moduleId: string, path: unknown): readonly string[] {
  * The full router surface is covered so a future contributor cannot silently
  * reintroduce the leak by reaching for a method that was not wrapped:
  *
- * - HTTP verbs and `on`: prepend `gate`, then the module's handlers.
+ * - HTTP verbs (`ROUTER_VERB_METHODS`) and `on`: prepend `gate`, then the
+ *   module's handlers.
  * - `use(pattern, ...)` at a specific path: prepend `gate`, then the mw.
- * - `route(subPath, subApp)`: recursively wrap `subApp` before mounting, so
- *   every route it contributes still runs the gate first.
+ * - `route(subPath, subApp)`: attach `gate` as middleware on `subPath/*`,
+ *   then mount `subApp`, so every route it contributes runs the gate first.
  *
  * And the calls that cannot be made module-local through wrapping fail at
  * boot with a message naming the module, rather than shipping a subtle leak:
@@ -236,15 +304,33 @@ function routerOnPaths(moduleId: string, path: unknown): readonly string[] {
  * - A verb or `on` path that does not start with a literal segment (`*`,
  *   `/*`, `/:name`, `/:name/*`): see `assertModuleLocalPath`. `/` passes: it
  *   is the one route at `/v1` itself.
- * - `use()` with no path, `use('*')`, `use('/*')`, `use('/')`: any of these
- *   register a middleware at `/v1/*` on the parent app once the router is
- *   mounted — the exact bug this wrapper prevents. A module that wants to
- *   share middleware across many of its routes must name a specific path
- *   (`/things/*`) or attach the middleware per route.
+ * - `use()` with no path, `use('*')`, `use('/*')`: any of these register a
+ *   middleware at `/v1/*` on the parent app once the router is mounted — the
+ *   exact bug this wrapper prevents. A `use` pattern that does not start
+ *   with a literal segment (`/:name/*`, `/:name{.+}`) matches the routes of
+ *   other modules in the same way. A module that wants to share middleware
+ *   across many of its routes must name a specific path (`/things/*`) or
+ *   attach the middleware per route.
+ * - `use('/')` and `use('')`: these register at `/v1` alone, so they are
+ *   not a leak. They cover no route of the module, and an author who writes
+ *   one expects that it covers all of them.
+ * - `route('/')`, `route('')` and a `route` path that does not start with a
+ *   literal segment (`/:name`): the gate pattern would be `/v1/*` or would
+ *   match the routes of other modules.
  * - `notFound` / `onError`: fire for every unmatched or failing `/v1`
  *   request once the router is flattened, so a module's handler would run
  *   for other modules' traffic. Handle failures inside the module's own
  *   route handlers instead.
+ * - Every other member whose value is a function or an object: `mount`,
+ *   `basePath`, `fetch`, `request`, `fire`, `routes`, `router`, and a verb
+ *   that a later Hono version adds. Each is a way to register that the gate
+ *   does not cover, or is of no use to a module. The wrapper fails closed
+ *   here. It hands over only a value that is not a function and not an
+ *   object, and the members that every object has (`toString`).
+ *
+ * Only a read through the proxy is covered. An assignment to a member, or a
+ * read of a property descriptor, still reaches the router. A module is
+ * trusted code, and the wrapper guards against a mistake, not against intent.
  */
 function gateRouter(router: Hono, moduleId: string, gate: MiddlewareHandler): Hono {
   const proxy: Hono = new Proxy(router, {
@@ -281,27 +367,16 @@ function gateRouter(router: Hono, moduleId: string, gate: MiddlewareHandler): Ho
       }
 
       if (property === 'use') {
-        return (...args: unknown[]): Hono => {
-          const first = args[0]
-          const isAppWide =
-            typeof first !== 'string' || first === '*' || first === '/*' || first === '/'
-
-          if (isAppWide) {
-            throw new ModuleBootError([
-              `module "${moduleId}" called router.use() with an app-wide pattern (${
-                typeof first === 'string' ? `"${first}"` : 'no path'
-              }). Hono flattens the module router onto "/v1", so this would fire for every module's routes. Name a specific path ("/things/*") or attach middleware per route.`,
-            ])
-          }
-
-          const [pattern, ...handlers] = args as [string, ...MiddlewareHandler[]]
-          target.use(pattern, gate, ...handlers)
+        return (first: unknown, ...handlers: MiddlewareHandler[]): Hono => {
+          target.use(routerUsePattern(moduleId, first), gate, ...handlers)
           return proxy
         }
       }
 
       if (property === 'route') {
-        return (path: string, subApp: Hono): Hono => {
+        return (path: unknown, subApp: Hono): Hono => {
+          const mountPath = routerRoutePath(moduleId, path)
+
           // The sub-app's routes were registered on it before this call, so a
           // proxy over `subApp` cannot retroactively prepend the gate to them.
           // Instead attach the gate as middleware scoped to the sub-router's
@@ -309,8 +384,8 @@ function gateRouter(router: Hono, moduleId: string, gate: MiddlewareHandler): Ho
           // middleware covers exactly `/v1${path}/*`, which is the module's
           // own routes. `use` must land before `route` so composition order
           // runs the gate first.
-          target.use(`${path.replace(/\/+$/, '')}/*`, gate)
-          target.route(path, subApp)
+          target.use(`${mountPath.replace(/\/+$/, '')}/*`, gate)
+          target.route(mountPath, subApp)
           return proxy
         }
       }
@@ -321,7 +396,19 @@ function gateRouter(router: Hono, moduleId: string, gate: MiddlewareHandler): Ho
         ])
       }
 
-      return Reflect.get(target, property, receiver)
+      const value: unknown = Reflect.get(target, property, receiver)
+      const isPlainValue = typeof value !== 'function' && (typeof value !== 'object' || value === null)
+
+      if (isPlainValue || property in Object.prototype) {
+        return value
+      }
+
+      // Fail closed. Each member the wrapper can gate is handled above, so
+      // this one registers with no gate (`mount`, `basePath`, `routes`), or
+      // is a verb that this code does not know yet.
+      throw new ModuleBootError([
+        `module "${moduleId}" used router.${property}, which the module gate does not cover. A module router provides ${[...ROUTER_VERB_METHODS, 'on', 'use', 'route'].join(', ')}.`,
+      ])
     },
   }) as Hono
 
