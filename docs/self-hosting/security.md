@@ -78,7 +78,9 @@ WHERE EXISTS (
 
 Webhook deliveries and agent-task dispatches are the two places Kelpie POSTs to URLs your users typed. Redirects are never followed — a moved endpoint should be seen and fixed, not silently posted to wherever the old address now points. With `BLOCK_PRIVATE_EGRESS=true`, URLs resolving to private or reserved addresses are refused, and the connection goes only to an address that passed that check, so a host cannot give a public address for the check and a private one for the connection. It defaults off because self-hosted installs legitimately post to internal automation. Hosted, multi-tenant deployments should turn it on and add network-level egress policy behind it.
 
-When the guard refuses an agent endpoint, the run fails and its reason names the host. The reason does not name the address that the host resolved to, because every member reads a run. The address is in the server log: the `warn` line `agent dispatch failed` has it in `blockedAddress`.
+When the guard refuses an agent endpoint, the run fails and its reason names the host. The reason does not name the address that the host resolved to, because every member reads a run. The address is in the server log: the `warn` line `agent dispatch failed` has it in `blockedAddress`. A refused webhook delivery is the same: the `warn` line `webhook delivery failed` has the address in `blockedAddress`, and the delivery log does not have it.
+
+Webhooks run in the process that serves every workspace, so two limits bound what one workspace can take. A workspace registers at most 20 webhooks (`WEBHOOK_MAX_PER_WORKSPACE`). The process runs at most 20 deliveries at one time and lets 1000 wait (`WEBHOOK_MAX_CONCURRENT_DELIVERIES`, `WEBHOOK_MAX_WAITING_DELIVERIES`). A delivery over both is recorded as failed and is not sent. The limits are for the whole process, so one workspace that fills the waiting line can cause a delivery of another workspace to be refused.
 
 ## Roles and gates
 

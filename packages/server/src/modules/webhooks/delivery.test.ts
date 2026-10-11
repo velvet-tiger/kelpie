@@ -145,6 +145,9 @@ describe('createHttpSender', () => {
     expect(outcome.delivered).toBe(false)
     expect(outcome.status).toBeNull()
     expect(outcome.reason).toContain('private or reserved')
+    // The address is for the server log. The reason is what a customer may read.
+    expect(outcome.reason).not.toContain('127.0.0.1')
+    expect(outcome.blockedAddress).toBe('127.0.0.1')
   })
 
   it('posts the body and headers it was given', async () => {

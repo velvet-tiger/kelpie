@@ -1,24 +1,41 @@
 import { createHmac } from 'node:crypto'
 import { createdWebhookSchema, webhookDeliverySchema, webhookSchema } from '@kelpie/schemas'
-import { eq } from 'drizzle-orm'
+import { count, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { createEgressGuard } from '../../lib/egress.ts'
+import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
+import { createSecretCipher } from '../../lib/secrets.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestClient, readList, readRecord, readString } from '../../testing/client.ts'
 import type { TestClient, TestOwner } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
-import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
+import { TEST_ENVIRONMENT, TEST_SECRET_ENCRYPTION_KEY } from '../../testing/environment.ts'
+import { countLockWaits } from '../../testing/lockWaits.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import {
   DEFAULT_DELIVERY_RETENTION_DAYS,
+  DELIVERY_REFUSED_REASON,
   MAX_DELIVERY_ATTEMPTS,
   RETRY_DELAYS_MS,
+  createDeliveryEngine,
+  createHttpSender,
 } from './delivery.ts'
-import type { AttemptOutcome, DeliveryRequest, SendDelivery, Sleep } from './delivery.ts'
+import type {
+  AttemptOutcome,
+  DeliveryEngine,
+  DeliveryRequest,
+  SendDelivery,
+  Sleep,
+} from './delivery.ts'
+import { createDeliveryLimiter } from './deliveryLimiter.ts'
+import type { DeliveryLimits } from './deliveryLimiter.ts'
 import { createWebhooksModule } from './index.ts'
+import { DEFAULT_MAX_WEBHOOKS_PER_WORKSPACE } from './limits.ts'
+import { lockRegistrations } from './repository.ts'
 import { webhookDeliveries, webhooks } from './schema.ts'
 import { DELIVERY_HEADER, EVENT_HEADER, SIGNATURE_HEADER } from './signing.ts'
 
@@ -830,6 +847,479 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       const id = readString(await createWebhook(), 'id')
 
       expect((await rotate(id, { overlap_hours: 72 })).status).toBe(422)
+    })
+  })
+
+  /**
+   * The same app on the same database under another environment, the way the
+   * retention suite reads its window. Sessions are rows, so a cookie from the
+   * suite's own app signs in here too.
+   */
+  async function appWith(environment: Record<string, string>): Promise<{ app: TestApp; client: TestClient }> {
+    const app = await createTestApp({
+      modules: [
+        ...coreModules.filter((module) => module.id !== 'webhooks'),
+        createWebhooksModule(coreMigrationsDirectory, { send, sleep }),
+      ],
+      environment: { ...TEST_ENVIRONMENT, ...environment },
+      services: createTestServices({ db: database.db }),
+    })
+
+    return { app, client: createTestClient(app.app, app.services.db) }
+  }
+
+  async function countRegistrations(workspaceId: string): Promise<number> {
+    const [row] = await database.db
+      .select({ total: count() })
+      .from(webhooks)
+      .where(eq(webhooks.workspaceId, workspaceId))
+
+    return row?.total ?? 0
+  }
+
+  async function register(
+    target: TestClient,
+    url: string,
+    cookie = acme.cookie,
+  ): Promise<Response> {
+    return target.send('POST', '/v1/webhooks', {
+      body: { url, events: ['record.created'] },
+      cookie,
+    })
+  }
+
+  /**
+   * Each registration is an endpoint the process may have to call on every
+   * event, so one workspace cannot hold an unlimited number of them.
+   */
+  describe('the registration limit', () => {
+    it('refuses the registration after the last allowed one, with a 409', async () => {
+      for (let index = 0; index < DEFAULT_MAX_WEBHOOKS_PER_WORKSPACE; index += 1) {
+        expect((await register(client, `https://example.com/hooks/${String(index)}`)).status).toBe(201)
+      }
+
+      const refused = await register(client, 'https://example.com/hooks/one-too-many')
+      const body = readRecord(await refused.json())
+
+      expect(refused.status).toBe(409)
+      expect(readRecord(body.error).code).toBe('conflict')
+      expect(readString(readRecord(body.error), 'message')).toContain(
+        `at most ${String(DEFAULT_MAX_WEBHOOKS_PER_WORKSPACE)} webhooks`,
+      )
+      expect(await countRegistrations(acme.workspaceId)).toBe(DEFAULT_MAX_WEBHOOKS_PER_WORKSPACE)
+    })
+
+    it('counts one workspace, not the deployment', async () => {
+      const narrow = await appWith({ WEBHOOK_MAX_PER_WORKSPACE: '1' })
+      const other = await narrow.client.owner('mallory@example.com')
+
+      expect((await register(narrow.client, 'https://example.com/acme')).status).toBe(201)
+      expect((await register(narrow.client, 'https://example.com/acme-2')).status).toBe(409)
+      expect((await register(narrow.client, 'https://example.com/other', other.cookie)).status).toBe(201)
+    })
+
+    /**
+     * A deployment may lower the limit under a workspace that is already over
+     * it. Nothing is deleted for the customer: they cannot add one until they
+     * are under the limit again.
+     */
+    it('keeps the rows of a workspace that is over the limit, and refuses a new one until it is under', async () => {
+      const ids: string[] = []
+
+      for (const name of ['one', 'two', 'three']) {
+        ids.push(readString(await createWebhook({ url: `https://example.com/${name}` }), 'id'))
+      }
+
+      const narrow = await appWith({ WEBHOOK_MAX_PER_WORKSPACE: '2' })
+
+      expect((await register(narrow.client, 'https://example.com/four')).status).toBe(409)
+      expect(await countRegistrations(acme.workspaceId)).toBe(3)
+      expect(readList(await (await narrow.client.send('GET', '/v1/webhooks', { cookie: acme.cookie })).json())).toHaveLength(3)
+
+      // Still at the limit after one goes, so still refused.
+      await narrow.client.send('DELETE', `/v1/webhooks/${ids[0] ?? ''}`, { cookie: acme.cookie })
+      expect((await register(narrow.client, 'https://example.com/four')).status).toBe(409)
+
+      await narrow.client.send('DELETE', `/v1/webhooks/${ids[1] ?? ''}`, { cookie: acme.cookie })
+      expect((await register(narrow.client, 'https://example.com/four')).status).toBe(201)
+      expect(await countRegistrations(acme.workspaceId)).toBe(2)
+    })
+
+    /** A paused hook still holds its place: resuming it must never put a workspace over. */
+    it('counts a paused registration', async () => {
+      const narrow = await appWith({ WEBHOOK_MAX_PER_WORKSPACE: '1' })
+      const id = readString(await createWebhook(), 'id')
+
+      await client.send('PATCH', `/v1/webhooks/${id}`, { body: { status: 'paused' }, cookie: acme.cookie })
+
+      expect((await register(narrow.client, 'https://example.com/second')).status).toBe(409)
+    })
+
+    /**
+     * The count and the insert are one decision. The suite plays a
+     * registration in flight: it has the lock, it has written its row, and it
+     * has not committed. A request that counted without waiting would not see
+     * that row, and would take the same last place.
+     */
+    it('waits for a registration in flight before it counts, so two cannot take the last place', async () => {
+      const narrow = await appWith({ WEBHOOK_MAX_PER_WORKSPACE: '2' })
+      await createWebhook({ url: 'https://example.com/one' })
+
+      let settled = false
+      let racing: Promise<Response> | undefined
+
+      await database.db.transaction(async (tx) => {
+        await lockRegistrations(tx, acme.workspaceId)
+        await tx.insert(webhooks).values({
+          id: harness.services.createId('webhook'),
+          workspaceId: acme.workspaceId,
+          url: 'https://example.com/in-flight',
+          events: ['record.created'],
+          secretEncrypted: 'sealed-by-the-suite',
+          secretPrefix: 'whsec_…test',
+        })
+
+        racing = register(narrow.client, 'https://example.com/racing').finally(() => {
+          settled = true
+        })
+
+        // Commit only once the request is waiting on the lock. If it answers
+        // first it did not wait, and the assertions below say so.
+        await expect
+          .poll(async () => settled || (await countLockWaits(database.db)) > 0)
+          .toBe(true)
+      })
+
+      expect((await racing)?.status).toBe(409)
+      expect(await countRegistrations(acme.workspaceId)).toBe(2)
+    })
+
+    /** A bad value stops boot. It does not run the service with no limit. */
+    it('refuses to boot on a limit that is not a whole number', async () => {
+      await expect(appWith({ WEBHOOK_MAX_PER_WORKSPACE: 'plenty' })).rejects.toThrow()
+      await expect(appWith({ WEBHOOK_MAX_CONCURRENT_DELIVERIES: '0' })).rejects.toThrow()
+    })
+  })
+
+  /**
+   * The process that delivers is the process that serves every workspace. The
+   * engine runs a bounded number of deliveries and keeps a bounded number
+   * waiting; one over both is written to the log and never sent.
+   */
+  describe('the delivery limit', () => {
+    async function deliveriesOf(id: string): Promise<Record<string, unknown>[]> {
+      return readList(
+        await (await client.send('GET', `/v1/webhooks/${id}/deliveries`, { cookie: acme.cookie })).json(),
+      )
+    }
+
+    const PAYLOAD = { object_type: 'person', record_id: 'per_01J8ZQ3R9V6X' }
+
+    /**
+     * An engine of the suite's own on the harness's database, so a test can
+     * hold a delivery in flight, read the log lines, and move the clock.
+     */
+    function directEngine(options: {
+      readonly send: SendDelivery
+      readonly limits: DeliveryLimits
+      readonly now?: () => Date
+    }): { engine: DeliveryEngine; logLines: string[] } {
+      const logLines: string[] = []
+
+      const engine = createDeliveryEngine({
+        db: harness.services.db,
+        transaction: harness.services.transaction,
+        createId: harness.services.createId,
+        now: options.now ?? ((): Date => new Date()),
+        cipher: createSecretCipher({ SECRET_ENCRYPTION_KEY: TEST_SECRET_ENCRYPTION_KEY }),
+        send: options.send,
+        sleep,
+        retentionDays: DEFAULT_DELIVERY_RETENTION_DAYS,
+        limiter: createDeliveryLimiter(options.limits),
+        log: createLogger({ level: 'debug', transports: [createCaptureTransport((line) => logLines.push(line))] }),
+      })
+
+      return { engine, logLines }
+    }
+
+    function linesNamed(logLines: readonly string[], message: string): Record<string, unknown>[] {
+      return logLines
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => line.message === message)
+    }
+
+    it('records a delivery over the limit as failed, sends nothing for it, and leaves the hook active', async () => {
+      const narrow = await appWith({
+        WEBHOOK_MAX_CONCURRENT_DELIVERIES: '1',
+        WEBHOOK_MAX_WAITING_DELIVERIES: '0',
+      })
+      const ids = [
+        readString(await createWebhook({ url: 'https://example.com/one' }), 'id'),
+        readString(await createWebhook({ url: 'https://example.com/two' }), 'id'),
+      ]
+
+      const created = await narrow.client.send('POST', '/v1/people', {
+        body: { name: 'Ada Lovelace', email: 'ada@example.com' },
+        cookie: acme.cookie,
+      })
+      expect(created.status).toBe(201)
+      await narrow.app.services.events.drain()
+
+      // One slot and no line: the first registration the fan-out reaches is
+      // sent, and the other finds no room.
+      expect(sent).toHaveLength(1)
+
+      const logs = await Promise.all(ids.map((id) => deliveriesOf(id)))
+      const refused = logs.flat().filter((delivery) => delivery.attempts === 0)
+      const delivered = logs.flat().filter((delivery) => delivery.attempts === 1)
+
+      expect(logs.flat()).toHaveLength(2)
+      expect(delivered).toHaveLength(1)
+      expect(delivered.at(0)?.status).toBe('success')
+      expect(refused).toHaveLength(1)
+      expect(refused.at(0)?.status).toBe('failed')
+      expect(refused.at(0)?.delivered_at).toBeNull()
+      expect(refused.at(0)?.event).toBe('record.created')
+      expect(() => webhookDeliverySchema.parse(refused.at(0))).not.toThrow()
+      // The row shows the event that was not sent, in the shape of a body.
+      expect(readRecord(refused.at(0)?.payload)).toMatchObject({
+        id: refused.at(0)?.id,
+        event: 'record.created',
+        workspace_id: acme.workspaceId,
+      })
+
+      // The endpoint was never called, so it has not failed. The limit is
+      // the service's, and `failing` would blame the customer's server.
+      const listed = await listWebhooks()
+
+      expect(listed.map((webhook) => webhook.status)).toEqual(['active', 'active'])
+      expect(listed.map((webhook) => webhook.last_delivery_status).sort()).toEqual(['failed', 'success'])
+    })
+
+    it('leaves a failing hook failing when its delivery is over the limit', async () => {
+      const first = readString(await createWebhook({ url: 'https://example.com/one' }), 'id')
+      const second = readString(await createWebhook({ url: 'https://example.com/two' }), 'id')
+
+      outcome = REFUSED
+      await createPerson('Ada Lovelace')
+      expect((await listWebhooks()).map((webhook) => webhook.status)).toEqual(['failing', 'failing'])
+
+      outcome = DELIVERED
+      const { engine } = directEngine({ send, limits: { maxConcurrent: 1, maxWaiting: 0 } })
+
+      await engine.deliver({ workspaceId: acme.workspaceId, event: 'record.created', data: PAYLOAD })
+
+      const statuses = new Map((await listWebhooks()).map((webhook) => [webhook.id, webhook.status]))
+      const refused = (await deliveriesOf(first)).some((delivery) => delivery.attempts === 0) ? first : second
+      const reached = refused === first ? second : first
+
+      // The one that was reached recovered. The one that was not says what
+      // the last real attempt said.
+      expect(statuses.get(reached)).toBe('active')
+      expect(statuses.get(refused)).toBe('failing')
+    })
+
+    it('sends a delivery that had to wait, once a slot frees', async () => {
+      const narrow = await appWith({
+        WEBHOOK_MAX_CONCURRENT_DELIVERIES: '1',
+        WEBHOOK_MAX_WAITING_DELIVERIES: '5',
+      })
+
+      for (const name of ['one', 'two', 'three']) {
+        await createWebhook({ url: `https://example.com/${name}` })
+      }
+
+      const created = await narrow.client.send('POST', '/v1/people', {
+        body: { name: 'Ada Lovelace', email: 'ada@example.com' },
+        cookie: acme.cookie,
+      })
+      expect(created.status).toBe(201)
+      await narrow.app.services.events.drain()
+
+      expect(sent.map((request) => request.url).sort()).toEqual([
+        'https://example.com/one',
+        'https://example.com/three',
+        'https://example.com/two',
+      ])
+      expect((await listWebhooks()).map((webhook) => webhook.last_delivery_status)).toEqual([
+        'success',
+        'success',
+        'success',
+      ])
+    })
+
+    /** The limit is on the process, so two events share it. */
+    it('runs no more than the limit at one time across events', async () => {
+      for (const name of ['one', 'two', 'three']) {
+        await createWebhook({ url: `https://example.com/${name}` })
+      }
+
+      let inFlight = 0
+      let most = 0
+      const releases: (() => void)[] = []
+      const held: SendDelivery = async () => {
+        inFlight += 1
+        most = Math.max(most, inFlight)
+
+        await new Promise<void>((resolve) => {
+          releases.push(resolve)
+        })
+
+        inFlight -= 1
+
+        return DELIVERED
+      }
+      const { engine } = directEngine({ send: held, limits: { maxConcurrent: 2, maxWaiting: 100 } })
+      const event = { workspaceId: acme.workspaceId, event: 'record.created', data: PAYLOAD } as const
+
+      const both = Promise.all([engine.deliver(event), engine.deliver(event)])
+
+      // Six deliveries, two slots. Release one at a time until all are sent.
+      for (let finished = 0; finished < 6; finished += 1) {
+        await expect.poll(() => releases.length).toBeGreaterThan(0)
+        expect(inFlight).toBeLessThanOrEqual(2)
+        releases.shift()?.()
+      }
+
+      await both
+
+      expect(most).toBe(2)
+    })
+
+    /**
+     * A receiver refuses a body whose `created_at` is old. The body is built
+     * when the delivery takes its slot, so the time it spent in the line does
+     * not count against it.
+     */
+    it('dates a delivery from when it starts, not from when it joined the line', async () => {
+      await createWebhook({ url: 'https://example.com/one' })
+      await createWebhook({ url: 'https://example.com/two' })
+
+      let clock = new Date('2026-08-24T01:00:00.000Z')
+      const bodies: { created_at: string }[] = []
+      const releases: (() => void)[] = []
+      const held: SendDelivery = async (request) => {
+        bodies.push(JSON.parse(request.body) as { created_at: string })
+
+        await new Promise<void>((resolve) => {
+          releases.push(resolve)
+        })
+
+        return DELIVERED
+      }
+      const { engine } = directEngine({
+        send: held,
+        limits: { maxConcurrent: 1, maxWaiting: 1 },
+        now: () => clock,
+      })
+
+      const delivering = engine.deliver({
+        workspaceId: acme.workspaceId,
+        event: 'record.created',
+        data: PAYLOAD,
+      })
+
+      await expect.poll(() => releases.length).toBe(1)
+      // Ten minutes pass while the second delivery waits for the only slot.
+      clock = new Date('2026-08-24T01:10:00.000Z')
+      releases.shift()?.()
+
+      await expect.poll(() => releases.length).toBe(1)
+      releases.shift()?.()
+      await delivering
+
+      expect(bodies.map((body) => body.created_at)).toEqual([
+        '2026-08-24T01:00:00.000Z',
+        '2026-08-24T01:10:00.000Z',
+      ])
+    })
+
+    it('logs a delivery over the limit with the reason and the settings to raise', async () => {
+      await createWebhook({ url: 'https://example.com/one' })
+      await createWebhook({ url: 'https://example.com/two' })
+
+      const { engine, logLines } = directEngine({ send, limits: { maxConcurrent: 1, maxWaiting: 0 } })
+
+      await engine.deliver({ workspaceId: acme.workspaceId, event: 'record.created', data: PAYLOAD })
+
+      const refused = linesNamed(logLines, 'webhook delivery not attempted')
+
+      expect(refused).toHaveLength(1)
+      expect(refused[0]).toMatchObject({
+        level: 'warn',
+        event: 'record.created',
+        reason: DELIVERY_REFUSED_REASON,
+      })
+      expect(DELIVERY_REFUSED_REASON).toContain('WEBHOOK_MAX_CONCURRENT_DELIVERIES')
+      expect(DELIVERY_REFUSED_REASON).toContain('WEBHOOK_MAX_WAITING_DELIVERIES')
+      // Not the line for an endpoint that failed: nothing was sent.
+      expect(linesNamed(logLines, 'webhook delivery failed')).toEqual([])
+    })
+
+    /**
+     * The real sender behind an egress guard whose resolver is injected, so no
+     * request leaves. An admin reads the delivery log, and what a host name
+     * resolves to inside the deployment's network is not theirs to learn.
+     */
+    describe('an endpoint the egress guard refuses', () => {
+      const REFUSED_ADDRESS = '10.0.0.5'
+
+      it.each([
+        { name: 'before the request', answers: [[REFUSED_ADDRESS]] },
+        // DNS rebinding: the check sees a public address, and the connection a private one.
+        { name: 'at the connection', answers: [['93.184.216.34'], [REFUSED_ADDRESS]] },
+      ])('gives the address to the log line and to nothing a customer reads, $name', async ({ answers }) => {
+        const id = readString(await createWebhook(), 'id')
+        const remaining = [...answers]
+        const guard = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () =>
+          Promise.resolve(remaining.shift() ?? [REFUSED_ADDRESS]),
+        )
+        const { engine, logLines } = directEngine({
+          send: createHttpSender(guard),
+          limits: { maxConcurrent: 1, maxWaiting: 0 },
+        })
+
+        await engine.deliver({ workspaceId: acme.workspaceId, event: 'record.created', data: PAYLOAD })
+
+        const failures = linesNamed(logLines, 'webhook delivery failed')
+
+        expect(failures).toHaveLength(1)
+        expect(failures[0]).toMatchObject({
+          level: 'warn',
+          webhookId: id,
+          attempts: MAX_DELIVERY_ATTEMPTS,
+          blockedAddress: REFUSED_ADDRESS,
+          reason:
+            'BlockedEgressError: Refusing to connect to example.com: the host has a private or reserved address',
+        })
+
+        const listed = await client.send('GET', `/v1/webhooks/${id}/deliveries`, { cookie: acme.cookie })
+        const rows = await database.db.select().from(webhookDeliveries).where(eq(webhookDeliveries.webhookId, id))
+
+        expect(rows).toHaveLength(1)
+        expect(rows.at(0)?.status).toBe('failed')
+        expect(JSON.stringify(rows)).not.toContain(REFUSED_ADDRESS)
+        expect(await listed.text()).not.toContain(REFUSED_ADDRESS)
+        expect(JSON.stringify(await listWebhooks())).not.toContain(REFUSED_ADDRESS)
+      })
+
+      it('adds no address to the log line of a failure the guard did not cause', async () => {
+        await createWebhook()
+        const { engine, logLines } = directEngine({
+          send: createHttpSender(createEgressGuard({ BLOCK_PRIVATE_EGRESS: false }), () =>
+            Promise.reject(new TypeError('fetch failed')),
+          ),
+          limits: { maxConcurrent: 1, maxWaiting: 0 },
+        })
+
+        await engine.deliver({ workspaceId: acme.workspaceId, event: 'record.created', data: PAYLOAD })
+
+        const failures = linesNamed(logLines, 'webhook delivery failed')
+
+        expect(failures).toHaveLength(1)
+        expect(failures[0]).toMatchObject({ reason: 'TypeError: fetch failed' })
+        expect(failures[0]).not.toHaveProperty('blockedAddress')
+      })
     })
   })
 

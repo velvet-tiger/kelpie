@@ -8,6 +8,8 @@ import {
   sleepFor,
 } from './delivery.ts'
 import type { SendDelivery, Sleep } from './delivery.ts'
+import { createDeliveryLimiter } from './deliveryLimiter.ts'
+import { webhookLimitsConfigSchema } from './limits.ts'
 import { subscribeDeliverableEvents } from './payloads.ts'
 import { mountWebhooksRoutes } from './routes.ts'
 import * as schema from './schema.ts'
@@ -47,13 +49,15 @@ export function createWebhooksModule(
       // malformed key means no webhook can ever be signed, and finding that out
       // when a customer's endpoint goes quiet is far too late. The retention
       // window is validated the same way for the same reason — a bad value
-      // should stop boot, not prune by the wrong window.
+      // should stop boot, not prune by the wrong window. The limits too: a
+      // bad value should stop boot, not run the engine with no bound.
       //
       // Prefer the top-level `secretEncryption` from the assembly's
       // kelpie.config.ts; fall back to the schema read for older assemblies
       // that don't declare it.
       const cipher = createSecretCipher(context.secretEncryption ?? context.config(secretEncryptionConfigSchema))
       const retention = context.config(deliveryRetentionConfigSchema)
+      const limits = context.config(webhookLimitsConfigSchema)
       const egress = createEgressGuard(context.config(egressConfigSchema))
 
       const service = createWebhooksService({
@@ -62,6 +66,7 @@ export function createWebhooksModule(
         createId: context.createId,
         now: context.now,
         cipher,
+        maxPerWorkspace: limits.WEBHOOK_MAX_PER_WORKSPACE,
       })
 
       const engine = createDeliveryEngine({
@@ -73,6 +78,12 @@ export function createWebhooksModule(
         send: options.send ?? createHttpSender(egress),
         sleep: options.sleep ?? sleepFor,
         retentionDays: retention.WEBHOOK_DELIVERY_RETENTION_DAYS,
+        // Built here, once for each engine, so the bound covers every event
+        // the process handles and no state lives at module scope.
+        limiter: createDeliveryLimiter({
+          maxConcurrent: limits.WEBHOOK_MAX_CONCURRENT_DELIVERIES,
+          maxWaiting: limits.WEBHOOK_MAX_WAITING_DELIVERIES,
+        }),
         log: context.log,
       })
 

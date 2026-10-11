@@ -1,12 +1,14 @@
 import { z } from 'zod'
 
 import type { Database } from '../../lib/database.ts'
+import { BlockedEgressError } from '../../lib/egress.ts'
 import type { EgressGuard } from '../../lib/egress.ts'
 import { describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { SecretCipher } from '../../lib/secrets.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import type { DeliveryLimiter } from './deliveryLimiter.ts'
 import type { WebhookEventPayload } from './payloads.ts'
 import * as repository from './repository.ts'
 import type { WebhookRecord } from './repository.ts'
@@ -25,6 +27,11 @@ import type { DeliveryEnvelope } from './signing.ts'
  * bus itself carries. A crash between the commit and the last attempt loses the
  * delivery; the retry budget below is deliberately small so a graceful shutdown
  * is not held open for minutes waiting for an endpoint that is already gone.
+ *
+ * The process serves every workspace, so the engine runs a bounded number of
+ * deliveries at one time and keeps a bounded number waiting
+ * (`deliveryLimiter.ts`). A delivery that finds no room to wait is recorded as
+ * failed without an attempt.
  */
 
 /** How long one attempt may take before it counts as failed. */
@@ -95,8 +102,19 @@ export interface AttemptOutcome {
   readonly reason: string | null
 }
 
+/**
+ * What the sender answers: the outcome of the attempt, and what only the
+ * server log may hold. An admin of the workspace reads the delivery log, and
+ * the address a host resolved to would tell that admin what a name points at
+ * inside the deployment's network.
+ */
+export interface SendOutcome extends AttemptOutcome {
+  /** The address the egress guard refused. Absent on every other outcome. */
+  readonly blockedAddress?: string
+}
+
 /** The outbound port. Injected so no test makes a network call. */
-export type SendDelivery = (request: DeliveryRequest) => Promise<AttemptOutcome>
+export type SendDelivery = (request: DeliveryRequest) => Promise<SendOutcome>
 
 export type Sleep = (milliseconds: number) => Promise<void>
 
@@ -117,8 +135,9 @@ export function sleepFor(milliseconds: number): Promise<void> {
  * anything from a DNS failure to an abort, the set is open, and turning all of
  * it into one outcome is the port's whole job. Nothing is swallowed — the
  * reason reaches the log and the delivery is recorded as failed. A blocked
- * private address (`egress.check`) reaches the same catch and is recorded the
- * same way, as a failed attempt rather than a crash.
+ * private address (`egress.check`, or the guard's `fetch` at the connection)
+ * reaches the same catch and is recorded the same way, as a failed attempt
+ * rather than a crash, with the address beside the reason for the log.
  */
 export function createHttpSender(
   egress: EgressGuard,
@@ -144,7 +163,9 @@ export function createHttpSender(
             reason: `endpoint answered ${String(response.status)}`,
           }
     } catch (error: unknown) {
-      return { delivered: false, status: null, reason: describeThrown(error) }
+      const failed = { delivered: false, status: null, reason: describeThrown(error) }
+
+      return error instanceof BlockedEgressError ? { ...failed, blockedAddress: error.address } : failed
     }
   }
 }
@@ -160,8 +181,20 @@ export interface DeliveryDependencies {
   readonly sleep: Sleep
   /** From `deliveryRetentionConfigSchema`, validated at boot. */
   readonly retentionDays: number
+  /**
+   * Bounds the deliveries in flight. One for each engine, built where the
+   * engine is built, so the bound is on the process and not on one event.
+   */
+  readonly limiter: DeliveryLimiter
   readonly log: Logger
 }
+
+/**
+ * Why a delivery was not attempted, for the server log. It names the settings
+ * so an operator who reads it knows what to raise.
+ */
+export const DELIVERY_REFUSED_REASON =
+  'the service is at its webhook delivery limit: every slot is in use (WEBHOOK_MAX_CONCURRENT_DELIVERIES) and the waiting line is full (WEBHOOK_MAX_WAITING_DELIVERIES)'
 
 export interface DeliveryEngine {
   /** Fans one event out to every subscribed webhook in its workspace. */
@@ -175,6 +208,11 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
    *
    * One transaction, so a reader never sees a hook marked failing with no
    * failure recorded against it.
+   *
+   * A delivery with no attempt writes its row and leaves the status alone.
+   * The status is a report on the endpoint, and an endpoint that was never
+   * called has said nothing: marking it `failing` would send the customer
+   * debugging their own server for a limit that is Kelpie's.
    *
    * Retention is enforced here rather than by a schedule because there is no
    * scheduler in the service, and the log only grows through this function —
@@ -193,6 +231,7 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
       outcome: AttemptOutcome
     },
   ): Promise<void> {
+    const attempted = delivery.attempts > 0
     const nextStatus = delivery.outcome.delivered ? 'active' : 'failing'
 
     const pruned = await dependencies.transaction(async ({ tx }) => {
@@ -224,7 +263,7 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
       // A paused webhook is never selected for delivery, so the only statuses
       // reachable here are the two the engine owns. Leaving an unchanged one
       // alone keeps a healthy endpoint from being rewritten on every event.
-      if (webhook.status !== nextStatus) {
+      if (attempted && webhook.status !== nextStatus) {
         await repository.setWebhookStatus(tx, webhook.id, nextStatus)
       }
 
@@ -242,7 +281,7 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
 
   async function attemptUntilDelivered(request: DeliveryRequest): Promise<{
     attempts: number
-    outcome: AttemptOutcome
+    outcome: SendOutcome
   }> {
     let attempts = 0
 
@@ -316,12 +355,64 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
         attempts,
         status: outcome.status,
         reason: outcome.reason,
+        ...(outcome.blockedAddress === undefined ? {} : { blockedAddress: outcome.blockedAddress }),
       })
     }
 
     // The body is stored as it was sent, so the log answers "what did they
     // actually receive" rather than "what would we build for this event today".
     await record(webhook, payload, { id: deliveryId, sentAt: envelope.sentAt, body, attempts, outcome })
+  }
+
+  /**
+   * Records a delivery the limiter had no room for.
+   *
+   * The row carries the body the endpoint would have received and zero
+   * attempts, so the customer's log shows that the event happened and that
+   * nothing was sent. Nothing is signed: no request leaves the process.
+   */
+  async function recordRefused(webhook: WebhookRecord, payload: WebhookEventPayload): Promise<void> {
+    const deliveryId = dependencies.createId('webhookDelivery')
+    const sentAt = dependencies.now()
+    const body = deliveryBody({
+      deliveryId,
+      event: payload.event,
+      sentAt,
+      workspaceId: payload.workspaceId,
+      data: payload.data,
+    })
+
+    dependencies.log.warn('webhook delivery not attempted', {
+      webhookId: webhook.id,
+      deliveryId,
+      event: payload.event,
+      reason: DELIVERY_REFUSED_REASON,
+    })
+
+    await record(webhook, payload, {
+      id: deliveryId,
+      sentAt,
+      body,
+      attempts: 0,
+      outcome: { delivered: false, status: null, reason: DELIVERY_REFUSED_REASON },
+    })
+  }
+
+  /**
+   * The envelope is built inside the slot, in `deliverTo`, and not when the
+   * delivery joins the line. `created_at` is then the moment of the first
+   * attempt, however long the wait was, which is what a receiver that refuses
+   * an old delivery measures from.
+   */
+  async function deliverWithinLimits(
+    webhook: WebhookRecord,
+    payload: WebhookEventPayload,
+  ): Promise<void> {
+    const limited = await dependencies.limiter.run(() => deliverTo(webhook, payload))
+
+    if (!limited.admitted) {
+      await recordRefused(webhook, payload)
+    }
   }
 
   return {
@@ -340,7 +431,7 @@ export function createDeliveryEngine(dependencies: DeliveryDependencies): Delive
       // must not stop the others. Same reason the bus settles its handlers
       // rather than racing them.
       const outcomes = await Promise.allSettled(
-        subscribed.map((webhook) => deliverTo(webhook, payload)),
+        subscribed.map((webhook) => deliverWithinLimits(webhook, payload)),
       )
 
       for (const [index, outcome] of outcomes.entries()) {

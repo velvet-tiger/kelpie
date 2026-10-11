@@ -407,6 +407,25 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **Webhooks have a limit for each workspace and a limit for the process.**
+  A workspace had no limit on its webhooks, and the process had no limit
+  on the deliveries it ran at one time. An admin with many slow endpoints
+  and many events could hold the memory and the sockets of the process
+  that serves every workspace. There are three new settings, each checked
+  at boot. No migration.
+  - `WEBHOOK_MAX_PER_WORKSPACE`, default 20. `POST /v1/webhooks` answers
+    `409` `conflict` for a workspace at the limit, and the `webhooks_create`
+    MCP tool gives the same refusal. A workspace that already has more
+    keeps them, and cannot add one until it is under the limit.
+  - `WEBHOOK_MAX_CONCURRENT_DELIVERIES`, default 20. One delivery holds its
+    place from the first attempt to the last retry.
+  - `WEBHOOK_MAX_WAITING_DELIVERIES`, default 1000. A delivery over this
+    limit is not sent. Its row in the delivery log has the status `failed`
+    and `attempts: 0`, and the server log has the `warn` line
+    `webhook delivery not attempted`. The registration keeps its status,
+    because the endpoint was not called.
+  - `created_at` in a delivery body is the time the delivery takes its
+    place. A wait for a place does not make the body old.
 - **`GET /v1/ai/settings` gives `key_hint` to an admin or the owner only.**
   Every member got the last four characters of the workspace's provider
   key. A member now gets `key_hint: null`. The rest of the response is the
@@ -418,7 +437,8 @@ While the major version is `0`, a minor bump may break the API.
   The reason now names the host only. The server log has the address: the
   `agent dispatch failed` line has it in `blockedAddress`, and the reason
   on the `oauth client metadata document refused` line ends with it. The
-  reason on the `webhook delivery failed` line names the host only.
+  `webhook delivery failed` line has it in `blockedAddress` too, and its
+  reason names the host only.
 - **SMTP must upgrade with STARTTLS when `SMTP_SECURE=false`.** The
   connection upgraded only when the relay offered STARTTLS. A party on the
   network could remove the offer, and the SMTP password and each message

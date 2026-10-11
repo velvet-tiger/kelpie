@@ -1,10 +1,11 @@
 import type { WebhookDeliveryStatus, WebhookEvent, WebhookStatus } from '@kelpie/schemas'
-import { and, arrayContains, desc, eq, inArray, lt, ne } from 'drizzle-orm'
+import { and, arrayContains, count, desc, eq, inArray, lt, ne } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
-import type { Queryable } from '../../runtime/transaction.ts'
+import type { Queryable, Transaction } from '../../runtime/transaction.ts'
+import { workspaces } from '../workspace/schema.ts'
 import { webhookDeliveries, webhooks } from './schema.ts'
 
 export type WebhookRecord = typeof webhooks.$inferSelect
@@ -130,6 +131,42 @@ export async function findLastDeliveries(
     .orderBy(webhookDeliveries.webhookId, desc(webhookDeliveries.createdAt), desc(webhookDeliveries.id))
 
   return new Map(rows.map((row) => [row.webhookId, { at: row.createdAt, status: row.status }]))
+}
+
+/**
+ * Makes the caller's transaction the only one that registers a webhook in this
+ * workspace, until it ends.
+ *
+ * A registration is refused from a count, and two that count at the same time
+ * both see room for one more. Count after this returns; a count from before it
+ * may be out of date.
+ *
+ * The lock is on the workspace row, at `NO KEY UPDATE` strength, the same lock
+ * a membership change takes. A stronger lock would also stop every insert of a
+ * row that refers to the workspace, which is each write to it. A lock on the
+ * workspace's webhook rows would not do: a workspace with none has no row to
+ * lock.
+ */
+export async function lockRegistrations(tx: Transaction, workspaceId: string): Promise<void> {
+  await tx
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .for('no key update')
+}
+
+/** How many webhooks the workspace has, in every status. A paused one still holds its place. */
+export async function countWebhooks(db: Queryable, workspaceId: string): Promise<number> {
+  const [row] = await db
+    .select({ total: count() })
+    .from(webhooks)
+    .where(eq(webhooks.workspaceId, workspaceId))
+
+  if (row === undefined) {
+    throw new Error(`Counting the webhooks of workspace ${workspaceId} returned no row`)
+  }
+
+  return row.total
 }
 
 export async function insertWebhook(db: Queryable, values: WebhookColumns): Promise<WebhookRecord> {

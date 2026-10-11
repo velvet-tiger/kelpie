@@ -48,6 +48,8 @@ export interface WebhooksDependencies {
   readonly createId: IdFactory
   readonly now: () => Date
   readonly cipher: SecretCipher
+  /** From `webhookLimitsConfigSchema`, validated at boot. */
+  readonly maxPerWorkspace: number
   /** Injected only so tests can pin secrets. Production uses the crypto default. */
   readonly newToken?: () => string
 }
@@ -97,6 +99,7 @@ export interface RotateSecretInput {
 export interface WebhooksService {
   list(actor: Actor, filters: WebhookFilters, query: ListQueryParameters): Promise<Page<WebhookView>>
   get(actor: Actor, id: string): Promise<WebhookView>
+  /** @throws AppError 409 when the workspace already has as many webhooks as the deployment allows. */
   create(actor: Actor, input: CreateWebhookInput): Promise<CreatedWebhookView>
   update(actor: Actor, id: string, changes: UpdateWebhookInput): Promise<WebhookView>
   /** Mints a replacement signing secret, answering with it exactly once. */
@@ -216,8 +219,20 @@ export function createWebhooksService(dependencies: WebhooksDependencies): Webho
       const { secret, secretPrefix } = mintSecret(newToken)
       const id = dependencies.createId('webhook')
 
-      const created = await dependencies.transaction(({ tx }) =>
-        repository.insertWebhook(tx, {
+      const created = await dependencies.transaction(async ({ tx }) => {
+        // Counted under the lock, so two requests that arrive together cannot
+        // both take the last place.
+        await repository.lockRegistrations(tx, workspaceId)
+
+        // A workspace over the limit keeps what it has: a limit that was
+        // lowered refuses the next registration and removes nothing.
+        if ((await repository.countWebhooks(tx, workspaceId)) >= dependencies.maxPerWorkspace) {
+          throw AppError.conflict(
+            `A workspace may register at most ${String(dependencies.maxPerWorkspace)} webhooks`,
+          )
+        }
+
+        return repository.insertWebhook(tx, {
           id,
           workspaceId,
           url: input.url,
@@ -225,8 +240,8 @@ export function createWebhooksService(dependencies: WebhooksDependencies): Webho
           secretEncrypted: dependencies.cipher.seal(secret),
           secretPrefix,
           status: 'active',
-        }),
-      )
+        })
+      })
 
       // The only time the secret leaves this process. Nothing stores it.
       return { ...(await toView(created)), secret }

@@ -155,7 +155,7 @@ limit 20;
 
 Two subsystems still have their own quirks:
 
-- **Webhook deliveries** retry three times over about twenty seconds. A crash mid-retry loses that in-process retry loop; the registration then reads `failing` and recovers on its own when an attempt lands. Receivers should treat deliveries as at-least-once and poll the API to reconcile anything critical. (Moving delivery onto the job port is a follow-up.)
+- **Webhook deliveries** retry three times over about twenty seconds. A crash mid-retry loses that in-process retry loop; the registration then reads `failing` and recovers on its own when an attempt lands. Receivers should treat deliveries as at-least-once and poll the API to reconcile anything critical. (Moving delivery onto the job port is a follow-up.) The process runs 20 deliveries at one time and lets 1000 wait, unless you set `WEBHOOK_MAX_CONCURRENT_DELIVERIES` and `WEBHOOK_MAX_WAITING_DELIVERIES`. A delivery over both is not sent, and the log has the `warn` line `webhook delivery not attempted`. If you see that line, look for a workspace with many slow endpoints before you raise the limits.
 - **Imports over 500 rows** run in the background. A restart mid-run strands the job in `validating` or `committing`; the remedy is to upload the file again, which is safe because commits are idempotent.
 
 Neither needs routine attention; both are worth knowing before you read a log at 2 a.m.

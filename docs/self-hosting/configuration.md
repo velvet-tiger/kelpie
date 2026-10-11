@@ -126,11 +126,14 @@ Naming a module the build does not have, or one that is structural (always on), 
 
 ## Module settings
 
-A module reads its own variables through its own schema, validated at boot like everything else. Two ship with core:
+A module reads its own variables through its own schema, validated at boot like everything else. These ship with core:
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `WEBHOOK_DELIVERY_RETENTION_DAYS` | no | Days of webhook delivery log to keep. Default 30. |
+| `WEBHOOK_MAX_PER_WORKSPACE` | no | The most webhooks one workspace can register. Default 20. A workspace that already has more keeps them, and cannot add one until it is under the limit. |
+| `WEBHOOK_MAX_CONCURRENT_DELIVERIES` | no | The most webhook deliveries the process runs at one time. Default 20. One delivery holds its place from the first attempt to the last retry. |
+| `WEBHOOK_MAX_WAITING_DELIVERIES` | no | The most deliveries that wait for a place. Default 1000. A delivery over this limit is not sent. The delivery log shows it as failed with 0 attempts, and the server log has the `warn` line `webhook delivery not attempted`. `0` refuses a delivery whenever every place is in use. |
 | `BLOCK_PRIVATE_EGRESS` | no | Described above; read by the webhooks and agent-tasks modules. |
 
 You can lock any module variable in code by adding an `env` section to `kelpie.config.ts`:

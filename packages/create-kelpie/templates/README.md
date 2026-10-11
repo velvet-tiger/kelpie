@@ -91,6 +91,8 @@ egress, module-locking, and per-account login-limit settings — is
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64, generated for this project |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |
 | `WEBHOOK_DELIVERY_RETENTION_DAYS` | Optional, default 30 |
+| `WEBHOOK_MAX_PER_WORKSPACE` | Optional, default 20. The most webhooks one workspace can register |
+| `WEBHOOK_MAX_CONCURRENT_DELIVERIES` / `WEBHOOK_MAX_WAITING_DELIVERIES` | Optional, default 20 / 1000. The most webhook deliveries the process runs at one time, and the most that wait for a place. A delivery over both is not sent, and the delivery log shows it as failed with 0 attempts |
 | `WEB_BUNDLE_DIR` | Optional. A built web bundle to serve from the same origin as the API. Unset while developing; see Deploying below |
 | `RATE_LIMIT_FORMS_LIMIT` / `RATE_LIMIT_FORMS_WINDOW_SECONDS` | Optional. Requests per window per IP on a public form submit, default 20 / 60 |
 | `RATE_LIMIT_AUTH_LIMIT` / `RATE_LIMIT_AUTH_WINDOW_SECONDS` | Optional. Requests per window per IP on signup, login, and password reset, default 10 / 60 |
