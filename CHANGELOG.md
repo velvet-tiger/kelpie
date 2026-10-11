@@ -407,6 +407,15 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **The webhook guide says how a receiver refuses a delivery that was sent
+  again.** The signature covers the body only, and the guide named the
+  `Kelpie-Delivery` header as the dedupe key. A person with one signed
+  delivery could send it again with another header. Documentation only:
+  nothing on the wire changes. `docs/agents/api-and-webhooks.md` now tells
+  a receiver to compare signatures in constant time, to verify before it
+  parses, to refuse a body whose `created_at` is more than 5 minutes old,
+  and to dedupe on the `id` in the body. A retry sends the same body within
+  about one minute, so the age check does not refuse it.
 - **Webhooks have a limit for each workspace and a limit for the process.**
   A workspace had no limit on its webhooks, and the process had no limit
   on the deliveries it ran at one time. An admin with many slow endpoints

@@ -59,8 +59,10 @@ with three headers:
 | Header | Use |
 | --- | --- |
 | `Kelpie-Signature` | `sha256=<hex>` — an HMAC-SHA256 of the exact request body under your secret. |
-| `Kelpie-Event` | The event name, for routing before you parse. |
-| `Kelpie-Delivery` | The delivery id. Retries reuse it — **this is your dedupe key**. |
+| `Kelpie-Event` | The event name, for routing before you parse. After you verify the signature, use `event` from the body. |
+| `Kelpie-Delivery` | The delivery id, the same value as `id` in the body. Use it for logs. Do not use it as your dedupe key: the signature does not cover headers. |
+
+The signature covers the body and nothing else. A person who has one signed delivery can send it again with other headers, and the signature still matches. Thus trust only what is in the body: the `id`, the `event` and `created_at`.
 
 ## Verifying a signature
 
@@ -68,10 +70,41 @@ Split the header on commas and accept if **any** value matches your computed sig
 
 ```
 expected = "sha256=" + hex(hmac_sha256(secret, raw_body))
-accept   = any(value == expected for value in header.split(","))
+accept   = any(constant_time_equal(value, expected) for value in header.split(","))
 ```
 
 Never compare the whole header to one expected string. It carries one value almost always — and two during a secret rotation's overlap window, when deliveries are signed under both the new and the old secret for 24 hours. A receiver comparing the whole header works right up until the first rotation and then fails. Compute the HMAC over the raw received bytes; re-serialising the parsed JSON breaks it.
+
+**Compare in constant time.** An ordinary string comparison stops at the first character that differs. The time it takes tells a sender how much of a guessed signature is correct. Use the constant-time comparison of your platform. In Node:
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto'
+
+function signatureMatches(rawBody, header, secret) {
+  const expected = Buffer.from(`sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`)
+
+  return header.split(',').some((value) => {
+    const given = Buffer.from(value)
+
+    // timingSafeEqual throws when the lengths differ. A different length is not a match.
+    return given.length === expected.length && timingSafeEqual(given, expected)
+  })
+}
+```
+
+`rawBody` is the bytes of the request as they arrived. `timingSafeEqual` throws on buffers of different lengths, so check the length first and treat a different length as no match. The length of a correct signature is not a secret.
+
+**Verify before you parse.** Do these steps in this order:
+
+1. Read the raw body. Do not parse it.
+2. Verify the signature. If no value matches, answer `401` and stop.
+3. Parse the body.
+4. Refuse a body whose `created_at` is more than 5 minutes old.
+5. Look up the `id` from the body. If you have processed it, answer `2xx` and do nothing more.
+
+**Refuse an old delivery.** Step 4 stops a person who recorded a delivery from sending it again later. It does not refuse a retry. A retry sends the same body, so it has the same `id`, the same `created_at` and the same signature. Kelpie waits 1, 5 and 15 seconds between attempts, and waits 10 seconds at most for the answer to each attempt. The last attempt thus arrives about one minute after `created_at` at the latest. `created_at` is the time the delivery starts, so a delivery that waited for a place on a busy service is not older. The 5 minutes also allow for a difference between your clock and the clock of the service.
+
+**Dedupe on the `id` in the body.** Keep each `id` for as long as your age limit, or longer. A copy that arrives after that fails step 4.
 
 ## Rotating a secret
 
@@ -79,9 +112,9 @@ Rotate from the Webhooks admin page (or the API). You choose: an immediate rotat
 
 ## Delivery behaviour
 
-- **At-least-once.** Design your receiver to be idempotent, keyed on `Kelpie-Delivery`.
+- **At-least-once.** Design your receiver to be idempotent, keyed on the `id` in the signed body. The `Kelpie-Delivery` header has the same value, but the signature does not cover it.
 - A non-2xx response is a failure — and so is a redirect, which is never followed. Register the final URL.
-- Failures retry three times over about twenty seconds. When attempts run out the registration reads `failing`, and it returns to `active` on its own when a delivery lands. `paused` is your own switch and stops delivery entirely.
+- Failures retry three times, 1, 5 and 15 seconds apart. Each retry sends the same body with the same `id` and `created_at`. When attempts run out the registration reads `failing`, and it returns to `active` on its own when a delivery lands. `paused` is your own switch and stops delivery entirely.
 - The delivery log keeps 30 days by default (operator-configurable) and is visible on the admin page.
 - The service runs a limited number of deliveries at one time, and the others wait. When too many wait, a delivery is not sent. The log shows it as `failed` with `attempts: 0`, and the registration keeps its status, because your endpoint was not called.
 

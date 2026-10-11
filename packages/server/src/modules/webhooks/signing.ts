@@ -15,9 +15,11 @@ import type { WebhookEvent } from './payloads.ts'
 export const SIGNATURE_HEADER = 'Kelpie-Signature'
 
 /**
- * Both earn their place. Delivery is at-least-once, so a
- * receiver needs a stable key to recognise a repeat; and reading the event name
- * off a header lets one route the request before parsing the body.
+ * Both repeat a field of the body, for a receiver's logs and for routing a
+ * request before it parses the body. Neither is signed: the signature covers
+ * the body only. A receiver that needs a key to recognise a repeat reads the
+ * `id` inside the body it has verified
+ * (`docs/agents/api-and-webhooks.md`), and not this header.
  */
 export const DELIVERY_HEADER = 'Kelpie-Delivery'
 export const EVENT_HEADER = 'Kelpie-Event'

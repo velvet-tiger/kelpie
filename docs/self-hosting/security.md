@@ -80,6 +80,8 @@ Webhook deliveries and agent-task dispatches are the two places Kelpie POSTs to 
 
 When the guard refuses an agent endpoint, the run fails and its reason names the host. The reason does not name the address that the host resolved to, because every member reads a run. The address is in the server log: the `warn` line `agent dispatch failed` has it in `blockedAddress`. A refused webhook delivery is the same: the `warn` line `webhook delivery failed` has the address in `blockedAddress`, and the delivery log does not have it.
 
+A webhook signature covers the request body and not the headers. The body holds the delivery `id` and `created_at`, and those are what a receiver uses to refuse a delivery that somebody recorded and sent again. The receiver's part is in [Verifying a signature](../agents/api-and-webhooks.md#verifying-a-signature): compare in constant time, verify before parsing, refuse a `created_at` more than 5 minutes old, and dedupe on the `id` in the body.
+
 Webhooks run in the process that serves every workspace, so two limits bound what one workspace can take. A workspace registers at most 20 webhooks (`WEBHOOK_MAX_PER_WORKSPACE`). The process runs at most 20 deliveries at one time and lets 1000 wait (`WEBHOOK_MAX_CONCURRENT_DELIVERIES`, `WEBHOOK_MAX_WAITING_DELIVERIES`). A delivery over both is recorded as failed and is not sent. The limits are for the whole process, so one workspace that fills the waiting line can cause a delivery of another workspace to be refused.
 
 ## Roles and gates
