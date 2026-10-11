@@ -85,6 +85,68 @@ describe('parseCsv', () => {
   })
 
   /**
+   * A row is an object keyed by header, and `__proto__` is the one name an
+   * assignment does not store. The cell is lost, and a column map that names
+   * the header reads `Object.prototype` where a cell should be.
+   */
+  describe('a header that is a name every object already has', () => {
+    it.each(['__proto__', ' __proto__ ', '"__proto__"'])('refuses the header %j', (header) => {
+      const read = (): unknown => parseCsv(`name,${header}\nAcme,x\n`)
+
+      expect(read).toThrow(CsvFormatError)
+      expect(read).toThrow(/"__proto__"/u)
+    })
+
+    it('refuses it in a file with no rows', () => {
+      expect(() => parseCsv('__proto__\n')).toThrow(CsvFormatError)
+    })
+
+    it('reads __proto__ in a cell as ordinary data', () => {
+      expect(parseCsv('name\n__proto__\n').rows[0]?.values).toEqual({ name: '__proto__' })
+    })
+
+    // Each of these is on `Object.prototype` too. An assignment stores them as
+    // the row's own property, so they are columns like any other.
+    it.each([
+      'constructor',
+      'toString',
+      'toLocaleString',
+      'valueOf',
+      'hasOwnProperty',
+      'isPrototypeOf',
+      'propertyIsEnumerable',
+      '__defineGetter__',
+      '__lookupSetter__',
+      'toJSON',
+      'then',
+      'prototype',
+      '__PROTO__',
+      '__proto',
+    ])('reads a column headed %s as ordinary data', (header) => {
+      const parsed = parseCsv(`${header},name\nfirst,Acme\n,Harbour\n`)
+      const values = parsed.rows.map((row) => row.values)
+
+      expect(parsed.headers).toEqual([header, 'name'])
+      expect(values.map((row) => Object.entries(row))).toEqual([
+        [
+          [header, 'first'],
+          ['name', 'Acme'],
+        ],
+        [
+          [header, ''],
+          ['name', 'Harbour'],
+        ],
+      ])
+      expect(values.map((row) => row[header])).toEqual(['first', ''])
+      // A commit stores the row as JSON, so it has to survive that too.
+      expect(JSON.parse(JSON.stringify(values))).toEqual([
+        { [header]: 'first', name: 'Acme' },
+        { [header]: '', name: 'Harbour' },
+      ])
+    })
+  })
+
+  /**
    * The reverse of what `csvLine` writes in front of a formula. The cell is read
    * as the file holds it, so the apostrophe must be its first character.
    */

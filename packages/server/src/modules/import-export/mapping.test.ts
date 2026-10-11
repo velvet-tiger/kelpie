@@ -2,6 +2,7 @@ import { findMatchKey } from '@kelpie/schemas'
 import type { MatchKeyOption } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
+import { parseCsv } from './csv.ts'
 import { buildMatchKey, centsToMoney, mapRow, moneyToCents, splitList } from './mapping.ts'
 import { aliasedStageSlug, defaultColumnMap } from './presets.ts'
 
@@ -43,6 +44,20 @@ describe('mapRow', () => {
       domain: '',
     })
   })
+
+  // The parser stores each of these as the row's own property, so the map reads
+  // the cell and not what every object inherits under that name.
+  it.each(['constructor', 'toString', 'hasOwnProperty', 'valueOf', 'toJSON', 'then'])(
+    'reads a header called %s as the cell under it',
+    (header) => {
+      const [row] = parseCsv(`${header},Domain\nAcme,acme.com\n`).rows
+
+      expect(mapRow(row?.values ?? {}, { name: header, domain: 'Domain' })).toEqual({
+        name: 'Acme',
+        domain: 'acme.com',
+      })
+    },
+  )
 })
 
 describe('splitList', () => {

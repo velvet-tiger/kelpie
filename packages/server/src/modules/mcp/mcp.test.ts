@@ -849,5 +849,38 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
 
       expect(error.code).toBe('not_found')
     })
+
+    /**
+     * `import_preview` stores the purpose on the job. A purpose of another
+     * workspace must get the answer an unknown id gets, so the tool does not
+     * say which ids exist elsewhere.
+     */
+    it('refuses an import that names a consent purpose of another workspace', async () => {
+      const other = await client.owner('grace@example.com')
+      const purpose = await client.send('POST', '/v1/consent_purposes', {
+        body: { slug: 'newsletter', label: 'Newsletter' },
+        cookie: other.cookie,
+      })
+      const preview = {
+        source: 'custom',
+        object: 'people',
+        csv: 'name,email,consent_status\nGrace Hopper,grace@acme.com,granted',
+      }
+
+      const foreign = await callToolError('import_preview', {
+        ...preview,
+        consent_purpose_id: readString(await purpose.json(), 'id'),
+      })
+      const unknown = await callToolError('import_preview', { ...preview, consent_purpose_id: 'cnp_none' })
+
+      expect(foreign).toEqual({
+        code: 'validation_failed',
+        message: 'consent_purpose_id does not name a consent purpose',
+        details: [
+          { field: 'consent_purpose_id', message: 'No consent purpose in this workspace has that id' },
+        ],
+      })
+      expect(unknown).toEqual(foreign)
+    })
   })
 })

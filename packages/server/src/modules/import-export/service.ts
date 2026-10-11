@@ -22,7 +22,9 @@ import type {
   MatchKeyOption,
   OnMissingCompany,
 } from '@kelpie/schemas'
+import { DrizzleQueryError } from 'drizzle-orm'
 
+import { describeWriteFailure } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
 import { AppError, describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
@@ -38,6 +40,7 @@ import { toEventActor } from '../../lib/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import '../companies/events.ts'
+import * as consentPurposesRepository from '../consent-purposes/repository.ts'
 import '../deals/events.ts'
 import '../enquiries/events.ts'
 import '../opportunities/events.ts'
@@ -268,6 +271,34 @@ const DELETABLE_STATUSES: readonly ImportJobStatus[] = [
 /** Rows committed between two writes of the job's running counts, so polling shows progress. */
 const COMMIT_PROGRESS_INTERVAL = 100
 
+/** What a caller reads for a row that failed for a reason not written for them. */
+const ROW_SERVER_ERROR = 'This row could not be saved because of a server error'
+
+/** The same for a whole job. */
+const JOB_SERVER_ERROR = 'The import failed because of a server error'
+
+/**
+ * The text of a failure that a caller may read.
+ *
+ * An `AppError` is written for a caller. Any other error is not: the message
+ * of a query error holds the SQL and the cells of the row. So the caller gets
+ * `fallback`, and `describeForLog` gives the server log the cause.
+ */
+function callerMessage(error: unknown, fallback: string): string {
+  return error instanceof AppError ? error.message : fallback
+}
+
+/**
+ * A failure as one line for the server log, with no cell in it.
+ *
+ * A query error is reduced to what the database says about the refusal,
+ * because its message holds the SQL and the parameters. Any other error keeps
+ * its message, which is the only clue to a defect in the code.
+ */
+function describeForLog(error: unknown): string {
+  return error instanceof DrizzleQueryError ? describeWriteFailure(error) : describeThrown(error)
+}
+
 /** The stored job minus tenancy, the failure reason, and the file digest. */
 function toView(job: ImportJobRecord): ImportJobView {
   const {
@@ -316,6 +347,48 @@ export function createImportExportService(
     }
 
     return matchKey
+  }
+
+  /**
+   * Checks that the purpose a job names is one of this workspace's own.
+   *
+   * An id that does not exist would break the foreign key on the job. An id
+   * from another workspace would satisfy it, and the commit would then find no
+   * purpose and grant nothing. Both get the same answer, so the refusal does
+   * not say which ids exist in other workspaces.
+   *
+   * @throws AppError 422 when no purpose in this workspace has the id.
+   */
+  async function requireOwnConsentPurpose(workspaceId: string, id: string): Promise<void> {
+    const [purpose] = await consentPurposesRepository.listPurposesByIds(
+      dependencies.db,
+      workspaceId,
+      [id],
+    )
+
+    if (purpose === undefined) {
+      throw AppError.validationFailed('consent_purpose_id does not name a consent purpose', [
+        { field: 'consent_purpose_id', message: 'No consent purpose in this workspace has that id' },
+      ])
+    }
+  }
+
+  /**
+   * Parses an upload, and answers `422` for a file the parser refuses.
+   *
+   * The message of a `CsvFormatError` is written for the caller, so it goes out
+   * as it is.
+   */
+  function readCsv(csv: string): ParsedCsv {
+    try {
+      return parseCsv(csv)
+    } catch (error: unknown) {
+      if (error instanceof CsvFormatError) {
+        throw AppError.validationFailed(error.message, [{ field: 'file', message: error.message }])
+      }
+
+      throw error
+    }
   }
 
   /**
@@ -576,7 +649,9 @@ export function createImportExportService(
     const map = { ...columnMap }
 
     for (const key of customFieldKeys) {
-      if (map[key] !== undefined) {
+      // The map's own keys only. A field keyed `constructor` is not mapped
+      // already because every object has a property of that name.
+      if (Object.hasOwn(map, key)) {
         continue
       }
 
@@ -790,23 +865,22 @@ export function createImportExportService(
    *
    * A background pass has nobody to throw to: the request that started it has
    * already answered. The job is where the caller looks next, so that is where
-   * the failure has to land.
+   * the failure has to land. The job keeps a reason a caller may read, and the
+   * cause goes to the server log.
    */
   async function failJob(workspaceId: string, jobId: string, error: unknown): Promise<void> {
-    const reason = describeThrown(error)
-
-    dependencies.log.error('import job failed', { jobId, error: reason })
+    dependencies.log.error('import job failed', { jobId, error: describeForLog(error) })
 
     await repository
       .updateJob(dependencies.db, workspaceId, jobId, {
         status: 'failed',
-        failureReason: reason,
+        failureReason: callerMessage(error, JOB_SERVER_ERROR),
         updatedAt: dependencies.now(),
       })
       .catch((writeError: unknown) => {
         dependencies.log.error('could not record an import failure', {
           jobId,
-          error: describeThrown(writeError),
+          error: describeForLog(writeError),
         })
       })
   }
@@ -943,10 +1017,20 @@ export function createImportExportService(
       // nine thousand have nothing to do with it.
       const outcome = await commitRow(workspaceId, actor, job, line).catch(
         async (error: unknown): Promise<repository.RowOutcome> => {
+          // An `AppError` is a refusal the caller reads on the row. Anything
+          // else is a fault on this side, and the log is where its cause goes.
+          if (!(error instanceof AppError)) {
+            dependencies.log.error('import row failed', {
+              jobId,
+              row: row.row,
+              error: describeForLog(error),
+            })
+          }
+
           const failure = {
             rowNumber: row.row,
             action: 'error' as const,
-            errors: [{ field: '', message: describeThrown(error) }],
+            errors: [{ field: '', message: callerMessage(error, ROW_SERVER_ERROR) }],
             warnings: [],
           }
 
@@ -1031,19 +1115,7 @@ export function createImportExportService(
   return {
     async createJob(actor, input) {
       const workspaceId = requireAdminWorkspace(actor)
-      const parsed = ((): ReturnType<typeof parseCsv> => {
-        try {
-          return parseCsv(input.csv)
-        } catch (error: unknown) {
-          if (error instanceof CsvFormatError) {
-            throw AppError.validationFailed(error.message, [
-              { field: 'file', message: error.message },
-            ])
-          }
-
-          throw error
-        }
-      })()
+      const parsed = readCsv(input.csv)
 
       const matchKey = requireMatchKey(input.object, input.matchKeyId)
       const { keys: customFieldKeys } = await customFieldContext(workspaceId, input.object)
@@ -1078,6 +1150,9 @@ export function createImportExportService(
           'Mapping consent_status or consent_at needs a consent_purpose_id on the job',
           [{ field: 'consent_purpose_id', message: 'Required when consent columns are mapped' }],
         )
+      }
+      if (input.consentPurposeId !== null) {
+        await requireOwnConsentPurpose(workspaceId, input.consentPurposeId)
       }
 
       const id = dependencies.createId('importJob')
@@ -1154,7 +1229,9 @@ export function createImportExportService(
       // file can be committed once the workspace has room.
       await requireRecordHeadroom(workspaceId, job)
 
-      const parsed = parseCsv(csv)
+      // The digest matched, so this is the file the dry run read. The parser
+      // can still refuse it when the job is from a release that read more.
+      const parsed = readCsv(csv)
 
       // Compare-and-set rather than a check followed by a write: two commits
       // arriving together both read `ready`, and only the one whose update

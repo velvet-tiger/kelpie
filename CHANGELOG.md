@@ -407,6 +407,35 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **An import no longer returns the text of a database error, checks the
+  consent purpose of a job, and refuses a `__proto__` header.**
+  `@kelpie/server`. No migration.
+  - A row that threw during a commit put the text of the error in the
+    `errors` of the row and of the job. For a database error that text held
+    the SQL statement and the cells of the row. Such a row now says "This
+    row could not be saved because of a server error". The server log names
+    the database error, the job and the row number, and holds no cell of the
+    file. `import_jobs.failure_reason` follows the same rule with "The
+    import failed because of a server error". The API does not return that
+    column.
+  - **One row message changes.** A row that fails with a reason for the
+    caller keeps the reason, without the `AppError: validation_failed: `
+    that came before it.
+  - `POST /v1/import/jobs` and the `import_preview` MCP tool answer `422`
+    on `consent_purpose_id` when the id names no consent purpose in the
+    workspace. An id that did not exist answered `500`. An id from another
+    workspace went on the job, and the commit then granted no consent and
+    said nothing. The two cases get the same answer.
+  - A file with a column headed `__proto__` answers `422` on `file`. With a
+    `column_map` that named the header, the dry run answered `500` and left
+    a job in `pending`. **One import result changes:** a file with that
+    header and no map entry for it imported before, and is now refused.
+    Rename the column. A job from an earlier release with such a file
+    answers `422` at the commit and stays `ready`.
+  - A header such as `constructor` or `toString` is a column like any
+    other. One case was wrong: a file with a column headed `constructor`,
+    for a custom field with the key `constructor`, lost that column when
+    the request sent no `column_map`. The derived map now has it.
 - **A CSV export no longer writes a cell that a spreadsheet runs as a
   formula.** A record value such as `=HYPERLINK(...)` went into the file as
   it was, and a spreadsheet that opened the file ran it. A stranger can put

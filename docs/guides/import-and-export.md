@@ -25,6 +25,8 @@ A corrected mapping is a fresh upload of the same file, so the stored record of 
 
 The commit re-checks every row against the workspace as it stands rather than replaying the plan, because rows earlier in the file create records later rows match against. That re-checking is also what makes committing idempotent: run it twice, or upload the same file again, and the second pass finds what the first one wrote instead of duplicating it. A row that fails takes only itself down; the rest of the file still commits.
 
+A row that fails shows the reason. When the reason is a fault in the server, the row says "This row could not be saved because of a server error" and no more. The server log has the cause, with the job and the row number.
+
 ## Rules worth knowing
 
 - **Blank cells write nothing.** An unmapped column, or a mapped column with an empty cell, is never written — so a partial export with an empty Summary column cannot erase every summary in your workspace. Clearing a field is an edit on the record, not an import.
@@ -32,6 +34,7 @@ The commit re-checks every row against the workspace as it stands rather than re
 - **Deal stages resolve against your pipeline** — the stage's slug, then its label, then the HubSpot/Salesforce alias tables. A stage name that matches nothing fails the row rather than inventing a stage.
 - **A deal with no matching company fails its row.** Kelpie does not create stub companies to hang deals on.
 - **`owner_email` must name a workspace member.** Otherwise the row fails, rather than silently assigning the deal to whoever ran the import. Unmap the column to import without owners.
+- **A column cannot be headed `__proto__`.** Kelpie refuses a file that has such a column. Rename the column and upload the file again.
 - **A people file can carry a company and title.** The import then creates or renames the person's position at that company. If the company is not in the workspace yet, you choose: skip the link and import the person with a warning (the default), or create the company from the row.
 
 ## Large files

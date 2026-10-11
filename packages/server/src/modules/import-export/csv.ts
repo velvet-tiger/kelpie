@@ -87,6 +87,16 @@ const FORMULA_START = /^'*[=+\-@\t\r]/u
  */
 const SIGNED_NUMBER = /^[+-][0-9 ().-]*$/u
 
+/**
+ * The one header a row cannot hold.
+ *
+ * A row is an object keyed by header. An assignment to `__proto__` does not
+ * store the cell, and a read of it gives `Object.prototype` where a cell
+ * should be. Every other name on `Object.prototype`, such as `constructor`, is
+ * stored as the row's own property and is a header like any other.
+ */
+const UNSTORABLE_HEADER = '__proto__'
+
 /** A cell `neutraliseFormula` wrote: at least one apostrophe, then a formula character. */
 const NEUTRALISED_FORMULA = /^'+[=+\-@\t\r]/u
 
@@ -216,9 +226,10 @@ function splitRows(text: string, limits: CsvLimits): PhysicalRow[] {
 
 /**
  * @throws CsvFormatError when the file has no header row, when a header is
- *   blank, when two headers are the same, or when the file is over a limit.
- *   The first three make a `column_map` unanswerable rather than merely
- *   inconvenient.
+ *   blank, when two headers are the same, when a header is `__proto__`, or
+ *   when the file is over a limit. The first three make a `column_map`
+ *   unanswerable rather than merely inconvenient. The fourth is a column no
+ *   row can hold.
  */
 export function parseCsv(text: string, limits: CsvLimits = DEFAULT_LIMITS): ParsedCsv {
   const [headerRow, ...dataRows] = splitRows(text, limits)
@@ -249,6 +260,10 @@ export function parseCsv(text: string, limits: CsvLimits = DEFAULT_LIMITS): Pars
     }
 
     seen.add(header)
+  }
+
+  if (seen.has(UNSTORABLE_HEADER)) {
+    throw new CsvFormatError(`A column cannot be headed "${UNSTORABLE_HEADER}"`)
   }
 
   const rows = dataRows.map(({ number, cells }): CsvRow => {

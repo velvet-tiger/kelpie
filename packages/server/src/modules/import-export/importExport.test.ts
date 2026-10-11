@@ -1,6 +1,6 @@
 import { IMPORT_OBJECTS, importJobSchema } from '@kelpie/schemas'
 import type { ImportObject } from '@kelpie/schemas'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -18,8 +18,9 @@ import { deals } from '../deals/schema.ts'
 import { people } from '../people/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { positions } from '../positions/schema.ts'
+import { fileDigest } from './csv.ts'
 import { headersFor, templateHeadersFor } from './exportRows.ts'
-import { importJobRows } from './schema.ts'
+import { importJobRows, importJobs } from './schema.ts'
 
 /**
  * `/v1/import` and `/v1/export` against real Postgres.
@@ -64,8 +65,15 @@ interface JobFields {
   readonly on_missing_company?: string
   readonly match_key?: string
   readonly column_map?: string
+  readonly consent_purpose_id?: string
   readonly dry_run?: string
 }
+
+/** What a caller reads for a row that failed for a reason they did not cause. */
+const ROW_SERVER_ERROR = 'This row could not be saved because of a server error'
+
+/** The same for a whole job, as `import_jobs.failure_reason` stores it. */
+const JOB_SERVER_ERROR = 'The import failed because of a server error'
 
 describe.skipIf(connectionString === undefined)('import and export', () => {
   let database: TestDatabase
@@ -256,6 +264,132 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       const response = await upload('name,name\na,b')
 
       expect(response.status).toBe(422)
+    })
+
+    /**
+     * A row is an object keyed by header, and it cannot hold a cell under
+     * `__proto__`. A column map that named the header read `Object.prototype`
+     * where the cell should be, and the dry run threw on it.
+     */
+    it('refuses a file with a column headed __proto__, whether or not the map names it', async () => {
+      const csv = '__proto__,domain\nAcme,acme.com'
+      const mapped = await upload(csv, {
+        column_map: JSON.stringify({ name: '__proto__', domain: 'domain' }),
+      })
+
+      expect(mapped.status).toBe(422)
+      expect(await errorDetails(mapped)).toEqual([
+        { field: 'file', message: 'A column cannot be headed "__proto__"' },
+      ])
+
+      const unmapped = await upload('name,domain,__proto__\nAcme,acme.com,x')
+
+      expect(unmapped.status).toBe(422)
+      // Refused before the job is made, so nothing is left behind in `pending`.
+      expect(await database.db.select().from(importJobs)).toHaveLength(0)
+    })
+
+    it('ignores a column map key called __proto__', async () => {
+      const job = await createJob(COMPANIES_CSV, {
+        column_map: '{"__proto__":"name","name":"name","domain":"domain"}',
+      })
+
+      expect(job).toMatchObject({ status: 'ready', counts: { total: 2, create: 2, error: 0 } })
+      expect(Object.keys(readRecord(job.column_map)).sort()).toEqual(['domain', 'name'])
+    })
+
+    /**
+     * Every object has these names too, but an assignment stores each one as the
+     * row's own property. So they are headers like any other, through the map,
+     * the plan, and the stored row.
+     */
+    it('imports a file whose headers are constructor, toString and hasOwnProperty', async () => {
+      const csv = 'constructor,toString,hasOwnProperty,valueOf\nAcme,acme.com,Software,ignored'
+      const columnMap = { name: 'constructor', domain: 'toString', industry: 'hasOwnProperty' }
+      const job = await createJob(csv, { column_map: JSON.stringify(columnMap) })
+
+      expect(job).toMatchObject({
+        status: 'ready',
+        source_headers: ['constructor', 'toString', 'hasOwnProperty', 'valueOf'],
+        counts: { total: 1, create: 1, error: 0 },
+        preview: [{ row: 2, values: { name: 'Acme', domain: 'acme.com', industry: 'Software' } }],
+      })
+
+      const jobId = readString(job, 'id')
+
+      expect(await commit(jobId, csv)).toMatchObject({
+        status: 'completed',
+        counts: { total: 1, create: 1, error: 0 },
+      })
+      expect(
+        await database.db.select().from(companies).where(eq(companies.domain, 'acme.com')),
+      ).toMatchObject([{ name: 'Acme', industry: 'Software' }])
+
+      const [stored] = await database.db
+        .select({ values: importJobRows.values })
+        .from(importJobRows)
+        .where(eq(importJobRows.jobId, jobId))
+
+      expect(stored?.values).toEqual({
+        constructor: 'Acme',
+        toString: 'acme.com',
+        hasOwnProperty: 'Software',
+        valueOf: 'ignored',
+      })
+    })
+
+    /**
+     * `constructor` is a legal custom field key. A derived map takes a header
+     * for each custom field it has no entry for, and it has to look at the
+     * map's own entries to know that.
+     */
+    it('derives a map for a custom field keyed constructor', async () => {
+      const field = await client.send('POST', '/v1/custom_fields', {
+        body: { object_type: 'company', key: 'constructor', label: 'Constructor', type: 'text' },
+        cookie: acme.cookie,
+      })
+
+      expect(field.status).toBe(201)
+
+      const csv = 'name,domain,constructor\nAcme,acme.com,Brunel'
+      const job = await createJob(csv)
+
+      expect(job).toMatchObject({
+        column_map: { name: 'name', domain: 'domain', constructor: 'constructor' },
+        preview: [{ row: 2, values: { name: 'Acme', constructor: 'Brunel' } }],
+      })
+
+      await commit(readString(job, 'id'), csv)
+
+      expect(
+        await database.db.select().from(companies).where(eq(companies.domain, 'acme.com')),
+      ).toMatchObject([{ customFields: { constructor: 'Brunel' } }])
+    })
+
+    /**
+     * The digest of the file still matches, so the commit reads it. A job from
+     * a release that took the header gets the parser's refusal as a `422`.
+     */
+    it('answers 422 at the commit of an earlier job whose file the parser now refuses', async () => {
+      const csv = 'name,domain,__proto__\nAcme,acme.com,x'
+      const job = await createJob('name,domain\nAcme,acme.com')
+      const jobId = readString(job, 'id')
+
+      await database.db
+        .update(importJobs)
+        .set({ fileSha256: fileDigest(csv), sourceHeaders: ['name', 'domain', '__proto__'] })
+        .where(eq(importJobs.id, jobId))
+
+      const response = await sendCommit(jobId, csv)
+
+      expect(response.status).toBe(422)
+      expect(await errorDetails(response)).toEqual([
+        { field: 'file', message: 'A column cannot be headed "__proto__"' },
+      ])
+      // Refused before the claim, so the job is not left `committing`.
+      expect(
+        await database.db.select({ status: importJobs.status }).from(importJobs).where(eq(importJobs.id, jobId)),
+      ).toEqual([{ status: 'ready' }])
     })
 
     it('refuses a request with no file', async () => {
@@ -716,6 +850,166 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
   })
 
   /**
+   * A row that throws is a row error. What the error says depends on who it
+   * was written for: an `AppError` is for the caller, and anything else is for
+   * the server log. The message of a query error holds the SQL and every cell
+   * of the row.
+   */
+  describe('a row that throws during the commit', () => {
+    function storedRow(jobId: string, rowNumber: number): Promise<{ action: string; errors: unknown }[]> {
+      return database.db
+        .select({ action: importJobRows.action, errors: importJobRows.errors })
+        .from(importJobRows)
+        .where(and(eq(importJobRows.jobId, jobId), eq(importJobRows.rowNumber, rowNumber)))
+    }
+
+    it('gives a row the database refused a fixed line, and the server log the cause', async () => {
+      const csv = 'name,domain\nAcme,acme.com\nRefused Co,refused.test\nHarbour Lane,harbour.io'
+      const jobId = readString(await createJob(csv), 'id')
+
+      // A constraint that refuses one company, so the insert for that row fails
+      // in the database. Removed again whatever happens.
+      await database.db.execute(
+        sql`ALTER TABLE companies ADD CONSTRAINT test_no_refused_co CHECK (name <> 'Refused Co') NOT VALID`,
+      )
+
+      try {
+        const committed = await commit(jobId, csv)
+
+        // The rows either side of it still import.
+        expect(committed).toMatchObject({
+          status: 'completed',
+          counts: { total: 3, create: 2, error: 1 },
+        })
+        expect(committed.errors).toEqual([{ row: 3, field: '', message: ROW_SERVER_ERROR }])
+        expect(await storedRow(jobId, 3)).toEqual([
+          { action: 'error', errors: [{ field: '', message: ROW_SERVER_ERROR }] },
+        ])
+
+        const reread = await client.send('GET', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })
+        const wire = `${JSON.stringify(committed)}${await reread.text()}`
+
+        // The message of the query error holds the SQL and every parameter.
+        expect(wire).not.toContain('Failed query')
+        expect(wire).not.toContain('insert into')
+        expect(wire).not.toContain('test_no_refused_co')
+
+        const logged = harness.logLines.filter((line) => line.includes('import row failed'))
+
+        expect(logged).toHaveLength(1)
+        expect(JSON.parse(logged[0] ?? '{}')).toMatchObject({ level: 'error', jobId, row: 3 })
+        expect(logged[0]).toContain('test_no_refused_co')
+        expect(logged[0]).not.toContain('Failed query')
+        expect(logged[0]).not.toContain('refused.test')
+        expect(logged[0]).not.toContain('Refused Co')
+      } finally {
+        await database.db.execute(sql`ALTER TABLE companies DROP CONSTRAINT IF EXISTS test_no_refused_co`)
+      }
+
+      expect(
+        (await database.db.select().from(companies).where(eq(companies.workspaceId, acme.workspaceId)))
+          .map((row) => row.name)
+          .sort(),
+      ).toEqual(['Acme', 'Harbour Lane'])
+    })
+
+    it('still gives the caller the message of an error written for them', async () => {
+      const field = await client.send('POST', '/v1/custom_fields', {
+        body: { object_type: 'company', key: 'tier', label: 'Tier', type: 'select', options: ['gold', 'silver'] },
+        cookie: acme.cookie,
+      })
+
+      expect(field.status).toBe(201)
+
+      // The plan does not check a custom field value. The write does, and it
+      // refuses this one with a `422` of its own.
+      const csv = 'name,domain,tier\nAcme,acme.com,gold\nHarbour Lane,harbour.io,bronze'
+      const jobId = readString(await createJob(csv), 'id')
+      const committed = await commit(jobId, csv)
+
+      expect(committed).toMatchObject({ counts: { total: 2, create: 1, error: 1 } })
+      expect(committed.errors).toEqual([
+        { row: 3, field: '', message: 'That value does not match the custom field' },
+      ])
+      expect(await storedRow(jobId, 3)).toEqual([
+        {
+          action: 'error',
+          errors: [{ field: '', message: 'That value does not match the custom field' }],
+        },
+      ])
+      expect(harness.logLines.filter((line) => line.includes('import row failed'))).toHaveLength(0)
+    })
+  })
+
+  describe('a consent purpose on the job', () => {
+    const csv = 'name,email,consent_status\nGrace Hopper,grace@acme.com,granted'
+    const refusal = {
+      status: 422,
+      message: 'consent_purpose_id does not name a consent purpose',
+      details: [{ field: 'consent_purpose_id', message: 'No consent purpose in this workspace has that id' }],
+    }
+
+    async function createPurpose(cookie: string): Promise<string> {
+      const response = await client.send('POST', '/v1/consent_purposes', {
+        body: { slug: 'newsletter', label: 'Newsletter' },
+        cookie,
+      })
+
+      expect(response.status).toBe(201)
+
+      return readString(await response.json(), 'id')
+    }
+
+    /** Status, message and details: all three must be the same for both kinds of id. */
+    async function refusalOf(response: Response): Promise<unknown> {
+      const error = readRecord(readRecord(await response.json()).error)
+
+      return { status: response.status, message: error.message, details: error.details }
+    }
+
+    it('takes a purpose of this workspace and grants it at the commit', async () => {
+      const purposeId = await createPurpose(acme.cookie)
+      const job = await createJob(csv, { object: 'people', consent_purpose_id: purposeId })
+
+      expect(job).toMatchObject({ status: 'ready', consent_purpose_id: purposeId })
+      expect(await commit(readString(job, 'id'), csv)).toMatchObject({
+        status: 'completed',
+        counts: { total: 1, create: 1, error: 0 },
+      })
+
+      const [person] = await database.db.select().from(people).where(eq(people.email, 'grace@acme.com'))
+      const read = await client.send('GET', `/v1/people/${person?.id ?? ''}`, { cookie: acme.cookie })
+
+      expect(readRecord(await read.json()).consents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ purpose_slug: 'newsletter', status: 'granted', source: 'import' }),
+        ]),
+      )
+    })
+
+    it('refuses a purpose that does not exist', async () => {
+      const response = await upload(csv, { object: 'people', consent_purpose_id: 'cpu_none' })
+
+      expect(await refusalOf(response)).toEqual(refusal)
+      expect(await database.db.select().from(importJobs)).toHaveLength(0)
+    })
+
+    /**
+     * The id is real, so the foreign key on the job is satisfied. The commit
+     * looks the purpose up in its own workspace, finds nothing, and used to skip
+     * the consent without a word.
+     */
+    it('refuses a purpose of another workspace, in the same words', async () => {
+      const other = await client.owner('grace@example.com')
+      const purposeId = await createPurpose(other.cookie)
+      const response = await upload(csv, { object: 'people', consent_purpose_id: purposeId })
+
+      expect(await refusalOf(response)).toEqual(refusal)
+      expect(await database.db.select().from(importJobs)).toHaveLength(0)
+    })
+  })
+
+  /**
    * Over `SYNC_IMPORT_ROWS` the work runs detached and the caller polls, per
    * `docs/api-reference.md`. Both requests answer 202 with a transient status.
    */
@@ -814,6 +1108,42 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       expect(
         (await client.send('DELETE', `/v1/import/jobs/${jobId}`, { cookie: acme.cookie })).status,
       ).toBe(204)
+    }, 120_000)
+
+    /**
+     * A detached pass has nobody to throw to, so the failure goes on the job.
+     * Here the database refuses the write that would mark the dry run `ready`.
+     */
+    it('stores a fixed reason on a job the database failed, and logs the cause', async () => {
+      await database.db.execute(
+        sql`ALTER TABLE import_jobs ADD CONSTRAINT test_never_ready CHECK (status <> 'ready') NOT VALID`,
+      )
+
+      try {
+        const jobId = readString(readRecord(await (await upload(bigCsv)).json()), 'id')
+        const settled = await settle(jobId)
+
+        expect(settled).toMatchObject({ status: 'failed' })
+        expect(JSON.stringify(settled)).not.toContain('Failed query')
+
+        const [stored] = await database.db
+          .select({ failureReason: importJobs.failureReason })
+          .from(importJobs)
+          .where(eq(importJobs.id, jobId))
+
+        expect(stored).toEqual({ failureReason: JOB_SERVER_ERROR })
+
+        const logged = harness.logLines.filter((line) => line.includes('import job failed'))
+
+        expect(logged).toHaveLength(1)
+        expect(JSON.parse(logged[0] ?? '{}')).toMatchObject({ level: 'error', jobId })
+        expect(logged[0]).toContain('test_never_ready')
+        expect(logged[0]).not.toContain('Failed query')
+        // The update that failed carried the preview, and so the first rows.
+        expect(logged[0]).not.toContain('company-0.test')
+      } finally {
+        await database.db.execute(sql`ALTER TABLE import_jobs DROP CONSTRAINT IF EXISTS test_never_ready`)
+      }
     }, 120_000)
 
     it('refuses a file over the row limit', async () => {
