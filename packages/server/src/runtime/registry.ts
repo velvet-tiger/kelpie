@@ -95,17 +95,59 @@ export interface AppMiddlewareContribution {
  */
 const RESERVED_APP_PATHS: readonly string[] = ['/v1', '/mcp', '/healthz']
 
+/**
+ * A path segment that Hono reads as plain text. A list of what is allowed and
+ * not of what is refused, so `*`, `:name`, `{regex}`, `?`, `%` and any pattern
+ * syntax Hono adds later all fail it.
+ */
+const LITERAL_SEGMENT = /^[A-Za-z0-9._~-]+$/
+
+/** `LITERAL_SEGMENT` in words, for a boot error. */
+const LITERAL_SEGMENT_CHARACTERS = 'letters, digits, ".", "_", "~" or "-"'
+
+/** The text between the optional leading `/` of a path and the next `/`. */
+function firstSegment(path: string): string {
+  const start = path.startsWith('/') ? 1 : 0
+  const end = path.indexOf('/', start)
+
+  return end === -1 ? path.slice(start) : path.slice(start, end)
+}
+
+/**
+ * Refuses a path that `appRoute` or `appMiddleware` must not mount.
+ *
+ * The first segment must be literal, and is then compared with the reserved
+ * names without regard to letter case. A compare of the text alone is not
+ * enough: `/*`, `/:name/x` and `/v1*` are not under a reserved prefix as text,
+ * and they match core's surface at request time. The app applies these
+ * declarations after the `/v1` and `/mcp` routes and before `/healthz`, so such
+ * a pattern would answer for `/healthz`, and for each path under `/v1` or
+ * `/mcp` that no core route answers.
+ *
+ * Later segments may be patterns (`/operator/api/*`), because they can only
+ * match below a first segment that this function has read.
+ *
+ * @throws ModuleBootError naming the module and the path.
+ */
 function assertMountablePath(moduleId: string, kind: string, path: string): void {
   if (!path.startsWith('/')) {
     throw new ModuleBootError([`module "${moduleId}" declares ${kind} "${path}", which must start with "/"`])
   }
 
-  for (const reserved of RESERVED_APP_PATHS) {
-    if (path === reserved || path.startsWith(`${reserved}/`)) {
-      throw new ModuleBootError([
-        `module "${moduleId}" declares ${kind} "${path}" under "${reserved}", which is core's surface`,
-      ])
-    }
+  const segment = firstSegment(path)
+
+  if (!LITERAL_SEGMENT.test(segment)) {
+    throw new ModuleBootError([
+      `module "${moduleId}" declares ${kind} "${path}", which must start with a literal segment: ${LITERAL_SEGMENT_CHARACTERS}. A pattern in the first segment can match core's surface.`,
+    ])
+  }
+
+  const reserved = RESERVED_APP_PATHS.find((candidate) => candidate === `/${segment.toLowerCase()}`)
+
+  if (reserved !== undefined) {
+    throw new ModuleBootError([
+      `module "${moduleId}" declares ${kind} "${path}" under "${reserved}", which is core's surface`,
+    ])
   }
 }
 
@@ -115,6 +157,56 @@ type RouterVerbMethod = (typeof ROUTER_VERB_METHODS)[number]
 
 function isRouterVerbMethod(name: string): name is RouterVerbMethod {
   return (ROUTER_VERB_METHODS as readonly string[]).includes(name)
+}
+
+/**
+ * Refuses a route path on a gated module router that would match the routes
+ * of other modules.
+ *
+ * Hono flattens the module router onto `/v1`, so `*` becomes `/v1/*` and
+ * `/:name` becomes `/v1/:name`. The gate that the wrapper puts ahead of the
+ * handler then runs for requests to other modules, and a workspace with this
+ * module off can lose those routes too. A path that starts with a literal
+ * segment can only match below that segment.
+ *
+ * `/` and the empty path are the one route at `/v1` itself, so they pass.
+ *
+ * @param call The router method the module called, for the message.
+ * @throws ModuleBootError naming the module and the path.
+ */
+function assertModuleLocalPath(moduleId: string, call: string, path: string): void {
+  if (path === '/' || path === '') {
+    return
+  }
+
+  if (!LITERAL_SEGMENT.test(firstSegment(path))) {
+    throw new ModuleBootError([
+      `module "${moduleId}" called router.${call}() with a path that does not start with a literal segment ("${path}"). Hono flattens the module router onto "/v1", so this would fire for other modules' routes. Start the path with a segment of ${LITERAL_SEGMENT_CHARACTERS} ("/things/:id").`,
+    ])
+  }
+}
+
+/**
+ * Reads the path argument of `router.on` as the list of paths Hono registers.
+ *
+ * @throws ModuleBootError when an entry is not a string, or is not local to the module.
+ */
+function routerOnPaths(moduleId: string, path: unknown): readonly string[] {
+  const entries: readonly unknown[] = Array.isArray(path) ? path : [path]
+  const paths: string[] = []
+
+  for (const entry of entries) {
+    if (typeof entry !== 'string') {
+      throw new ModuleBootError([
+        `module "${moduleId}" called router.on() with a path that is not a string. Name every path as a string ("/things").`,
+      ])
+    }
+
+    assertModuleLocalPath(moduleId, 'on', entry)
+    paths.push(entry)
+  }
+
+  return paths
 }
 
 /**
@@ -136,6 +228,14 @@ function isRouterVerbMethod(name: string): name is RouterVerbMethod {
  * And the calls that cannot be made module-local through wrapping fail at
  * boot with a message naming the module, rather than shipping a subtle leak:
  *
+ * - A verb call with no path string (`router.get('/x', a).post(b)`): Hono
+ *   reads it as "the path of the last call", or `*` when there was none. The
+ *   wrapper cannot put the gate ahead of a handler that sits where the path
+ *   goes, so the route would answer with no gate. Every call names its path.
+ *   `on` with a path that is not a string fails the same way.
+ * - A verb or `on` path that does not start with a literal segment (`*`,
+ *   `/*`, `/:name`, `/:name/*`): see `assertModuleLocalPath`. `/` passes: it
+ *   is the one route at `/v1` itself.
  * - `use()` with no path, `use('*')`, `use('/*')`, `use('/')`: any of these
  *   register a middleware at `/v1/*` on the parent app once the router is
  *   mounted — the exact bug this wrapper prevents. A module that wants to
@@ -154,7 +254,17 @@ function gateRouter(router: Hono, moduleId: string, gate: MiddlewareHandler): Ho
       }
 
       if (isRouterVerbMethod(property)) {
-        return (path: string, ...handlers: Handler[]): Hono => {
+        // `path` is `unknown` because Hono also takes a handler there, and
+        // that is the call this wrapper has to refuse.
+        return (path: unknown, ...handlers: Handler[]): Hono => {
+          if (typeof path !== 'string') {
+            throw new ModuleBootError([
+              `module "${moduleId}" called router.${property}() without a path. Hono then reuses the path of the previous call, or "*", and runs the handler ahead of the module gate. Name the path on every call ("/things").`,
+            ])
+          }
+
+          assertModuleLocalPath(moduleId, property, path)
+
           const method = target[property] as (path: string, ...handlers: Handler[]) => Hono
           method.call(target, path, gate, ...handlers)
           return proxy
@@ -162,12 +272,10 @@ function gateRouter(router: Hono, moduleId: string, gate: MiddlewareHandler): Ho
       }
 
       if (property === 'on') {
-        return (
-          method: string | string[],
-          path: string | string[],
-          ...handlers: Handler[]
-        ): Hono => {
-          target.on(method as never, path as never, gate, ...handlers)
+        return (method: string | string[], path: unknown, ...handlers: Handler[]): Hono => {
+          const paths = routerOnPaths(moduleId, path)
+
+          target.on(method as never, paths as never, gate, ...handlers)
           return proxy
         }
       }

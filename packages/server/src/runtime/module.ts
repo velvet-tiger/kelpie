@@ -234,7 +234,14 @@ export interface ModuleServices {
 }
 
 export interface ModuleContext extends ModuleServices {
-  /** Registers routes. They mount under `/v1` and are public API like any other. */
+  /**
+   * Registers routes. They mount under `/v1` and are public API like any other.
+   *
+   * For a toggleable module the runtime checks each path at boot. A verb or
+   * `on` call must name its path as a string, and the path must start with a
+   * literal segment (`/things/:id`), so that it cannot match the routes of
+   * another module. `/` is the one route at `/v1` itself.
+   */
   routes(mount: (router: Hono) => void): void
   /**
    * Declares the scope a scoped API key needs for routes this module mounts
@@ -343,6 +350,11 @@ export interface ModuleContext extends ModuleServices {
    * these with `appMiddleware`. Paths at or under `/v1`, `/mcp`, or
    * `/healthz` are refused at boot: those are core's surfaces, and `routes`
    * is the only way under `/v1`.
+   *
+   * The first segment must be literal: letters, digits, `.`, `_`, `~` or
+   * `-`. A pattern there (`/*`, `/:name/x`) is refused at boot, because it
+   * can match core's surfaces. The reserved names are compared without regard
+   * to letter case. Later segments may be patterns (`/auth/:provider/start`).
    */
   appRoute(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, handler: Handler): void
   /**
@@ -352,8 +364,9 @@ export interface ModuleContext extends ModuleServices {
    * The app applies every declared middleware before any declared route, in
    * module registration order, so a pattern covers matching routes from
    * every module, later-registered ones included. That is what lets one
-   * module guard a surface other modules add routes to. Reserved paths are
-   * refused as for `appRoute`.
+   * module guard a surface other modules add routes to. The pattern follows
+   * the path rules of `appRoute`: a literal first segment that is not a
+   * reserved name.
    */
   appMiddleware(pattern: string, handler: MiddlewareHandler): void
   schema(tables: Readonly<Record<string, unknown>>, migrationsDir: string): void

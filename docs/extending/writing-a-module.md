@@ -34,6 +34,24 @@ export const flags: KelpieModule = {
 - `requires` names other module ids; registration order is resolved from it.
 - `context.config(schema)` validates your environment variables at boot. A deployment can also lock any of them in code through the assembly's `env` section ([Configuration](../self-hosting/configuration.md#module-settings)).
 
+## Route paths
+
+Core checks the paths of a module when the server starts. A path that breaks a rule stops the boot. The error names the module and the path.
+
+**The router from `context.routes`.** Core mounts every module router on `/v1`. A path that starts with a pattern matches the routes of other modules, and the switch of your module then applies to them.
+
+- Start each path with a segment of plain text: letters, digits, `.`, `_`, `~` or `-`. `/flags`, `/flags/:id` and `/flags/*` pass. `*`, `/*`, `/:id` and `/:tenant/flags` fail.
+- `/` passes. It is the one route at `/v1`.
+- Give the path in each call. `router.get('/flags', list).post(create)` fails, because the second call has no path. Write `router.get('/flags', list).post('/flags', create)`.
+- These rules apply to `get`, `post`, `put`, `patch`, `delete`, `options`, `all` and `on`. Each path in a list that you give to `on` must pass.
+
+Core checks the router of a toggleable module. Keep to the same rules in a structural module.
+
+**`context.appRoute` and `context.appMiddleware`.** These mount on the app, outside `/v1`.
+
+- The path starts with `/` and then a segment of plain text, from the same characters. `/auth/:provider/callback` and `/operator/api/*` pass. `/`, `/*` and `/:name/login` fail.
+- The first segment is not `v1`, `mcp` or `healthz`, in any letter case. Those paths are core's.
+
 ## Scopes for your routes
 
 An API key can be limited to scopes. A scoped key reaches a `/v1` route only when a scope is declared for that route. Declare one for each route a scoped key may call:

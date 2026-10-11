@@ -290,6 +290,107 @@ describe('module app routes and middleware', () => {
       }),
     ).rejects.toThrow(/module "crooked".*must start with "\/"/)
   })
+
+  type AppDeclarationKind = 'app route' | 'app middleware'
+
+  const APP_DECLARATION_KINDS: readonly AppDeclarationKind[] = ['app route', 'app middleware']
+
+  /** Boots one module that makes one declaration on the app, and nothing else. */
+  const bootDeclaring = (kind: AppDeclarationKind, path: string): ReturnType<typeof registerModules> => {
+    const trespasser: KelpieModule = {
+      id: 'trespasser',
+      register(context) {
+        if (kind === 'app route') {
+          context.appRoute('GET', path, (requestContext) => requestContext.json({}))
+        } else {
+          context.appMiddleware(path, async (_requestContext, next) => next())
+        }
+
+        return Promise.resolve()
+      },
+    }
+
+    return registerModules({
+      modules: [trespasser],
+      environment: {},
+      logger: silentLogger(),
+      services: createTestServices(),
+      email: { provider: 'log', from: TEST_EMAIL_FROM },
+    })
+  }
+
+  /**
+   * Each of these passed a compare of text against the reserved prefixes. The
+   * app applies a declaration after the `/v1` and `/mcp` routes and before
+   * `/healthz`. So `/*` answered for `/healthz`, and for each path under `/v1`
+   * or `/mcp` that no core route answers.
+   */
+  const NON_LITERAL_FIRST_SEGMENTS: readonly string[] = [
+    '/*',
+    '/:any',
+    '/:any/people',
+    '/:any/*',
+    '/:v{v1}/x',
+    '/:v?',
+    '/v1?',
+    '/v1*',
+    '/{v1}/x',
+    '/%76%31/x',
+  ]
+
+  describe.each(APP_DECLARATION_KINDS)('a declared %s', (kind) => {
+    it.each(NON_LITERAL_FIRST_SEGMENTS)(
+      'is refused at boot when its first segment is not literal: %s',
+      async (path) => {
+        await expect(bootDeclaring(kind, path)).rejects.toThrow(
+          `module "trespasser" declares ${kind} "${path}", which must start with a literal segment`,
+        )
+      },
+    )
+
+    it.each(['/', '//x', '//v1/x'])('is refused at boot when its first segment is empty: %s', async (path) => {
+      await expect(bootDeclaring(kind, path)).rejects.toThrow(
+        `module "trespasser" declares ${kind} "${path}", which must start with a literal segment`,
+      )
+    })
+
+    it.each([
+      ['/V1/x', '/v1'],
+      ['/V1', '/v1'],
+      ['/Mcp', '/mcp'],
+      ['/MCP/x', '/mcp'],
+      ['/HealthZ', '/healthz'],
+      ['/v1/x', '/v1'],
+      ['/mcp', '/mcp'],
+      ['/healthz/', '/healthz'],
+    ])('is refused at boot under a reserved name in any letter case: %s', async (path, reserved) => {
+      await expect(bootDeclaring(kind, path)).rejects.toThrow(
+        `module "trespasser" declares ${kind} "${path}" under "${reserved}", which is core's surface`,
+      )
+    })
+
+    /** Paths that core's modules, these suites and assemblies declare. A later segment may be a pattern. */
+    it.each([
+      '/oauth/authorize',
+      '/.well-known/oauth-authorization-server',
+      '/.well-known/oauth-protected-resource',
+      '/.well-known/oauth-protected-resource/mcp',
+      '/console/api/*',
+      '/console/api/ping',
+      '/consumer/sign-in',
+      '/test-identity/complete',
+      '/auth/:provider/start',
+      '/auth/:provider/callback',
+      '/operator/api/*',
+      '/operator/api/workspaces/:id',
+      '/integrations/oauth/:providerId/callback',
+      '/v1x/thing',
+      '/v1.5/thing',
+      '/healthz-deep',
+    ])('is accepted when its first segment is literal: %s', async (path) => {
+      await expect(bootDeclaring(kind, path)).resolves.toBeDefined()
+    })
+  })
 })
 
 describe('external sign-in', () => {
@@ -1265,6 +1366,180 @@ describe('module gate isolation', () => {
     })
 
     expect((await app.request('/v1/nested/deep')).status).toBe(403)
+  })
+
+  /** Boots one gated module whose only contribution is what `mount` puts on its router. */
+  const bootMounting = (id: string, mount: (router: Hono) => void): ReturnType<typeof registerModules> => {
+    const mounting: KelpieModule = {
+      id,
+      register(context) {
+        context.routes(mount)
+        return Promise.resolve()
+      },
+    }
+
+    return registerModules({
+      modules: [mounting],
+      environment: {},
+      logger: silentLogger(),
+      services: createTestServices(),
+      email: { provider: 'log', from: TEST_EMAIL_FROM },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+  }
+
+  /**
+   * Hono reads a verb call with no path string as "the path of the last
+   * call". The wrapper then passed the handler where the path goes, so Hono
+   * registered the handler first and the gate after it, and the route
+   * answered for a workspace that had the module off.
+   */
+  it('refuses a chained verb call that names no path at boot, naming the module', async () => {
+    await expect(
+      bootMounting('chained', (router) => {
+        router
+          .get('/chained/thing', (requestContext) => requestContext.json({ read: true }))
+          .post((requestContext) => requestContext.json({ written: true }))
+      }),
+    ).rejects.toThrow('module "chained" called router.post() without a path')
+  })
+
+  it.each([
+    ['get', (router: Hono): Hono => router.get((requestContext) => requestContext.json({}))],
+    ['post', (router: Hono): Hono => router.post((requestContext) => requestContext.json({}))],
+    ['put', (router: Hono): Hono => router.put((requestContext) => requestContext.json({}))],
+    ['patch', (router: Hono): Hono => router.patch((requestContext) => requestContext.json({}))],
+    ['delete', (router: Hono): Hono => router.delete((requestContext) => requestContext.json({}))],
+    ['options', (router: Hono): Hono => router.options((requestContext) => requestContext.json({}))],
+    ['all', (router: Hono): Hono => router.all((requestContext) => requestContext.json({}))],
+  ] as const)('refuses router.%s() with a handler and no path at boot', async (verb, call) => {
+    await expect(bootMounting('pathless', call)).rejects.toThrow(
+      `module "pathless" called router.${verb}() without a path`,
+    )
+  })
+
+  it('gates every call of a chain that names its path each time', async () => {
+    const chainedModule: KelpieModule = {
+      id: 'chained',
+      register(context) {
+        context.routes((router) => {
+          router
+            .get('/chained/thing', (requestContext) => requestContext.json({ read: true }))
+            .post('/chained/thing', (requestContext) => requestContext.json({ written: true }))
+        })
+        return Promise.resolve()
+      },
+    }
+
+    const { app } = await createTestApp({
+      modules: [chainedModule],
+      moduleConfig: { chained: false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    expect((await app.request('/v1/chained/thing')).status).toBe(403)
+    expect((await app.request('/v1/chained/thing', { method: 'POST' })).status).toBe(403)
+  })
+
+  /**
+   * Each of these matches a route of another module once Hono flattens the
+   * router onto `/v1`, so the gate of this module answered there.
+   */
+  const NON_LITERAL_ROUTE_PATHS: readonly string[] = [
+    '*',
+    '/*',
+    '/:any',
+    '/:any/*',
+    '/:any{.+}',
+    '/:any?',
+    '/:name{gated-b}/thing',
+    '/*/thing',
+    '//thing',
+    'gated*',
+  ]
+
+  it.each(NON_LITERAL_ROUTE_PATHS)(
+    'refuses a verb path that does not start with a literal segment at boot: %s',
+    async (path) => {
+      await expect(
+        bootMounting('spanning', (router) => {
+          router.get(path, (requestContext) => requestContext.json({}))
+        }),
+      ).rejects.toThrow(
+        `module "spanning" called router.get() with a path that does not start with a literal segment ("${path}")`,
+      )
+    },
+  )
+
+  it.each(NON_LITERAL_ROUTE_PATHS)(
+    'refuses a router.on path that does not start with a literal segment at boot: %s',
+    async (path) => {
+      await expect(
+        bootMounting('spanning', (router) => {
+          router.on('GET', ['/spanning/thing', path], (requestContext) => requestContext.json({}))
+        }),
+      ).rejects.toThrow(
+        `module "spanning" called router.on() with a path that does not start with a literal segment ("${path}")`,
+      )
+    },
+  )
+
+  it('refuses a router.on path that is not a string at boot, naming the module', async () => {
+    await expect(
+      bootMounting('pathless', (router) => {
+        // `on` has no form without a path, so a call that leaves the path out
+        // puts the first handler there. Hono's types refuse that call, which
+        // is why this one goes through `Reflect.apply`.
+        const handler = (): Response => new Response(null)
+
+        Reflect.apply(router.on, router, ['GET', handler, handler])
+      }),
+    ).rejects.toThrow('module "pathless" called router.on() with a path that is not a string')
+  })
+
+  it("serves a module's root route at /v1 and keeps its gate there", async () => {
+    const rootModule: KelpieModule = {
+      id: 'rooted',
+      register(context) {
+        context.routes((router) => {
+          router.get('/', (requestContext) => requestContext.json({ root: true }))
+        })
+        return Promise.resolve()
+      },
+    }
+
+    const { app } = await createTestApp({
+      modules: [rootModule, gatedBModule],
+      moduleConfig: { rooted: false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    expect((await app.request('/v1')).status).toBe(403)
+    expect((await app.request('/v1/gated-b/thing')).status).toBe(200)
+  })
+
+  it('gates every path of a router.on call', async () => {
+    const listedModule: KelpieModule = {
+      id: 'listed',
+      register(context) {
+        context.routes((router) => {
+          router.on(['GET', 'POST'], ['/listed/one', '/listed/two/:id'], (requestContext) =>
+            requestContext.json({ listed: true }),
+          )
+        })
+        return Promise.resolve()
+      },
+    }
+
+    const { app } = await createTestApp({
+      modules: [listedModule, gatedBModule],
+      moduleConfig: { listed: false },
+      resolveActor: () => Promise.resolve(workspaceKeyActor('ws_1')),
+    })
+
+    expect((await app.request('/v1/listed/one')).status).toBe(403)
+    expect((await app.request('/v1/listed/two/7', { method: 'POST' })).status).toBe(403)
+    expect((await app.request('/v1/gated-b/thing')).status).toBe(200)
   })
 
   it.each([

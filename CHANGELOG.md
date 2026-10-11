@@ -407,6 +407,29 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **A module path that skips the module gate, or that matches core's
+  paths, now stops the boot.** `@kelpie/server`. No core module used such a
+  path. **A module of your own that used one now fails at boot.** The error
+  names the module and the path. No migration.
+  - On the router from `context.routes`, each verb call must give its path.
+    `router.get('/things', list).post(create)` put the `post` handler ahead
+    of the `module.<id>` gate, so the route answered for a workspace that
+    had the module off. Write `.post('/things', create)`. A path for
+    `router.on` must be a string, or a list of strings.
+  - On that router, a path for `get`, `post`, `put`, `patch`, `delete`,
+    `options`, `all` or `on` must start with a segment of letters, digits,
+    `.`, `_`, `~` or `-`. A path such as `*`, `/*` or `/:name` matched the
+    routes of other modules, and the gate of the module ran for them. `/`
+    is still allowed. It is the one route at `/v1`.
+  - A path for `context.appRoute` or `context.appMiddleware` must start
+    with `/` and then a segment of the same characters. The check compared
+    the text of the path with `/v1`, `/mcp` and `/healthz`, so a pattern
+    such as `/*`, `/:name/x` or `/v1*` passed it. `/*` answered for
+    `/healthz`, and for each path under `/v1` and `/mcp` that no core route
+    answers. `/` alone is now refused. The compare with the three reserved
+    names now ignores letter case, so `/V1/x` is refused. A later segment
+    can still be a pattern (`/auth/:provider/callback`).
+  - See `docs/extending/writing-a-module.md`.
 - **An import no longer returns the text of a database error, checks the
   consent purpose of a job, and refuses a `__proto__` header.**
   `@kelpie/server`. No migration.
