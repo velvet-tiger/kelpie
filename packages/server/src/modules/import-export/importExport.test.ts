@@ -1329,6 +1329,39 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       }
     })
 
+    /**
+     * A record's name can be what a stranger typed into a public form. A
+     * spreadsheet would run this one, so the export writes an apostrophe in
+     * front of it, and the import removes the apostrophe again.
+     */
+    it('makes a name that is a formula safe for a spreadsheet, and reads it back as itself', async () => {
+      const name = '=HYPERLINK("https://example.test","Acme")'
+      const created = await client.send('POST', '/v1/companies', {
+        body: { name, domain: 'formula.example' },
+        cookie: acme.cookie,
+      })
+
+      expect(created.status).toBe(201)
+
+      const csv = await exportCsv('companies')
+
+      expect(csv).toContain(`"'=HYPERLINK(""https://example.test"",""Acme"")",formula.example`)
+      expect(csv).not.toMatch(/^"?=/mu)
+
+      // Matched on the name: a name that kept its apostrophe would match
+      // nothing and arrive as a second company.
+      const job = await importCsv(csv, { match_key: 'name', conflict_mode: 'update' })
+
+      expect(job).toMatchObject({ counts: { total: 1, create: 0, error: 0 } })
+
+      const rows = await database.db
+        .select()
+        .from(companies)
+        .where(eq(companies.workspaceId, acme.workspaceId))
+
+      expect(rows.map((row) => row.name)).toEqual([name])
+    })
+
     it('writes a deal’s stage as its slug and its value as the major unit', async () => {
       await importCsv(COMPANIES_CSV)
       await importCsv(

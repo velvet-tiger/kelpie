@@ -84,6 +84,49 @@ describe('parseCsv', () => {
     expect(() => parseCsv('Email,Name,Email\na,b,c\n')).toThrow(/"Email" appears more than once/u)
   })
 
+  /**
+   * The reverse of what `csvLine` writes in front of a formula. The cell is read
+   * as the file holds it, so the apostrophe must be its first character.
+   */
+  describe('a cell an export made safe for a spreadsheet', () => {
+    it.each([
+      ["'=1+1", '=1+1'],
+      ["'+1+1", '+1+1'],
+      ["'-cmd", '-cmd'],
+      ["'@SUM(A1)", '@SUM(A1)'],
+      ["''=1+1", "'=1+1"],
+      ["'''=1+1", "''=1+1"],
+    ])('reads %j as %j', (cell, value) => {
+      expect(parseCsv(`name\n${cell}\n`).rows[0]?.values.name).toBe(value)
+    })
+
+    it('removes the apostrophe from a quoted cell too', () => {
+      const parsed = parseCsv('name,note\n"\'=A1,B1","\'-said ""hello""\nthen left"\n')
+
+      expect(parsed.rows[0]?.values).toEqual({ name: '=A1,B1', note: '-said "hello"\nthen left' })
+    })
+
+    it.each(["'tis the season", "O'Brien", "'", "''", "'quoted'", "' =1+1", 'a\'=1+1'])(
+      'leaves the ordinary cell %j alone',
+      (cell) => {
+        expect(parseCsv(`name\n${cell}\n`).rows[0]?.values.name).toBe(cell)
+      },
+    )
+
+    it('reads the cell as the file holds it, so white space before the apostrophe keeps it', () => {
+      expect(parseCsv("name,note\nAcme, '=1+1\n").rows[0]?.values.note).toBe("'=1+1")
+    })
+
+    it('still trims the cell after it removes the apostrophe', () => {
+      expect(parseCsv("name\n'=1+1  \n").rows[0]?.values.name).toBe('=1+1')
+      expect(parseCsv("name\n'\t=1+1\n").rows[0]?.values.name).toBe('=1+1')
+    })
+
+    it('leaves a header alone, because a column map names a header as the file wrote it', () => {
+      expect(parseCsv("'=name,domain\nAcme,acme.com\n").headers).toEqual(["'=name", 'domain'])
+    })
+  })
+
   describe('limits', () => {
     const limits = { maxRows: 3, maxColumns: 4 }
 
@@ -149,5 +192,120 @@ describe('serialiseCsv', () => {
     const parsed = parseCsv(serialiseCsv(['name', 'tags'], rows))
 
     expect(parsed.rows.map((row) => [row.values.name, row.values.tags])).toEqual(rows)
+  })
+
+  /**
+   * A spreadsheet runs a cell that starts with one of these characters as a
+   * formula, and a formula can call a function or start a program. The
+   * apostrophe in front makes the cell text.
+   */
+  describe('a cell a spreadsheet would run as a formula', () => {
+    it.each([
+      ['=HYPERLINK("https://example.test","x")', '"\'=HYPERLINK(""https://example.test"",""x"")"'],
+      ['=1+1', "'=1+1"],
+      ['+1+1', "'+1+1"],
+      ['-2+3', "'-2+3"],
+      ['-cmd', "'-cmd"],
+      ['@SUM(A1)', "'@SUM(A1)"],
+      ['\t=1+1', "'\t=1+1"],
+      ['\r=1+1', '"\'\r=1+1"'],
+      ['+61 400 000 000|+61 2 9999 9999', "'+61 400 000 000|+61 2 9999 9999"],
+    ])('writes %j as %j', (value, cell) => {
+      expect(csvLine([value])).toBe(`${cell}\n`)
+    })
+
+    it.each(['+61 400 000 000', '+1 (555) 010-0199', '-12.5', '-1200', '+', '-'])(
+      'leaves %j alone, because a sign with no letter after it names nothing',
+      (value) => {
+        expect(csvLine([value])).toBe(`${value}\n`)
+      },
+    )
+
+    it('writes a second apostrophe in front of a cell that already starts with one', () => {
+      expect(csvLine(["'=1+1"])).toBe("''=1+1\n")
+      expect(csvLine(["'+61 400 000 000"])).toBe("''+61 400 000 000\n")
+    })
+
+    it('quotes the cell after the apostrophe goes in front', () => {
+      expect(csvLine(['=A1,B1', '-said "hello"\nthen left'])).toBe(
+        '"\'=A1,B1","\'-said ""hello""\nthen left"\n',
+      )
+    })
+
+    it.each(["'tis the season", "O'Brien", "'", 'a=b', 'ada@acme.com', '1+1', ' =1+1', '2026-10-11'])(
+      'leaves the ordinary cell %j alone',
+      (value) => {
+        expect(csvLine([value])).toBe(`${value}\n`)
+      },
+    )
+
+    it('makes every cell of a line safe, the header row included', () => {
+      expect(serialiseCsv(['name', '=header'], [['Acme', '@SUM(A1)']])).toBe(
+        "name,'=header\nAcme,'@SUM(A1)\n",
+      )
+    })
+  })
+
+  describe('round trip', () => {
+    const AWKWARD = [
+      '=1+1',
+      '+1+1',
+      '-2+3',
+      '-cmd',
+      '@SUM(A1)',
+      '=HYPERLINK("https://example.test","x")',
+      "=cmd|' /C calc'!A0",
+      '=A1,B1',
+      '-first line\nsecond line',
+      "'=1+1",
+      "''=1+1",
+      "'-cmd",
+      "'+61 400 000 000",
+      '+61 400 000 000',
+      '+61 400 000 000|+61 2 9999 9999',
+      '-12.5',
+      '+',
+      '-',
+      "'tis the season",
+      "O'Brien",
+      "'",
+      "''",
+      'Acme, Inc.',
+      'Harbour "H" Lane',
+      'a|b',
+      '',
+    ]
+
+    it.each(AWKWARD)('reads %j back as itself', (value) => {
+      const parsed = parseCsv(serialiseCsv(['name', 'value'], [['Acme', value]]))
+
+      expect(parsed.rows[0]?.values).toEqual({ name: 'Acme', value })
+    })
+
+    it('reads a whole file of them back, each under its own header', () => {
+      const headers = AWKWARD.map((_, index) => `c${String(index)}`)
+      const parsed = parseCsv(serialiseCsv(headers, [AWKWARD, AWKWARD]))
+
+      expect(parsed.rows.map((row) => headers.map((header) => row.values[header]))).toEqual([
+        AWKWARD,
+        AWKWARD,
+      ])
+    })
+
+    /**
+     * A cell is trimmed when it is read, as it was before an export wrote the
+     * apostrophe. So a value that starts with a tab or a carriage return reads
+     * back without it, and the apostrophe does not change that.
+     */
+    it.each([
+      ['\t=1+1', '=1+1'],
+      ['\r=1+1', '=1+1'],
+      ['\tAcme', 'Acme'],
+      ['=1+1  ', '=1+1'],
+    ])('reads %j back trimmed, as %j', (value, read) => {
+      const parsed = parseCsv(serialiseCsv(['name', 'value'], [['Acme', value]]))
+
+      expect(parsed.rows[0]?.values.value).toBe(read)
+    })
   })
 })

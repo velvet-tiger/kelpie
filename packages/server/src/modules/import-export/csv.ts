@@ -12,6 +12,9 @@ import { MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS } from '@kelpie/schemas'
  * occurrence, because a `column_map` names a header and there would be no way to
  * say which of the two it meant.
  *
+ * A written cell that a spreadsheet would run as a formula gets an apostrophe
+ * in front, and a read cell loses it again. `neutraliseFormula` has the rule.
+ *
  * Pure: no I/O, no clock. The whole of it is unit-tested.
  */
 
@@ -33,7 +36,10 @@ export function fileDigest(csv: string): string {
 export interface CsvRow {
   /** The line in the file, counting the header as line 1. */
   readonly number: number
-  /** Source header → cell. Cells are trimmed; a short row's missing cells are `''`. */
+  /**
+   * Source header → cell. Cells are trimmed, after the apostrophe an export put
+   * in front of a formula is removed; a short row's missing cells are `''`.
+   */
   readonly values: Readonly<Record<string, string>>
 }
 
@@ -64,6 +70,47 @@ interface PhysicalRow {
   /** The record's place in the file, counting the header as 1. */
   readonly number: number
   readonly cells: readonly string[]
+}
+
+/**
+ * A cell a spreadsheet reads as a formula: `=`, `+`, `-`, `@`, a tab or a
+ * carriage return first. Apostrophes before that character count too, so a
+ * value that already starts `'=` gets one more and reads back as itself.
+ */
+const FORMULA_START = /^'*[=+\-@\t\r]/u
+
+/**
+ * A sign, then digits and the punctuation of a phone number or a negative
+ * number. With no letter it cannot name a function, a cell or a program, so
+ * `+61 400 000 000` and `-12.5` stay as they are. `+1+1` has a second `+` and
+ * does not match.
+ */
+const SIGNED_NUMBER = /^[+-][0-9 ().-]*$/u
+
+/** A cell `neutraliseFormula` wrote: at least one apostrophe, then a formula character. */
+const NEUTRALISED_FORMULA = /^'+[=+\-@\t\r]/u
+
+/**
+ * Puts an apostrophe in front of a cell that a spreadsheet would run.
+ *
+ * A spreadsheet evaluates a CSV cell that starts with a formula character, and
+ * a formula can fetch a URL or start a program. A record's name can be what a
+ * stranger typed into a public form, so an export cannot trust it. With an
+ * apostrophe first, the spreadsheet reads the cell as text.
+ */
+function neutraliseFormula(value: string): string {
+  return FORMULA_START.test(value) && !SIGNED_NUMBER.test(value) ? `'${value}` : value
+}
+
+/**
+ * The reverse of `neutraliseFormula`: removes the one apostrophe it added.
+ *
+ * It looks at the cell as the file holds it, before any trim, because that is
+ * where an export puts the apostrophe. A cell with white space in front of the
+ * apostrophe was not written by `neutraliseFormula` and keeps it.
+ */
+function restoreFormula(cell: string): string {
+  return NEUTRALISED_FORMULA.test(cell) ? cell.slice(1) : cell
 }
 
 function isBlank(cells: readonly string[]): boolean {
@@ -184,6 +231,9 @@ export function parseCsv(text: string, limits: CsvLimits = DEFAULT_LIMITS): Pars
     throw new CsvFormatError(`A file may have at most ${String(limits.maxColumns)} columns`)
   }
 
+  // Not passed through `restoreFormula`. A `column_map` names a header as the
+  // file wrote it, and no header an export writes starts with a formula
+  // character: they are column keys and custom field keys.
   const headers = headerRow.cells.map((header) => header.trim())
   const blank = headers.findIndex((header) => header.length === 0)
 
@@ -205,7 +255,7 @@ export function parseCsv(text: string, limits: CsvLimits = DEFAULT_LIMITS): Pars
     const values: Record<string, string> = {}
 
     headers.forEach((header, column) => {
-      values[header] = (cells[column] ?? '').trim()
+      values[header] = restoreFormula(cells[column] ?? '').trim()
     })
 
     return { number, values }
@@ -214,8 +264,14 @@ export function parseCsv(text: string, limits: CsvLimits = DEFAULT_LIMITS): Pars
   return { headers, rows }
 }
 
+/**
+ * One cell as it goes into the file. The formula rule is applied here, before
+ * the quoting, so that no caller of `csvLine` can leave it out.
+ */
 function escapeCell(value: string): string {
-  return /["\n\r,]/u.test(value) ? `"${value.replace(/"/gu, '""')}"` : value
+  const safe = neutraliseFormula(value)
+
+  return /["\n\r,]/u.test(safe) ? `"${safe.replace(/"/gu, '""')}"` : safe
 }
 
 /** One CSV line, terminated. Rows are written a line at a time so an export can stream. */

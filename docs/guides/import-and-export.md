@@ -52,6 +52,16 @@ A company that a people file creates for a position is not in the dry run's coun
 
 Each object exports as CSV with Kelpie's own headers, and there is a header-only template per object for building files by hand. A Kelpie export re-imports into any Kelpie with no mapping at all — stages export as slugs, money in major units — which makes export the workspace's portable backup for spreadsheets.
 
+### Cells that look like formulas
+
+A spreadsheet can run a cell as a formula when the cell starts with `=`, `+`, `-`, `@`, a tab or a carriage return. A record can hold such text. For example, a stranger can type it into a public form as a name.
+
+An export writes one apostrophe (`'`) in front of such a cell, so the spreadsheet reads it as text. A record that holds `=SUM(A1)` is `'=SUM(A1)` in the file. A value that already starts with apostrophes and then one of those characters gets one more. A template follows the same rule.
+
+A phone number and a negative number stay as they are. The rule leaves a cell alone when it starts with `+` or `-` and then has only digits, spaces, `.`, `(`, `)` and `-`. A cell with two phone numbers has the `|` separator, so it gets the apostrophe.
+
+An import removes that one apostrophe again, so an export reads back as the values the records hold. The same applies to a file of your own: the cell `'=A1` imports as `=A1`. To import a value that starts with `'=`, write `''=`. The apostrophe must be the first character of the cell. A cell such as `'tis` or `O'Brien` does not change, and header cells do not change.
+
 ## Sample data
 
 The same page carries the sample-data installer: one click fills an empty workspace with a working set of companies, people, deals, and the rest, for exploring the product. It refuses once the workspace holds real companies or people, so it can never double up or mix into live data.

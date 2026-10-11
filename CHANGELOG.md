@@ -407,6 +407,29 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **A CSV export no longer writes a cell that a spreadsheet runs as a
+  formula.** A record value such as `=HYPERLINK(...)` went into the file as
+  it was, and a spreadsheet that opened the file ran it. A stranger can put
+  such a value in a record through a public form. No migration.
+  - An export and a template now write one apostrophe (`'`) in front of a
+    cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return.
+    Apostrophes before that character count as part of the start, so a
+    value that starts `'=` gets one more.
+  - A cell that starts with `+` or `-` and then has only digits, spaces,
+    `.`, `(`, `)` and `-` stays as it is. A phone number
+    (`+61 400 000 000`) and a negative number (`-12.5`) do not change. A
+    cell with two phone numbers has the `|` separator, so it gets the
+    apostrophe.
+  - An import removes one apostrophe from a data cell that starts with one
+    or more apostrophes and then one of those characters, so an export
+    reads back as the stored values. It reads the cell as the file holds
+    it, and trims the cell afterwards as before. **One import result
+    changes:** a cell of your own file that is `'=1+1` now imports as
+    `=1+1`. Write `''=1+1` to keep one apostrophe. A cell such as `'tis` or
+    `O'Brien` does not change. Header cells do not change.
+  - The `export_csv` and `export_template_csv` MCP tools return the same
+    text. A program that parses an export must remove the apostrophe by
+    the same rule. See `docs/guides/import-and-export.md`.
 - **A rotation of `SECRET_ENCRYPTION_KEY` no longer leaves or returns a
   secret under the previous key.** The reseal read every sealed value, and
   then wrote each one again. A webhook secret rotated, an agent auth header

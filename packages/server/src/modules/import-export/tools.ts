@@ -56,7 +56,10 @@ const csvArg = z
   .string()
   .min(1)
   .max(MAX_IMPORT_FILE_BYTES)
-  .describe('The CSV file, as text. UTF-8, with a header row.')
+  .describe(
+    'The CSV file, as text. UTF-8, with a header row. One leading apostrophe is removed from a ' +
+      'cell that starts with apostrophes and then =, +, -, @, a tab or a carriage return.',
+  )
 
 const previewArgs = z.strictObject({
   source: z.enum(IMPORT_SOURCES).describe('Which export the file came out of.'),
@@ -117,7 +120,10 @@ export function registerImportExportTools(mcp: McpToolRegistry, service: ImportE
     name: 'export_csv',
     description:
       'Export every record of one object as CSV text. Refuses an export too large to sit in ' +
-      'a tool result, and names the download to use instead. Mirrors GET /v1/export/{object}.csv.',
+      'a tool result, and names the download to use instead. A cell that a spreadsheet would ' +
+      'run as a formula (it starts with =, +, -, @, a tab or a carriage return) has one ' +
+      'apostrophe in front that is not part of the stored value. Mirrors ' +
+      'GET /v1/export/{object}.csv.',
     scope: 'import_export:read',
     inputSchema: z.strictObject({ object: exportObjectArg }),
     invoke: async ({ object }, actor) => ({
