@@ -2099,6 +2099,30 @@ describe.skipIf(connectionString === undefined)('ai', () => {
     })
 
     /**
+     * A key for one provider means nothing to another. The deployment has a
+     * key for the provider the workspace moves to, so the save is usable with
+     * no key in the request, and the old provider's key must not stay beside
+     * the new provider's name.
+     */
+    it('removes the key when the request changes provider and sends no key', async () => {
+      const owner = await enabledWorkspace(h, 'switch-no-key@example.com', {
+        provider: 'anthropic',
+        api_key: 'sk-ant-old-provider',
+      })
+
+      const response = await h.client.send('POST', '/v1/ai/settings', {
+        cookie: owner.cookie,
+        body: { provider: 'openai' },
+      })
+      const [row] = await h.app.services.db.select().from(aiSettings).where(eq(aiSettings.workspaceId, owner.workspaceId))
+
+      expect(response.status).toBe(200)
+      expect(readRecord(await response.json())).toMatchObject({ provider: 'openai', key_source: 'environment' })
+      expect(row?.provider).toBe('openai')
+      expect(row?.apiKeyEncrypted).toBeNull()
+    })
+
+    /**
      * One save reads the row, decides from it, and writes, under a lock that
      * every save and every disable of the workspace takes. Each test plays
      * the other admin: the suite takes the lock, makes that admin's change,

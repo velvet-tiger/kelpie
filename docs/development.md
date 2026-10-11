@@ -192,7 +192,7 @@ the database is already running.
 | `npm run db:generate` | Writes a new migration from the schema barrel. See [Database](#database) |
 | `npm run db:generate:ai --workspace packages/server` | Writes a new migration for the optional `ai` module into `packages/server/module-migrations/ai` |
 | `npm run db:migrate` | Applies pending migrations once, then exits. The release step for multi-instance deploys started with `--no-migrate` |
-| `npm run reseal` | Rewrites every sealed secret under the current `SECRET_ENCRYPTION_KEY`. The step after a key rotation; idempotent. It never writes over a secret that changed during the run, and it reads every value again until a round finds each one under the current key. Exits 0 when that round is reached, 1 on a row it cannot open, and 2 when secrets were still changing after 5 rounds |
+| `npm run reseal` | Rewrites every sealed secret under the current `SECRET_ENCRYPTION_KEY`. The step after a key rotation; idempotent. It never writes over a secret that changed during the run, and it reads every value again until a round finds each one under the current key. Exits 0 when that round is reached, 1 on a row it cannot open, 2 when secrets were still changing after 5 rounds, and 3 when a pass reports totals that do not agree with its columns |
 
 ### Environment file precedence
 

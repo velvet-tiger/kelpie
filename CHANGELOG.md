@@ -424,10 +424,12 @@ While the major version is `0`, a minor bump may break the API.
     code `0` means that the last round found every value under the current
     key, and only then does the report say that you can remove
     `SECRET_ENCRYPTION_KEY_PREVIOUS`. Exit code `2` is new: after 5 rounds a
-    round still re-sealed or skipped a value. The report starts with
+    round still re-sealed or skipped a value. The report prints its column
+    lines first. Then the summary, on the error output, starts with
     `Not finished`, and the previous key must stay. Exit code `1` is still
     a row that no key opens. The procedure in
-    `docs/self-hosting/production.md` is still one command.
+    `docs/self-hosting/production.md` is still one command. It now says to
+    wait until every instance runs with the new key before the reseal.
   - `POST /v1/webhooks/{id}/rotate_secret` with `overlap` moves the outgoing
     secret in the same `UPDATE` statement. It does not write a copy that
     it read earlier. Two rotations at the same time now behave as one
@@ -448,7 +450,10 @@ While the major version is `0`, a minor bump may break the API.
     without it. `runReseal` now calls each pass one time for each round,
     up to 5 times, so a pass must report `resealed: 0` when it has nothing
     left to do. Make each write of your pass apply only to the value it
-    read, and count the others in `changed`.
+    read, and count the others in `changed`. The totals of a pass must
+    agree with the sum of its columns for `resealed`, `unreadable` and
+    `changed`. The run stops at a pass where they do not, with the new exit
+    code `3`.
 - **The webhook guide says how a receiver refuses a delivery that was sent
   again.** The signature covers the body only, and the guide named the
   `Kelpie-Delivery` header as the dedupe key. A person with one signed

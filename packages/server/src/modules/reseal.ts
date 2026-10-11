@@ -290,6 +290,12 @@ export const RESEAL_EXIT_UNREADABLE = 1
  */
 export const RESEAL_EXIT_UNSETTLED = 2
 
+/**
+ * A pass reported totals that its own columns do not add up to. Nothing it
+ * said can be relied on, so the run stops and says so.
+ */
+export const RESEAL_EXIT_INCONSISTENT = 3
+
 /** One column's figures over every round of a run. */
 interface ColumnTotals {
   /** From the last round: how many values the column holds now. */
@@ -310,6 +316,52 @@ interface ResealRun {
   /** What the last round wrote and skipped. Both zero is what `settled` means. */
   readonly lastRound: { readonly resealed: number; readonly changed: number }
   readonly settled: boolean
+  /** The pass the run stopped at because its totals and its columns disagree. */
+  readonly refused?: RefusedPass
+}
+
+/** A pass whose outcome contradicts itself, named so its author can find it. */
+interface RefusedPass {
+  /** Its place in the run, counted from 1. Core's own pass is the first. */
+  readonly position: number
+  readonly labels: readonly string[]
+  /** Which figures disagree, for the report. */
+  readonly detail: string
+}
+
+/**
+ * How a pass's totals disagree with the sum of its columns, or undefined when
+ * they agree.
+ *
+ * The report and the exit code are built from the columns. A pass from
+ * another package that counted an unreadable row in its total and named it in
+ * no column would otherwise end the run with "every value is under the
+ * current key". The run cannot tell which of the two figures is the true one,
+ * so it trusts neither.
+ *
+ * The three figures checked are the ones that decide the result. `changed`
+ * is checked only when the pass gives a total for it, because the total is
+ * optional.
+ */
+function disagreementIn(outcome: ResealOutcome): string | undefined {
+  const fromColumns = {
+    resealed: outcome.columns.reduce((total, column) => total + column.resealed, 0),
+    unreadable: outcome.columns.reduce((total, column) => total + column.unreadable.length, 0),
+    changed: outcome.columns.reduce((total, column) => total + countChanged(column), 0),
+  }
+  const stated = {
+    resealed: outcome.resealed,
+    unreadable: outcome.unreadable,
+    changed: outcome.changed ?? fromColumns.changed,
+  }
+  const differing = (['resealed', 'unreadable', 'changed'] as const)
+    .filter((figure) => stated[figure] !== fromColumns[figure])
+    .map(
+      (figure) =>
+        `${figure} is ${String(stated[figure])} in its totals and ${String(fromColumns[figure])} in its columns`,
+    )
+
+  return differing.length === 0 ? undefined : differing.join(', ')
 }
 
 /**
@@ -334,11 +386,22 @@ async function resealUntilSettled(
     // contend for the pool at once. Each pass is idempotent; a run that
     // dies halfway leaves the finished rows current and re-running
     // completes the rest.
-    for (const pass of passes) {
+    for (const [index, pass] of passes.entries()) {
       const outcome = await pass(db, cipher)
+      const detail = disagreementIn(outcome)
 
-      // From the columns and not from the outcome's own totals, so a pass
-      // that fills in one and not the other is still counted.
+      if (detail !== undefined) {
+        return {
+          totals,
+          rounds,
+          lastRound,
+          settled: false,
+          refused: { position: index + 1, labels: outcome.columns.map((column) => column.label), detail },
+        }
+      }
+
+      // Every figure below comes from the columns. The totals of a pass
+      // that reaches this line agree with them, so nothing is lost.
       for (const column of outcome.columns) {
         const before = totals.get(column.label)
         const changedInColumn = countChanged(column)
@@ -376,6 +439,8 @@ async function resealUntilSettled(
  *   `RESEAL_EXIT_UNREADABLE` (1) when a value opened under neither key.
  *   `RESEAL_EXIT_UNSETTLED` (2) when `MAX_RESEAL_ROUNDS` rounds were not
  *   enough: the previous key must stay, and the run must be repeated.
+ *   `RESEAL_EXIT_INCONSISTENT` (3) when a pass reported totals that its own
+ *   columns do not add up to: the run stops at that pass.
  *
  * The rotation procedure, in full:
  *
@@ -435,7 +500,11 @@ export async function runReseal(options: RunResealOptions): Promise<number> {
   const passes: readonly ResealPass[] = [resealStoredSecrets, ...(options.extraPasses ?? [])]
 
   try {
-    const { totals, rounds, lastRound, settled } = await resealUntilSettled(passes, database.db, cipher)
+    const { totals, rounds, lastRound, settled, refused } = await resealUntilSettled(
+      passes,
+      database.db,
+      cipher,
+    )
 
     const columns = [...totals.entries()]
     const examined = columns.reduce((total, [, column]) => total + column.examined, 0)
@@ -453,6 +522,16 @@ export async function runReseal(options: RunResealOptions): Promise<number> {
       for (const id of column.unreadable) {
         reportFatal(`  unreadable: ${id}`)
       }
+    }
+
+    if (refused !== undefined) {
+      const named = refused.labels.length === 0 ? 'it names no column' : `columns: ${refused.labels.join(', ')}`
+
+      reportFatal(
+        `\nNot finished. Reseal pass ${String(refused.position)} (${named}) reported totals that do not agree with its columns: ${refused.detail}. Its result cannot be relied on. Do not remove SECRET_ENCRYPTION_KEY_PREVIOUS. Correct the pass, then run this again.`,
+      )
+
+      return RESEAL_EXIT_INCONSISTENT
     }
 
     if (!settled) {

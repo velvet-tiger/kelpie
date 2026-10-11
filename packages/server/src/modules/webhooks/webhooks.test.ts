@@ -315,6 +315,46 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       expect((await client.send('DELETE', `/v1/webhooks/${id}`, { cookie: other.cookie })).status).toBe(404)
       expect(readList(await (await client.send('GET', '/v1/webhooks', { cookie: other.cookie })).json())).toEqual([])
     })
+
+    /**
+     * A rotation reads nothing before it writes, so the workspace in the
+     * statement's own condition is the only thing between an admin of one
+     * workspace and the signing secret of another.
+     */
+    it('refuses to rotate the secret of a webhook in another workspace, and changes nothing', async () => {
+      const id = readString(await createWebhook(), 'id')
+      const other = await client.owner('mallory@example.com')
+
+      async function storedSecret(): Promise<Record<string, unknown> | undefined> {
+        const [row] = await database.db
+          .select({
+            secretEncrypted: webhooks.secretEncrypted,
+            secretPrefix: webhooks.secretPrefix,
+            previousSecretEncrypted: webhooks.previousSecretEncrypted,
+            previousSecretExpiresAt: webhooks.previousSecretExpiresAt,
+            updatedAt: webhooks.updatedAt,
+          })
+          .from(webhooks)
+          .where(eq(webhooks.id, id))
+
+        return row
+      }
+
+      const before = await storedSecret()
+
+      for (const body of [undefined, { overlap: true }]) {
+        const response = await client.send('POST', `/v1/webhooks/${id}/rotate_secret`, {
+          cookie: other.cookie,
+          ...(body === undefined ? {} : { body }),
+        })
+
+        expect(response.status).toBe(404)
+        expect(await response.text()).not.toContain('whsec_')
+      }
+
+      expect(before?.previousSecretEncrypted).toBeNull()
+      expect(await storedSecret()).toEqual(before)
+    })
   })
 
   describe('delivery', () => {
@@ -835,7 +875,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       expect(response.status).toBe(403)
     })
 
-    it('404s for a webhook in another workspace', async () => {
+    it('404s for a webhook that does not exist', async () => {
       const response = await rotate('wh_01JZZZZZZZZZZZZZZZZZZZZZZZ')
 
       expect(response.status).toBe(404)
@@ -1265,12 +1305,20 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
           requests,
           logLines,
           async finish() {
+            // Every held request goes in each poll. A refused delivery sends
+            // four requests one after another, and one release for each poll
+            // would spend most of the default timeout on waiting alone.
             await expect
-              .poll(() => {
-                releases.shift()?.()
+              .poll(
+                () => {
+                  for (const release of releases.splice(0)) {
+                    release()
+                  }
 
-                return settled
-              })
+                  return settled
+                },
+                { timeout: 5_000 },
+              )
               .toBe(true)
             await delivering
           },

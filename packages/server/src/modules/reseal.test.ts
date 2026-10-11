@@ -18,6 +18,7 @@ import { agentRegistrations } from './agent-tasks/schema.ts'
 import {
   MAX_RESEAL_ROUNDS,
   RESEALED_COLUMNS,
+  RESEAL_EXIT_INCONSISTENT,
   RESEAL_EXIT_SETTLED,
   RESEAL_EXIT_UNREADABLE,
   RESEAL_EXIT_UNSETTLED,
@@ -922,6 +923,72 @@ describe.skipIf(connectionString === undefined)('runReseal', () => {
       expect(message).toContain(`Not finished. After ${String(MAX_RESEAL_ROUNDS)} rounds`)
       expect(message).toContain('Do not remove SECRET_ENCRYPTION_KEY_PREVIOUS')
       expect(message).toContain('Then run this again.')
+      expect(sinks.out.join('\n')).not.toContain('You can now remove')
+      expect(sinks.out.join('\n')).not.toContain('Nothing to do')
+    })
+
+    /**
+     * The report and the exit code are built from a pass's columns. A pass
+     * from another package whose totals say more than its columns must not
+     * end the run with "the previous key can go".
+     */
+    it.each([
+      {
+        name: 'an unreadable value that no column names',
+        outcome: { columns: [], examined: 1, resealed: 0, unreadable: 1 },
+        named: 'it names no column',
+        detail: 'unreadable is 1 in its totals and 0 in its columns',
+      },
+      {
+        name: 'a re-sealed value that no column counts',
+        outcome: {
+          columns: [{ label: 'other_module.col', examined: 2, resealed: 0, unreadable: [] }],
+          examined: 2,
+          resealed: 1,
+          unreadable: 0,
+        },
+        named: 'columns: other_module.col',
+        detail: 'resealed is 1 in its totals and 0 in its columns',
+      },
+      {
+        name: 'a changed value that no column counts',
+        outcome: {
+          columns: [{ label: 'other_module.col', examined: 2, resealed: 0, unreadable: [] }],
+          examined: 2,
+          resealed: 0,
+          unreadable: 0,
+          changed: 1,
+        },
+        named: 'columns: other_module.col',
+        detail: 'changed is 1 in its totals and 0 in its columns',
+      },
+    ])('stops at a pass whose totals say $name, and exits non-zero', async ({ outcome, named, detail }) => {
+      let calls = 0
+      const contradictory: ResealPass = (): Promise<ResealOutcome> => {
+        calls += 1
+
+        return Promise.resolve(outcome)
+      }
+      const sinks = makeSinks()
+
+      const exit = await runReseal({
+        config: buildConfig({ secretEncryption: bothKeys }),
+        logger: silentLogger,
+        extraPasses: [contradictory],
+        ...sinks,
+      })
+
+      expect(exit).toBe(RESEAL_EXIT_INCONSISTENT)
+      expect(exit).not.toBe(0)
+      // The run stops at the pass. It does not ask it again.
+      expect(calls).toBe(1)
+
+      const message = sinks.err.join('\n')
+
+      // Core's own pass is the first, so the extra one is the second.
+      expect(message).toContain(`Reseal pass 2 (${named})`)
+      expect(message).toContain(detail)
+      expect(message).toContain('Do not remove SECRET_ENCRYPTION_KEY_PREVIOUS')
       expect(sinks.out.join('\n')).not.toContain('You can now remove')
       expect(sinks.out.join('\n')).not.toContain('Nothing to do')
     })

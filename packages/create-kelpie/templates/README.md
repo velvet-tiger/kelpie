@@ -107,11 +107,15 @@ unreadable, so rotate rather than replace:
 1. Move the current key to `SECRET_ENCRYPTION_KEY_PREVIOUS` and put a new one in
    `SECRET_ENCRYPTION_KEY`.
 2. Deploy. New secrets seal under the new key; existing ones still read with the
-   previous one.
+   previous one. Wait until every running instance has the new configuration
+   before the next step. An instance that still has the old key as its current
+   key seals new values under it, and a value that it writes after the reseal
+   has finished cannot be opened after you remove that key.
 3. Run `npm run reseal`. It rewrites every row still sealed under the old key.
    Safe to run more than once. Continue only when it exits with 0: exit code 1
-   means a row that no key opens, and 2 means that secrets were still changing
-   when it stopped.
+   means a row that no key opens, 2 means that secrets were still changing
+   when it stopped, and 3 means that a reseal pass of a module that you added
+   reported figures that do not agree.
 4. Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` and deploy again.
 
 More detail, including backups and what is sealed under the key:
