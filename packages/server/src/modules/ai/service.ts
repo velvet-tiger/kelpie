@@ -105,6 +105,7 @@ export interface AiSettingsView {
   readonly provider: AiProvider | null
   readonly model: string
   readonly keySource: AiKeySource | null
+  /** Null for an actor below admin, whatever key is stored. */
   readonly keyHint: string | null
   readonly monthlyLimit: number | null
   readonly runsThisMonth: number
@@ -220,7 +221,10 @@ export interface AiService {
   enable(actor: Actor, changes: AiSettingsChanges): Promise<AiSettingsView>
   /** Disables the module and forgets any stored key; run history is kept. */
   disable(actor: Actor): Promise<void>
-  /** What the admin AI page reads. */
+  /**
+   * What the admin AI page reads. Any member may call it, because the Run
+   * menu and the intake panel need `configured`; only an admin gets `keyHint`.
+   */
   view(actor: Actor): Promise<AiSettingsView>
   listRuns(actor: Actor, query: ListQueryParameters): Promise<Page<AiRunView>>
   getRun(actor: Actor, id: string): Promise<AiRunView>
@@ -251,8 +255,13 @@ function requireWorkspace(actor: Actor): string {
   return workspaceId
 }
 
+/** The role is the actor's own, whatever kind of credential carries it. */
+function isAdmin(actor: Actor): boolean {
+  return actor.role !== null && roleAllows(actor.role, 'admin')
+}
+
 function requireAdmin(actor: Actor): void {
-  if (actor.role === null || !roleAllows(actor.role, 'admin')) {
+  if (!isAdmin(actor)) {
     throw new AppError('forbidden', 'This action needs the admin role')
   }
 }
@@ -293,7 +302,13 @@ function prospectiveRow(
 }
 
 export function createAiService(dependencies: AiServiceDependencies): AiService {
-  async function viewFor(workspaceId: string): Promise<AiSettingsView> {
+  /**
+   * The settings as this actor may read them. The key hint is four characters
+   * of a provider secret, and only the page that manages the key shows it, so
+   * a member gets none. The actor is a parameter so that no caller can build
+   * the view without the check.
+   */
+  async function viewFor(actor: Actor, workspaceId: string): Promise<AiSettingsView> {
     const settings = await findSettings(dependencies.db, workspaceId)
     const credentials = dependencies.credentials.forRow(settings)
     const monthlyLimit = await limitFor(dependencies.entitlements, workspaceId, AI_RUNS_LIMIT.name)
@@ -311,7 +326,7 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       provider: credentials.provider,
       model: credentials.model,
       keySource: credentials.keySource,
-      keyHint: credentials.keySource === 'workspace' ? keyHint(credentials.apiKey) : null,
+      keyHint: isAdmin(actor) && credentials.keySource === 'workspace' ? keyHint(credentials.apiKey) : null,
       monthlyLimit,
       runsThisMonth,
       webSearch: settings?.webSearch ?? true,
@@ -437,7 +452,7 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
         keySource: credentials.keySource,
       })
 
-      return viewFor(workspaceId)
+      return viewFor(actor, workspaceId)
     },
 
     async disable(actor) {
@@ -455,7 +470,7 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
     async view(actor) {
       const workspaceId = requireWorkspace(actor)
 
-      return viewFor(workspaceId)
+      return viewFor(actor, workspaceId)
     },
 
     async listRuns(actor, query) {

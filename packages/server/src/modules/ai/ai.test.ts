@@ -1675,6 +1675,101 @@ describe.skipIf(connectionString === undefined)('ai', () => {
       expect((await h.client.send('GET', '/v1/ai/runs/run_none', { cookie: member.cookie })).status).toBe(403)
     })
 
+    /**
+     * Invites `email` to the owner's workspace with `role`, and accepts as a
+     * new account.
+     *
+     * @returns That account's session cookie.
+     */
+    async function join(
+      owner: { readonly cookie: string; readonly workspaceId: string },
+      email: string,
+      role: 'admin' | 'member',
+    ): Promise<string> {
+      const cookie = await h.client.signUp(email)
+      const invited = await h.client.send('POST', `/v1/workspaces/${owner.workspaceId}/invites`, {
+        body: { email, role },
+        cookie: owner.cookie,
+      })
+      expect(invited.status).toBe(201)
+
+      // The invitation email is a job, and this harness runs a real worker.
+      const invitation = await until(() =>
+        Promise.resolve(
+          h.app.services.sentEmails.find(
+            (message) => message.to === email && /invited you to .+ on Kelpie$/u.test(message.subject),
+          ),
+        ),
+      )
+      const token = /token=([^\s]+)/u.exec(invitation.body)?.[1] ?? ''
+      expect((await h.client.send('POST', '/v1/invites/accept', { body: { token }, cookie })).status).toBeLessThan(300)
+
+      return cookie
+    }
+
+    /** `GET /v1/ai/settings` as the caller, as the text of the body, so a test can search all of it. */
+    async function settingsText(credential: { readonly cookie?: string; readonly bearer?: string }): Promise<string> {
+      const response = await h.client.send('GET', '/v1/ai/settings', credential)
+      expect(response.status).toBe(200)
+
+      return response.text()
+    }
+
+    it('gives the key hint to the owner and to an admin, and not to a member', async () => {
+      const owner = await enabledWorkspace(h, 'hint-owner@example.com', {
+        provider: 'anthropic',
+        api_key: 'sk-ant-workspace-key-WXYZ',
+      })
+      const adminCookie = await join(owner, 'hint-admin@example.com', 'admin')
+      const memberCookie = await join(owner, 'hint-member@example.com', 'member')
+
+      expect(JSON.parse(await settingsText({ cookie: owner.cookie }))).toMatchObject({ key_hint: 'WXYZ' })
+      expect(JSON.parse(await settingsText({ cookie: adminCookie }))).toMatchObject({ key_hint: 'WXYZ' })
+
+      // A member still reads what the Run menu and the intake panel need.
+      const memberView = await settingsText({ cookie: memberCookie })
+      expect(JSON.parse(memberView)).toMatchObject({
+        configured: true,
+        enabled: true,
+        provider: 'anthropic',
+        key_source: 'workspace',
+        key_hint: null,
+      })
+      expect(memberView).not.toContain('WXYZ')
+    })
+
+    it('decides the hint from the role behind an API key, whatever the kind of credential', async () => {
+      const owner = await enabledWorkspace(h, 'key-owner@example.com', {
+        provider: 'anthropic',
+        api_key: 'sk-ant-workspace-key-WXYZ',
+      })
+      const adminCookie = await join(owner, 'key-admin@example.com', 'admin')
+      const minted = await h.client.send('POST', '/v1/api-keys', {
+        body: { name: 'personal key', kind: 'personal', full_access: true },
+        cookie: adminCookie,
+      })
+      expect(minted.status).toBe(201)
+      const bearer = readString(await minted.json(), 'secret')
+
+      expect(JSON.parse(await settingsText({ bearer }))).toMatchObject({ key_hint: 'WXYZ' })
+
+      // A personal key acts with its user's role, so it loses the hint when the user does.
+      const members = readList(
+        await (await h.client.send('GET', `/v1/workspaces/${owner.workspaceId}/members`, { cookie: owner.cookie })).json(),
+      )
+      const admin = members.find((member) => member.email === 'key-admin@example.com')
+      const demoted = await h.client.send(
+        'PATCH',
+        `/v1/workspaces/${owner.workspaceId}/members/${readString(admin, 'id')}`,
+        { body: { role: 'member' }, cookie: owner.cookie },
+      )
+      expect(demoted.status).toBe(200)
+
+      const afterDemotion = await settingsText({ bearer })
+      expect(JSON.parse(afterDemotion)).toMatchObject({ key_source: 'workspace', key_hint: null })
+      expect(afterDemotion).not.toContain('WXYZ')
+    })
+
     it('forgets the key on disable', async () => {
       const { cookie, workspaceId } = await enabledWorkspace(h, 'forget@example.com', {
         provider: 'openai',

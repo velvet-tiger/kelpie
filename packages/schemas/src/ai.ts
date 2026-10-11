@@ -82,7 +82,10 @@ export interface AiSettings {
   readonly provider: AiProvider | null
   readonly model: string
   readonly keySource: AiKeySource | null
-  /** The last four characters of the key, for recognition. Never the key. */
+  /**
+   * The last four characters of the key, for recognition. Never the key.
+   * `null` for a caller who is not an admin.
+   */
   readonly keyHint: string | null
   /** `null` means no limit. */
   readonly monthlyLimit: number | null

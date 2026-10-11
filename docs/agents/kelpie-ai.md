@@ -16,7 +16,7 @@ A project made with `npm create kelpie` includes it. Nothing calls a model until
 
 **Custom provider** then shows in the **Run** menu on every record page, next to any agent you registered yourself.
 
-The key is stored encrypted. The page shows only its last four characters, and no endpoint returns it. **Disable AI** deletes the stored key and removes **Custom provider** from the Run menu. The run log stays.
+The key is stored encrypted. The page shows only its last four characters, and no endpoint returns it. `GET /v1/ai/settings` gives those four characters to an admin and to the owner. A member gets `null`. **Disable AI** deletes the stored key and removes **Custom provider** from the Run menu. The run log stays.
 
 Only admins can change these settings. Every member can run a task.
 

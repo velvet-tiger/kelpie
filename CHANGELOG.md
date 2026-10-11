@@ -407,6 +407,11 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **`GET /v1/ai/settings` gives `key_hint` to an admin or the owner only.**
+  Every member got the last four characters of the workspace's provider
+  key. A member now gets `key_hint: null`. The rest of the response is the
+  same for each role. The rule reads the role of the caller, so a personal
+  API key of a member gets `null` too.
 - **A failed agent run does not show the address that its endpoint
   resolves to.** With `BLOCK_PRIVATE_EGRESS=true`, the failure reason of a
   refused dispatch held the private address, and every member reads a run.
