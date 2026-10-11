@@ -645,6 +645,53 @@ describe.skipIf(connectionString === undefined)('people', () => {
       expect(response.status).toBe(422)
     })
 
+    // A cursor is a string the caller sends. A position that Postgres
+    // refuses must answer 422, as any other cursor this API did not issue.
+    describe('a forged cursor', () => {
+      const forged = (sort: string, value: string, id = 'x'): string =>
+        Buffer.from(JSON.stringify({ sort, value, id }), 'utf8').toString('base64url')
+      const listWith = (sort: string, value: string, id?: string): Promise<Response> =>
+        client.send('GET', `/v1/people?sort=${sort}&cursor=${forged(sort, value, id)}`, { cookie: acme.cookie })
+
+      it('answers 422 for a NUL character in a text position or in the id', async () => {
+        expect((await listWith('name', 'Cyrus\u0000')).status).toBe(422)
+        expect((await listWith('name', 'Cyrus', 'per_1\u0000')).status).toBe(422)
+        expect((await listWith('created_at', '2026-08-02T01:00:00.000Z', '\u0000')).status).toBe(422)
+      })
+
+      it('answers 422 for a timestamp outside year 1 to year 9999', async () => {
+        for (const value of [
+          '-271821-04-20T00:00:00.000Z',
+          '-000001-12-31T23:59:59.999Z',
+          '0000-12-31T23:59:59.999Z',
+          '+010000-01-01T00:00:00.000Z',
+          '+275760-09-13T00:00:00.000Z',
+        ]) {
+          expect((await listWith('created_at', value)).status, value).toBe(422)
+        }
+      })
+
+      it('reads a timestamp at each end of that range', async () => {
+        const fromFirst = await listWith('created_at', '0001-01-01T00:00:00.000Z')
+        const fromLast = await listWith('created_at', '9999-12-31T23:59:59.999Z')
+
+        expect(fromFirst.status).toBe(200)
+        expect(readList(await fromFirst.json())).toHaveLength(5)
+        expect(fromLast.status).toBe(200)
+        expect(readList(await fromLast.json())).toEqual([])
+      })
+
+      it('reads a text position of any other kind', async () => {
+        const afterAll = await listWith('name', 'Zoë 東京')
+        const fromStart = await listWith('name', '')
+
+        expect(afterAll.status).toBe(200)
+        expect(readList(await afterAll.json())).toEqual([])
+        expect(fromStart.status).toBe(200)
+        expect(readList(await fromStart.json())).toHaveLength(5)
+      })
+    })
+
     it('refuses an undocumented sort field', async () => {
       const response = await client.send('GET', '/v1/people?sort=influence', { cookie: acme.cookie })
 

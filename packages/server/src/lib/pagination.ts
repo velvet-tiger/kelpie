@@ -2,6 +2,7 @@ import { asc, desc, sql } from 'drizzle-orm'
 import type { Column, SQL } from 'drizzle-orm'
 import { z } from 'zod'
 
+import { isoDateSchema } from './dates.ts'
 import { AppError } from './errors.ts'
 
 /**
@@ -16,6 +17,11 @@ import { AppError } from './errors.ts'
  * A cursor is bound to the sort it was issued under. Reusing one against a
  * different `?sort=` is a client bug, and it is reported as one rather than
  * silently paging through a different order.
+ *
+ * A cursor is also a string the caller sends, so the caller can write one.
+ * Its position goes to Postgres as a parameter of the column's type. Each
+ * `parse` below therefore refuses a value that Postgres cannot compare with
+ * that type. Such a value would answer `500` for what is a request error.
  */
 
 export const DEFAULT_PAGE_SIZE = 50
@@ -62,12 +68,35 @@ export interface ListQueryParameters {
   readonly cursor?: string | undefined
 }
 
+/**
+ * Text that Postgres can take as a parameter. U+0000 is the one character a
+ * `text` value cannot hold, and Postgres refuses a parameter that has it.
+ * Every other character a JavaScript string can hold arrives as valid UTF-8:
+ * the driver writes half of a surrogate pair as U+FFFD.
+ */
+const storableText = z.string().refine((text) => !text.includes('\u0000'))
+
 /** The cursor payload. It is client-supplied, so it is parsed, never trusted. */
 const cursorSchema = z.strictObject({
   sort: z.string().min(1),
-  value: z.string(),
-  id: z.string().min(1),
+  value: storableText,
+  id: storableText.min(1),
 })
+
+/** The range of a Postgres `integer` column, which is 32 bits wide. */
+const MIN_INTEGER = -2_147_483_648
+const MAX_INTEGER = 2_147_483_647
+
+/**
+ * The first and the last millisecond of the years 1 to 9999.
+ *
+ * The driver sends a `Date` as `toISOString()`. For a year outside 0 to 9999
+ * that text has a sign and six digits for the year, which Postgres does not
+ * read, and Postgres has no year 0. So this is the range that both sides
+ * agree on. It is well inside what a `timestamptz` column and a `Date` hold.
+ */
+const MIN_TIMESTAMP = Date.parse('0001-01-01T00:00:00.000Z')
+const MAX_TIMESTAMP = Date.parse('9999-12-31T23:59:59.999Z')
 
 function invalidCursor(reason: string): AppError {
   return AppError.validationFailed('That cursor is not one this API issued', [
@@ -75,6 +104,12 @@ function invalidCursor(reason: string): AppError {
   ])
 }
 
+/**
+ * A sort on a `text` column. Any text is a position, so there is nothing to
+ * parse: `decodeCursor` has refused the one character Postgres cannot take.
+ * A column of another type needs its own sort, because Postgres parses the
+ * position as that type.
+ */
 export function textSort<TRecord>(
   column: Column,
   valueOf: (record: TRecord) => string,
@@ -82,6 +117,7 @@ export function textSort<TRecord>(
   return { column, valueOf, parse: (value) => value }
 }
 
+/** A sort on an `integer` column. Not for `bigint`: the range is that of 32 bits. */
 export function integerSort<TRecord>(
   column: Column,
   valueOf: (record: TRecord) => number,
@@ -96,11 +132,40 @@ export function integerSort<TRecord>(
         throw invalidCursor('Its position is not a whole number')
       }
 
+      if (parsed < MIN_INTEGER || parsed > MAX_INTEGER) {
+        throw invalidCursor('Its position is too large or too small')
+      }
+
       return parsed
     },
   }
 }
 
+/**
+ * A sort on a `date` column that the record holds as `YYYY-MM-DD`.
+ *
+ * @throws AppError 422 from `parse` for text in another form, for a day that
+ *   does not exist, and for year 0, which `isoDateSchema` accepts and
+ *   Postgres does not have.
+ */
+export function dateSort<TRecord>(
+  column: Column,
+  valueOf: (record: TRecord) => string,
+): SortableField<TRecord> {
+  return {
+    column,
+    valueOf,
+    parse: (value) => {
+      if (!isoDateSchema.safeParse(value).success || value.startsWith('0000-')) {
+        throw invalidCursor('Its position is not a date')
+      }
+
+      return value
+    },
+  }
+}
+
+/** A sort on a `timestamptz` column. A position is an instant in the years 1 to 9999. */
 export function timestampSort<TRecord>(
   column: Column,
   valueOf: (record: TRecord) => Date,
@@ -110,9 +175,14 @@ export function timestampSort<TRecord>(
     valueOf: (record) => valueOf(record).toISOString(),
     parse: (value) => {
       const parsed = new Date(value)
+      const time = parsed.getTime()
 
-      if (Number.isNaN(parsed.getTime())) {
+      if (Number.isNaN(time)) {
         throw invalidCursor('Its position is not a timestamp')
+      }
+
+      if (time < MIN_TIMESTAMP || time > MAX_TIMESTAMP) {
+        throw invalidCursor('Its position is outside the years 1 to 9999')
       }
 
       return parsed

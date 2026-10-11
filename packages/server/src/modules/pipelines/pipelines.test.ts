@@ -98,6 +98,19 @@ describe.skipIf(connectionString === undefined)('pipeline stages', () => {
     it('requires credentials', async () => {
       expect((await client.send('GET', '/v1/pipeline_stages')).status).toBe(401)
     })
+
+    it('answers 422 to a cursor whose position is outside the range of a Postgres integer', async () => {
+      const forged = (value: string): string =>
+        Buffer.from(JSON.stringify({ sort: 'sort_order', value, id: 'x' }), 'utf8').toString('base64url')
+
+      for (const value of ['2147483648', '-2147483649', '99999999999', '1e20']) {
+        const response = await client.send('GET', `/v1/pipeline_stages?kind=deal&cursor=${forged(value)}`, {
+          cookie: acme.cookie,
+        })
+
+        expect(response.status, value).toBe(422)
+      }
+    })
   })
 
   describe('adding', () => {

@@ -59,7 +59,7 @@ Every endpoint here has integration tests against a real Postgres.
 | MCP | `POST /mcp`, Streamable HTTP, bearer key or OAuth access token. Speaks `2026-07-28` and the two `initialize`-based revisions before it. `GET /v1/mcp/tools` lists the same tools over ordinary credentials |
 | OAuth for MCP | Discovery at `/.well-known/oauth-protected-resource/mcp` and `/.well-known/oauth-authorization-server`. `GET /oauth/authorize`, `POST /oauth/token`, `POST /oauth/register`, `POST /oauth/revoke`. Session-only consent and connected-apps endpoints under `/v1/oauth`. Tokens reach `/mcp` only |
 
-Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them.
+Every list takes `?limit=`, `?sort=` and `?cursor=`. Cursors are keysets bound to the sort that issued them. A cursor is opaque: send back the `next_cursor` you were given. A cursor that this API did not issue answers `422`.
 
 **Id filters repeat to name a set:** `?person_id=per_1&person_id=per_2` matches either, up to 200 ids. It is what replaces the `include` expansion this version does not have: a list page showing a related column resolves it in one extra request rather than one per row. A blank value or more than 200 is `422`.
 

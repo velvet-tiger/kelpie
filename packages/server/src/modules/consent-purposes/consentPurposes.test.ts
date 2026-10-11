@@ -14,8 +14,8 @@ import { coreModules } from '../core.ts'
 const connectionString = testDatabaseUrl(process.env)
 
 /** A cursor as the API encodes one, with a position this API never issued. */
-function forgedCursor(value: string): string {
-  return Buffer.from(JSON.stringify({ sort: 'sort_order', value, id: 'x' }), 'utf8').toString('base64url')
+function forgedCursor(sort: string, value: string, id = 'x'): string {
+  return Buffer.from(JSON.stringify({ sort, value, id }), 'utf8').toString('base64url')
 }
 
 describe.skipIf(connectionString === undefined)('consent purposes paging', () => {
@@ -96,13 +96,61 @@ describe.skipIf(connectionString === undefined)('consent purposes paging', () =>
 
   it('answers 422 to a cursor whose position is not a whole number', async () => {
     for (const value of ['abc', '1.5', 'NaN', 'Infinity']) {
-      const response = await client.send('GET', `/v1/consent_purposes?cursor=${forgedCursor(value)}`, {
+      const response = await client.send('GET', `/v1/consent_purposes?cursor=${forgedCursor('sort_order', value)}`, {
         cookie: acme.cookie,
       })
       const body = readRecord(await response.json())
 
       expect(response.status, value).toBe(422)
       expect(readRecord(body.error).code, value).toBe('validation_failed')
+    }
+  })
+
+  it('answers 422 to a cursor whose position is outside the range of a Postgres integer', async () => {
+    for (const value of ['2147483648', '-2147483649', '99999999999', '-99999999999', '1e20', '1e308', '9007199254740993']) {
+      const response = await client.send('GET', `/v1/consent_purposes?cursor=${forgedCursor('sort_order', value)}`, {
+        cookie: acme.cookie,
+      })
+
+      expect(response.status, value).toBe(422)
+    }
+  })
+
+  it('reads a cursor at each end of that range', async () => {
+    const send = (value: string): Promise<Response> =>
+      client.send('GET', `/v1/consent_purposes?cursor=${forgedCursor('sort_order', value)}`, { cookie: acme.cookie })
+    const fromLowest = await send('-2147483648')
+    const fromHighest = await send('2147483647')
+
+    expect(fromLowest.status).toBe(200)
+    expect(readList(await fromLowest.json())).toHaveLength(5)
+    expect(fromHighest.status).toBe(200)
+    expect(readList(await fromHighest.json())).toEqual([])
+  })
+
+  it('answers 422 to a cursor with a NUL character in its id or in a text position', async () => {
+    const inId = await client.send('GET', `/v1/consent_purposes?cursor=${forgedCursor('sort_order', '1', 'x\u0000')}`, {
+      cookie: acme.cookie,
+    })
+    const inValue = await client.send(
+      'GET',
+      `/v1/consent_purposes?sort=label&cursor=${forgedCursor('label', 'a\u0000')}`,
+      { cookie: acme.cookie },
+    )
+
+    expect(inId.status).toBe(422)
+    expect(inValue.status).toBe(422)
+  })
+
+  it('answers 422 to a cursor whose timestamp is outside year 1 to year 9999', async () => {
+    for (const value of ['-271821-04-20T00:00:00.000Z', '0000-12-31T23:59:59.999Z', '+010000-01-01T00:00:00.000Z', '+275760-09-13T00:00:00.000Z']) {
+      const response = await client.send(
+        'GET',
+        `/v1/consent_purposes?sort=created_at&cursor=${forgedCursor('created_at', value)}`,
+        { cookie: acme.cookie },
+      )
+
+      expect(response.status, value).toBe(422)
     }
   })
 })

@@ -407,9 +407,9 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
-- **A caller's `X-Request-Id` has a limit, a forged `sort_order` cursor
-  answers `422`, and person intake drops a link that names another
-  scheme.** `@kelpie/server`. No migration.
+- **A caller's `X-Request-Id` has a limit, a forged cursor answers `422`,
+  and person intake drops a link that names another scheme.**
+  `@kelpie/server`. No migration.
   - The service put the `X-Request-Id` of a request, as given, in each log
     line of the request and in the response header. It now uses the value
     only when it is 1 to 128 characters of letters, digits, `.`, `_` and
@@ -417,10 +417,22 @@ While the major version is `0`, a minor bump may break the API.
     header. The request is not refused. **Changed behaviour:** a caller
     that sends an id with another character, such as `:` or `/`, gets a
     different id back.
-  - `GET /v1/custom_fields`, `GET /v1/consent_purposes` and the
-    `custom_fields_list` and `consent_purposes_list` MCP tools answered
-    `500` to a cursor whose position is not a whole number. They now answer
-    `422`, as the other lists do.
+  - **A cursor that this API did not issue answers `422` on every list**,
+    for a `GET` and for a `*_list` MCP tool. A caller can write a cursor,
+    and some positions went to Postgres, which refused them with a `500`.
+    A cursor is now refused when:
+    - its position for a `sort_order` sort is not a whole number, or is
+      outside -2,147,483,648 to 2,147,483,647. `GET /v1/custom_fields` and
+      `GET /v1/consent_purposes` answered `500` to text such as `abc`
+      there, and `GET /v1/pipeline_stages` did not;
+    - its position for a timestamp sort, such as `created_at`, is outside
+      the years 1 to 9999;
+    - its position for the `date` sort of `GET /v1/plan_items` is not a
+      `YYYY-MM-DD` date that exists;
+    - its `id`, or its position for a text sort such as `name`, holds a NUL
+      character (U+0000).
+
+    A cursor that the API issued is read as before.
   - Person intake dropped a `javascript:` or `data:` link from the reply of
     the model before. A link such as `file:///etc/passwd` or
     `ftp://example.com/a` became an `https` link whose host was the name of

@@ -308,6 +308,18 @@ describe.skipIf(connectionString === undefined)('plan items', () => {
       expect(await titlesFrom(second)).toEqual(['Later'])
     })
 
+    it('answers 422 to a cursor whose position is not a date that exists', async () => {
+      const forged = (value: string): string =>
+        Buffer.from(JSON.stringify({ sort: 'date', value, id: 'x' }), 'utf8').toString('base64url')
+
+      for (const value of ['abc', '', '2026-02-30', '2026-13-01', '0000-01-01', '2026-09-0\u0000']) {
+        expect((await list(`cursor=${forged(value)}`)).status, value).toBe(422)
+      }
+
+      expect(await titlesFrom(await list(`cursor=${forged('0001-01-01')}`))).toEqual(['Sooner', 'Middle', 'Later'])
+      expect(await titlesFrom(await list(`cursor=${forged('9999-12-31')}`))).toEqual([])
+    })
+
     it('leaves another workspace out of it', async () => {
       const other = await client.owner('grace@example.com')
 

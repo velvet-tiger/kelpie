@@ -2,9 +2,9 @@ import { and, eq, gte, inArray, lte } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
 import {
+  dateSort,
   keysetCondition,
   orderByWindow,
-  textSort,
   timestampSort,
 } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
@@ -26,7 +26,7 @@ export type PlanItemColumns = typeof planItems.$inferInsert
  * because a keyset cannot seek past a null.
  */
 export const PLAN_ITEM_SORTS: SortableFields<PlanItemRecord> = {
-  date: textSort(planItems.date, (item) => item.date),
+  date: dateSort(planItems.date, (item) => item.date),
   created_at: timestampSort(planItems.createdAt, (item) => item.createdAt),
   updated_at: timestampSort(planItems.updatedAt, (item) => item.updatedAt),
 }
