@@ -107,7 +107,7 @@ function signatureMatches(rawBody, header, secret) {
 4. Refuse a body whose `created_at` is more than 5 minutes old, or more than 1 minute in the future.
 5. Look up the `id` from the body. If you have processed it, answer `2xx` and do nothing more.
 
-**Refuse an old delivery.** Step 4 stops a person who recorded a delivery from sending it again later. It does not refuse a retry. A retry sends the same body, so it has the same `id`, the same `created_at` and the same signature. Kelpie waits 1, 5 and 15 seconds between attempts, and waits 10 seconds at most for the answer to each attempt. The last attempt thus arrives about one minute after `created_at` at the latest. `created_at` is the time the delivery starts, so a delivery that waited for a place on a busy service is not older. The 5 minutes also allow for a difference between your clock and the clock of the service.
+**Refuse an old delivery.** Step 4 stops a person who recorded a delivery from sending it again later. It does not refuse a retry. A retry sends the same body, so it has the same `id`, the same `created_at` and the same signature. Kelpie waits 1, 5 and 15 seconds between attempts, and waits 10 seconds at most for the answer to each attempt. The last attempt thus arrives about one minute after `created_at` at the latest. The 5 minutes also allow for a difference between your clock and the clock of the service.
 
 **Refuse a delivery from the future.** The clock of the service can be ahead of yours. A body with a `created_at` in the future stays inside the age limit for longer than 5 minutes of your time. Thus accept a `created_at` that is at most 1 minute ahead of your clock, and refuse one that is further ahead.
 
@@ -123,14 +123,12 @@ Rotate from the Webhooks admin page (or the API). You choose: an immediate rotat
 - A non-2xx response is a failure — and so is a redirect, which is never followed. Register the final URL.
 - Failures retry three times, 1, 5 and 15 seconds apart. Each retry sends the same body with the same `id` and `created_at`. When attempts run out the registration reads `failing`, and it returns to `active` on its own when a delivery lands. `paused` is your own switch and stops delivery entirely.
 - The delivery log keeps 30 days by default (operator-configurable) and is visible on the admin page.
-- The service runs a limited number of deliveries at one time, and the others wait. Each workspace has its own share of both. When too many wait, a delivery is not sent. The log shows it as `failed` with `attempts: 0`, and the registration keeps its status, because your endpoint was not called.
-- A delivery uses the registration as it is when the delivery starts. If you change the URL or rotate the secret, a delivery that was waiting uses the new one. If you pause or delete the registration, or remove the event from it, a delivery that was waiting is not sent and the log shows nothing for it.
-- A delivery that has started finishes with the URL and the secret that it started with. Its retries send the same request again, for about one minute at the most.
+- A delivery starts when the event happens, and it builds its request one time. A delivery that has started finishes with the URL and the secret that it started with. Its retries send the same request again, for about one minute at the most. A change to the URL, a rotated secret, a pause or a delete applies to the deliveries that start after it.
 - A pause is yours. A delivery that was sent before you paused can end after it, and its result is in the log. The result does not change `paused`.
 
 ## Limits to design around
 
-Deliveries and their retries live in the server process — there is no durable queue. A crash mid-retry loses that delivery. Treat webhooks as a fast signal, not a ledger: anything you cannot afford to miss, reconcile by polling the API.
+Deliveries and their retries live in the server process — there is no durable queue. A crash mid-retry loses that delivery. Nothing bounds how many deliveries run at one time: each one starts when its event happens. Treat webhooks as a fast signal, not a ledger: anything you cannot afford to miss, reconcile by polling the API.
 
 ## Agent task dispatches
 

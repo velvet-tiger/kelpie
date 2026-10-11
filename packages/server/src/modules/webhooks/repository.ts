@@ -223,7 +223,7 @@ export async function setWebhookStatus(
  * Keeps a webhook from being deleted until the caller's transaction ends.
  *
  * A delivery row refers to its webhook, and the webhook can be deleted while
- * the delivery waits or retries. The engine holds the row first, so it knows
+ * the delivery retries. The engine holds the row first, so it knows
  * whether there is still a log to write to before it writes.
  *
  * `KEY SHARE` is the lock the foreign key takes for the insert that follows.

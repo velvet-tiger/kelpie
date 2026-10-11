@@ -227,8 +227,10 @@ export function createWebhooksService(dependencies: WebhooksDependencies): Webho
         // A workspace over the limit keeps what it has: a limit that was
         // lowered refuses the next registration and removes nothing.
         if ((await repository.countWebhooks(tx, workspaceId)) >= dependencies.maxPerWorkspace) {
+          const limit = dependencies.maxPerWorkspace
+
           throw AppError.conflict(
-            `A workspace may register at most ${String(dependencies.maxPerWorkspace)} webhooks`,
+            `A workspace may register at most ${String(limit)} webhook${limit === 1 ? '' : 's'}`,
           )
         }
 

@@ -8,7 +8,6 @@ import {
   sleepFor,
 } from './delivery.ts'
 import type { SendDelivery, Sleep } from './delivery.ts'
-import { createDeliveryLimiter } from './deliveryLimiter.ts'
 import { webhookLimitsConfigSchema } from './limits.ts'
 import { subscribeDeliverableEvents } from './payloads.ts'
 import { mountWebhooksRoutes } from './routes.ts'
@@ -49,8 +48,8 @@ export function createWebhooksModule(
       // malformed key means no webhook can ever be signed, and finding that out
       // when a customer's endpoint goes quiet is far too late. The retention
       // window is validated the same way for the same reason — a bad value
-      // should stop boot, not prune by the wrong window. The limits too: a
-      // bad value should stop boot, not run the engine with no bound.
+      // should stop boot, not prune by the wrong window. The registration
+      // limit too: a bad value should stop boot, not run with no limit.
       //
       // Prefer the top-level `secretEncryption` from the assembly's
       // kelpie.config.ts; fall back to the schema read for older assemblies
@@ -78,14 +77,6 @@ export function createWebhooksModule(
         send: options.send ?? createHttpSender(egress),
         sleep: options.sleep ?? sleepFor,
         retentionDays: retention.WEBHOOK_DELIVERY_RETENTION_DAYS,
-        // Built here, once for each engine, so the bound covers every event
-        // the process handles and no state lives at module scope.
-        limiter: createDeliveryLimiter({
-          maxConcurrent: limits.WEBHOOK_MAX_CONCURRENT_DELIVERIES,
-          maxWaiting: limits.WEBHOOK_MAX_WAITING_DELIVERIES,
-          maxConcurrentPerWorkspace: limits.WEBHOOK_MAX_CONCURRENT_DELIVERIES_PER_WORKSPACE,
-          maxWaitingPerWorkspace: limits.WEBHOOK_MAX_WAITING_DELIVERIES_PER_WORKSPACE,
-        }),
         log: context.log,
       })
 

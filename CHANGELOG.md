@@ -438,49 +438,22 @@ While the major version is `0`, a minor bump may break the API.
   body. The receiver keeps each `id` until `created_at` plus 5 minutes. A
   retry sends the same body within about one minute, so the age check does
   not refuse it.
-- **Webhooks have a limit for each workspace and a limit for the process.**
-  A workspace had no limit on its webhooks, and the process had no limit
-  on the deliveries it ran at one time. An admin with many slow endpoints
-  and many events could hold the memory and the sockets of the process
-  that serves every workspace. There are five new settings, each checked
-  at boot. No migration.
-  - `WEBHOOK_MAX_PER_WORKSPACE`, default 20. `POST /v1/webhooks` answers
-    `409` `conflict` for a workspace at the limit, and the `webhooks_create`
-    MCP tool gives the same refusal. A workspace that already has more
-    keeps them, and cannot add one until it is under the limit.
-  - `WEBHOOK_MAX_CONCURRENT_DELIVERIES`, default 20. One delivery holds its
-    place from the first attempt to the last retry.
-  - `WEBHOOK_MAX_WAITING_DELIVERIES`, default 1000. A delivery over this
-    limit is not sent. Its row in the delivery log has the status `failed`
-    and `attempts: 0`, and the server log has the `warn` line
-    `webhook delivery not attempted`. The registration keeps its status,
-    because the endpoint was not called.
-  - `WEBHOOK_MAX_CONCURRENT_DELIVERIES_PER_WORKSPACE`, default 5, and
-    `WEBHOOK_MAX_WAITING_DELIVERIES_PER_WORKSPACE`, default 250. One
-    workspace has at most this many of the running and of the waiting
-    deliveries, so one workspace with slow endpoints cannot take every
-    place and stop delivery for the others. The `webhook delivery not
-    attempted` line has `workspaceId`, and `limit` is `workspace` or
-    `process`. The service does not start when a workspace limit is above
-    its process limit. A deployment that lowers a process limit below the
-    default for one workspace must set the workspace limit too.
-  - `created_at` in a delivery body is the time the delivery takes its
-    place. A wait for a place does not make the body old.
-  - A delivery reads its registration again when it takes its place. It
-    posts to the URL and signs with the secret that the registration has
-    at that time. It sends nothing and records nothing for a registration
-    that was paused or deleted, or that dropped the event, after the event.
-    A delivery that has started finishes its retries with the URL and the
-    secret that it started with.
-  - No delivery result changes `paused`. A delivery that was sent before a
-    pause, and ended after it, moved the registration to `active` or
-    `failing`. The rule is now in the `UPDATE` statement.
-  - A delivery for a webhook that was deleted before the delivery ended
-    wrote the `error` line `webhook delivery could not be attempted`. It
-    now writes nothing to the delivery log and a `debug` line.
-  - An import makes one event for each row. A workspace with a webhook can
-    go over its share during a large import, and those deliveries are not
-    sent.
+- **A workspace can register at most 20 webhooks.** A workspace had no
+  limit on its webhooks, and each event starts one delivery for each
+  subscribed webhook in the process that serves every workspace. The new
+  setting `WEBHOOK_MAX_PER_WORKSPACE`, default 20, is checked at boot.
+  `POST /v1/webhooks` answers `409` `conflict` for a workspace at the
+  limit, and the `webhooks_create` MCP tool gives the same refusal. A
+  workspace that already has more keeps them, and cannot add one until it
+  is under the limit. Two requests that arrive together cannot both take
+  the last place. No migration.
+- **No webhook delivery result changes `paused`.** A delivery retries for
+  about one minute. A delivery that was sent before an admin paused the
+  webhook, and ended after the pause, moved the webhook to `active` or
+  `failing`. The rule is now in the `UPDATE` statement, so a pause stays.
+  A delivery for a webhook that was deleted during its retries wrote the
+  `error` line `webhook delivery could not be attempted`. It now writes
+  nothing to the delivery log, and one `debug` line. No migration.
 - **`GET /v1/ai/settings` gives `key_hint` to an admin or the owner only.**
   Every member got the last four characters of the workspace's provider
   key. A member now gets `key_hint: null`. The rest of the response is the
