@@ -1,6 +1,7 @@
 import { MAX_IMPORT_FILE_BYTES } from '@kelpie/schemas'
 import { describe, expect, it } from 'vitest'
 
+import { acceptedRequestId } from './app.ts'
 import { MAX_BODY_BYTES, MAX_PUBLIC_BODY_BYTES, maxBodyBytesFor } from './lib/bodyLimit.ts'
 import { AppError } from './lib/errors.ts'
 import type { DatabaseProbe } from './lib/database.ts'
@@ -50,6 +51,57 @@ describe('request ids', () => {
     const response = await app.request('/healthz', { headers: { 'X-Request-Id': 'req-from-caller' } })
 
     expect(response.headers.get('X-Request-Id')).toBe('req-from-caller')
+  })
+
+  it('keeps a caller id made of letters, digits, dots, underscores and hyphens, up to 128 characters', async () => {
+    const { app } = await buildApp({ reachable: true })
+
+    for (const id of ['0f8fad5b-d9cb-469f-a165-70867728950e', 'trace_01.span-7', 'a', 'x'.repeat(128)]) {
+      const response = await app.request('/healthz', { headers: { 'X-Request-Id': id } })
+
+      expect(response.headers.get('X-Request-Id')).toBe(id)
+    }
+  })
+
+  it('replaces a caller id that is empty, too long or holds another character, and still answers', async () => {
+    const { app, logLines } = await buildApp({ reachable: true })
+    const refused = [
+      '',
+      'x'.repeat(129),
+      'x'.repeat(10_000),
+      'two words',
+      'tab\there',
+      'slash/id',
+      'semi;colon',
+      '<script>',
+      'caf\u00e9',
+    ]
+
+    for (const id of refused) {
+      const response = await app.request('/healthz', { headers: { 'X-Request-Id': id } })
+
+      expect(response.status, JSON.stringify(id)).toBe(200)
+      expect(response.headers.get('X-Request-Id'), JSON.stringify(id)).toBe('req-fixed')
+    }
+
+    // The id goes in every log line of the request, so the refused value must not.
+    expect(logLines.join('\n')).not.toContain('two words')
+    expect(logLines.join('\n')).not.toContain('<script>')
+    expect(logLines.join('\n')).toContain('req-fixed')
+  })
+})
+
+describe('acceptedRequestId', () => {
+  it('answers the id when it is safe to log and to echo', () => {
+    expect(acceptedRequestId('req-from-caller')).toBe('req-from-caller')
+    expect(acceptedRequestId('A.b_c-9')).toBe('A.b_c-9')
+    expect(acceptedRequestId('x'.repeat(128))).toBe('x'.repeat(128))
+  })
+
+  it('answers undefined for a missing id, and for one the service must not log or echo', () => {
+    for (const id of [undefined, '', 'x'.repeat(129), 'two words', 'line\nbreak', 'line\rbreak', 'nul\u0000', 'caf\u00e9', 'id\n']) {
+      expect(acceptedRequestId(id), JSON.stringify(id)).toBeUndefined()
+    }
   })
 })
 

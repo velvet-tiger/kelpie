@@ -176,7 +176,14 @@ export const RESEARCH_REPLY_JSON_SCHEMA = z.toJSONSchema(researchReplySchema, { 
 
 // ---------------------------------------------------------------- normalise
 
-/** An absolute http(s) URL, or undefined. A bare `linkedin.com/in/…` gains `https://`. */
+/**
+ * An absolute http(s) URL, or undefined. A bare `linkedin.com/in/…` gains `https://`.
+ *
+ * The wire schema in `@kelpie/schemas` accepts `http` and `https` only, and
+ * the wizard shows these as links. A value this function drops costs one
+ * link. A value it let through with another scheme would fail the whole
+ * reply, after the model request is paid for.
+ */
 export function normaliseUrl(raw: string): string | undefined {
   const trimmed = raw.trim()
 
@@ -184,7 +191,8 @@ export function normaliseUrl(raw: string): string | undefined {
     return undefined
   }
 
-  const withScheme = /^https?:\/\//iu.test(trimmed) ? trimmed : `https://${trimmed}`
+  const namesWebScheme = /^https?:\/\//iu.test(trimmed)
+  const withScheme = namesWebScheme ? trimmed : `https://${trimmed}`
 
   try {
     const url = new URL(withScheme)
@@ -192,6 +200,14 @@ export function normaliseUrl(raw: string): string | undefined {
     // Credentials in a URL are never a profile or a source; `mailto:a@b`
     // with a scheme prepended would otherwise read as one.
     if (url.username !== '' || url.password !== '') {
+      return undefined
+    }
+
+    // A value with another scheme gained `https://` above, and its scheme now
+    // reads as the host: `file:///etc/passwd` has the host `file`, and
+    // `ftp://example.com/a` the host `ftp`. A bare host that is a web
+    // address has a dot, so a host with none is such a scheme.
+    if (!namesWebScheme && !url.hostname.includes('.')) {
       return undefined
     }
 

@@ -1,7 +1,7 @@
 import { and, asc, eq, ilike, inArray, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
-import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
+import { integerSort, keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import { containsPattern } from '../../lib/search.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
@@ -11,17 +11,7 @@ export type ConsentPurposeRecord = typeof consentPurposes.$inferSelect
 export type ConsentPurposeColumns = typeof consentPurposes.$inferInsert
 
 export const CONSENT_PURPOSE_SORTS: SortableFields<ConsentPurposeRecord> = {
-  sort_order: {
-    column: consentPurposes.sortOrder,
-    valueOf: (row) => String(row.sortOrder),
-    parse: (value) => {
-      const parsed = Number(value)
-      if (!Number.isInteger(parsed)) {
-        throw new Error('sort_order cursor is not a whole number')
-      }
-      return parsed
-    },
-  },
+  sort_order: integerSort(consentPurposes.sortOrder, (row) => row.sortOrder),
   label: textSort(consentPurposes.label, (row) => row.label),
   slug: textSort(consentPurposes.slug, (row) => row.slug),
   created_at: timestampSort(consentPurposes.createdAt, (row) => row.createdAt),

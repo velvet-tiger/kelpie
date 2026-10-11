@@ -407,6 +407,25 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Security
 
+- **A caller's `X-Request-Id` has a limit, a forged `sort_order` cursor
+  answers `422`, and person intake drops a link that names another
+  scheme.** `@kelpie/server`. No migration.
+  - The service put the `X-Request-Id` of a request, as given, in each log
+    line of the request and in the response header. It now uses the value
+    only when it is 1 to 128 characters of letters, digits, `.`, `_` and
+    `-`. For any other value it makes an id, as for a request with no
+    header. The request is not refused. **Changed behaviour:** a caller
+    that sends an id with another character, such as `:` or `/`, gets a
+    different id back.
+  - `GET /v1/custom_fields`, `GET /v1/consent_purposes` and the
+    `custom_fields_list` and `consent_purposes_list` MCP tools answered
+    `500` to a cursor whose position is not a whole number. They now answer
+    `422`, as the other lists do.
+  - Person intake dropped a `javascript:` or `data:` link from the reply of
+    the model before. A link such as `file:///etc/passwd` or
+    `ftp://example.com/a` became an `https` link whose host was the name of
+    the scheme. That link is now dropped too, and the run goes on with the
+    other links.
 - **`safeNext` refuses a backslash and a control character, the scaffolder
   writes `.env` for its owner only, and a person-intake link must be `http`
   or `https`.** No migration.

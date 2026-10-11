@@ -1,7 +1,7 @@
 import { and, asc, eq, ilike, inArray, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
-import { keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
+import { integerSort, keysetCondition, orderByWindow, textSort, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import { containsPattern } from '../../lib/search.ts'
 import type { Queryable } from '../../runtime/transaction.ts'
@@ -20,17 +20,7 @@ export type CustomFieldDefinitionRecord = typeof customFieldDefinitions.$inferSe
 export type CustomFieldDefinitionColumns = typeof customFieldDefinitions.$inferInsert
 
 export const CUSTOM_FIELD_DEFINITION_SORTS: SortableFields<CustomFieldDefinitionRecord> = {
-  sort_order: {
-    column: customFieldDefinitions.sortOrder,
-    valueOf: (row) => String(row.sortOrder),
-    parse: (value) => {
-      const parsed = Number(value)
-      if (!Number.isInteger(parsed)) {
-        throw new Error('sort_order cursor is not a whole number')
-      }
-      return parsed
-    },
-  },
+  sort_order: integerSort(customFieldDefinitions.sortOrder, (row) => row.sortOrder),
   label: textSort(customFieldDefinitions.label, (row) => row.label),
   key: textSort(customFieldDefinitions.key, (row) => row.key),
   created_at: timestampSort(customFieldDefinitions.createdAt, (row) => row.createdAt),

@@ -31,6 +31,30 @@ describe('normaliseUrl', () => {
   })
 })
 
+describe('normaliseUrl', () => {
+  it('drops a URL with another scheme, and does not read the scheme as a host', () => {
+    for (const raw of [
+      'file:///etc/passwd',
+      'ftp://example.com/file',
+      'javascript://example.com/%0Aalert(1)',
+      'javascript:1',
+      'tel:555',
+      'intent://example.com/#Intent;scheme=http;end',
+    ]) {
+      expect(normaliseUrl(raw), raw).toBeUndefined()
+    }
+  })
+
+  it('keeps a host with no dot when the URL names http or https itself', () => {
+    expect(normaliseUrl('http://localhost:3000/team')).toBe('http://localhost:3000/team')
+    expect(normaliseUrl('https://intranet/people/dana')).toBe('https://intranet/people/dana')
+  })
+
+  it('keeps a bare host with a port', () => {
+    expect(normaliseUrl('example.com:8443/in/dana')).toBe('https://example.com:8443/in/dana')
+  })
+})
+
 describe('keepSources', () => {
   it('keeps a cited URL only when the search returned it, matching loosely', () => {
     const kept = keepSources(

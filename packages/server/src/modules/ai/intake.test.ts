@@ -365,6 +365,54 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect(body.sources).toEqual([{ url: 'https://brightline.health/team', title: 'Team' }])
     })
 
+    it('drops a link that is not http or https from the reply, and the run still succeeds', async () => {
+      const owner = await enabledOwner(h, 'schemes@example.com')
+
+      h.provider.queue(
+        reply(
+          {
+            ...IDENTIFY_REPLY,
+            candidates: [
+              {
+                ...IDENTIFY_REPLY.candidates[0],
+                profile_urls: [
+                  'javascript:alert(1)',
+                  'https://linkedin.com/in/danareyes',
+                  'data:text/html,<script>alert(1)</script>',
+                  'file:///etc/passwd',
+                  'ftp://files.example/dana.pdf',
+                  'javascript://brightline.health/%0Aalert(1)',
+                  'mailto:dana@brightline.health',
+                ],
+              },
+            ],
+            sources: [
+              { url: 'javascript:alert(1)', title: 'Click here' },
+              { url: 'https://brightline.health/team', title: 'Team' },
+              { url: 'file:///etc/passwd', title: 'Passwords' },
+            ],
+          },
+          [...SEARCHED, { url: 'javascript:alert(1)', title: 'A search result that is not a page' }],
+        ),
+      )
+      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
+        cookie: owner.cookie,
+        body: { text: 'Dana Reyes, dana@brightline.health, met at HLTH' },
+      })
+
+      expect(response.status).toBe(200)
+      const body = readRecord(await response.json())
+      const [candidate] = body.candidates as Record<string, unknown>[]
+
+      expect(candidate?.profile_urls).toEqual(['https://linkedin.com/in/danareyes'])
+      expect(body.sources).toEqual([{ url: 'https://www.brightline.health/team/', title: 'Team' }])
+      // One request: a bad link is dropped, and does not cost a repair turn.
+      expect(h.provider.requests).toHaveLength(1)
+
+      const [run] = await runRows(h, owner.workspaceId)
+      expect(run).toMatchObject({ taskId: 'person_intake.identify', status: 'succeeded' })
+    })
+
     it('asks for more detail when the model cannot tell who it is', async () => {
       const owner = await enabledOwner(h, 'question@example.com')
       h.provider.queue(reply({ candidates: [], question: 'Which company does Sam work at?', sources: [] }))
@@ -833,6 +881,71 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       })
     })
 
+    it('drops a link that is not http or https from the records, and the run still succeeds', async () => {
+      const owner = await enabledOwner(h, 'research-schemes@example.com')
+      const record = researchReply(null)
+
+      h.provider.queue(reply(FINDINGS_REPLY, SEARCHED))
+      h.provider.queue(
+        reply({
+          ...record,
+          person: {
+            ...(record.person as Record<string, unknown>),
+            social_profiles: [
+              { network: 'github', url: 'javascript:alert(1)' },
+              { network: 'linkedin', url: 'https://linkedin.com/in/danareyes' },
+              { network: 'twitter', url: 'file:///etc/passwd' },
+              { network: 'other', url: 'data:text/html,<script>alert(1)</script>' },
+            ],
+          },
+          sources: [
+            { url: 'javascript:alert(1)', title: 'Click here' },
+            { url: 'https://brightline.health/team', title: 'Team' },
+          ],
+        }),
+      )
+      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
+        cookie: owner.cookie,
+        body: { text: 'Dana Reyes, dana@brightline.health', candidate: CANDIDATE },
+      })
+
+      expect(response.status).toBe(200)
+      const body = readRecord(await response.json())
+      const items = body.items as Record<string, unknown>[]
+      const note = items.find((item) => item.kind === 'note')
+
+      expect(items[0]?.fields).toMatchObject({
+        social_profiles: [{ network: 'linkedin', url: 'https://linkedin.com/in/danareyes' }],
+      })
+      expect(body.sources).toEqual([{ url: 'https://www.brightline.health/team/', title: 'Team' }])
+      expect(note?.body).toContain('[Team](https://www.brightline.health/team/)')
+      expect(JSON.stringify(body)).not.toMatch(/javascript:|data:text|file:|etc\/passwd/u)
+      // Two requests, the search turn and the record turn: no repair turn.
+      expect(h.provider.requests).toHaveLength(2)
+
+      const [run] = await runRows(h, owner.workspaceId)
+      expect(run).toMatchObject({ taskId: 'person_intake.research', status: 'succeeded' })
+    })
+
+    it('refuses a candidate with a link that is not http or https, and spends no run', async () => {
+      const owner = await enabledOwner(h, 'candidate-scheme@example.com')
+
+      for (const url of ['javascript:alert(1)', 'data:text/html,hi', 'file:///etc/passwd']) {
+        const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
+          cookie: owner.cookie,
+          body: {
+            text: 'Dana Reyes, dana@brightline.health',
+            candidate: { ...CANDIDATE, profile_urls: ['https://linkedin.com/in/danareyes', url] },
+          },
+        })
+
+        expect(response.status, url).toBe(422)
+      }
+
+      expect(h.provider.requests).toHaveLength(0)
+      expect(await runRows(h, owner.workspaceId)).toHaveLength(0)
+    })
+
     it('answers 404 for an unknown existing person and spends no run', async () => {
       const owner = await enabledOwner(h, 'missing@example.com')
       const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
@@ -1020,6 +1133,29 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect(apply.status).toBe(403)
       expect((await h.client.send('DELETE', '/v1/ai/settings', { bearer })).status).toBe(403)
       expect((await h.client.send('GET', '/v1/ai/runs', { bearer })).status).toBe(403)
+    })
+
+    it('refuses a social profile with a link that is not http or https, and writes nothing', async () => {
+      const owner = await enabledOwner(h, 'apply-scheme@example.com')
+      const response = await h.client.send('POST', '/v1/ai/person-intake/apply', {
+        cookie: owner.cookie,
+        body: {
+          items: [
+            {
+              key: 'person',
+              kind: 'person',
+              action: 'create',
+              existing_id: null,
+              fields: { name: 'Dana Reyes', social_profiles: [{ network: 'linkedin', url: 'javascript:alert(1)' }] },
+            },
+          ],
+        },
+      })
+
+      expect(response.status).toBe(422)
+
+      const people = await h.client.send('GET', '/v1/people', { cookie: owner.cookie })
+      expect(readList(await people.json())).toEqual([])
     })
 
     it('refuses a second person item', async () => {

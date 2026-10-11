@@ -55,7 +55,7 @@ Updating an existing Person only adds: it fills empty fields and adds new tags, 
 
 The two AI steps each count as one run in the run log and against any monthly limit. With web search on, each step can take a minute or more.
 
-**Web search.** Kelpie uses your provider's own web search for this, and only for this. Agent-task runs never search. It keeps a source link only when the search really returned that page or your notes contain it. With web search on, research makes two model requests: the first searches from your pasted notes and the person you confirmed, and never sees CRM records; the second builds the records from the findings and the CRM, with no tool. To work from your notes and the CRM only, switch **Web search** off on **Admin → AI**.
+**Web search.** Kelpie uses your provider's own web search for this, and only for this. Agent-task runs never search. It keeps a source link only when the search really returned that page or your notes contain it. It keeps a source or a profile link only when the link is `http` or `https`. With web search on, research makes two model requests: the first searches from your pasted notes and the person you confirmed, and never sees CRM records; the second builds the records from the findings and the CRM, with no tool. To work from your notes and the CRM only, switch **Web search** off on **Admin → AI**.
 
 **LinkedIn.** LinkedIn asks every visitor to sign in, so Kelpie cannot open a LinkedIn page. It uses the URL as a hint for the name, and reads what search results show about the profile: usually the headline, the current company and the location. For the full profile, open it in your own browser, select all, copy, and paste it into the notes. Kelpie trusts pasted profile text over search results.
 

@@ -59,8 +59,18 @@ async function resolvePurposesBySlug(
  * Applies one `PersonConsent` write. `status: null` deletes the row (falls
  * back to the purpose default); any other status upserts it.
  *
+ * The key of a row is `(person_id, purpose_id)`, and a Person and a purpose
+ * each belong to one workspace. So a row for a pair that the caller read in
+ * its own workspace is in that workspace too, and a row that carries another
+ * one is damaged data. This function does not read, change or delete such a
+ * row: each statement asks for the workspace. To write over it would let a
+ * caller that did not check the pair change the consent another workspace
+ * holds.
+ *
  * @returns The change that landed — with the previous status so a caller can
  *   file a "no change" as a no-op activity.
+ * @throws Error when a status is to be set and the row for this pair carries
+ *   another workspace.
  */
 export async function upsertPersonConsent(
   tx: Transaction,
@@ -73,28 +83,27 @@ export async function upsertPersonConsent(
   source: string,
   now: Date,
 ): Promise<ConsentWriteChange> {
+  const ofThisWorkspace = and(
+    eq(personConsents.workspaceId, workspaceId),
+    eq(personConsents.personId, personId),
+    eq(personConsents.purposeId, purposeId),
+  )
   const [existing] = await tx
     .select({ status: personConsents.status })
     .from(personConsents)
-    .where(
-      and(eq(personConsents.personId, personId), eq(personConsents.purposeId, purposeId)),
-    )
+    .where(ofThisWorkspace)
     .limit(1)
 
   const previousStatus = (existing?.status ?? null) as ConsentStatus | null
 
   if (status === null) {
     if (existing !== undefined) {
-      await tx
-        .delete(personConsents)
-        .where(
-          and(eq(personConsents.personId, personId), eq(personConsents.purposeId, purposeId)),
-        )
+      await tx.delete(personConsents).where(ofThisWorkspace)
     }
     return { purposeSlug, purposeLabel, status: null, previousStatus }
   }
 
-  await tx
+  const written = await tx
     .insert(personConsents)
     .values({
       workspaceId,
@@ -113,7 +122,17 @@ export async function upsertPersonConsent(
         source,
         updatedAt: now,
       },
+      // The conflict target has no workspace in it, so the update asks for it.
+      setWhere: eq(personConsents.workspaceId, workspaceId),
     })
+    .returning({ personId: personConsents.personId })
+
+  // No row back means that the conflict was with a row the update refused.
+  if (written.length === 0) {
+    throw new Error(
+      `The consent row of ${personId} for ${purposeId} belongs to another workspace than ${workspaceId}`,
+    )
+  }
 
   return { purposeSlug, purposeLabel, status, previousStatus }
 }
@@ -133,6 +152,8 @@ export async function upsertPersonConsent(
  *
  * @returns `applied: true` when this call wrote the grant. Otherwise the
  *   status of the row that was already there, which stays as it was.
+ * @throws Error when no row of this workspace is there after the conflict:
+ *   the row carries another workspace, or it is gone again.
  */
 export async function grantPersonConsentIfAbsent(
   tx: Transaction,
@@ -160,14 +181,25 @@ export async function grantPersonConsentIfAbsent(
     return { applied: true, status: 'granted' }
   }
 
+  // The conflict target has no workspace in it, so this read asks for it. A
+  // row that carries another workspace is not returned, and its status does
+  // not reach the caller.
   const [existing] = await tx
     .select({ status: personConsents.status })
     .from(personConsents)
-    .where(and(eq(personConsents.personId, personId), eq(personConsents.purposeId, purposeId)))
+    .where(
+      and(
+        eq(personConsents.workspaceId, workspaceId),
+        eq(personConsents.personId, personId),
+        eq(personConsents.purposeId, purposeId),
+      ),
+    )
     .limit(1)
 
   if (existing === undefined) {
-    throw new Error(`Consent of ${personId} for ${purposeId} disappeared during a form submit`)
+    throw new Error(
+      `Consent of ${personId} for ${purposeId} was neither granted nor found in workspace ${workspaceId} during a form submit`,
+    )
   }
 
   return { applied: false, status: existing.status as ConsentStatus }

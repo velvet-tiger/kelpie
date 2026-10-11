@@ -10,6 +10,7 @@ import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
 import { removeListMemberByTarget } from './index.ts'
+import { listMembers } from './schema.ts'
 
 /** `/v1/lists` against real Postgres. A list holds records of one type only. */
 
@@ -325,6 +326,63 @@ describe.skipIf(connectionString === undefined)('lists', () => {
       const response = await client.send('GET', '/v1/list-memberships', { cookie: acme.cookie })
 
       expect(response.status).toBe(422)
+    })
+  })
+
+  // No request can write a row like these: the service checks the workspace
+  // of the list and of the record first. Each test puts one in the table
+  // directly, to prove that the read also asks for the workspace.
+  describe('a membership row that carries another workspace', () => {
+    it('is not in the member count of the list', async () => {
+      const other = await client.owner('grace@example.com')
+      const listId = await createListWith({ name: 'Priority', target_type: 'person' })
+
+      await addMember(listId, { target_type: 'person', target_id: personId })
+      await harness.services.db.insert(listMembers).values({
+        id: 'lm_other_workspace',
+        workspaceId: other.workspaceId,
+        listId,
+        targetType: 'person',
+        targetId: 'per_of_other_workspace',
+      })
+
+      const one = readRecord(
+        await (await client.send('GET', `/v1/lists/${listId}`, { cookie: acme.cookie })).json(),
+      )
+      const all = readList(await (await client.send('GET', '/v1/lists', { cookie: acme.cookie })).json())
+
+      expect(one.member_count).toBe(1)
+      expect(all.find((row) => row.id === listId)?.member_count).toBe(1)
+    })
+
+    it('does not show a record the list of another workspace', async () => {
+      const other = await client.owner('grace@example.com')
+      const theirsId = readString(
+        await (
+          await client.send('POST', '/v1/lists', {
+            body: { name: 'Theirs', target_type: 'person' },
+            cookie: other.cookie,
+          })
+        ).json(),
+        'id',
+      )
+
+      await harness.services.db.insert(listMembers).values({
+        id: 'lm_on_their_list',
+        workspaceId: acme.workspaceId,
+        listId: theirsId,
+        targetType: 'person',
+        targetId: personId,
+      })
+
+      const response = await client.send(
+        'GET',
+        `/v1/list-memberships?target_type=person&target_id=${personId}`,
+        { cookie: acme.cookie },
+      )
+
+      expect(response.status).toBe(200)
+      expect(readList(await response.json())).toEqual([])
     })
   })
 

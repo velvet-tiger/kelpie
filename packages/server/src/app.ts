@@ -100,6 +100,24 @@ export interface AppBindings {
 
 const REQUEST_ID_HEADER = 'X-Request-Id'
 
+/** Letters, digits, `.`, `_` and `-`, from 1 to 128 characters. A UUID and a trace id both fit. */
+const ACCEPTED_REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/
+
+/**
+ * The caller's request id when the service can use it, or undefined.
+ *
+ * The id goes in every log line of the request and back in a response
+ * header. So a caller must not be able to put a megabyte there, or a
+ * character that a log reader or a proxy treats as more than text.
+ *
+ * A bad id is replaced and not refused. The id is a help for tracing and
+ * means nothing to the API, and many proxies add one that the caller cannot
+ * see or change. A `400` for it would fail a request that is otherwise good.
+ */
+export function acceptedRequestId(header: string | undefined): string | undefined {
+  return header !== undefined && ACCEPTED_REQUEST_ID.test(header) ? header : undefined
+}
+
 /**
  * Any origin, because a public endpoint exists to be called from a customer's
  * own website and Kelpie does not know that site's address.
@@ -123,7 +141,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   const app = new Hono<AppBindings>()
 
   app.use('*', async (context, next) => {
-    const requestId = context.req.header(REQUEST_ID_HEADER) ?? generateRequestId()
+    const requestId = acceptedRequestId(context.req.header(REQUEST_ID_HEADER)) ?? generateRequestId()
     const logger = dependencies.logger.child({ requestId })
 
     context.set('requestId', requestId)

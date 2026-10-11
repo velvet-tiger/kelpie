@@ -175,6 +175,8 @@ export async function listAssociationsByTarget(
     .where(
       and(
         eq(eventAssociations.workspaceId, workspaceId),
+        // The Event's own workspace too: its name is in the answer.
+        eq(events.workspaceId, workspaceId),
         eq(eventAssociations.targetType, targetType),
         eq(eventAssociations.targetId, targetId),
       ),
@@ -324,16 +326,26 @@ export async function insertAttendanceIfAbsent(
     return { record: inserted[0], inserted: true }
   }
 
+  // The conflict is on `(event_id, person_id)`, which says nothing about the
+  // workspace. The caller read the Event and the Person in its own workspace,
+  // so the row is in it too. The workspace is asked for here as well: a row
+  // that carries another one is not returned, and the error below is thrown.
   const [existing] = await db
     .select()
     .from(attendances)
     .where(
-      and(eq(attendances.eventId, values.eventId), eq(attendances.personId, values.personId)),
+      and(
+        eq(attendances.workspaceId, values.workspaceId),
+        eq(attendances.eventId, values.eventId),
+        eq(attendances.personId, values.personId),
+      ),
     )
     .limit(1)
 
   if (existing === undefined) {
-    throw new Error(`Attendance for ${values.eventId} and ${values.personId} was neither inserted nor found`)
+    throw new Error(
+      `Attendance for ${values.eventId} and ${values.personId} was neither inserted nor found in workspace ${values.workspaceId}`,
+    )
   }
 
   return { record: existing, inserted: false }

@@ -12,6 +12,8 @@ import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
 import { notes } from '../notes/schema.ts'
+import { insertAttendanceIfAbsent } from './repository.ts'
+import { attendances, eventAssociations } from './schema.ts'
 
 /**
  * `/v1/events` and `/v1/attendances` against real Postgres.
@@ -325,5 +327,59 @@ describe.skipIf(connectionString === undefined)('events', () => {
       .where(and(eq(notes.workspaceId, acme.workspaceId), eq(notes.targetId, attendanceId)))
 
     expect(leftover).toHaveLength(0)
+  })
+
+  // No request can write a row like these: the service checks the workspace
+  // of the Event and of the record first. Each test puts one in the table
+  // directly, to prove that the read also asks for the workspace.
+  describe('a row that carries another workspace', () => {
+    it('is not returned as the Attendance that is already there', async () => {
+      const other = await client.owner('grace@example.com')
+      const eventId = readString(await createEvent(), 'id')
+      const personId = await createPerson('Ada Lovelace')
+
+      await harness.services.db.insert(attendances).values({
+        id: 'atnd_other_workspace',
+        workspaceId: other.workspaceId,
+        eventId,
+        personId,
+        status: 'attended',
+        source: 'manual',
+      })
+
+      await expect(
+        insertAttendanceIfAbsent(harness.services.db, {
+          id: 'atnd_from_form',
+          workspaceId: acme.workspaceId,
+          eventId,
+          personId,
+          status: 'registered',
+          source: 'form',
+        }),
+      ).rejects.toThrow(`Attendance for ${eventId} and ${personId} was neither inserted nor found`)
+    })
+
+    it('does not show a record the Event of another workspace', async () => {
+      const other = await client.owner('grace@example.com')
+      const theirEventId = readString(await createEvent({ name: 'Their board meeting' }, other.cookie), 'id')
+      const companyId = await createCompany('Analytical Engines')
+
+      await harness.services.db.insert(eventAssociations).values({
+        id: 'evas_on_their_event',
+        workspaceId: acme.workspaceId,
+        eventId: theirEventId,
+        targetType: 'company',
+        targetId: companyId,
+      })
+
+      const response = await client.send(
+        'GET',
+        `/v1/event-associations?target_type=company&target_id=${companyId}`,
+        { cookie: acme.cookie },
+      )
+
+      expect(response.status).toBe(200)
+      expect(readList(await response.json())).toEqual([])
+    })
   })
 })

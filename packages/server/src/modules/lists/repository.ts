@@ -63,13 +63,18 @@ export async function listLists(
     .orderBy(...orderByWindow(window, lists.id))
     .limit(window.fetchLimit)
 
-  const counts = await countMembersFor(db, rows.map((row) => row.id))
+  const counts = await countMembersFor(db, workspaceId, rows.map((row) => row.id))
 
   return rows.map((row) => ({ ...row, memberCount: counts.get(row.id) ?? 0 }))
 }
 
+/**
+ * The lists come from a read that asked for the workspace already. The
+ * workspace is asked for here too, so the count does not depend on that.
+ */
 async function countMembersFor(
   db: Queryable,
+  workspaceId: string,
   listIds: readonly string[],
 ): Promise<ReadonlyMap<string, number>> {
   if (listIds.length === 0) {
@@ -79,7 +84,7 @@ async function countMembersFor(
   const rows = await db
     .select({ listId: listMembers.listId, count: sql<number>`count(*)::int` })
     .from(listMembers)
-    .where(inArray(listMembers.listId, [...listIds]))
+    .where(and(eq(listMembers.workspaceId, workspaceId), inArray(listMembers.listId, [...listIds])))
     .groupBy(listMembers.listId)
 
   return new Map(rows.map((row) => [row.listId, Number(row.count)]))
@@ -100,7 +105,7 @@ export async function findList(
     return undefined
   }
 
-  return { ...found, memberCount: await countMembers(db, id) }
+  return { ...found, memberCount: await countMembers(db, workspaceId, id) }
 }
 
 /**
@@ -134,11 +139,11 @@ export async function listListsById(
     .where(and(eq(lists.workspaceId, workspaceId), inArray(lists.id, ids)))
 }
 
-async function countMembers(db: Queryable, listId: string): Promise<number> {
+async function countMembers(db: Queryable, workspaceId: string, listId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(listMembers)
-    .where(eq(listMembers.listId, listId))
+    .where(and(eq(listMembers.workspaceId, workspaceId), eq(listMembers.listId, listId)))
 
   return Number(row?.count ?? 0)
 }
@@ -343,6 +348,8 @@ export async function listMembershipsForTarget(
     .where(
       and(
         eq(listMembers.workspaceId, workspaceId),
+        // The list's own workspace too: its name is in the answer.
+        eq(lists.workspaceId, workspaceId),
         eq(listMembers.targetType, targetType),
         eq(listMembers.targetId, targetId),
       ),
