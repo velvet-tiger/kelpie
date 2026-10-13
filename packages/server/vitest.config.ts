@@ -25,6 +25,15 @@ if (existsSync(environmentFile)) {
   process.loadEnvFile(environmentFile)
 }
 
+/**
+ * Vite's server conditions without `module`. Vitest passes
+ * `ssr.resolve.conditions` to each Node worker as `--conditions`, and Node
+ * never resolves with `module` when it runs the service. A package can publish
+ * a `module` build that Node cannot load: `@opentelemetry/api`, which `pg-boss`
+ * imports, has one with no file extensions on its imports.
+ */
+const nodeConditions = defaultServerConditions.filter((condition: string): boolean => condition !== 'module')
+
 export default defineConfig({
   /*
    * Resolve sibling workspace packages to their TypeScript source rather than
@@ -36,12 +45,12 @@ export default defineConfig({
    * be externalised and resolved by Node itself rather than inlined.
    */
   resolve: {
-    conditions: ['kelpie-source', ...defaultServerConditions],
+    conditions: ['kelpie-source', ...nodeConditions],
   },
   ssr: {
     resolve: {
-      conditions: ['kelpie-source', ...defaultServerConditions],
-      externalConditions: ['kelpie-source', ...defaultServerConditions],
+      conditions: ['kelpie-source', ...nodeConditions],
+      externalConditions: ['kelpie-source', ...nodeConditions],
     },
   },
   test: {

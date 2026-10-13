@@ -62,7 +62,7 @@
     "hono": "^4.13.7",
     "ipaddr.js": "^2.5.0",
     "mailgen": "^2.0.36",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "^10.1.0",
     "openai": "^7.23.0",
     "pg-boss": "^12.31.0",
     "postgres": "^3.4.9",
@@ -77,6 +77,6 @@
     "@types/nodemailer": "^8.0.1",
     "drizzle-kit": "^0.31.10",
     "vite": "^8.2.0",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.3"
   }
 }
