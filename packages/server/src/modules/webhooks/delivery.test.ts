@@ -2,12 +2,17 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DEFAULT_DELIVERY_RETENTION_DAYS,
-  MAX_DELIVERY_ATTEMPTS,
-  RETRY_DELAYS_MS,
+  DELIVERY_EXPIRE_SECONDS,
+  DELIVERY_GROUP_CONCURRENCY,
+  DELIVERY_LOCAL_CONCURRENCY,
+  DELIVERY_RETRY_DELAY_MAX_SECONDS,
+  DELIVERY_RETRY_DELAY_SECONDS,
+  DELIVERY_RETRY_LIMIT,
+  DELIVERY_TIMEOUT_MS,
   createHttpSender,
+  deliveryJobDataSchema,
   deliveryRetentionConfigSchema,
   retentionCutoff,
-  retryDelayAfter,
 } from './delivery.ts'
 import type { DeliveryRequest } from './delivery.ts'
 import { createEgressGuard } from '../../lib/egress.ts'
@@ -23,27 +28,42 @@ const request: DeliveryRequest = {
   headers: { 'Content-Type': 'application/json' },
 }
 
-describe('retryDelayAfter', () => {
-  it('waits longer after each failure', () => {
-    expect(RETRY_DELAYS_MS.every((delay, index) => index === 0 || delay > (RETRY_DELAYS_MS[index - 1] ?? 0))).toBe(true)
+/**
+ * The longest pg-boss can wait after the failed run with `retryCount` r, by
+ * its own formula: `retryDelay * 2^r * (1 + random())`, capped.
+ */
+function longestWaitAfter(retryCount: number): number {
+  return Math.min(DELIVERY_RETRY_DELAY_MAX_SECONDS, DELIVERY_RETRY_DELAY_SECONDS * 2 ** (retryCount + 1))
+}
+
+describe('the retry schedule', () => {
+  /** The worker's poll, which is how a retried job is found. */
+  const POLL_SECONDS = 2
+  const ATTEMPT_SECONDS = DELIVERY_TIMEOUT_MS / 1000
+
+  /**
+   * A receiver keeps a delivery id until its `created_at` plus 5 minutes, so
+   * every attempt must land well inside 5 minutes of the first. The sum is the
+   * one the comment on `DELIVERY_RETRY_LIMIT` states.
+   */
+  it('lands the last attempt within half of the five minute dedupe window', () => {
+    const retries = Array.from({ length: DELIVERY_RETRY_LIMIT }, (_, retryCount) => retryCount)
+    const waiting = retries.reduce((sum, retryCount) => sum + longestWaitAfter(retryCount), 0)
+    // Each retry may also wait one poll, and one attempt for a free slot of its group.
+    const queueing = DELIVERY_RETRY_LIMIT * (POLL_SECONDS + ATTEMPT_SECONDS)
+    const worstCase = (DELIVERY_RETRY_LIMIT + 1) * ATTEMPT_SECONDS + waiting + queueing
+
+    expect(waiting).toBe(70)
+    expect(worstCase).toBe(146)
+    expect(worstCase).toBeLessThan(150)
   })
 
-  it('gives a delay after every attempt but the last', () => {
-    for (let attempts = 1; attempts < MAX_DELIVERY_ATTEMPTS; attempts += 1) {
-      expect(retryDelayAfter(attempts)).toBeGreaterThan(0)
-    }
+  it('gives an attempt longer than the send timeout before the queue counts it lost', () => {
+    expect(DELIVERY_EXPIRE_SECONDS).toBeGreaterThanOrEqual(3 * ATTEMPT_SECONDS)
   })
 
-  it('gives none once the budget is spent', () => {
-    expect(retryDelayAfter(MAX_DELIVERY_ATTEMPTS)).toBeUndefined()
-    expect(retryDelayAfter(MAX_DELIVERY_ATTEMPTS + 1)).toBeUndefined()
-  })
-
-  /** A long budget would hold graceful shutdown open waiting on a dead endpoint. */
-  it('spends under a minute of waiting in total', () => {
-    const total = RETRY_DELAYS_MS.reduce((sum, delay) => sum + delay, 0)
-
-    expect(total).toBeLessThan(60_000)
+  it('leaves free slots on a worker when one workspace has a backlog', () => {
+    expect(DELIVERY_GROUP_CONCURRENCY).toBeLessThan(DELIVERY_LOCAL_CONCURRENCY)
   })
 })
 
@@ -130,6 +150,40 @@ describe('createHttpSender', () => {
     })
   })
 
+  /** The reason is in the delivery log, which an admin of the workspace reads. */
+  it('names the network fault by its code, and never by the address it connected to', async () => {
+    const cause = Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:443'), { code: 'ECONNREFUSED' })
+    const send = createHttpSender(allowAll, () => Promise.reject(new TypeError('fetch failed', { cause })))
+    const outcome = await send(request)
+
+    expect(outcome.reason).toBe('TypeError: fetch failed (ECONNREFUSED)')
+    expect(outcome.reason).not.toContain('10.0.0.5')
+  })
+
+  it('lets go of the response body without reading it', async () => {
+    let cancelled = false
+    const body = new ReadableStream({
+      cancel() {
+        cancelled = true
+      },
+    })
+    const send = createHttpSender(allowAll, () => Promise.resolve(new Response(body, { status: 500 })))
+
+    expect((await send(request)).status).toBe(500)
+    await expect.poll(() => cancelled).toBe(true)
+  })
+
+  it('answers with the status when the body refuses to close', async () => {
+    const body = new ReadableStream({
+      cancel() {
+        throw new Error('the stream would not close')
+      },
+    })
+    const send = createHttpSender(allowAll, () => Promise.resolve(new Response(body, { status: 200 })))
+
+    expect(await send(request)).toEqual({ delivered: true, status: 200, reason: null })
+  })
+
   it('records a blocked private address as a failed attempt, and never fetches', async () => {
     const blockAll = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () => Promise.resolve(['127.0.0.1']))
     let fetched = false
@@ -167,5 +221,25 @@ describe('createHttpSender', () => {
     expect(seen.init?.method).toBe('POST')
     expect(seen.init?.body).toBe('{"id":"whd_01"}')
     expect(seen.init?.redirect).toBe('manual')
+  })
+})
+
+describe('deliveryJobDataSchema', () => {
+  const job = {
+    workspaceId: 'ws_01',
+    webhookId: 'wh_01',
+    deliveryId: 'whd_01',
+    event: 'record.created',
+    data: { object_type: 'person', record_id: 'per_01' },
+  }
+
+  it('reads a job as the bus handler writes it', () => {
+    expect(deliveryJobDataSchema.parse(job)).toEqual(job)
+  })
+
+  /** A payload that no longer parses is a Kelpie fault, never a delivery. */
+  it('refuses an unknown event and an unknown key', () => {
+    expect(deliveryJobDataSchema.safeParse({ ...job, event: 'record.archived' }).success).toBe(false)
+    expect(deliveryJobDataSchema.safeParse({ ...job, url: 'https://example.com' }).success).toBe(false)
   })
 })

@@ -18,18 +18,21 @@ import { countLockWaits } from '../../testing/lockWaits.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import {
+  ABANDONED_DELIVERY_REASON,
   DEFAULT_DELIVERY_RETENTION_DAYS,
-  MAX_DELIVERY_ATTEMPTS,
-  RETRY_DELAYS_MS,
-  createDeliveryEngine,
+  DELIVERY_RETRY_LIMIT,
+  DELIVER_WEBHOOK_JOB,
+  attemptDelivery,
   createHttpSender,
+  deliveryJobDataSchema,
+  recordAbandonedDelivery,
 } from './delivery.ts'
 import type {
   AttemptOutcome,
-  DeliveryEngine,
+  DeliveryDependencies,
+  DeliveryJobData,
   DeliveryRequest,
   SendDelivery,
-  Sleep,
 } from './delivery.ts'
 import { createWebhooksModule } from './index.ts'
 import { DEFAULT_MAX_WEBHOOKS_PER_WORKSPACE } from './limits.ts'
@@ -40,16 +43,21 @@ import { DELIVERY_HEADER, EVENT_HEADER, SIGNATURE_HEADER } from './signing.ts'
 /**
  * `/v1/webhooks` and the delivery engine, against real Postgres.
  *
- * The outbound port and the retry waits are injected, so the suite asserts what
- * would have been sent without a network call and spends no real time on the
- * backoff. Everything else — fan-out, the delivery log, the status transitions
- * — runs against the same rows production would write.
+ * The outbound port is injected, so the suite asserts what would have been
+ * sent without a network call. Delivery jobs go to the harness's queue in
+ * memory, and the suite runs them as a worker would, one attempt per run, so
+ * no time is spent on the backoff. Everything else — fan-out, the delivery
+ * log, the status transitions — runs against the same rows production would
+ * write.
  */
 
 const connectionString = testDatabaseUrl(process.env)
 
 const DELIVERED: AttemptOutcome = { delivered: true, status: 200, reason: null }
 const REFUSED: AttemptOutcome = { delivered: false, status: 500, reason: 'endpoint answered 500' }
+
+/** How many times the queue runs a delivery that keeps failing. */
+const MAX_ATTEMPTS = DELIVERY_RETRY_LIMIT + 1
 
 
 describe.skipIf(connectionString === undefined)('webhooks', () => {
@@ -63,18 +71,11 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
   let outcome: AttemptOutcome
   /** Consumed one per attempt before falling back to `outcome`, for scripting a retry. */
   let scripted: AttemptOutcome[]
-  let waits: number[]
 
   const send: SendDelivery = (request) => {
     sent.push(request)
 
     return Promise.resolve(scripted.shift() ?? outcome)
-  }
-
-  const sleep: Sleep = (milliseconds) => {
-    waits.push(milliseconds)
-
-    return Promise.resolve()
   }
 
   beforeAll(async () => {
@@ -92,7 +93,6 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
   beforeEach(async () => {
     await database.truncateAll()
     sent = []
-    waits = []
     scripted = []
     outcome = DELIVERED
 
@@ -101,7 +101,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       // `requires`, so appending it is the same registration order as core's.
       modules: [
         ...coreModules.filter((module) => module.id !== 'webhooks'),
-        createWebhooksModule(coreMigrationsDirectory, { send, sleep }),
+        createWebhooksModule(coreMigrationsDirectory, { send }),
       ],
       environment: TEST_ENVIRONMENT,
       services: createTestServices({ db: database.db }),
@@ -124,8 +124,26 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
     return readRecord(await response.json())
   }
 
-  /** Creates a Person, which is what emits `record.created`, and waits for delivery. */
-  async function createPerson(name = 'Ada Lovelace', cookie = acme.cookie): Promise<string> {
+  /**
+   * Runs the queued jobs as the worker would until none is left: a failed job
+   * runs again, up to the delivery's last attempt, which runs with
+   * `lastAttempt`. A failure before the last attempt is the retry the queue
+   * would make, so it is expected; one on the last attempt is not.
+   */
+  async function deliverQueued(app: TestApp = harness): Promise<void> {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS && app.services.queuedJobs.length > 0; attempt += 1) {
+      try {
+        await app.runQueuedJobs({ lastAttempt: attempt === MAX_ATTEMPTS })
+      } catch (error: unknown) {
+        if (!(error instanceof AggregateError) || attempt === MAX_ATTEMPTS) {
+          throw error
+        }
+      }
+    }
+  }
+
+  /** Creates a Person, without delivering the jobs its event enqueues. */
+  async function createPersonQueued(name = 'Ada Lovelace', cookie = acme.cookie): Promise<string> {
     const response = await client.send('POST', '/v1/people', {
       body: { name, email: `${name.split(' ')[0]?.toLowerCase() ?? 'x'}@example.com` },
       cookie,
@@ -138,6 +156,56 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
     await harness.services.events.drain()
 
     return readString(await response.json(), 'id')
+  }
+
+  /** Creates a Person, which is what emits `record.created`, and delivers it. */
+  async function createPerson(name = 'Ada Lovelace', cookie = acme.cookie): Promise<string> {
+    const id = await createPersonQueued(name, cookie)
+
+    await deliverQueued()
+
+    return id
+  }
+
+  /** The delivery jobs waiting in the queue, parsed as the worker parses them. */
+  function queuedDeliveries(): DeliveryJobData[] {
+    return harness.services.queuedJobs
+      .filter((job) => job.name === DELIVER_WEBHOOK_JOB)
+      .map((job) => deliveryJobDataSchema.parse(job.data))
+  }
+
+  async function deliveryRows(webhookId: string): Promise<(typeof webhookDeliveries.$inferSelect)[]> {
+    return database.db.select().from(webhookDeliveries).where(eq(webhookDeliveries.webhookId, webhookId))
+  }
+
+  /**
+   * What the module gives the delivery job, on the harness's database, with
+   * the sender, clock and log of the test's choosing.
+   */
+  function deliveryDependencies(
+    sendDelivery: SendDelivery,
+    logLines: string[],
+    now: () => Date = () => new Date(),
+  ): DeliveryDependencies {
+    return {
+      db: harness.services.db,
+      transaction: harness.services.transaction,
+      now,
+      cipher: createSecretCipher({ SECRET_ENCRYPTION_KEY: TEST_SECRET_ENCRYPTION_KEY }),
+      send: sendDelivery,
+      retentionDays: DEFAULT_DELIVERY_RETENTION_DAYS,
+      log: createLogger({ level: 'debug', transports: [createCaptureTransport((line) => logLines.push(line))] }),
+    }
+  }
+
+  function captureLogger(logLines: string[]): ReturnType<typeof createLogger> {
+    return createLogger({ level: 'debug', transports: [createCaptureTransport((line) => logLines.push(line))] })
+  }
+
+  function linesNamed(logLines: readonly string[], message: string): Record<string, unknown>[] {
+    return logLines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line.message === message)
   }
 
   async function listWebhooks(cookie = acme.cookie): Promise<Record<string, unknown>[]> {
@@ -411,9 +479,11 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
         cookie: acme.cookie,
       })
       await harness.services.events.drain()
+      await deliverQueued()
 
       await client.send('DELETE', `/v1/people/${personId}`, { cookie: acme.cookie })
       await harness.services.events.drain()
+      await deliverQueued()
 
       const bodies = sent.map((request) => JSON.parse(request.body) as { event: string; data: unknown })
 
@@ -479,21 +549,20 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       expect(webhook?.last_delivery_at).toBe(delivery?.created_at)
     })
 
-    it('retries with backoff, then records the failure and marks the hook failing', async () => {
+    it('retries, then records the failure and marks the hook failing', async () => {
       const id = readString(await createWebhook(), 'id')
       outcome = REFUSED
 
       await createPerson()
 
-      expect(sent).toHaveLength(MAX_DELIVERY_ATTEMPTS)
-      expect(waits).toEqual([...RETRY_DELAYS_MS])
+      expect(sent).toHaveLength(MAX_ATTEMPTS)
 
       const [delivery] = readList(
         await (await client.send('GET', `/v1/webhooks/${id}/deliveries`, { cookie: acme.cookie })).json(),
       )
 
       expect(delivery?.status).toBe('failed')
-      expect(delivery?.attempts).toBe(MAX_DELIVERY_ATTEMPTS)
+      expect(delivery?.attempts).toBe(MAX_ATTEMPTS)
       expect(delivery?.delivered_at).toBeNull()
 
       const [webhook] = await listWebhooks()
@@ -509,7 +578,6 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       await createPerson()
 
       expect(sent).toHaveLength(2)
-      expect(waits).toEqual([RETRY_DELAYS_MS[0]])
 
       const [delivery] = readList(
         await (await client.send('GET', `/v1/webhooks/${id}/deliveries`, { cookie: acme.cookie })).json(),
@@ -698,7 +766,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       const scoped = await createTestApp({
         modules: [
           ...coreModules.filter((module) => module.id !== 'webhooks'),
-          createWebhooksModule(coreMigrationsDirectory, { send, sleep }),
+          createWebhooksModule(coreMigrationsDirectory, { send }),
         ],
         environment: { ...TEST_ENVIRONMENT, WEBHOOK_DELIVERY_RETENTION_DAYS: '7' },
         services: createTestServices({ db: database.db }),
@@ -719,6 +787,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       })
       expect(first.status).toBe(201)
       await scoped.services.events.drain()
+      await deliverQueued(scoped)
 
       await backdateDeliveries(id, daysAgo(10))
 
@@ -728,6 +797,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       })
       expect(second.status).toBe(201)
       await scoped.services.events.drain()
+      await deliverQueued(scoped)
 
       const listed = await scopedClient.send('GET', `/v1/webhooks/${id}/deliveries`, {
         cookie: owner.cookie,
@@ -1009,7 +1079,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
     const app = await createTestApp({
       modules: [
         ...coreModules.filter((module) => module.id !== 'webhooks'),
-        createWebhooksModule(coreMigrationsDirectory, { send, sleep }),
+        createWebhooksModule(coreMigrationsDirectory, { send }),
       ],
       environment: { ...TEST_ENVIRONMENT, ...environment },
       services: createTestServices({ db: database.db }),
@@ -1205,122 +1275,247 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
   })
 
   /**
-   * An engine of the suite's own on the harness's database, so a test can hold
-   * a request in flight and read the log lines. Everything it writes lands in
-   * the same rows the app's own engine would write.
+   * The `webhooks.deliver` job, run by the suite with the sender, clock and log
+   * it chooses. Everything it writes lands in the same rows the app's own
+   * worker would write.
    */
-  describe('a delivery in flight', () => {
-    async function deliveriesOf(id: string): Promise<Record<string, unknown>[]> {
-      return readList(
-        await (await client.send('GET', `/v1/webhooks/${id}/deliveries`, { cookie: acme.cookie })).json(),
-      )
+  describe('the delivery job', () => {
+    /** Queues one delivery for a new registration and answers its job. */
+    async function queueOne(body: Record<string, unknown> = {}): Promise<{ id: string; secret: string; job: DeliveryJobData }> {
+      const created = await createWebhook(body)
+
+      await createPersonQueued()
+
+      const [job, ...others] = queuedDeliveries()
+
+      if (job === undefined || others.length > 0) {
+        throw new Error(`Expected one delivery job, found ${String(queuedDeliveries().length)}`)
+      }
+
+      return { id: readString(created, 'id'), secret: readString(created, 'secret'), job }
     }
 
-    const PAYLOAD = { object_type: 'person', record_id: 'per_01J8ZQ3R9V6X' }
+    function run(logLines: string[], attempt: number, lastAttempt = attempt === MAX_ATTEMPTS): {
+      attempt: number
+      lastAttempt: boolean
+      log: ReturnType<typeof createLogger>
+    } {
+      return { attempt, lastAttempt, log: captureLogger(logLines) }
+    }
 
-    function directEngine(sendDelivery: SendDelivery): { engine: DeliveryEngine; logLines: string[] } {
-      const logLines: string[] = []
+    it('only enqueues from the event: one job per registration, grouped by workspace, and no request', async () => {
+      const one = readString(await createWebhook({ url: 'https://example.com/one' }), 'id')
+      const two = readString(await createWebhook({ url: 'https://example.com/two' }), 'id')
+      await createWebhook({ url: 'https://example.com/other-event', events: ['form.submitted'] })
 
-      const engine = createDeliveryEngine({
-        db: harness.services.db,
-        transaction: harness.services.transaction,
-        createId: harness.services.createId,
-        now: () => new Date(),
-        cipher: createSecretCipher({ SECRET_ENCRYPTION_KEY: TEST_SECRET_ENCRYPTION_KEY }),
-        send: sendDelivery,
-        sleep,
-        retentionDays: DEFAULT_DELIVERY_RETENTION_DAYS,
-        log: createLogger({ level: 'debug', transports: [createCaptureTransport((line) => logLines.push(line))] }),
+      const personId = await createPersonQueued()
+      const jobs = harness.services.queuedJobs.filter((job) => job.name === DELIVER_WEBHOOK_JOB)
+
+      expect(sent).toEqual([])
+      expect(jobs).toHaveLength(2)
+      expect(jobs.map((job) => job.options)).toEqual([
+        { group: { id: acme.workspaceId } },
+        { group: { id: acme.workspaceId } },
+      ])
+
+      const data = queuedDeliveries()
+
+      expect(data.map((job) => job.webhookId).sort()).toEqual([one, two].sort())
+      expect(new Set(data.map((job) => job.deliveryId)).size).toBe(2)
+      expect(data.at(0)).toEqual({
+        workspaceId: acme.workspaceId,
+        webhookId: expect.any(String),
+        deliveryId: expect.stringMatching(/^whd_/u),
+        event: 'record.created',
+        data: { object_type: 'person', record_id: personId },
       })
+    })
 
-      return { engine, logLines }
-    }
+    it('keeps the delivery id across attempts, with a new created_at and a valid signature on each', async () => {
+      const { id, secret, job } = await queueOne()
+      const times = [new Date('2026-10-14T09:00:00.000Z'), new Date('2026-10-14T09:00:12.000Z')]
+      const clock = [...times]
+      const logLines: string[] = []
+      const dependencies = deliveryDependencies(send, logLines, () => clock[0] ?? new Date())
 
-    function linesNamed(logLines: readonly string[], message: string): Record<string, unknown>[] {
-      return logLines
-        .map((line) => JSON.parse(line) as Record<string, unknown>)
-        .filter((line) => line.message === message)
-    }
+      scripted = [REFUSED]
+
+      await expect(attemptDelivery(dependencies, job, run(logLines, 1))).rejects.toThrow(/attempt 1 failed/u)
+      // Nothing is recorded while a retry remains.
+      expect(await deliveryRows(id)).toEqual([])
+
+      clock.shift()
+      await attemptDelivery(dependencies, job, run(logLines, 2))
+
+      expect(sent).toHaveLength(2)
+
+      const bodies = sent.map((request) => JSON.parse(request.body) as Record<string, unknown>)
+
+      expect(bodies.map((body) => body.id)).toEqual([job.deliveryId, job.deliveryId])
+      expect(sent.map((request) => request.headers[DELIVERY_HEADER])).toEqual([job.deliveryId, job.deliveryId])
+      expect(bodies.map((body) => body.created_at)).toEqual(times.map((time) => time.toISOString()))
+
+      for (const request of sent) {
+        const expected = createHmac('sha256', secret).update(request.body, 'utf8').digest('hex')
+
+        expect(request.headers[SIGNATURE_HEADER]).toBe(`sha256=${expected}`)
+      }
+
+      const rows = await deliveryRows(id)
+
+      expect(rows).toHaveLength(1)
+      expect(rows.at(0)).toMatchObject({ id: job.deliveryId, status: 'success', attempts: 2, createdAt: times[1] })
+      expect(rows.at(0)?.payload).toEqual(bodies.at(1))
+    })
+
+    it.each([
+      {
+        name: 'paused',
+        change: (client: TestClient, id: string): Promise<Response> =>
+          client.send('PATCH', `/v1/webhooks/${id}`, { body: { status: 'paused' }, cookie: acme.cookie }),
+      },
+      {
+        name: 'deleted',
+        change: (client: TestClient, id: string): Promise<Response> =>
+          client.send('DELETE', `/v1/webhooks/${id}`, { cookie: acme.cookie }),
+      },
+      {
+        name: 'no longer subscribed to the event',
+        change: (client: TestClient, id: string): Promise<Response> =>
+          client.send('PATCH', `/v1/webhooks/${id}`, { body: { events: ['record.updated'] }, cookie: acme.cookie }),
+      },
+    ])('sends and records nothing for a registration $name before the attempt', async ({ change }) => {
+      const { id } = await queueOne()
+
+      expect((await change(client, id)).status).toBeLessThan(300)
+
+      await deliverQueued()
+
+      expect(sent).toEqual([])
+      expect(harness.services.queuedJobs).toEqual([])
+      expect(await deliveryRows(id)).toEqual([])
+    })
+
+    it('sends to the URL the registration has at the attempt', async () => {
+      const { id } = await queueOne()
+
+      await client.send('PATCH', `/v1/webhooks/${id}`, {
+        body: { url: 'https://example.com/moved' },
+        cookie: acme.cookie,
+      })
+      await deliverQueued()
+
+      expect(sent.map((request) => request.url)).toEqual(['https://example.com/moved'])
+    })
+
+    it('neither records nor marks failing for a secret that will not decrypt, and logs the error', async () => {
+      const { id, job } = await queueOne()
+      const underLostKey = createSecretCipher({ SECRET_ENCRYPTION_KEY: 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=' })
+
+      await database.db.update(webhooks).set({ secretEncrypted: underLostKey.seal('whsec_lost') }).where(eq(webhooks.id, id))
+
+      const logLines: string[] = []
+      const dependencies = deliveryDependencies(send, logLines)
+
+      // A first attempt ends the job: a retry cannot fix a key.
+      await attemptDelivery(dependencies, job, run(logLines, 1))
+      await recordAbandonedDelivery(dependencies, job, captureLogger(logLines))
+
+      expect(sent).toEqual([])
+      expect(await deliveryRows(id)).toEqual([])
+      expect((await listWebhooks()).at(0)?.status).toBe('active')
+      expect(linesNamed(logLines, 'webhook delivery dropped: the signing secret could not be decrypted')).toEqual([
+        expect.objectContaining({ level: 'error', webhookId: id, deliveryId: job.deliveryId }),
+        expect.objectContaining({ level: 'error', webhookId: id, deliveryId: job.deliveryId }),
+      ])
+    })
+
+    it('records a delivery whose last attempt never finished as failed, once, and leaves the status alone', async () => {
+      const { id, job } = await queueOne()
+      const logLines: string[] = []
+      const dependencies = deliveryDependencies(send, logLines)
+
+      // The worker died during the last attempt: only the dead-letter handler runs, maybe twice.
+      await recordAbandonedDelivery(dependencies, job, captureLogger(logLines))
+      await recordAbandonedDelivery(dependencies, job, captureLogger(logLines))
+
+      const rows = await deliveryRows(id)
+
+      expect(sent).toEqual([])
+      expect(rows).toHaveLength(1)
+      expect(rows.at(0)).toMatchObject({ id: job.deliveryId, status: 'failed', attempts: MAX_ATTEMPTS })
+      // Kelpie stopped; the endpoint did not fail.
+      expect((await listWebhooks()).at(0)?.status).toBe('active')
+      expect(linesNamed(logLines, 'webhook delivery abandoned: its last attempt did not finish')).toEqual([
+        expect.objectContaining({ webhookId: id, deliveryId: job.deliveryId, reason: ABANDONED_DELIVERY_REASON }),
+      ])
+    })
+
+    it('leaves a delivery the handler recorded alone in the dead-letter handler, and sends it no second time', async () => {
+      const { id, job } = await queueOne()
+      const logLines: string[] = []
+      const dependencies = deliveryDependencies(send, logLines)
+
+      outcome = REFUSED
+      await attemptDelivery(dependencies, job, run(logLines, MAX_ATTEMPTS))
+      // A worker that recorded and then died runs the job again.
+      await attemptDelivery(dependencies, job, run(logLines, MAX_ATTEMPTS))
+      await recordAbandonedDelivery(dependencies, job, captureLogger(logLines))
+
+      expect(sent).toHaveLength(1)
+      expect((await deliveryRows(id)).map((row) => row.status)).toEqual(['failed'])
+      expect((await listWebhooks()).at(0)?.status).toBe('failing')
+    })
 
     /**
-     * A delivery retries for about a minute, which is longer than an admin
-     * takes to pause or delete the registration. Its request was built before
-     * the change and is still sent, but its result must not undo what the
-     * admin chose, and a registration that has gone has no log to write to.
+     * The registration can change while its request is in flight. The request
+     * was built before the change and is still sent, but its result must not
+     * undo what the admin chose, and a registration that has gone has no log
+     * to write to.
      */
-    describe('a registration that changes during the retries', () => {
-      interface HeldDeliveries {
-        /** The registration the test changes while its request is in flight. */
-        readonly changedId: string
-        /** A second registration the test leaves alone, to show a result still moves it. */
-        readonly otherId: string
-        /** Every request the sender was given, in order. */
+    describe('a registration that changes while its request is in flight', () => {
+      interface HeldDelivery {
+        readonly id: string
         readonly requests: DeliveryRequest[]
         readonly logLines: string[]
-        /** Lets every held request answer, retries included, and waits for the event to settle. */
+        /** Lets the request answer and waits for the attempt to settle. */
         finish(): Promise<void>
       }
 
       /**
-       * Two registrations and a sender that holds each request until the test
-       * lets it answer, so both deliveries are in flight when this returns.
+       * A last attempt whose request is held until the test lets it answer.
        *
-       * @param answer What the endpoint answers once a request is let go.
-       * @param startAs The status both registrations have when the event arrives.
+       * @param answer What the endpoint answers once the request is let go.
+       * @param startAs The status the registration has when the attempt starts.
        */
-      async function holdDeliveries(
-        answer: AttemptOutcome,
-        startAs: 'active' | 'failing',
-      ): Promise<HeldDeliveries> {
-        const changedId = readString(await createWebhook({ url: 'https://example.com/changed' }), 'id')
-        const otherId = readString(await createWebhook({ url: 'https://example.com/other' }), 'id')
+      async function holdDelivery(answer: AttemptOutcome, startAs: 'active' | 'failing'): Promise<HeldDelivery> {
+        const { id, job } = await queueOne()
 
         await database.db.update(webhooks).set({ status: startAs })
 
         const requests: DeliveryRequest[] = []
-        const releases: (() => void)[] = []
+        let release: (() => void) | undefined
         const held: SendDelivery = async (request) => {
           requests.push(request)
 
           await new Promise<void>((resolve) => {
-            releases.push(resolve)
+            release = resolve
           })
 
           return answer
         }
-        const { engine, logLines } = directEngine(held)
+        const logLines: string[] = []
+        const attempting = attemptDelivery(deliveryDependencies(held, logLines), job, run(logLines, MAX_ATTEMPTS))
 
-        let settled = false
-        const delivering = engine
-          .deliver({ workspaceId: acme.workspaceId, event: 'record.created', data: PAYLOAD })
-          .finally(() => {
-            settled = true
-          })
-
-        await expect.poll(() => requests.length).toBe(2)
+        await expect.poll(() => requests.length).toBe(1)
 
         return {
-          changedId,
-          otherId,
+          id,
           requests,
           logLines,
           async finish() {
-            // Every held request goes in each poll. A refused delivery sends
-            // four requests one after another, and one release for each poll
-            // would spend most of the default timeout on waiting alone.
-            await expect
-              .poll(
-                () => {
-                  for (const release of releases.splice(0)) {
-                    release()
-                  }
-
-                  return settled
-                },
-                { timeout: 5_000 },
-              )
-              .toBe(true)
-            await delivering
+            release?.()
+            await attempting
           },
         }
       }
@@ -1346,8 +1541,8 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
         { name: 'a failure on an active registration', before: 'active', answer: REFUSED, logged: 'failed' },
         { name: 'a success on a failing registration', before: 'failing', answer: DELIVERED, logged: 'success' },
       ] as const)('leaves a registration paused when its delivery settles after the pause: $name', async ({ before, answer, logged }) => {
-        const held = await holdDeliveries(answer, before)
-        const paused = await client.send('PATCH', `/v1/webhooks/${held.changedId}`, {
+        const held = await holdDelivery(answer, before)
+        const paused = await client.send('PATCH', `/v1/webhooks/${held.id}`, {
           body: { status: 'paused' },
           cookie: acme.cookie,
         })
@@ -1355,27 +1550,21 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
         expect(paused.status).toBe(200)
         await held.finish()
 
-        expect(await statusOf(held.changedId)).toBe('paused')
-        expect((await deliveriesOf(held.changedId)).map((delivery) => delivery.status)).toEqual([logged])
-        // The other registration was not paused, and its result moved it as before.
-        expect(await statusOf(held.otherId)).toBe(answer.delivered ? 'active' : 'failing')
+        expect(await statusOf(held.id)).toBe('paused')
+        expect((await deliveryRows(held.id)).map((delivery) => delivery.status)).toEqual([logged])
         expect(errorLines(held.logLines)).toEqual([])
       })
 
       it('records nothing, and reports no error, for a registration deleted while its request was in flight', async () => {
-        const held = await holdDeliveries(REFUSED, 'active')
-        const deleted = await client.send('DELETE', `/v1/webhooks/${held.changedId}`, { cookie: acme.cookie })
+        const held = await holdDelivery(REFUSED, 'active')
+        const deleted = await client.send('DELETE', `/v1/webhooks/${held.id}`, { cookie: acme.cookie })
 
         expect(deleted.status).toBe(204)
         await held.finish()
 
-        // Its retries were still sent: the request was built before the delete.
-        expect(held.requests).toHaveLength(MAX_DELIVERY_ATTEMPTS * 2)
+        expect(held.requests).toHaveLength(1)
         expect(errorLines(held.logLines)).toEqual([])
-        expect(
-          await database.db.select().from(webhookDeliveries).where(eq(webhookDeliveries.webhookId, held.changedId)),
-        ).toEqual([])
-        expect((await deliveriesOf(held.otherId)).map((delivery) => delivery.status)).toEqual(['failed'])
+        expect(await deliveryRows(held.id)).toEqual([])
       })
     })
 
@@ -1392,29 +1581,29 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
         // DNS rebinding: the check sees a public address, and the connection a private one.
         { name: 'at the connection', answers: [['93.184.216.34'], [REFUSED_ADDRESS]] },
       ])('gives the address to the log line and to nothing a customer reads, $name', async ({ answers }) => {
-        const id = readString(await createWebhook(), 'id')
+        const { id, job } = await queueOne()
         const remaining = [...answers]
         const guard = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () =>
           Promise.resolve(remaining.shift() ?? [REFUSED_ADDRESS]),
         )
-        const { engine, logLines } = directEngine(createHttpSender(guard))
+        const logLines: string[] = []
 
-        await engine.deliver({ workspaceId: acme.workspaceId, event: 'record.created', data: PAYLOAD })
+        await attemptDelivery(deliveryDependencies(createHttpSender(guard), logLines), job, run(logLines, MAX_ATTEMPTS))
 
-        const failures = linesNamed(logLines, 'webhook delivery failed')
+        const failures = linesNamed(logLines, 'webhook delivery attempt failed')
 
         expect(failures).toHaveLength(1)
         expect(failures[0]).toMatchObject({
           level: 'warn',
           webhookId: id,
-          attempts: MAX_DELIVERY_ATTEMPTS,
+          attempt: MAX_ATTEMPTS,
           blockedAddress: REFUSED_ADDRESS,
           reason:
             'BlockedEgressError: Refusing to connect to example.com: the host has a private or reserved address',
         })
 
         const listed = await client.send('GET', `/v1/webhooks/${id}/deliveries`, { cookie: acme.cookie })
-        const rows = await database.db.select().from(webhookDeliveries).where(eq(webhookDeliveries.webhookId, id))
+        const rows = await deliveryRows(id)
 
         expect(rows).toHaveLength(1)
         expect(rows.at(0)?.status).toBe('failed')
@@ -1424,20 +1613,24 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       })
 
       it('adds no address to the log line of a failure the guard did not cause', async () => {
-        await createWebhook()
-        const { engine, logLines } = directEngine(
-          createHttpSender(createEgressGuard({ BLOCK_PRIVATE_EGRESS: false }), () =>
-            Promise.reject(new TypeError('fetch failed')),
+        const { job } = await queueOne()
+        const logLines: string[] = []
+        const sender = createHttpSender(createEgressGuard({ BLOCK_PRIVATE_EGRESS: false }), () =>
+          Promise.reject(
+            new TypeError('fetch failed', {
+              cause: Object.assign(new Error(`connect ECONNREFUSED ${REFUSED_ADDRESS}:443`), { code: 'ECONNREFUSED' }),
+            }),
           ),
         )
 
-        await engine.deliver({ workspaceId: acme.workspaceId, event: 'record.created', data: PAYLOAD })
+        await attemptDelivery(deliveryDependencies(sender, logLines), job, run(logLines, MAX_ATTEMPTS))
 
-        const failures = linesNamed(logLines, 'webhook delivery failed')
+        const failures = linesNamed(logLines, 'webhook delivery attempt failed')
 
         expect(failures).toHaveLength(1)
-        expect(failures[0]).toMatchObject({ reason: 'TypeError: fetch failed' })
+        expect(failures[0]).toMatchObject({ reason: 'TypeError: fetch failed (ECONNREFUSED)' })
         expect(failures[0]).not.toHaveProperty('blockedAddress')
+        expect(JSON.stringify(failures)).not.toContain(REFUSED_ADDRESS)
       })
     })
   })

@@ -2,12 +2,12 @@ import { createEgressGuard, egressConfigSchema } from '../../lib/egress.ts'
 import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secrets.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import {
-  createDeliveryEngine,
+  createDeliveryFanOut,
   createHttpSender,
+  defineDeliveryJob,
   deliveryRetentionConfigSchema,
-  sleepFor,
 } from './delivery.ts'
-import type { SendDelivery, Sleep } from './delivery.ts'
+import type { SendDelivery } from './delivery.ts'
 import { webhookLimitsConfigSchema } from './limits.ts'
 import { subscribeDeliverableEvents } from './payloads.ts'
 import { mountWebhooksRoutes } from './routes.ts'
@@ -16,8 +16,8 @@ import { createWebhooksService } from './service.ts'
 import { registerWebhooksTools } from './tools.ts'
 
 /**
- * Webhooks: registration, and the engine that bridges the internal event bus to
- * outbound HTTP.
+ * Webhooks: registration, and delivery, which bridges the internal event bus
+ * to outbound HTTP through the `webhooks.deliver` job (`delivery.ts`).
  *
  * `requires` is `workspace` alone. The engine consumes events by name and never
  * reads the tables behind them, so it does not depend on the modules that emit
@@ -31,8 +31,6 @@ import { registerWebhooksTools } from './tools.ts'
 export interface WebhooksModuleOptions {
   /** Injected by tests so no suite makes a network call. */
   readonly send?: SendDelivery
-  /** Injected by tests so no suite spends the retry budget in real time. */
-  readonly sleep?: Sleep
 }
 
 export function createWebhooksModule(
@@ -68,20 +66,26 @@ export function createWebhooksModule(
         maxPerWorkspace: limits.WEBHOOK_MAX_PER_WORKSPACE,
       })
 
-      const engine = createDeliveryEngine({
+      const deliveryJob = context.jobs.define(
+        defineDeliveryJob({
+          db: context.db,
+          transaction: context.transaction,
+          now: context.now,
+          cipher,
+          send: options.send ?? createHttpSender(egress),
+          retentionDays: retention.WEBHOOK_DELIVERY_RETENTION_DAYS,
+          log: context.log,
+        }),
+      )
+      const fanOut = createDeliveryFanOut({
         db: context.db,
         transaction: context.transaction,
         createId: context.createId,
-        now: context.now,
-        cipher,
-        send: options.send ?? createHttpSender(egress),
-        sleep: options.sleep ?? sleepFor,
-        retentionDays: retention.WEBHOOK_DELIVERY_RETENTION_DAYS,
-        log: context.log,
+        deliveryJob,
       })
 
       context.schema(schema, migrationsDirectory)
-      subscribeDeliverableEvents(context.events, (payload) => engine.deliver(payload))
+      subscribeDeliverableEvents(context.events, (payload) => fanOut.enqueue(payload))
 
       context.routes((router) => {
         mountWebhooksRoutes(router, { db: context.db, now: context.now, service })

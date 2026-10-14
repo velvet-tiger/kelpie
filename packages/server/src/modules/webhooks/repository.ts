@@ -305,17 +305,38 @@ export async function deleteWebhook(
   return deleted.length
 }
 
+/**
+ * Writes one delivery to the log, once.
+ *
+ * The id is the delivery id the receiver sees, made when the event was
+ * enqueued and the same on every attempt. A second write of it does nothing:
+ * a job whose worker recorded the delivery and then stopped before the queue
+ * heard is run again, and the dead-letter handler may run more than once.
+ *
+ * @returns The row written, or undefined when the delivery was already in the log.
+ */
 export async function insertDelivery(
   db: Queryable,
   values: DeliveryColumns,
-): Promise<DeliveryRecord> {
-  const [created] = await db.insert(webhookDeliveries).values(values).returning()
-
-  if (created === undefined) {
-    throw new Error(`Inserting webhook delivery ${values.id} returned no row`)
-  }
+): Promise<DeliveryRecord | undefined> {
+  const [created] = await db
+    .insert(webhookDeliveries)
+    .values(values)
+    .onConflictDoNothing({ target: webhookDeliveries.id })
+    .returning()
 
   return created
+}
+
+/** True when the log already holds this delivery. */
+export async function deliveryExists(db: Queryable, id: string): Promise<boolean> {
+  const found = await db
+    .select({ id: webhookDeliveries.id })
+    .from(webhookDeliveries)
+    .where(eq(webhookDeliveries.id, id))
+    .limit(1)
+
+  return found.length > 0
 }
 
 /**

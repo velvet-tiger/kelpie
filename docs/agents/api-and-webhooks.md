@@ -107,11 +107,11 @@ function signatureMatches(rawBody, header, secret) {
 4. Refuse a body whose `created_at` is more than 5 minutes old, or more than 1 minute in the future.
 5. Look up the `id` from the body. If you have processed it, answer `2xx` and do nothing more.
 
-**Refuse an old delivery.** Step 4 stops a person who recorded a delivery from sending it again later. It does not refuse a retry. A retry sends the same body, so it has the same `id`, the same `created_at` and the same signature. Kelpie waits 1, 5 and 15 seconds between attempts, and waits 10 seconds at most for the answer to each attempt. The last attempt thus arrives about one minute after `created_at` at the latest. The 5 minutes also allow for a difference between your clock and the clock of the service.
+**Refuse an old delivery.** Step 4 stops a person who recorded a delivery from sending it again later. It does not refuse a retry. A retry has the same `id`, but Kelpie builds and signs the body again for each attempt. So a retry has a new `created_at`, the time of that attempt, and a new signature. Kelpie waits about 5 to 10, 10 to 20 and 20 to 40 seconds between attempts, and waits 10 seconds at most for the answer to each attempt. Each retry can also wait a few seconds in the queue. The last attempt thus starts at most about two and a half minutes after the first. The 5 minutes also allow for a difference between your clock and the clock of the service.
 
 **Refuse a delivery from the future.** The clock of the service can be ahead of yours. A body with a `created_at` in the future stays inside the age limit for longer than 5 minutes of your time. Thus accept a `created_at` that is at most 1 minute ahead of your clock, and refuse one that is further ahead.
 
-**Dedupe on the `id` in the body.** Keep each `id` until `created_at` plus 5 minutes, the age limit. Count from the `created_at` in the body, not from the time the delivery arrived. If you count from arrival and the clock of the service is ahead of yours, you forget the `id` while a copy still passes step 4. After `created_at` plus 5 minutes, a copy fails step 4, and you can forget the `id`.
+**Dedupe on the `id` in the body.** Keep each `id` until `created_at` plus 5 minutes, the age limit. Count from the `created_at` in the body, not from the time the delivery arrived. If you count from arrival and the clock of the service is ahead of yours, you forget the `id` while a copy still passes step 4. Count from the `created_at` of the first copy you processed. A retry has a later `created_at`, but all the attempts of one delivery start within about two and a half minutes of the first, so they all arrive while you still keep its `id`.
 
 ## Rotating a secret
 
@@ -121,14 +121,14 @@ Rotate from the Webhooks admin page (or the API). You choose: an immediate rotat
 
 - **At-least-once.** Design your receiver to be idempotent, keyed on the `id` in the signed body. The `Kelpie-Delivery` header has the same value, but the signature does not cover it.
 - A non-2xx response is a failure — and so is a redirect, which is never followed. Register the final URL.
-- Failures retry three times, 1, 5 and 15 seconds apart. Each retry sends the same body with the same `id` and `created_at`. When attempts run out the registration reads `failing`, and it returns to `active` on its own when a delivery lands. `paused` is your own switch and stops delivery entirely.
+- Failures retry three times, with a wait that grows each time: about 5 to 10, 10 to 20 and 20 to 40 seconds. Each retry has the same `id`, and a new `created_at` and signature. When attempts run out the registration reads `failing`, and it returns to `active` on its own when a delivery lands. `paused` is your own switch and stops delivery entirely.
 - The delivery log keeps 30 days by default (operator-configurable) and is visible on the admin page.
-- A delivery starts when the event happens, and it builds its request one time. A delivery that has started finishes with the URL and the secret that it started with. Its retries send the same request again, for about one minute at the most. A change to the URL, a rotated secret, a pause or a delete applies to the deliveries that start after it.
+- A delivery is queued when the event happens. Each attempt reads the registration again, and uses the URL and the secrets that the registration has at that time. A change to the URL or a rotated secret applies to the next attempt. A delivery whose registration is paused or deleted, or no longer takes the event, is not sent again and is not logged.
 - A pause is yours. A delivery that was sent before you paused can end after it, and its result is in the log. The result does not change `paused`.
 
 ## Limits to design around
 
-Deliveries and their retries live in the server process — there is no durable queue. A crash mid-retry loses that delivery. Nothing bounds how many deliveries run at one time: each one starts when its event happens. Treat webhooks as a fast signal, not a ledger: anything you cannot afford to miss, reconcile by polling the API.
+Deliveries and their retries are jobs in a queue in Postgres. A restart or a deploy does not lose them. A worker that stops in the middle of an attempt can send that attempt again, so a receiver must dedupe on the `id`. Each workspace has at most 3 deliveries in progress at one time, so a large import in one workspace does not hold up the others. It does make that workspace's own deliveries wait: an import of 10,000 records to 20 webhooks is 200,000 deliveries. Treat webhooks as a fast signal, not a ledger: anything you cannot afford to miss, reconcile by polling the API.
 
 ## Agent task dispatches
 

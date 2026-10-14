@@ -88,6 +88,26 @@ While the major version is `0`, a minor bump may break the API.
     Neither is a webhook event.
 ### Changed
 
+- **`@kelpie/server`** — **Webhooks are delivered through the job queue.**
+  An event enqueues one `webhooks.deliver` job for each webhook that takes
+  it, so a restart or a deploy no longer loses a delivery. Each attempt reads
+  the webhook again: a webhook paused, deleted or no longer subscribed gets
+  nothing, and a new URL or secret applies to the next attempt. One
+  workspace has at most 3 deliveries in progress at a time, and each worker
+  runs at most 10. Nothing limits how many deliveries a workspace may have
+  waiting. A delivery whose last attempt did not finish goes to
+  `webhooks.deliver.dead` and is logged as failed, with no change to the
+  webhook's status. A signing secret that does not decrypt is logged at
+  `error` and the delivery is dropped. The reason for a network failure now
+  names its code, such as `ECONNREFUSED`, and never the address. No
+  migration.
+  - **Changed behaviour:** a retry has the same `id` and a new `created_at`
+    and signature. The waits between attempts are about 5 to 10, 10 to 20
+    and 20 to 40 seconds, and all four attempts start within about two and a
+    half minutes. A receiver that dedupes on the `id` needs no change.
+  - **Changed behaviour:** the `warn` log line `webhook delivery failed` is
+    now `webhook delivery attempt failed`, once for each failed attempt,
+    with `attempt` in place of `attempts`.
 - **`@kelpie/server`** — **An `SMTP_USER` or `SMTP_PASSWORD` of only
   spaces fails boot.** Before, the module sent it to the relay, which
   refused it at sign-in on each send. The boot error names the key and not

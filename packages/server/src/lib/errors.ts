@@ -202,3 +202,52 @@ export function describeThrown(error: unknown): string {
 
   return parts.join(': ')
 }
+
+/** A Node or undici error code: capitals, digits and underscores only. */
+const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]*$/u
+
+function errorCodeOf(value: unknown): string | undefined {
+  if (!(value instanceof Error) || !('code' in value) || typeof value.code !== 'string') {
+    return undefined
+  }
+
+  return ERROR_CODE_PATTERN.test(value.code) ? value.code : undefined
+}
+
+/**
+ * The codes on the cause of `error`, for example `ECONNREFUSED`, `ENOTFOUND`
+ * or `CERT_HAS_EXPIRED`. A connection that tried several addresses rejects
+ * with an `AggregateError` cause, so its members' codes count too.
+ */
+function causeCodesOf(error: Error): readonly string[] {
+  const cause: unknown = error.cause
+  const members = cause instanceof AggregateError ? [cause, ...(cause.errors as unknown[])] : [cause]
+  const codes = members.map(errorCodeOf).filter((code): code is string => code !== undefined)
+
+  return [...new Set(codes)]
+}
+
+/**
+ * `describeThrown`, plus the code of the error's cause.
+ *
+ * `fetch` rejects with `TypeError: fetch failed` for every network fault, and
+ * says which one only in `cause`. A reason without it tells a reader nothing.
+ *
+ * Only the cause's `code` is added, never its `message`. Node writes the
+ * address it connected to into that message (`connect ECONNREFUSED
+ * 10.0.0.5:443`), and the reason of an outbound call is shown to the people
+ * of a workspace. The address a host name resolved to inside the deployment's
+ * network is not theirs to read. A code is a fixed word, and a value that is
+ * not shaped like one is left out.
+ */
+export function describeThrownWithCause(error: unknown): string {
+  const described = describeThrown(error)
+
+  if (!(error instanceof Error)) {
+    return described
+  }
+
+  const codes = causeCodesOf(error)
+
+  return codes.length === 0 ? described : `${described} (${codes.join(', ')})`
+}

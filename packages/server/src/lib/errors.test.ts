@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { AppError, describeThrown, internalErrorBody, toErrorBody, toErrorDetails } from './errors.ts'
+import {
+  AppError,
+  describeThrown,
+  describeThrownWithCause,
+  internalErrorBody,
+  toErrorBody,
+  toErrorDetails,
+} from './errors.ts'
 
 describe('AppError', () => {
   it('maps each code to its status', () => {
@@ -81,5 +88,44 @@ describe('describeThrown', () => {
 
   it('stringifies values that are not errors', () => {
     expect(describeThrown('boom')).toBe('boom')
+  })
+})
+
+describe('describeThrownWithCause', () => {
+  function networkError(code: string, message: string): Error {
+    return Object.assign(new Error(message), { code })
+  }
+
+  it('adds the code of the cause and never its message', () => {
+    const error = new TypeError('fetch failed', {
+      cause: networkError('ECONNREFUSED', 'connect ECONNREFUSED 10.0.0.5:443'),
+    })
+    const described = describeThrownWithCause(error)
+
+    expect(described).toBe('TypeError: fetch failed (ECONNREFUSED)')
+    expect(described).not.toContain('10.0.0.5')
+  })
+
+  it('reads the codes of every address a connection tried', () => {
+    const cause = new AggregateError([
+      networkError('ECONNREFUSED', 'connect ECONNREFUSED 10.0.0.5:443'),
+      networkError('ETIMEDOUT', 'connect ETIMEDOUT [fd00::5]:443'),
+      networkError('ECONNREFUSED', 'connect ECONNREFUSED 10.0.0.6:443'),
+    ])
+
+    expect(describeThrownWithCause(new TypeError('fetch failed', { cause }))).toBe(
+      'TypeError: fetch failed (ECONNREFUSED, ETIMEDOUT)',
+    )
+  })
+
+  it('leaves out a code that is not shaped like one', () => {
+    const error = new TypeError('fetch failed', { cause: networkError('10.0.0.5', 'x') })
+
+    expect(describeThrownWithCause(error)).toBe('TypeError: fetch failed')
+  })
+
+  it('is describeThrown when there is no cause', () => {
+    expect(describeThrownWithCause(new Error('boom'))).toBe('Error: boom')
+    expect(describeThrownWithCause('boom')).toBe('boom')
   })
 })
