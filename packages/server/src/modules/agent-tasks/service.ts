@@ -263,7 +263,13 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
 
         // In the run's own transaction: a rollback leaves no job, and a
         // commit leaves a job, never a run that nothing will dispatch.
-        await jobs.enqueue(dependencies.dispatchJob, { workspaceId, runId: run.id })
+        // Grouped by workspace, so one workspace's runs cannot hold every
+        // worker. The target type is the one the scopes above were checked for.
+        await jobs.enqueue(
+          dependencies.dispatchJob,
+          { workspaceId, runId: run.id, targetType: input.targetType },
+          { group: { id: workspaceId } },
+        )
 
         return run
       })

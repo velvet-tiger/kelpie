@@ -91,14 +91,27 @@ While the major version is `0`, a minor bump may break the API.
 - **`@kelpie/server`** — **Agent-task runs are dispatched through the job
   queue.** A Run writes the run and one `agent-tasks.dispatch` job in one
   transaction, so a restart no longer strands a run at `queued`. The job
-  holds the workspace and run ids only. It reads the run, the agent and the
-  record again and builds the prompt when it runs. A run whose agent, task or
-  record has gone fails with a reason that says so. The job has no retry. A
-  run whose job stopped before it settled is failed by the dead-letter
-  handler. A run moves from `queued` to `running` in one conditional write,
-  so a run is never posted twice. The reason for a network failure now names
-  its code, such as `ECONNREFUSED`, and never the address. `AgentDispatcher`
-  and `AgentDispatchOutcome` do not change. No migration.
+  holds the workspace and run ids and the target type the run was allowed
+  for. It reads the run, the agent and the record again and builds the
+  prompt when it runs. A run whose task or record has gone, or whose record
+  was converted to another type, fails with a reason that says so. Deleting
+  an agent deletes its runs, queued ones included. The job has no retry. A
+  dispatch that runs longer than 60 seconds is stopped, and a run whose job
+  did not finish is failed by the dead-letter handler. A run moves from
+  `queued` to `running` in one conditional write, so a run is never posted
+  twice. One workspace has at most 2 dispatches in progress at a time. The
+  reason for a network failure names its code, such as `ECONNREFUSED`, and
+  never the address. `AgentDispatcher` and `AgentDispatchOutcome` do not
+  change. No migration.
+  - **Upgrade:** a run left `queued` by an older version has no job, and
+    stays `queued`. Run such a task again from its record page. To find
+    them: `GET /v1/agent-runs?status=queued`.
+  - **Upgrade:** an in-process `AgentDispatcher`, such as the `ai` module's,
+    now runs in the process that works jobs. An assembly that runs its
+    worker as its own process (`npm run worker`) must list the module that
+    provides the dispatcher in the worker's module list too. Otherwise its
+    runs fail with "This agent is run by the … module, which this deployment
+    does not include".
 - **`@kelpie/server`** — **Webhooks are delivered through the job queue.**
   An event enqueues one `webhooks.deliver` job for each webhook that takes
   it, so a restart or a deploy no longer loses a delivery. Each attempt reads

@@ -1,11 +1,13 @@
+import { AGENT_TASK_TARGET_TYPES } from '@kelpie/schemas'
 import { z } from 'zod'
 
+import { attemptSignal, untilAborted } from '../../lib/abort.ts'
 import type { Database } from '../../lib/database.ts'
-import { BlockedEgressError } from '../../lib/egress.ts'
 import type { EgressGuard } from '../../lib/egress.ts'
-import { describeThrown, describeThrownWithCause } from '../../lib/errors.ts'
+import { describeThrown } from '../../lib/errors.ts'
 import type { JobDefinition } from '../../lib/jobs.ts'
 import type { Logger } from '../../lib/logger.ts'
+import { describeOutboundFailure } from '../../lib/outbound.ts'
 import type { AgentDispatchOutcome, AgentDispatcher } from '../../runtime/module.ts'
 import { SecretDecryptionError } from '../../lib/secrets.ts'
 import type { SecretCipher } from '../../lib/secrets.ts'
@@ -40,7 +42,14 @@ import type { ResolvedTaskView } from './wire.ts'
  * from the page.
  *
  * A job whose worker stopped before the run settled ends in the dead-letter
- * queue, and `failAbandonedRun` fails the run there.
+ * queue, and `failAbandonedRun` fails the run there. A job that expires is
+ * stopped by its signal, so its POST does not go on beside the dead-letter
+ * handler; a dispatch that settles after that finds the run ended and says so
+ * in the log.
+ *
+ * The jobs of one workspace are one pg-boss group. Most runs come from a
+ * person who clicks Run, but an API key can start many, and the group limit
+ * keeps one workspace's runs from holding every worker.
  */
 
 export const DISPATCH_AGENT_RUN_JOB = 'agent-tasks.dispatch'
@@ -57,11 +66,34 @@ export const DISPATCH_TIMEOUT_MS = 10_000
  */
 export const DISPATCH_EXPIRE_SECONDS = 60
 
-/** The ids of the run to dispatch. Never the prompt or the record. */
+/**
+ * Dispatches one worker process runs at the same time, and the most one
+ * workspace may hold across all processes.
+ *
+ * A dispatch is one POST that the agent must accept within 10 s, so 5 per
+ * process, the runtime's default, is plenty for runs that people start. A
+ * group limit of 2 leaves 3 of the 5 slots of one worker for other
+ * workspaces while one workspace has a burst of runs from a script, and
+ * still lets that workspace dispatch two at a time. It must stay below the
+ * local concurrency, or one workspace can fill a worker.
+ */
+export const DISPATCH_LOCAL_CONCURRENCY = 5
+export const DISPATCH_GROUP_CONCURRENCY = 2
+
+/**
+ * The ids of the run to dispatch, and the target type the run was allowed
+ * for. Never the prompt or the record.
+ *
+ * The target type is fixed here at enqueue. A conversion moves a run to the
+ * new record (`conversions/repoint.ts`), which can be of another type, and
+ * the scopes a caller needed to run a task depend on the type. A run whose
+ * type changed is failed, not sent against a type nobody was checked for.
+ */
 export const dispatchJobDataSchema = z
   .object({
     workspaceId: z.string().min(1),
     runId: z.string().min(1),
+    targetType: z.enum(AGENT_TASK_TARGET_TYPES),
   })
   .strict()
 
@@ -84,10 +116,19 @@ export type DispatchOutcome = AgentDispatchOutcome
 export interface SendOutcome extends DispatchOutcome {
   /** The address the egress guard refused. Absent on every other outcome. */
   readonly blockedAddress?: string
+  /** True when the deployment's DNS resolver did not answer. Server log only. */
+  readonly kelpieFault?: boolean
+  /** The whole cause of a failure, addresses included. Server log only. */
+  readonly logDetail?: string
 }
 
-/** The outbound port. Injected so no test makes a network call. */
-export type SendDispatch = (request: DispatchRequest) => Promise<SendOutcome>
+/**
+ * The outbound port. Injected so no test makes a network call.
+ *
+ * @param signal The job's signal. It fires when the queue counts the job as
+ *   expired, and the POST must stop then.
+ */
+export type SendDispatch = (request: DispatchRequest, signal?: AbortSignal) => Promise<SendOutcome>
 
 /**
  * Lets go of a response body nobody reads, so its connection goes back to the
@@ -109,25 +150,31 @@ function discardBody(response: Response): void {
  * The catch is broad because this is the process boundary: `fetch` rejects
  * with anything from a DNS failure to an abort, and turning all of it into one
  * outcome is the port's whole job. Nothing is swallowed — the reason lands on
- * the run, naming a network fault by its code (`describeThrownWithCause`) and
- * never by an address. A blocked private address (`egress.check`, or the
- * guard's `fetch` at the connection) reaches the same catch and lands on the
- * run the same way, with the address beside the reason for the log only.
+ * the run, naming a network fault by its code and never by an address
+ * (`describeOutboundFailure`). A blocked private address (`egress.check`, or
+ * the guard's `fetch` at the connection) reaches the same catch and lands on
+ * the run the same way, with the address beside the reason for the log only.
+ *
+ * One signal bounds the whole POST: the accept timeout, or the job's own
+ * signal when the queue expires the job. The egress check takes no signal,
+ * so the POST stops waiting for it when the signal fires.
  */
 export function createHttpSender(
   egress: EgressGuard,
   fetchImplementation: typeof fetch = egress.fetch,
 ): SendDispatch {
-  return async (request) => {
+  return async (request, jobSignal) => {
+    const signal = attemptSignal(DISPATCH_TIMEOUT_MS, jobSignal)
+
     try {
-      await egress.check(request.url)
+      await untilAborted(egress.check(request.url), signal)
 
       const response = await fetchImplementation(request.url, {
         method: 'POST',
         body: request.body,
         headers: request.headers,
         redirect: 'manual',
-        signal: AbortSignal.timeout(DISPATCH_TIMEOUT_MS),
+        signal,
       })
 
       discardBody(response)
@@ -140,9 +187,7 @@ export function createHttpSender(
             reason: `agent endpoint answered ${String(response.status)}`,
           }
     } catch (error: unknown) {
-      const failed = { delivered: false, status: null, reason: describeThrownWithCause(error) }
-
-      return error instanceof BlockedEgressError ? { ...failed, blockedAddress: error.address } : failed
+      return { delivered: false, status: null, ...describeOutboundFailure(error) }
     }
   }
 }
@@ -161,10 +206,21 @@ export interface DispatchDependencies {
   readonly log: Logger
 }
 
-/** The reason on a run whose agent was removed after the run was made. */
+/**
+ * The reason on a run whose agent was removed after the run was made.
+ *
+ * Rarely seen: `agent_runs.agent_id` cascades, so deleting an agent deletes
+ * its runs, and the job then finds no run. It is reachable only when the
+ * delete lands between the job's read of the run and its read of the agent,
+ * and then the settle finds no run either. Kept so that window ends in a
+ * reason rather than a crash.
+ */
 export const AGENT_GONE_REASON = 'The agent was removed before the task ran'
 /** The reason on a run whose task this deployment no longer has. */
 export const TASK_GONE_REASON = 'This task is not in this deployment any more'
+/** The reason on a run whose target was converted to a record of another type after the run was made. */
+export const TARGET_CONVERTED_REASON =
+  'The record this task was run on was converted to another kind of record before the task ran. Run the task again on the new record'
 /** The reason on a run whose target was deleted after the run was made. */
 export const TARGET_GONE_REASON = 'The record this task was run on was deleted before the task ran'
 /** The reason on a run whose dispatch never finished. */
@@ -175,15 +231,18 @@ export interface DispatchEngine {
    * The job's handler: reads the run, its agent and its target again, and
    * dispatches it. Does nothing for a run that is no longer `queued`.
    */
-  dispatchRun(data: DispatchJobData, log: Logger): Promise<void>
+  dispatchRun(data: DispatchJobData, log: Logger, signal?: AbortSignal): Promise<void>
   /**
    * Moves the run `queued → running → succeeded | failed`. Sends nothing when
    * the run is no longer `queued`. Every failure of the send settles the run.
    *
+   * @param signal The job's signal, handed to the HTTP sender. An in-process
+   *   dispatcher takes none: `AgentDispatcher` is public, and it is asked to
+   *   answer at once.
    * @throws Error when the run could not be settled at all, so the job ends
    *   in the dead-letter queue and `failAbandonedRun` tries again.
    */
-  dispatch(run: RunRecord, agent: AgentRecord, resolved: ResolvedTaskView): Promise<void>
+  dispatch(run: RunRecord, agent: AgentRecord, resolved: ResolvedTaskView, signal?: AbortSignal): Promise<void>
   /**
    * The dead-letter handler: fails a run still `queued` or `running`. Safe to
    * run more than once, since a run that has ended is not changed.
@@ -202,11 +261,14 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
    * ends a run goes through here. The update and the emit share one
    * transaction: the event fires after the commit, and not at all on a
    * rollback or for a run that had already ended.
+   *
+   * @returns False when there was nothing to end: the run had already ended,
+   *   or it went with its agent.
    */
-  async function settle(run: RunRecord, managedBy: string | null, outcome: DispatchOutcome): Promise<void> {
+  async function settle(run: RunRecord, managedBy: string | null, outcome: DispatchOutcome): Promise<boolean> {
     const status = outcome.delivered ? 'succeeded' : 'failed'
 
-    await dependencies.transaction(
+    return dependencies.transaction(
       async ({ tx, events }) => {
         const settled = await repository.settleRun(tx, run.id, {
           status,
@@ -221,6 +283,8 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
             { runId: settled.id, taskId: settled.taskId, agentId: settled.agentId, managedBy, status },
           )
         }
+
+        return settled !== undefined
       },
       { workspaceId: run.workspaceId },
     )
@@ -230,13 +294,21 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
     return { delivered: false, status: null, reason }
   }
 
-  /** Reads what the run needs again, as it is now. */
-  async function prepare(run: RunRecord): Promise<Preparation> {
+  /**
+   * Reads what the run needs again, as it is now.
+   *
+   * @param authorisedType The target type the run was allowed for, from the job.
+   */
+  async function prepare(run: RunRecord, authorisedType: string): Promise<Preparation> {
     const agent = await repository.findAgent(dependencies.db, run.workspaceId, run.agentId)
 
-    // The run log cascades with its agent, so this is a race with a delete.
+    // See `AGENT_GONE_REASON`: a race with a delete of the agent.
     if (agent === undefined) {
       return { kind: 'gone', reason: AGENT_GONE_REASON, managedBy: null }
+    }
+
+    if (run.targetType !== authorisedType) {
+      return { kind: 'gone', reason: TARGET_CONVERTED_REASON, managedBy: agent.managedBy }
     }
 
     const definition = findTask(run.taskId)
@@ -302,7 +374,12 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
     }
   }
 
-  async function sendOverHttp(run: RunRecord, agent: AgentRecord, resolved: ResolvedTaskView): Promise<SendOutcome> {
+  async function sendOverHttp(
+    run: RunRecord,
+    agent: AgentRecord,
+    resolved: ResolvedTaskView,
+    signal: AbortSignal | undefined,
+  ): Promise<SendOutcome> {
     const authHeader = openAuthHeader(run, agent)
 
     if (authHeader === undefined) {
@@ -318,7 +395,7 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
         'content-type': 'application/json',
         ...(authHeader === null ? {} : { authorization: authHeader }),
       },
-    })
+    }, signal)
   }
 
   function logFailure(run: RunRecord, agent: AgentRecord, outcome: SendOutcome): void {
@@ -329,7 +406,9 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
       ...(agent.managedBy === null ? {} : { managedBy: agent.managedBy }),
       status: outcome.status,
       reason: outcome.reason,
+      ...(outcome.kelpieFault === true ? { kelpieFault: true } : {}),
       ...(outcome.blockedAddress === undefined ? {} : { blockedAddress: outcome.blockedAddress }),
+      ...(outcome.logDetail === undefined ? {} : { cause: outcome.logDetail }),
     })
   }
 
@@ -338,10 +417,15 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
    * is the engine's own boundary: whatever slipped past the paths above
    * still lands on the run as a failure.
    */
-  async function attempt(run: RunRecord, agent: AgentRecord, resolved: ResolvedTaskView): Promise<SendOutcome> {
+  async function attempt(
+    run: RunRecord,
+    agent: AgentRecord,
+    resolved: ResolvedTaskView,
+    signal: AbortSignal | undefined,
+  ): Promise<SendOutcome> {
     try {
       return agent.managedBy === null
-        ? await sendOverHttp(run, agent, resolved)
+        ? await sendOverHttp(run, agent, resolved, signal)
         : await sendInProcess(run, agent.managedBy, resolved)
     } catch (error: unknown) {
       dependencies.log.error('agent dispatch could not be attempted', {
@@ -354,7 +438,12 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
     }
   }
 
-  async function dispatch(run: RunRecord, agent: AgentRecord, resolved: ResolvedTaskView): Promise<void> {
+  async function dispatch(
+    run: RunRecord,
+    agent: AgentRecord,
+    resolved: ResolvedTaskView,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const started = await repository.startRun(dependencies.db, run.id, dependencies.now())
 
     if (started === undefined) {
@@ -363,17 +452,24 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
       return
     }
 
-    const outcome = await attempt(started, agent, resolved)
+    const outcome = await attempt(started, agent, resolved, signal)
 
     if (!outcome.delivered) {
       logFailure(started, agent, outcome)
     }
 
-    await settle(started, agent.managedBy, outcome)
+    if (!(await settle(started, agent.managedBy, outcome))) {
+      // The dead-letter handler ended the run first (the job expired), or
+      // the run went with its agent. The outcome above is not on the run.
+      dependencies.log.warn('agent run had already ended when its dispatch settled', {
+        runId: started.id,
+        delivered: outcome.delivered,
+      })
+    }
   }
 
   return {
-    async dispatchRun(data, log) {
+    async dispatchRun(data, log, signal) {
       const run = await repository.findRun(dependencies.db, data.workspaceId, data.runId)
 
       if (run === undefined || run.status !== 'queued') {
@@ -382,7 +478,7 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
         return
       }
 
-      const prepared = await prepare(run)
+      const prepared = await prepare(run, data.targetType)
 
       if (prepared.kind === 'gone') {
         log.warn('agent run failed before dispatch', { runId: run.id, reason: prepared.reason })
@@ -391,7 +487,7 @@ export function createDispatchEngine(dependencies: DispatchDependencies): Dispat
         return
       }
 
-      await dispatch(run, prepared.agent, prepared.resolved)
+      await dispatch(run, prepared.agent, prepared.resolved, signal)
     },
 
     dispatch,
@@ -415,10 +511,14 @@ export function defineDispatchJob(engine: DispatchEngine): JobDefinition<Dispatc
   return {
     name: DISPATCH_AGENT_RUN_JOB,
     schema: dispatchJobDataSchema,
-    // No retry: see the note at the top. Dispatch is a short POST, so the
-    // runtime's default local concurrency is enough.
-    defaults: { retryLimit: 0, expireInSeconds: DISPATCH_EXPIRE_SECONDS },
-    handler: ({ data, log }) => engine.dispatchRun(data, log),
+    // No retry: see the note at the top.
+    defaults: {
+      retryLimit: 0,
+      expireInSeconds: DISPATCH_EXPIRE_SECONDS,
+      localConcurrency: DISPATCH_LOCAL_CONCURRENCY,
+      groupConcurrency: DISPATCH_GROUP_CONCURRENCY,
+    },
+    handler: ({ data, log, signal }) => engine.dispatchRun(data, log, signal),
     onDeadLetter: ({ data, log }) => engine.failAbandonedRun(data, log),
   }
 }

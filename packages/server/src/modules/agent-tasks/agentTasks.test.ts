@@ -24,6 +24,7 @@ import type { KelpieModule } from '../../runtime/module.ts'
 import {
   ABANDONED_RUN_REASON,
   DISPATCH_AGENT_RUN_JOB,
+  TARGET_CONVERTED_REASON,
   TARGET_GONE_REASON,
   TASK_GONE_REASON,
   createDispatchEngine,
@@ -1012,7 +1013,33 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       const sender = createHttpSender(allowAll, () => Promise.reject(new TypeError('fetch failed', { cause })))
       const outcome = await sender(request)
 
-      expect(outcome).toEqual({ delivered: false, status: null, reason: 'TypeError: fetch failed (ECONNREFUSED)' })
+      expect(outcome).toMatchObject({ delivered: false, status: null, reason: 'TypeError: fetch failed (ECONNREFUSED)' })
+    })
+
+    it('stops waiting on a DNS check that hangs when the job expires', async () => {
+      const hanging = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () => new Promise<never>(() => undefined))
+      let fetched = false
+      const sender = createHttpSender(hanging, () => {
+        fetched = true
+
+        return Promise.resolve(new Response(null, { status: 202 }))
+      })
+      const job = new AbortController()
+      const sending = sender(request, job.signal)
+
+      job.abort(new Error('the job expired'))
+
+      expect(await sending).toMatchObject({ delivered: false, status: null, reason: 'Error: the job expired' })
+      expect(fetched).toBe(false)
+    })
+
+    it('gives the whole cause to the log detail and keeps it out of the reason', async () => {
+      const cause = Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:443'), { code: 'ECONNREFUSED' })
+      const sender = createHttpSender(allowAll, () => Promise.reject(new TypeError('fetch failed', { cause })))
+      const outcome = await sender(request)
+
+      expect(outcome.reason).not.toContain('10.0.0.5')
+      expect(outcome.logDetail).toContain('10.0.0.5')
     })
 
     it('lets go of the response body without reading it', async () => {
@@ -1222,7 +1249,10 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       const agentId = readString(await createAgent(), 'id')
       const runId = await startRun(agentId)
 
-      expect(queuedDispatches()).toEqual([{ workspaceId: acme.workspaceId, runId }])
+      expect(queuedDispatches()).toEqual([{ workspaceId: acme.workspaceId, runId, targetType: 'company' }])
+      expect(
+        harness.services.queuedJobs.filter((job) => job.name === DISPATCH_AGENT_RUN_JOB).map((job) => job.options),
+      ).toEqual([{ group: { id: acme.workspaceId } }])
       expect(sent).toEqual([])
       expect((await runRow(runId))?.status).toBe('queued')
 
@@ -1286,6 +1316,52 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       expect(sent).toEqual([])
     })
 
+    it('fails the run when a conversion moved it to a record of another type before the job ran', async () => {
+      const agentId = readString(await createAgent(), 'id')
+      const runId = await startRun(agentId)
+      const personId = readString(await createRecord('/v1/people', { name: 'Ada Lovelace' }), 'id')
+
+      // What `conversions/repoint.ts` does to the run when its record is
+      // converted: the run moves to a record of another type.
+      await database.db
+        .update(agentRuns)
+        .set({ targetType: 'person', targetId: personId })
+        .where(eq(agentRuns.id, runId))
+
+      const settled = agentRunSchema.parse(await settledRun(runId))
+
+      expect(settled.status).toBe('failed')
+      expect(settled.failureReason).toBe(TARGET_CONVERTED_REASON)
+      expect(sent).toEqual([])
+    })
+
+    it('logs a dispatch that settles after the dead-letter handler ended its run', async () => {
+      const { engine } = directEngine(send)
+      const first = await directDispatch(async () => {
+        // The job expired while the POST was in flight: the dead-letter
+        // handler fails the run before the POST answers.
+        await engine.failAbandonedRun(
+          { workspaceId: acme.workspaceId, runId: first.runId, targetType: 'company' },
+          createLogger({ level: 'error', transports: [] }),
+        )
+
+        return DELIVERED
+      })
+
+      await first.dispatch()
+      await harness.services.events.drain()
+
+      const row = await runRow(first.runId)
+
+      expect(row?.status).toBe('failed')
+      expect(row?.failureReason).toBe(ABANDONED_RUN_REASON)
+      expect(
+        first.logLines
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .filter((line) => line.message === 'agent run had already ended when its dispatch settled'),
+      ).toEqual([expect.objectContaining({ level: 'warn', runId: first.runId, delivered: true })])
+    })
+
     it.each(['queued', 'running'] as const)('fails a run left %s by a dispatch that never finished, once', async (status) => {
       const { runId, agent } = await directDispatch(send)
       const { engine } = directEngine(send)
@@ -1293,8 +1369,8 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
       await database.db.update(agentRuns).set({ status }).where(eq(agentRuns.id, runId))
 
-      await engine.failAbandonedRun({ workspaceId: acme.workspaceId, runId }, log)
-      await engine.failAbandonedRun({ workspaceId: acme.workspaceId, runId }, log)
+      await engine.failAbandonedRun({ workspaceId: acme.workspaceId, runId, targetType: 'company' }, log)
+      await engine.failAbandonedRun({ workspaceId: acme.workspaceId, runId, targetType: 'company' }, log)
       await harness.services.events.drain()
 
       const row = await runRow(runId)
@@ -1315,7 +1391,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
       const { engine } = directEngine(send)
 
-      await engine.failAbandonedRun({ workspaceId: acme.workspaceId, runId }, createLogger({ level: 'error', transports: [] }))
+      await engine.failAbandonedRun({ workspaceId: acme.workspaceId, runId, targetType: 'company' }, createLogger({ level: 'error', transports: [] }))
 
       expect((await runRow(runId))?.status).toBe('succeeded')
     })
@@ -1373,7 +1449,11 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
         expect(response.status).toBe(201)
         expect(await dispatchJobRows()).toEqual([
-          { workspaceId: owner.workspaceId, runId: readString(readRecord(await response.json()), 'id') },
+          {
+            workspaceId: owner.workspaceId,
+            runId: readString(readRecord(await response.json()), 'id'),
+            targetType: 'company',
+          },
         ])
       })
 
