@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { consentCheckboxText } from '@kelpie/schemas'
 
 import type { CaptchaWidget } from '../../lib/captcha.ts'
@@ -857,6 +859,23 @@ const EMBED_SCRIPT = `
 
 export type EmbedLayout = 'page' | 'embed'
 
+/** A CSP hash source for one inline tag's exact text. */
+function hashSource(text: string): string {
+  return `'sha256-${createHash('sha256').update(text, 'utf8').digest('base64')}'`
+}
+
+/**
+ * The inline style for each layout and the inline script never change, so the
+ * policy names them by hash. A per-response nonce would make every response a
+ * different body, and a browser that revalidates and gets a 304 keeps its old
+ * body. That body's nonce would then not match a new policy.
+ */
+const STYLE_SOURCE: Readonly<Record<EmbedLayout, string>> = {
+  page: hashSource(HOSTED_STYLES),
+  embed: hashSource(IFRAME_STYLES),
+}
+const SCRIPT_SOURCE = hashSource(EMBED_SCRIPT)
+
 /** What the page needs for a form that requires the spam check. */
 export interface EmbedSpamCheck {
   /** Where the page gets its token from as it loads: a path on the page's own origin. */
@@ -877,8 +896,6 @@ export interface EmbedPageOptions {
    * origin, never a URL built from request headers, because the page is cached.
    */
   readonly submitUrl: string
-  /** Per-response value tying the inline style and script to the CSP header. */
-  readonly nonce: string
   /**
    * Workspace name shown above the form title on the hosted page layout, and
    * put in place of `{{workspace}}` in consent statements.
@@ -922,7 +939,6 @@ function renderFormBody(
   listNames: ReadonlyMap<string, string>,
   workspaceName: string,
   config: string,
-  nonce: string,
   spamCheck: EmbedSpamCheck | undefined,
 ): string {
   if (form.status === 'paused') {
@@ -938,7 +954,7 @@ function renderFormBody(
     '<p id="kelpie-status" class="note" role="status" aria-live="polite"></p>',
     '</form>',
     `<script type="application/json" id="kelpie-config">${config}</script>`,
-    `<script nonce="${escapeHtml(nonce)}">${EMBED_SCRIPT}</script>`,
+    `<script>${EMBED_SCRIPT}</script>`,
   ].join('')
 }
 
@@ -950,8 +966,7 @@ function renderFormBody(
  * form whose submit answers 409.
  */
 export function renderEmbedPage(options: EmbedPageOptions): string {
-  const { form, fields, consentPurposes, listNames, submitUrl, nonce, workspaceName, layout } =
-    options
+  const { form, fields, consentPurposes, listNames, submitUrl, workspaceName, layout } = options
   const { spamCheck } = options
   const heading = displayTitle(form)
   const config = escapeScriptJson({
@@ -987,7 +1002,6 @@ export function renderEmbedPage(options: EmbedPageOptions): string {
     listNames,
     workspaceName,
     config,
-    nonce,
     spamCheck,
   )
 
@@ -1018,7 +1032,7 @@ export function renderEmbedPage(options: EmbedPageOptions): string {
     // a bare embed ranking above it would be a worse result for a reader.
     '<meta name="robots" content="noindex">',
     `<title>${escapeHtml(heading)}</title>`,
-    `<style nonce="${escapeHtml(nonce)}">${styles}</style>`,
+    `<style>${styles}</style>`,
     '</head>',
     `<body class="layout-${layout}">${shell}</body>`,
     '</html>',
@@ -1039,7 +1053,7 @@ export function renderEmbedPage(options: EmbedPageOptions): string {
  *
  * @throws when a provider names a source that could add a directive of its own.
  */
-export function embedContentSecurityPolicy(nonce: string, captcha?: CaptchaWidget): string {
+export function embedContentSecurityPolicy(layout: EmbedLayout, captcha?: CaptchaWidget): string {
   const extra = captcha?.contentSecurityPolicy
   const sources = (list: readonly string[] | undefined): string => {
     const unsafe = (list ?? []).find((source) => /[\s;,]/u.test(source))
@@ -1053,8 +1067,8 @@ export function embedContentSecurityPolicy(nonce: string, captcha?: CaptchaWidge
 
   return [
     "default-src 'none'",
-    `style-src 'nonce-${nonce}'${sources(extra?.styleSrc)}`,
-    `script-src 'nonce-${nonce}'${sources(extra?.scriptSrc)}`,
+    `style-src ${STYLE_SOURCE[layout]}${sources(extra?.styleSrc)}`,
+    `script-src ${SCRIPT_SOURCE}${sources(extra?.scriptSrc)}`,
     `connect-src 'self'${sources(extra?.connectSrc)}`,
     ...(extra === undefined || extra.frameSrc.length === 0
       ? []

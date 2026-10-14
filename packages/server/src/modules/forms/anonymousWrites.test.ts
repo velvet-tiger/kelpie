@@ -848,9 +848,9 @@ describe.skipIf(connectionString === undefined)('what an anonymous submit may wr
       const response = await loadEmbedAs(form, 'http://attacker.example')
 
       expect(response.status).toBe(200)
-      // The page is stored by shared caches, so nothing in it may come from a
+      // Shared caches may store the page, so nothing in it may come from a
       // header a caller chose.
-      expect(response.headers.get('Cache-Control')).toBe('public, max-age=60')
+      expect(response.headers.get('Cache-Control')).toBe('no-cache')
 
       const page = await response.text()
 

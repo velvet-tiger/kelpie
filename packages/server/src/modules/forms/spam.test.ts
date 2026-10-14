@@ -543,7 +543,7 @@ describe.skipIf(connectionString === undefined)('forms spam check', () => {
       expect(page).toContain('id="kelpie-captcha"')
       expect(page).toContain('site-key-123')
       expect(policy).toContain("default-src 'none'")
-      expect(policy).toMatch(/script-src 'nonce-[^']+' https:\/\/captcha\.test;/u)
+      expect(policy).toMatch(/script-src 'sha256-[^']+' https:\/\/captcha\.test;/u)
       expect(policy).toContain('frame-src https://captcha.test')
       expect(policy).toContain("connect-src 'self' https://captcha.test")
     })

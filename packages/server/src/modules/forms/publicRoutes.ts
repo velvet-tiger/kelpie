@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type { Hono } from 'hono'
 import { z } from 'zod'
 
@@ -65,8 +67,6 @@ const submitBody = z.strictObject({
 
 export interface PublicFormRoutesDependencies {
   readonly db: Database
-  /** Injected so a test can pin the value the CSP and the tags share. */
-  readonly generateNonce?: () => string
   readonly submissions: FormSubmitService
   readonly spamTokens: SpamTokens
   readonly captcha: CaptchaAccess
@@ -134,8 +134,6 @@ export function mountPublicFormRoutes(
   router: Hono,
   dependencies: PublicFormRoutesDependencies,
 ): void {
-  const generateNonce = dependencies.generateNonce ?? (() => crypto.randomUUID())
-
   router.post('/workspaces/:workspaceId/forms/:slug/submit', async (context) => {
     const body = await readJsonBody(context, submitBody)
     const outcome = await dependencies.submissions.submit(
@@ -207,7 +205,6 @@ export function mountPublicFormRoutes(
     // and what iframe snippets load — is the bare embed: fields only.
     const layout = context.req.query('view') === 'page' ? 'page' : 'embed'
 
-    const nonce = generateNonce()
     // Drawn only on a form that requires the check: a widget on a form that
     // would accept the submit without it is friction that stops nobody.
     const captcha = form.requireSpamCheck ? dependencies.captcha.current()?.widget : undefined
@@ -222,7 +219,6 @@ export function mountPublicFormRoutes(
       consentPurposes,
       listNames,
       submitUrl: submitPathFor(form.workspaceId, form.slug),
-      nonce,
       workspaceName: workspace.name,
       layout,
       spamCheck: form.requireSpamCheck
@@ -230,17 +226,53 @@ export function mountPublicFormRoutes(
         : undefined,
     })
 
-    context.header('Content-Security-Policy', embedContentSecurityPolicy(nonce, captcha))
-    // The page is per-form and changes whenever the form is edited. A short
-    // shared cache keeps a popular landing page off the database on every view
-    // without leaving an edited form stale for long. That includes the submit
-    // URL: for up to this long after a slug change, a cached page still posts
-    // to the old slug and gets a 404.
+    const policy = embedContentSecurityPolicy(layout, captcha)
+    const etag = embedEtag(page, policy)
+
+    // Every load asks again. An edit gives every field a new id, and a page
+    // kept from before the edit gets a 409 on submit that a reload must cure.
+    // An unchanged page costs a 304 and no body.
     //
-    // Shared caches store this page, so nothing in it comes from a request
-    // header: the submit and token URLs are paths on the page's own origin.
-    context.header('Cache-Control', 'public, max-age=60')
+    // Shared caches may still store this page, so nothing in it comes from a
+    // request header: the submit and token URLs are paths on the page's own
+    // origin.
+    context.header('Cache-Control', 'no-cache')
+    context.header('ETag', etag)
+    // On the 304 too. A browser merges a 304's headers into the stored page,
+    // and a response with no policy gets `X-Frame-Options: DENY` from the
+    // security headers middleware, which would stop the stored page framing.
+    context.header('Content-Security-Policy', policy)
+
+    if (matchesEtag(context.req.header('If-None-Match'), etag)) {
+      return context.body(null, 304)
+    }
 
     return context.html(page)
   })
+}
+
+/**
+ * A strong validator over everything the browser keeps from a 200: the body
+ * and the policy that lets its inline tags run. A 304 tells the browser to
+ * reuse both, so a change to either must change the tag.
+ */
+function embedEtag(page: string, policy: string): string {
+  const digest = createHash('sha256').update(policy, 'utf8').update('\n').update(page, 'utf8')
+
+  return `"${digest.digest('base64url')}"`
+}
+
+/**
+ * Whether an `If-None-Match` header names this tag. The comparison is weak, as
+ * RFC 9110 asks for this header, so a `W/` prefix a proxy added still matches.
+ */
+function matchesEtag(header: string | undefined, etag: string): boolean {
+  if (header === undefined) {
+    return false
+  }
+
+  return header
+    .split(',')
+    .map((candidate) => candidate.trim())
+    .some((candidate) => candidate === '*' || candidate.replace(/^W\//u, '') === etag)
 }

@@ -1609,6 +1609,90 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(response.headers.get('X-Frame-Options')).toBeNull()
     })
 
+    /** The embed path for a form, asked with an `If-None-Match` the client chose. */
+    function loadEmbed(form: Record<string, unknown>, ifNoneMatch?: string): Promise<Response> {
+      return Promise.resolve(
+        harness.app.request(`/v1/public/workspaces/${embedPath(form)}/embed`, {
+          headers: ifNoneMatch === undefined ? {} : { 'If-None-Match': ifNoneMatch },
+        }),
+      )
+    }
+
+    /**
+     * An edit gives every field a new id, and a page kept from before it gets a
+     * 409 on submit. A reload must then fetch the new page, so every load asks.
+     */
+    it('makes the browser ask again on every load, with a validator', async () => {
+      const response = await loadEmbed(await createForm())
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Cache-Control')).toBe('no-cache')
+      expect(response.headers.get('ETag')).toMatch(/^"[A-Za-z0-9_-]+"$/u)
+    })
+
+    it('answers 304 with no body when the page has not changed', async () => {
+      const form = await createForm()
+      const first = await loadEmbed(form)
+      const etag = first.headers.get('ETag') ?? ''
+      const response = await loadEmbed(form, etag)
+
+      expect(response.status).toBe(304)
+      expect(await response.text()).toBe('')
+      expect(response.headers.get('ETag')).toBe(etag)
+      expect(response.headers.get('Cache-Control')).toBe('no-cache')
+      // The browser merges these into the stored page. Without the policy the
+      // middleware would add X-Frame-Options: DENY and the iframe would stop.
+      expect(response.headers.get('Content-Security-Policy')).toBe(
+        first.headers.get('Content-Security-Policy'),
+      )
+      expect(response.headers.get('X-Frame-Options')).toBeNull()
+    })
+
+    it('matches a weak or listed tag as well as the bare one', async () => {
+      const form = await createForm()
+      const etag = (await loadEmbed(form)).headers.get('ETag') ?? ''
+
+      expect((await loadEmbed(form, `W/${etag}`)).status).toBe(304)
+      expect((await loadEmbed(form, `"other", ${etag}`)).status).toBe(304)
+      expect((await loadEmbed(form, '"other"')).status).toBe(200)
+    })
+
+    it('sends the new page after the field list changes', async () => {
+      const form = await createForm()
+      const before = await loadEmbed(form)
+      const etag = before.headers.get('ETag') ?? ''
+      const oldIds = fieldIds(form)
+
+      const edit = await client.send('PATCH', `/v1/forms/${readString(form, 'id')}`, {
+        body: { fields: [{ label: 'Work email', type: 'email', map_to: 'person.email' }] },
+        cookie: acme.cookie,
+      })
+
+      expect(before.status).toBe(200)
+      expect(edit.status).toBe(200)
+
+      const after = await loadEmbed(form, etag)
+      const page = await after.text()
+
+      expect(after.status).toBe(200)
+      expect(after.headers.get('ETag')).not.toBe(etag)
+      expect(page).toContain('Work email')
+      for (const id of Object.values(oldIds)) {
+        expect(page).not.toContain(id)
+      }
+    })
+
+    /** The view is part of the page, so each layout has its own tag. */
+    it('gives the hosted layout and the bare embed different tags', async () => {
+      const form = await createForm()
+      const embed = (await loadEmbed(form)).headers.get('ETag')
+      const hosted = (
+        await harness.app.request(`/v1/public/workspaces/${embedPath(form)}/embed?view=page`)
+      ).headers.get('ETag')
+
+      expect(hosted).not.toBe(embed)
+    })
+
     it('renders a paused form as closed rather than as a dead form', async () => {
       const form = await createForm({ status: 'paused' })
       const response = await client.send(

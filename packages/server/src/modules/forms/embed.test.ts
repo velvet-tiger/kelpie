@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { describe, expect, it } from 'vitest'
 
 import { embedContentSecurityPolicy, embedSnippets, escapeHtml, renderEmbedPage } from './embed.ts'
@@ -95,6 +97,11 @@ function form(overrides: Partial<FormRecord> = {}): FormRecord {
 
 const submitUrl = 'https://kelpie.test/v1/public/workspaces/ws_1/forms/contact/submit'
 
+/** The CSP source a browser would accept for an inline tag with this text. */
+function sha256Source(text: string): string {
+  return `'sha256-${createHash('sha256').update(text, 'utf8').digest('base64')}'`
+}
+
 function render(
   overrides: Partial<FormRecord> = {},
   fields = [field()],
@@ -106,7 +113,6 @@ function render(
     consentPurposes: new Map(),
     listNames: new Map(),
     submitUrl,
-    nonce: 'n0nce',
     workspaceName: 'Acme Ventures',
     layout,
   })
@@ -210,11 +216,8 @@ describe('renderEmbedPage', () => {
     expect(page).toContain('"fieldIds":["ff_email","ff_name"]')
   })
 
-  it('stamps the nonce on both inline tags, so the policy can name one source', () => {
-    const page = render()
-
-    expect(page).toContain('<style nonce="n0nce">')
-    expect(page).toContain('<script nonce="n0nce">')
+  it('renders the same page twice for the same form, so a validator can name it', () => {
+    expect(render()).toBe(render())
   })
 
   it('renders the form title and workspace name on the hosted page', () => {
@@ -270,7 +273,6 @@ describe('renderEmbedPage', () => {
       consentPurposes: new Map(),
     listNames: new Map(),
       submitUrl,
-      nonce: 'n0nce',
       workspaceName: '<b>Acme</b>',
       layout: 'page',
     })
@@ -322,17 +324,32 @@ describe('renderEmbedPage', () => {
 })
 
 describe('embedContentSecurityPolicy', () => {
-  it('allows only the nonced inline tags and the call back to this origin', () => {
-    const policy = embedContentSecurityPolicy('n0nce')
+  it('allows only the inline tags by hash and the call back to this origin', () => {
+    const policy = embedContentSecurityPolicy('embed')
 
     expect(policy).toContain("default-src 'none'")
-    expect(policy).toContain("script-src 'nonce-n0nce'")
+    expect(policy).toMatch(/script-src 'sha256-[A-Za-z0-9+/]+=*';/u)
+    expect(policy).toMatch(/style-src 'sha256-[A-Za-z0-9+/]+=*';/u)
     expect(policy).toContain("connect-src 'self'")
+    expect(policy).not.toContain('nonce-')
+  })
+
+  /** A hash that drifts from the tag it names blocks the tag, and the form stops working. */
+  it.each(['page', 'embed'] as const)('names the exact inline style and script of the %s layout', (layout) => {
+    const page = render({}, [field()], layout)
+    const policy = embedContentSecurityPolicy(layout)
+    const style = /<style>([\s\S]*?)<\/style>/u.exec(page)?.[1]
+    const script = /<script>([\s\S]*?)<\/script>/u.exec(page)?.[1]
+
+    expect(style).toBeDefined()
+    expect(script).toBeDefined()
+    expect(policy).toContain(`style-src ${sha256Source(style ?? '')};`)
+    expect(policy).toContain(`script-src ${sha256Source(script ?? '')};`)
   })
 
   /** The page exists to be framed, which is why it must not also send X-Frame-Options. */
   it('permits framing from anywhere', () => {
-    expect(embedContentSecurityPolicy('n0nce')).toContain('frame-ancestors *')
+    expect(embedContentSecurityPolicy('embed')).toContain('frame-ancestors *')
   })
 })
 
@@ -400,7 +417,6 @@ describe('consent checkbox text', () => {
       consentPurposes: purposes,
       listNames: new Map(),
       submitUrl,
-      nonce: 'n0nce',
       workspaceName,
       layout: 'embed',
     })
@@ -468,7 +484,6 @@ describe('an Add to list field', () => {
         ['list_events', '<Events>'],
       ]),
       submitUrl,
-      nonce: 'n0nce',
       workspaceName: 'Acme Ventures',
       layout: 'embed',
     })
@@ -501,7 +516,6 @@ describe('an Add to list field', () => {
       consentPurposes: new Map(),
       listNames: new Map(),
       submitUrl,
-      nonce: 'n0nce',
       workspaceName: 'Acme Ventures',
       layout: 'embed',
     })
@@ -537,7 +551,6 @@ describe('a field with no label', () => {
       consentPurposes: new Map(),
       listNames: new Map([['list_news', 'Newsletter']]),
       submitUrl,
-      nonce: 'n0nce',
       workspaceName: 'Acme Ventures',
       layout: 'embed',
     })
@@ -575,7 +588,6 @@ describe('field errors', () => {
       consentPurposes: new Map([['purpose_mail', { label: 'Mail', statement: 'Mail me' }]]),
       listNames: new Map([['list_news', 'Newsletter']]),
       submitUrl,
-      nonce: 'n0nce',
       workspaceName: 'Acme Ventures',
       layout: 'embed',
     })
@@ -622,7 +634,6 @@ describe('field errors', () => {
       consentPurposes: new Map(),
       listNames: new Map(),
       submitUrl,
-      nonce: 'n0nce',
       workspaceName: 'Acme Ventures',
       layout: 'embed',
     })
@@ -688,7 +699,7 @@ describe('field errors', () => {
 
   it('ships a script that parses', () => {
     const html = render()
-    const match = /<script nonce="n0nce">([\s\S]*?)<\/script>/.exec(html)
+    const match = /<script>([\s\S]*?)<\/script>/.exec(html)
 
     expect(match?.[1]).toBeDefined()
     // Parses without running: the body is compiled, never called.
