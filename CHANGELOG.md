@@ -278,6 +278,13 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **The `smtp-email` module boots with empty
+  `SMTP_USER` and `SMTP_PASSWORD`.** A project from `npm create kelpie`
+  has the lines `SMTP_USER=` and `SMTP_PASSWORD=` with no value. The module
+  refused these empty values, so a local catch-all such as maildev or
+  MailHog did not boot without made-up credentials. An empty value now
+  counts as unset. One value set and the other empty still fails boot. No
+  migration.
 - **`@kelpie/server`** — **A bad mapped number or date does not fail a
   form submit.** A public submit answered `500`. Mapped writes now run
   under a savepoint, and a failure is logged as `map_fields:<record type>`

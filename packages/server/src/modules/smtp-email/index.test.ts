@@ -645,6 +645,31 @@ describe('smtpEmailConfigSchema', () => {
     expect(parsed.SMTP_PASSWORD).toBeUndefined()
   })
 
+  it('reads empty SMTP_USER and SMTP_PASSWORD as unset, as the scaffolded .env writes them', () => {
+    const parsed = smtpEmailConfigSchema.parse({ ...baseEnv, SMTP_USER: '', SMTP_PASSWORD: '' })
+
+    expect(parsed.SMTP_USER).toBeUndefined()
+    expect(parsed.SMTP_PASSWORD).toBeUndefined()
+    expect(smtpConnectionOptions(parsed, SMTP_TIMEOUTS)).not.toHaveProperty('auth')
+  })
+
+  it.each([
+    { SMTP_USER: 'kelpie', SMTP_PASSWORD: '' },
+    { SMTP_USER: '', SMTP_PASSWORD: 'a-real-password' },
+  ])('rejects a credential pair with one side empty, naming both keys: %o', (credentials) => {
+    const result = smtpEmailConfigSchema.safeParse({ ...baseEnv, ...credentials })
+
+    expect(result.success).toBe(false)
+
+    if (result.success) {
+      throw new Error('expected the parse to fail')
+    }
+
+    const keys = result.error.issues.map((issue) => issue.path[0])
+    expect(keys).toContain('SMTP_USER')
+    expect(keys).toContain('SMTP_PASSWORD')
+  })
+
   it('reads SMTP_REQUIRE_TLS as true or false, and leaves it unset when it is absent', () => {
     expect(smtpEmailConfigSchema.parse({ ...baseEnv, SMTP_REQUIRE_TLS: 'true' }).SMTP_REQUIRE_TLS).toBe(true)
     expect(smtpEmailConfigSchema.parse({ ...baseEnv, SMTP_REQUIRE_TLS: 'false' }).SMTP_REQUIRE_TLS).toBe(false)
@@ -739,6 +764,12 @@ describe('createSmtpEmailModule', () => {
 
   it('gives no warning at boot when STARTTLS is required', async () => {
     expect(await bootWarnings({ SMTP_HOST: 'smtp.example.com' })).toEqual([])
+  })
+
+  it('boots for a local catch-all with the empty SMTP_USER and SMTP_PASSWORD of the scaffolded .env', async () => {
+    expect(await bootWarnings({ SMTP_HOST: 'localhost', SMTP_PORT: '1025', SMTP_USER: '', SMTP_PASSWORD: '' })).toEqual(
+      [],
+    )
   })
 
   it('fails boot on an SMTP_REQUIRE_TLS that is not true or false', async () => {

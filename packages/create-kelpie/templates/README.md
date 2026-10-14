@@ -86,7 +86,7 @@ egress, module-locking, and per-account login-limit settings — is
 | `SMTP_PORT` | Read by the built-in `smtp-email` module when `EMAIL_PROVIDER=smtp`. The mail server's port |
 | `SMTP_SECURE` | Read by the built-in `smtp-email` module when `EMAIL_PROVIDER=smtp`. `true` or `false`. Whether to connect over TLS from the start (typically port 465) rather than upgrading with STARTTLS (typically port 587 or 25) |
 | `SMTP_REQUIRE_TLS` | Read by the built-in `smtp-email` module when `EMAIL_PROVIDER=smtp` and `SMTP_SECURE=false`. Optional. `true` or `false`. Unset, a server that does not offer STARTTLS fails the send, unless it is on this machine (`localhost`, a `.localhost` name, a loopback address). `false` permits plain text to every host, for a relay on a private network that you trust |
-| `SMTP_USER` | Read by the built-in `smtp-email` module when `EMAIL_PROVIDER=smtp`. Optional. The SMTP username. Omit both `SMTP_USER` and `SMTP_PASSWORD` to connect without SMTP AUTH — for local catch-alls (maildev, MailHog, smtp4dev) that do not require it. Setting only one of the pair fails at boot |
+| `SMTP_USER` | Read by the built-in `smtp-email` module when `EMAIL_PROVIDER=smtp`. Optional. The SMTP username. Leave both `SMTP_USER` and `SMTP_PASSWORD` unset or empty to connect without SMTP AUTH — for local catch-alls (maildev, MailHog, smtp4dev) that do not require it. Setting only one of the pair fails at boot |
 | `SMTP_PASSWORD` | Read by the built-in `smtp-email` module when `EMAIL_PROVIDER=smtp`. Optional. The SMTP password. Paired with `SMTP_USER`; see the note there |
 | `SECRET_ENCRYPTION_KEY` | 32 bytes of base64, generated for this project |
 | `SECRET_ENCRYPTION_KEY_PREVIOUS` | Optional. Set only while rotating the key above |

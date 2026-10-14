@@ -19,10 +19,10 @@ import type { KelpieModule } from '../../runtime/module.ts'
  * environment; missing or malformed values fail boot.
  *
  * `SMTP_USER` and `SMTP_PASSWORD` are optional and go together. Set both to
- * authenticate against the relay. Omit both to connect without SMTP AUTH,
- * which is how local catch-alls (maildev, MailHog, smtp4dev) work. Setting
- * exactly one fails boot: a half-configured credential pair is a bug, not a
- * mode.
+ * authenticate against the relay. Leave both unset or empty to connect
+ * without SMTP AUTH, which is how local catch-alls (maildev, MailHog,
+ * smtp4dev) work. Setting exactly one fails boot: a half-configured
+ * credential pair is a bug, not a mode.
  *
  * The connection is always encrypted before the sign-in and the message go to
  * a relay on another machine. `SMTP_SECURE=true` uses TLS from the first byte.
@@ -44,6 +44,16 @@ export const SMTP_EMAIL_PROVIDER = 'smtp'
 
 export type { EmailMessage } from '../../lib/email.ts'
 
+/**
+ * An empty value counts as unset. The scaffolded `.env` writes `SMTP_USER=`
+ * and `SMTP_PASSWORD=` with no value, and dotenv reads those lines as empty
+ * strings. Without this rule a local catch-all could not boot from that file.
+ */
+const optionalCredentialSchema = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().min(1).optional(),
+)
+
 export const smtpEmailConfigSchema = z
   .object({
     EMAIL_FROM: emailFromSchema,
@@ -55,15 +65,15 @@ export const smtpEmailConfigSchema = z
       .enum(['true', 'false'])
       .transform((value) => value === 'true')
       .optional(),
-    SMTP_USER: z.string().min(1).optional(),
-    SMTP_PASSWORD: z.string().min(1).optional(),
+    SMTP_USER: optionalCredentialSchema,
+    SMTP_PASSWORD: optionalCredentialSchema,
   })
   .superRefine((config, ctx) => {
     // A half-set pair is a misconfiguration, not a mode. Report both keys so
     // the operator sees which side of the pair is missing without having to
     // guess.
     if ((config.SMTP_USER === undefined) !== (config.SMTP_PASSWORD === undefined)) {
-      const message = 'SMTP_USER and SMTP_PASSWORD must be set together, or both omitted for an unauthenticated relay'
+      const message = 'SMTP_USER and SMTP_PASSWORD must be set together, or both left unset or empty for an unauthenticated relay'
 
       ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ['SMTP_USER'] })
       ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ['SMTP_PASSWORD'] })
