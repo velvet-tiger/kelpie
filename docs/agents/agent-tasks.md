@@ -62,7 +62,7 @@ To use Claude or Cursor without building a receiver, use **Copy prompt** and con
 
 ## The run log
 
-Each Run creates a run: `queued`, then `running` while the POST is in flight, then `succeeded` on a 2xx or `failed` with the reason (a non-2xx status, a timeout after 10 seconds, a refused address). **One attempt, deliberately** — re-POSTing a task risks an agent doing the whole job twice, and you are on the page to re-run it. There is no completion callback: what the agent did shows up on the records themselves, through the same API everything uses.
+Each Run creates a run: `queued`, then `running` while the POST is in flight, then `succeeded` on a 2xx or `failed` with the reason (a non-2xx status, a timeout after 10 seconds, a refused address). The POST is a background job, so a restart of Kelpie does not lose a run that is `queued`. The job reads the record and builds the prompt when it runs. If the record or the agent was deleted in the meantime, the run fails with a reason that says so. A run whose job stopped before it finished, for example because the worker stopped, fails with the reason "The dispatch did not finish. Run the task again". **One attempt, deliberately** — re-POSTing a task risks an agent doing the whole job twice, and you are on the page to re-run it. There is no completion callback: what the agent did shows up on the records themselves, through the same API everything uses.
 
 A run keeps metadata only: the task, the target, the status and the failure reason. The prompt holds personal data from the record, so Kelpie does not store it, and `GET /v1/agent-runs` does not return it. Your receiver gets the prompt once, in the dispatch POST. To see a prompt again, use **Preview** or `POST /v1/agent-tasks/:task_id/resolve`.
 

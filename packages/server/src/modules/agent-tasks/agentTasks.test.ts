@@ -5,7 +5,7 @@ import {
   resolvedAgentTaskSchema,
 } from '@kelpie/schemas'
 import type { KelpieEvent } from '@kelpie/schemas'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createEgressGuard } from '../../lib/egress.ts'
@@ -21,7 +21,14 @@ import { TEST_ENVIRONMENT, TEST_SECRET_ENCRYPTION_KEY } from '../../testing/envi
 import { createTestServices } from '../../testing/services.ts'
 import { coreMigrationsDirectory, coreModules } from '../core.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
-import { createDispatchEngine, createHttpSender } from './dispatch.ts'
+import {
+  ABANDONED_RUN_REASON,
+  DISPATCH_AGENT_RUN_JOB,
+  TARGET_GONE_REASON,
+  TASK_GONE_REASON,
+  createDispatchEngine,
+  createHttpSender,
+} from './dispatch.ts'
 import type { DispatchEngine, DispatchOutcome, DispatchRequest, SendDispatch } from './dispatch.ts'
 import type { AgentRunSettledData } from './events.ts'
 import { createAgentTasksModule } from './index.ts'
@@ -173,8 +180,13 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
     return readRecord(await response.json())
   }
 
-  /** The dispatch is detached from the request, so the suite polls the run. */
+  /**
+   * Runs the queued dispatch jobs as the worker would, then reads the run.
+   * The run's events are published after its commit, so the suite still polls.
+   */
   async function settledRun(id: string): Promise<Record<string, unknown>> {
+    await harness.runQueuedJobs({ lastAttempt: true })
+
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const response = await client.send('GET', `/v1/agent-runs/${id}`, { cookie: acme.cookie })
 
@@ -986,6 +998,37 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
     })
   })
 
+  /** The reason lands on the run, which every member reads. */
+  describe('the HTTP sender', () => {
+    const request: DispatchRequest = {
+      url: 'https://agents.example.com/kelpie/run',
+      body: '{}',
+      headers: { 'content-type': 'application/json' },
+    }
+    const allowAll = createEgressGuard({ BLOCK_PRIVATE_EGRESS: false })
+
+    it('names the network fault by its code, and never by the address it connected to', async () => {
+      const cause = Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:443'), { code: 'ECONNREFUSED' })
+      const sender = createHttpSender(allowAll, () => Promise.reject(new TypeError('fetch failed', { cause })))
+      const outcome = await sender(request)
+
+      expect(outcome).toEqual({ delivered: false, status: null, reason: 'TypeError: fetch failed (ECONNREFUSED)' })
+    })
+
+    it('lets go of the response body without reading it', async () => {
+      let cancelled = false
+      const body = new ReadableStream({
+        cancel() {
+          cancelled = true
+        },
+      })
+      const sender = createHttpSender(allowAll, () => Promise.resolve(new Response(body, { status: 202 })))
+
+      expect((await sender(request)).delivered).toBe(true)
+      await expect.poll(() => cancelled).toBe(true)
+    })
+  })
+
   describe('agent_tasks.run.settled', () => {
     it('fires once, with ids and the status only, when the endpoint accepts', async () => {
       const agentId = readString(await createAgent(), 'id')
@@ -1092,6 +1135,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
 
       const agentId = readString(await createAgent(), 'id')
       const runId = await startRun(agentId)
+      const working = harness.runQueuedJobs({ lastAttempt: true })
 
       // The sender is called only after the `queued → running` write.
       for (let attempt = 0; attempt < 100 && sent.length === 0; attempt += 1) {
@@ -1109,6 +1153,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       expect(settledEvents).toHaveLength(0)
 
       release(DELIVERED)
+      await working
       await settledRun(runId)
 
       expect(await settledEventsFor(runId)).toHaveLength(1)
@@ -1130,25 +1175,11 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       expect(logLines.filter((line) => line.includes('"level":"error"'))).toEqual([])
     })
 
-    it('fires once when two dispatches settle the same run', async () => {
-      // Both engines reach the send before either settles, so neither one's
-      // `running` write can reopen a run the other has already ended.
-      let arrived = 0
-      let releaseBoth: () => void = () => undefined
-      const bothArrived = new Promise<void>((resolve) => {
-        releaseBoth = resolve
-      })
-      const barrier: SendDispatch = async () => {
-        arrived += 1
-        if (arrived === 2) {
-          releaseBoth()
-        }
-        await bothArrived
-        return DELIVERED
-      }
-
-      const first = await directDispatch(barrier)
-      const second = directEngine(barrier)
+    it('sends a run once when two dispatches of it start together', async () => {
+      // Both dispatches start from the same queued row; only the one whose
+      // `queued → running` write lands sends, and the other does nothing.
+      const first = await directDispatch(send)
+      const second = directEngine(send)
 
       await Promise.all([first.dispatch(), second.engine.dispatch(first.run, first.agent, first.resolved)])
       await harness.services.events.drain()
@@ -1156,6 +1187,7 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       const [row] = await database.db.select().from(agentRuns).where(eq(agentRuns.id, first.runId))
 
       expect(row?.status).toBe('succeeded')
+      expect(sent).toHaveLength(1)
       expect(settledEvents.map((event) => event.data)).toEqual([
         {
           runId: first.runId,
@@ -1168,6 +1200,207 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       expect(
         [...first.logLines, ...second.logLines].filter((line) => line.includes('"level":"error"')),
       ).toEqual([])
+    })
+  })
+
+  /**
+   * The `agent-tasks.dispatch` job: enqueued with the run, and run by the
+   * suite as a worker would, or by an engine of its own.
+   */
+  describe('the dispatch job', () => {
+    function queuedDispatches(): unknown[] {
+      return harness.services.queuedJobs.filter((job) => job.name === DISPATCH_AGENT_RUN_JOB).map((job) => job.data)
+    }
+
+    async function runRow(id: string): Promise<RunRecord | undefined> {
+      const [row] = await database.db.select().from(agentRuns).where(eq(agentRuns.id, id))
+
+      return row
+    }
+
+    it('is enqueued with the run, carries its ids only, and sends nothing until it runs', async () => {
+      const agentId = readString(await createAgent(), 'id')
+      const runId = await startRun(agentId)
+
+      expect(queuedDispatches()).toEqual([{ workspaceId: acme.workspaceId, runId }])
+      expect(sent).toEqual([])
+      expect((await runRow(runId))?.status).toBe('queued')
+
+      await harness.runQueuedJobs({ lastAttempt: true })
+
+      expect(sent).toHaveLength(1)
+      expect((await runRow(runId))?.status).toBe('succeeded')
+    })
+
+    it('does nothing for a run that is no longer queued', async () => {
+      const agentId = readString(await createAgent(), 'id')
+      const runId = await startRun(agentId)
+      const [job] = harness.services.queuedJobs
+
+      await settledRun(runId)
+
+      if (job === undefined) {
+        throw new Error('No dispatch job was queued')
+      }
+
+      // The same job again, as after a worker that settled the run and stopped.
+      harness.services.queuedJobs.push(job)
+      await harness.runQueuedJobs({ lastAttempt: true })
+      await harness.services.events.drain()
+
+      expect(sent).toHaveLength(1)
+      expect(settledEvents).toHaveLength(1)
+    })
+
+    it('fails the run, and sends nothing, when its target was deleted before the job ran', async () => {
+      const companyId = await createCompany()
+      const agentId = readString(await createAgent(), 'id')
+      const response = await client.send('POST', '/v1/agent-tasks/company.enrich/run', {
+        body: { target_type: 'company', target_id: companyId, agent_id: agentId },
+        cookie: acme.cookie,
+      })
+      const runId = readString(readRecord(await response.json()), 'id')
+
+      expect((await client.send('DELETE', `/v1/companies/${companyId}`, { cookie: acme.cookie })).status).toBe(204)
+
+      const settled = agentRunSchema.parse(await settledRun(runId))
+
+      expect(settled.status).toBe('failed')
+      expect(settled.failureReason).toBe(TARGET_GONE_REASON)
+      expect(sent).toEqual([])
+      expect(await settledEventsFor(runId)).toEqual([
+        { runId, taskId: 'company.enrich', agentId, managedBy: null, status: 'failed' },
+      ])
+    })
+
+    it('fails the run when its task is not in the deployment any more', async () => {
+      const agentId = readString(await createAgent(), 'id')
+      const runId = await startRun(agentId)
+
+      await database.db.update(agentRuns).set({ taskId: 'company.retired' }).where(eq(agentRuns.id, runId))
+
+      const settled = agentRunSchema.parse(await settledRun(runId))
+
+      expect(settled.status).toBe('failed')
+      expect(settled.failureReason).toBe(TASK_GONE_REASON)
+      expect(sent).toEqual([])
+    })
+
+    it.each(['queued', 'running'] as const)('fails a run left %s by a dispatch that never finished, once', async (status) => {
+      const { runId, agent } = await directDispatch(send)
+      const { engine } = directEngine(send)
+      const log = createLogger({ level: 'error', transports: [] })
+
+      await database.db.update(agentRuns).set({ status }).where(eq(agentRuns.id, runId))
+
+      await engine.failAbandonedRun({ workspaceId: acme.workspaceId, runId }, log)
+      await engine.failAbandonedRun({ workspaceId: acme.workspaceId, runId }, log)
+      await harness.services.events.drain()
+
+      const row = await runRow(runId)
+
+      expect(row?.status).toBe('failed')
+      expect(row?.failureReason).toBe(ABANDONED_RUN_REASON)
+      expect(sent).toEqual([])
+      expect(settledEvents.map((event) => event.data)).toEqual([
+        { runId, taskId: 'company.enrich', agentId: agent.id, managedBy: null, status: 'failed' },
+      ])
+    })
+
+    it('leaves a settled run alone in the dead-letter handler', async () => {
+      const agentId = readString(await createAgent(), 'id')
+      const runId = await startRun(agentId)
+
+      await settledRun(runId)
+
+      const { engine } = directEngine(send)
+
+      await engine.failAbandonedRun({ workspaceId: acme.workspaceId, runId }, createLogger({ level: 'error', transports: [] }))
+
+      expect((await runRow(runId))?.status).toBe('succeeded')
+    })
+
+    /**
+     * Against the real queue, so the job row and the run share a transaction.
+     * A deferred constraint trigger fails the commit after the job was
+     * inserted, which is the one place a rollback can still happen.
+     */
+    describe('on the real queue', () => {
+      async function realQueueApp(): Promise<{ app: TestApp; client: TestClient }> {
+        await database.jobs.start()
+
+        const app = await createTestApp({
+          modules: [
+            ...coreModules.filter((module) => module.id !== 'agent-tasks'),
+            createAgentTasksModule(coreMigrationsDirectory, { send }),
+          ],
+          environment: TEST_ENVIRONMENT,
+          services: createTestServices({ db: database.db, enqueueOnTx: database.jobs.enqueueOnTx }),
+        })
+
+        return { app, client: createTestClient(app.app, app.services.db) }
+      }
+
+      async function dispatchJobRows(): Promise<unknown[]> {
+        const rows = await database.db.execute<{ data: unknown }>(
+          sql`select data from pgboss.job where name = ${DISPATCH_AGENT_RUN_JOB}`,
+        )
+
+        return rows.map((row) => row.data)
+      }
+
+      async function runAs(target: TestClient, cookie: string): Promise<Response> {
+        const company = await target.send('POST', '/v1/companies', { body: { name: 'Brightline Health' }, cookie })
+        const agent = await target.send('POST', '/v1/agents', {
+          body: { name: 'Local Claude', endpoint: 'https://agents.example.com/kelpie/run' },
+          cookie,
+        })
+
+        return target.send('POST', '/v1/agent-tasks/company.enrich/run', {
+          body: {
+            target_type: 'company',
+            target_id: readString(readRecord(await company.json()), 'id'),
+            agent_id: readString(readRecord(await agent.json()), 'id'),
+          },
+          cookie,
+        })
+      }
+
+      it('commits the job with the run', async () => {
+        const real = await realQueueApp()
+        const owner = await real.client.owner('real-queue@example.com')
+        const response = await runAs(real.client, owner.cookie)
+
+        expect(response.status).toBe(201)
+        expect(await dispatchJobRows()).toEqual([
+          { workspaceId: owner.workspaceId, runId: readString(readRecord(await response.json()), 'id') },
+        ])
+      })
+
+      it('leaves no job when the run rolls back', async () => {
+        const real = await realQueueApp()
+        const owner = await real.client.owner('rolled-back@example.com')
+
+        await database.db.execute(sql`
+          create or replace function refuse_agent_run() returns trigger language plpgsql as $$
+          begin raise exception 'refused by the test'; end $$
+        `)
+        await database.db.execute(sql`
+          create constraint trigger refuse_agent_run after insert on agent_runs
+          deferrable initially deferred for each row execute function refuse_agent_run()
+        `)
+
+        try {
+          const response = await runAs(real.client, owner.cookie)
+
+          expect(response.status).toBe(500)
+          expect(await dispatchJobRows()).toEqual([])
+          expect(await database.db.select().from(agentRuns)).toEqual([])
+        } finally {
+          await database.db.execute(sql`drop trigger if exists refuse_agent_run on agent_runs`)
+          await database.db.execute(sql`drop function if exists refuse_agent_run()`)
+        }
+      })
     })
   })
 

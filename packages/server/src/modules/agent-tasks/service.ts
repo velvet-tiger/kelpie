@@ -3,9 +3,9 @@ import type { AgentRunStatus, AgentTaskDefinition, AgentTaskTargetType } from '@
 import { requireApiKeyScope } from '../../lib/apiKeyScopes.ts'
 import { changedKeys } from '../../lib/changes.ts'
 import type { Database } from '../../lib/database.ts'
-import { AppError, describeThrown } from '../../lib/errors.ts'
+import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
-import type { Logger } from '../../lib/logger.ts'
+import type { JobHandle } from '../../lib/jobs.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
 import type { SecretCipher } from '../../lib/secrets.ts'
@@ -14,13 +14,12 @@ import type { Actor } from '../auth/actor.ts'
 import { requireWorkspaceId } from '../auth/actor.ts'
 import { roleAllows } from '../workspace/roles.ts'
 import { AGENT_TASK_DEFINITIONS, findTask, tasksFor } from './catalog.ts'
-import type { DispatchEngine } from './dispatch.ts'
-import { renderBasePrompt, renderExternalAgentPrompt } from './prompt.ts'
+import type { DispatchJobData } from './dispatch.ts'
 import * as repository from './repository.ts'
 import { AGENT_SORTS, DEFAULT_AGENT_SORT, DEFAULT_RUN_SORT, RUN_SORTS } from './repository.ts'
 import type { AgentRecord, RunFilters, RunRecord } from './repository.ts'
-import { assemblePromptInputs } from './resolve.ts'
 import { runScopes, targetReadScope } from './scopes.ts'
+import { buildTaskView } from './view.ts'
 import type { ResolvedTaskView } from './wire.ts'
 
 /**
@@ -44,8 +43,8 @@ export interface AgentTasksDependencies {
   readonly createId: IdFactory
   readonly now: () => Date
   readonly cipher: SecretCipher
-  readonly engine: DispatchEngine
-  readonly log: Logger
+  /** The `agent-tasks.dispatch` job, enqueued with the run it dispatches. */
+  readonly dispatchJob: JobHandle<DispatchJobData>
 }
 
 /** An agent as the API returns one: never the header, never the tenancy column. */
@@ -95,7 +94,7 @@ export interface RunListFilters {
 export interface AgentTasksService {
   listTasks(actor: Actor, targetType?: AgentTaskTargetType): Promise<readonly AgentTaskDefinition[]>
   resolve(actor: Actor, taskId: string, target: ResolveTargetInput): Promise<ResolvedTaskView>
-  /** Creates the run, answers `queued`, and dispatches after the transaction commits. */
+  /** Creates the run and its dispatch job in one transaction, and answers `queued`. */
   run(actor: Actor, taskId: string, input: RunTaskInput): Promise<RunView>
   getRun(actor: Actor, id: string): Promise<RunView>
   listRuns(actor: Actor, filters: RunListFilters, query: ListQueryParameters): Promise<Page<RunView>>
@@ -192,39 +191,13 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
     definition: AgentTaskDefinition,
     target: ResolveTargetInput,
   ): Promise<ResolvedTaskView> {
-    const inputs = await assemblePromptInputs(
-      dependencies.db,
-      workspaceId,
-      definition,
-      target.targetType,
-      target.targetId,
-    )
+    const view = await buildTaskView(dependencies.db, workspaceId, definition, target)
 
-    if (inputs === undefined) {
+    if (view === undefined) {
       throw AppError.notFound('Target record not found')
     }
 
-    return {
-      taskId: definition.id,
-      targetType: target.targetType,
-      targetId: target.targetId,
-      prompt: renderExternalAgentPrompt(definition, target.targetType, target.targetId, inputs),
-      basePrompt: renderBasePrompt(definition, target.targetType, target.targetId, inputs),
-      context: {
-        targetLabel: inputs.targetLabel,
-        deepLink: inputs.deepLink,
-        handbookSlugs: inputs.handbookPages.map((page) => page.slug),
-        pinnedNoteIds: inputs.pinnedNoteIds,
-        openPlanIds: inputs.openPlanIds,
-        openDecisionIds: inputs.openDecisionIds,
-        proposedDecisionIds: inputs.proposedDecisionIds,
-        related: Object.fromEntries(
-          Object.entries(inputs.related)
-            .filter(([, list]) => list.ids.length > 0)
-            .map(([key, list]) => [key, list.ids]),
-        ),
-      },
-    }
+    return view
   }
 
   return {
@@ -266,10 +239,14 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
       }
 
       const agent = await requireAgent(workspaceId, input.agentId)
-      const resolved = await resolveView(workspaceId, definition, input)
+
+      // Resolved here only so a missing target answers 404 before a run
+      // exists. The job resolves it again when it runs, and sends that.
+      await resolveView(workspaceId, definition, input)
+
       const now = dependencies.now()
 
-      const created = await dependencies.transaction(async ({ tx }) => {
+      const created = await dependencies.transaction(async ({ tx, jobs }) => {
         const run = await repository.insertRun(tx, {
           id: dependencies.createId('agentRun'),
           workspaceId,
@@ -284,17 +261,11 @@ export function createAgentTasksService(dependencies: AgentTasksDependencies): A
         // did somebody last change this registration", the webhook rule.
         await repository.updateAgent(tx, workspaceId, agent.id, { lastRunAt: now })
 
-        return run
-      })
+        // In the run's own transaction: a rollback leaves no job, and a
+        // commit leaves a job, never a run that nothing will dispatch.
+        await jobs.enqueue(dependencies.dispatchJob, { workspaceId, runId: run.id })
 
-      // After the commit, never awaited: the caller polls the run instead.
-      // `dispatch` settles every failure into the run row; this catch guards
-      // the promise chain itself so nothing leaks an unhandled rejection.
-      dependencies.engine.dispatch(created, agent, resolved).catch((error: unknown) => {
-        dependencies.log.error('agent dispatch rejected outside its own boundary', {
-          runId: created.id,
-          error: describeThrown(error),
-        })
+        return run
       })
 
       return toRunView(created)

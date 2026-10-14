@@ -139,16 +139,23 @@ export async function insertRun(db: Queryable, values: RunColumns): Promise<RunR
 }
 
 /**
- * Moves a run through its dispatch lifecycle. By id alone, like the delivery
- * engine's status write: only the dispatcher calls this, and it holds the row
- * it just inserted.
+ * Moves a run from `queued` to `running` and answers the row as it now
+ * stands. By id alone: only the dispatch job calls this, with an id it read.
+ *
+ * The condition is in the statement, so of two dispatches of one run only
+ * one gets the row back, and only that one sends. A run is never posted to
+ * its agent twice.
+ *
+ * @returns The started run, or undefined when it was not `queued`.
  */
-export async function updateRun(
-  db: Queryable,
-  id: string,
-  changes: Partial<RunColumns>,
-): Promise<void> {
-  await db.update(agentRuns).set(changes).where(eq(agentRuns.id, id))
+export async function startRun(db: Queryable, id: string, at: Date): Promise<RunRecord | undefined> {
+  const [started] = await db
+    .update(agentRuns)
+    .set({ status: 'running', updatedAt: at })
+    .where(and(eq(agentRuns.id, id), eq(agentRuns.status, 'queued')))
+    .returning()
+
+  return started
 }
 
 /**

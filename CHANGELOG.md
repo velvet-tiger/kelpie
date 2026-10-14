@@ -88,6 +88,17 @@ While the major version is `0`, a minor bump may break the API.
     Neither is a webhook event.
 ### Changed
 
+- **`@kelpie/server`** — **Agent-task runs are dispatched through the job
+  queue.** A Run writes the run and one `agent-tasks.dispatch` job in one
+  transaction, so a restart no longer strands a run at `queued`. The job
+  holds the workspace and run ids only. It reads the run, the agent and the
+  record again and builds the prompt when it runs. A run whose agent, task or
+  record has gone fails with a reason that says so. The job has no retry. A
+  run whose job stopped before it settled is failed by the dead-letter
+  handler. A run moves from `queued` to `running` in one conditional write,
+  so a run is never posted twice. The reason for a network failure now names
+  its code, such as `ECONNREFUSED`, and never the address. `AgentDispatcher`
+  and `AgentDispatchOutcome` do not change. No migration.
 - **`@kelpie/server`** — **Webhooks are delivered through the job queue.**
   An event enqueues one `webhooks.deliver` job for each webhook that takes
   it, so a restart or a deploy no longer loses a delivery. Each attempt reads

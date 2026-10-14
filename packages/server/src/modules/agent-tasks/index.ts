@@ -1,7 +1,7 @@
 import { createEgressGuard, egressConfigSchema } from '../../lib/egress.ts'
 import { createSecretCipher, secretEncryptionConfigSchema } from '../../lib/secrets.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
-import { createDispatchEngine, createHttpSender } from './dispatch.ts'
+import { createDispatchEngine, createHttpSender, defineDispatchJob } from './dispatch.ts'
 import type { SendDispatch } from './dispatch.ts'
 import { agentTasksEvents } from './events.ts'
 import { mountAgentTasksRoutes } from './routes.ts'
@@ -67,14 +67,15 @@ export function createAgentTasksModule(
         log: context.log,
       })
 
+      const dispatchJob = context.jobs.define(defineDispatchJob(engine))
+
       const service = createAgentTasksService({
         db: context.db,
         transaction: context.transaction,
         createId: context.createId,
         now: context.now,
         cipher,
-        engine,
-        log: context.log,
+        dispatchJob,
       })
 
       context.schema(schema, migrationsDirectory)
