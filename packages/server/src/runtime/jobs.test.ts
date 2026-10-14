@@ -298,6 +298,136 @@ describe.skipIf(connectionString === undefined)('jobs runtime (pg-boss)', () => 
     }
   })
 
+  it('counts the runs of a job in attempt, from 1', async () => {
+    const runtime = buildRuntime()
+    const seen: (number | undefined)[] = []
+    const handle = runtime.registry.define({
+      name: 'jobs.attempt',
+      schema: z.object({}).strict(),
+      handler: async ({ attempt }) => {
+        seen.push(attempt)
+        throw new Error('always fails')
+      },
+      defaults: { retryLimit: 2, retryDelay: 0 },
+    })
+
+    await runtime.start()
+    await runtime.startWorking()
+
+    try {
+      await scopeFor(runtime)(
+        async ({ jobs }) => {
+          await jobs.enqueue(handle, {})
+        },
+        { workspaceId: fixture.workspaceId },
+      )
+
+      await waitFor(() => seen.length === 3, { budgetMs: 10_000 })
+
+      expect(seen).toEqual([1, 2, 3])
+    } finally {
+      await runtime.stop()
+    }
+  })
+
+  it('stores the group a job is enqueued with', async () => {
+    const runtime = buildRuntime()
+    const handle = runtime.registry.define({
+      name: 'jobs.group',
+      schema: z.object({}).strict(),
+      handler: async () => undefined,
+    })
+
+    await runtime.start()
+
+    try {
+      await scopeFor(runtime)(
+        async ({ jobs }) => {
+          await jobs.enqueue(handle, {}, { group: { id: 'ws_a', tier: 'gold' } })
+          await jobs.enqueue(handle, {}, { group: { id: 'ws_b' } })
+          await jobs.enqueue(handle, {})
+        },
+        { workspaceId: fixture.workspaceId },
+      )
+
+      const rows = await database.db.execute<{ group_id: string | null; group_tier: string | null }>(
+        sql`select group_id, group_tier from pgboss.job where name = 'jobs.group' order by group_id nulls last`,
+      )
+
+      expect([...rows]).toEqual([
+        { group_id: 'ws_a', group_tier: 'gold' },
+        { group_id: 'ws_b', group_tier: null },
+        { group_id: null, group_tier: null },
+      ])
+    } finally {
+      await runtime.stop()
+    }
+  })
+
+  it('runs no more than groupConcurrency jobs of one group, and the other groups beside them', async () => {
+    const runtime = buildRuntime()
+    const active = new Map<string, number>()
+    const peak = new Map<string, number>()
+    const finished: string[] = []
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const handle = runtime.registry.define({
+      name: 'jobs.group-concurrency',
+      schema: z.object({ group: z.string() }).strict(),
+      handler: async ({ data }) => {
+        const now = (active.get(data.group) ?? 0) + 1
+        active.set(data.group, now)
+        peak.set(data.group, Math.max(peak.get(data.group) ?? 0, now))
+
+        // The busy group's jobs wait, so they hold their slots while the
+        // test looks; the quiet group's job returns at once.
+        if (data.group === 'busy') {
+          await held
+        }
+
+        active.set(data.group, (active.get(data.group) ?? 1) - 1)
+        finished.push(data.group)
+      },
+      defaults: { localConcurrency: 3, groupConcurrency: 1 },
+    })
+
+    await runtime.start()
+
+    try {
+      await scopeFor(runtime)(
+        async ({ jobs }) => {
+          for (let index = 0; index < 3; index += 1) {
+            await jobs.enqueue(handle, { group: 'busy' }, { group: { id: 'busy' } })
+          }
+          await jobs.enqueue(handle, { group: 'quiet' }, { group: { id: 'quiet' } })
+        },
+        { workspaceId: fixture.workspaceId },
+      )
+
+      await runtime.startWorking()
+
+      // The quiet group's job was enqueued last and still runs while the
+      // busy group holds its one slot.
+      await waitFor(() => finished.includes('quiet'), { budgetMs: 10_000 })
+      // More than one poll: two workers are free, and neither takes a
+      // second job of the busy group.
+      await new Promise((resolve) => setTimeout(resolve, 1_200))
+
+      expect(active.get('busy')).toBe(1)
+      expect(peak.get('busy')).toBe(1)
+
+      release?.()
+      await waitFor(() => finished.filter((group) => group === 'busy').length === 3, { budgetMs: 10_000 })
+
+      expect(peak.get('busy')).toBe(1)
+    } finally {
+      release?.()
+      await runtime.stop()
+    }
+  }, 20_000)
+
   it('retries a job that a dead worker left active past expireInSeconds', async () => {
     if (connectionString === undefined) {
       throw new Error('unreachable: suite skips when no connection string')

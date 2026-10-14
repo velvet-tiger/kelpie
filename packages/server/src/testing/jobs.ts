@@ -1,4 +1,4 @@
-import type { JobDefinition, JobHandle, JobRegistry } from '../lib/jobs.ts'
+import type { EnqueueOptions, JobDefinition, JobHandle, JobRegistry } from '../lib/jobs.ts'
 import { createLogger } from '../lib/logger.ts'
 import type { EnqueueOnTransaction } from '../runtime/transaction.ts'
 
@@ -34,11 +34,24 @@ export function createRecordingJobsRegistry(): RecordingJobsRegistry {
   }
 }
 
-/** A job a service enqueued: the queue it went to and its payload. */
+/**
+ * A job a service enqueued: the queue it went to, its payload, and the options
+ * it was enqueued with. `options` is absent for a job enqueued with none, so a
+ * suite that compares whole entries with `toEqual` need not name it.
+ */
 export interface QueuedJob {
   readonly name: string
   readonly data: unknown
+  readonly options?: EnqueueOptions
 }
+
+/**
+ * How many times `runJobs` has run each job. Kept beside the job rather than
+ * on it, for the reason `options` is optional: suites compare whole entries.
+ * Keyed by the entry, so a test that takes a job off the queue and puts the
+ * same entry back keeps its count.
+ */
+const runCounts = new WeakMap<QueuedJob, number>()
 
 /**
  * A queue in memory, for suites that do not test the queue itself.
@@ -64,9 +77,13 @@ export function createMemoryJobQueue(): MemoryJobQueue {
 
   return {
     queued,
-    enqueueOnTx(_tx, handle, data) {
+    enqueueOnTx(_tx, handle, data, options) {
       count += 1
-      queued.push({ name: handle.name, data: JSON.parse(JSON.stringify(data)) as unknown })
+      queued.push({
+        name: handle.name,
+        data: JSON.parse(JSON.stringify(data)) as unknown,
+        ...(options === undefined ? {} : { options }),
+      })
 
       return Promise.resolve(`job_memory_${String(count)}`)
     },
@@ -80,6 +97,11 @@ export interface RunJobsOptions {
   readonly lastAttempt?: boolean
 }
 
+/** Which run of `job` the next `runJobs` call makes: 1 for a job that has not run. */
+function nextAttemptOf(job: QueuedJob): number {
+  return (runCounts.get(job) ?? 0) + 1
+}
+
 /**
  * Runs every job in `queue` once, as a worker would: the payload is parsed
  * with the definition's schema, then handed to its handler. Jobs a handler
@@ -91,6 +113,11 @@ export interface RunJobsOptions {
  * `options.lastAttempt` is the `lastAttempt` each handler gets. The default is
  * false: a retry remains, as on the first run of a job with retries. A test
  * passes true to run the jobs as the queue runs them when no retry remains.
+ * It is not worked out from the definition's `retryLimit`: a suite says which
+ * run is the last, so that a test reads the same whatever limit a module sets.
+ *
+ * `attempt` counts the runs of each job, as the queue does: 1 on its first
+ * run, one more each time a failed job runs again.
  *
  * @throws AggregateError after every job has run, when one or more failed.
  */
@@ -108,6 +135,10 @@ export async function runJobs(
       throw new Error(`no module registered a job named "${job.name}"`)
     }
 
+    const attempt = nextAttemptOf(job)
+
+    runCounts.set(job, attempt)
+
     try {
       await definition.handler({
         id: 'job_test',
@@ -115,6 +146,7 @@ export async function runJobs(
         log: silentLogger,
         signal: new AbortController().signal,
         lastAttempt: options.lastAttempt ?? false,
+        attempt,
       })
     } catch (error: unknown) {
       queue.push(job)

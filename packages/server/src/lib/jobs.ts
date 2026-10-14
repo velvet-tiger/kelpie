@@ -41,8 +41,8 @@ export interface JobHandle<Data> {
 
 /**
  * Defaults every enqueue on this queue inherits, unless the caller overrides
- * on a per-`enqueue` basis. `localConcurrency` sizes the work loop on the
- * worker; the rest match pg-boss's `QueueOptions` names.
+ * on a per-`enqueue` basis. `localConcurrency` and `groupConcurrency` size the
+ * work loop on the worker; the rest match pg-boss's `QueueOptions` names.
  *
  * `retryDelay` is in seconds. pg-boss's default is 0 (immediate retry).
  * `retryLimit` counts the retries pg-boss does after the first run; a job
@@ -54,7 +54,43 @@ export interface JobDefaults {
   readonly retryBackoff?: boolean
   readonly retryDelayMax?: number
   readonly expireInSeconds?: number
+  /** How many jobs of this queue one process runs at the same time. */
   readonly localConcurrency?: number
+  /**
+   * The most jobs of one group (`EnqueueOptions.group`) that run at the same
+   * time, across every process that works this queue. A job with no group is
+   * not limited by it.
+   *
+   * Global, not per process. pg-boss has both: `localGroupConcurrency` counts
+   * in the memory of one worker and so allows that many per process, and
+   * `groupConcurrency` counts the group's `active` rows in `pgboss.job` inside
+   * the fetch statement. The point of a group limit here is fairness between
+   * tenants, and a per-process count would let one tenant take every slot
+   * once a deployment runs enough workers. So this is the global one.
+   *
+   * A plain number only. pg-boss also takes a default plus a limit per
+   * `group.tier`; nothing in core needs tiers yet.
+   *
+   * The count and the claim are one statement, but two processes that fetch
+   * at the same moment each read the count before the other claims. So the
+   * limit can be passed by a few jobs for a moment, at most by the number of
+   * workers fetching together. It is a bound for fairness, not a lock.
+   *
+   * Set it below `localConcurrency`. A group limit at or above the number of
+   * workers lets one group fill them all.
+   */
+  readonly groupConcurrency?: number
+}
+
+/**
+ * The group a job counts against for `JobDefaults.groupConcurrency`. The same
+ * shape as pg-boss's `GroupOptions`. `tier` has no effect while
+ * `groupConcurrency` is a plain number; it is here so a later tier limit needs
+ * no change to callers.
+ */
+export interface JobGroup {
+  readonly id: string
+  readonly tier?: string
 }
 
 /** Passed to a job handler when a worker picks the job up. */
@@ -74,6 +110,14 @@ export interface JobContext<Data> {
    * a handler reads an absent value as false.
    */
   readonly lastAttempt?: boolean
+  /**
+   * Which run this is: 1 on the first run, 2 on the first retry, and so on.
+   * A run that a dead worker left and supervision put back counts too.
+   *
+   * The queue sets it on every run. It is optional for the reason
+   * `lastAttempt` is; a handler reads an absent value as 1.
+   */
+  readonly attempt?: number
 }
 
 export type JobHandler<Data> = (context: JobContext<Data>) => Promise<void>
@@ -140,14 +184,20 @@ export interface JobRegistry {
 
 /**
  * Options a caller may override per `enqueue`. Deliberately narrow: features
- * beyond retries, a singleton key, and a deferred start are out of scope until
- * a consumer needs them (cost and maintainability trade-offs).
+ * beyond retries, a singleton key, a deferred start and a group are out of
+ * scope until a consumer needs them (cost and maintainability trade-offs).
  */
 export interface EnqueueOptions {
   readonly retryLimit?: number
   readonly retryBackoff?: boolean
   readonly singletonKey?: string
   readonly startAfter?: number | string | Date
+  /**
+   * The group the job counts against for the queue's `groupConcurrency`.
+   * A module passes the workspace id, so that one workspace's backlog cannot
+   * hold every worker of the queue.
+   */
+  readonly group?: JobGroup
 }
 
 /**

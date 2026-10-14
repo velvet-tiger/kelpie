@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { PgBoss, fromDrizzle } from 'pg-boss'
-import type { JobWithMetadata } from 'pg-boss'
+import type { GroupOptions, JobWithMetadata } from 'pg-boss'
 
 import { describeThrown } from '../lib/errors.ts'
 import type { Logger } from '../lib/logger.ts'
@@ -9,6 +9,7 @@ import type {
   EnqueueOptions,
   JobContext,
   JobDefinition,
+  JobGroup,
   JobHandle,
   JobRegistry,
 } from '../lib/jobs.ts'
@@ -154,6 +155,11 @@ export interface JobsRuntime {
    * connection pool.
    */
   stop(): Promise<void>
+}
+
+/** The port's group as pg-boss takes it, with no `tier: undefined` key. */
+function toGroupOptions(group: JobGroup): GroupOptions {
+  return group.tier === undefined ? { id: group.id } : { id: group.id, tier: group.tier }
 }
 
 export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
@@ -317,12 +323,16 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
       }
 
       const localConcurrency = definition.defaults?.localConcurrency ?? defaultLocalConcurrency
+      const groupConcurrency = definition.defaults?.groupConcurrency
 
       await instance.work(
         definition.name,
         {
           batchSize: 1,
           localConcurrency,
+          // pg-boss's global group limit, not `localGroupConcurrency`: see
+          // `JobDefaults.groupConcurrency` for why.
+          ...(groupConcurrency === undefined ? {} : { groupConcurrency }),
           pollingIntervalSeconds,
           notifyPollingIntervalSeconds: pollingIntervalSeconds,
           // For `retryCount` and `retryLimit`, which say if this run is the
@@ -360,6 +370,7 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
             // run has `retryCount` 0. When the handler fails, pg-boss retries
             // only while `retryCount < retryLimit`.
             lastAttempt: job.retryCount >= job.retryLimit,
+            attempt: job.retryCount + 1,
           }
 
           try {
@@ -445,6 +456,7 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
           ? {}
           : { singletonKey: enqueueOptions.singletonKey }),
         ...(enqueueOptions.startAfter === undefined ? {} : { startAfter: enqueueOptions.startAfter }),
+        ...(enqueueOptions.group === undefined ? {} : { group: toGroupOptions(enqueueOptions.group) }),
       },
     )
   }

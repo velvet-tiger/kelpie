@@ -12,6 +12,12 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`** — **The job port has groups, a group limit and the
+  run number.** `EnqueueOptions.group` (`{ id, tier? }`, the type
+  `JobGroup`) puts a job in a group. `JobDefaults.groupConcurrency` limits
+  how many jobs of one group run at the same time, counted across every
+  worker process. `JobContext.attempt` is 1 on the first run of a job and
+  one more on each retry. No migration.
 - **`@kelpie/server`** — **The `smtp-email` module warns at boot about a
   remote relay with no credentials.** When `SMTP_HOST` is not this machine
   and `SMTP_USER` and `SMTP_PASSWORD` are unset or empty, the relay must

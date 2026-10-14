@@ -21,6 +21,7 @@ export type {
   JobContext,
   JobDefaults,
   JobDefinition,
+  JobGroup,
   JobHandle,
   JobHandler,
   JobRegistry,
