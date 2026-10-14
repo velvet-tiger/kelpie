@@ -105,17 +105,25 @@ While the major version is `0`, a minor bump may break the API.
   the webhook again: a webhook paused, deleted or no longer subscribed gets
   nothing, and a new URL or secret applies to the next attempt. One
   workspace has at most 3 deliveries in progress at a time, and each worker
-  runs at most 10. Nothing limits how many deliveries a workspace may have
-  waiting. A delivery whose last attempt did not finish goes to
-  `webhooks.deliver.dead` and is logged as failed, with no change to the
-  webhook's status. A signing secret that does not decrypt is logged at
-  `error` and the delivery is dropped. The reason for a network failure now
-  names its code, such as `ECONNREFUSED`, and never the address. No
-  migration.
+  runs at most 10. One workspace cannot take every slot of a worker; several
+  busy workspaces can. Nothing limits how many deliveries a workspace may
+  have waiting. An attempt is stopped after 20 seconds, its DNS check
+  included. A delivery whose last attempt did not finish goes to
+  `webhooks.deliver.dead` and is logged as failed. A signing secret that
+  does not decrypt is logged at `error` and the delivery is dropped. The
+  reason for a network failure names its code, such as `ECONNREFUSED`, and
+  never the address; the `warn` log line has the whole error in `cause`.
+  No migration.
   - **Changed behaviour:** a retry has the same `id` and a new `created_at`
-    and signature. The waits between attempts are about 5 to 10, 10 to 20
-    and 20 to 40 seconds, and all four attempts start within about two and a
-    half minutes. A receiver that dedupes on the `id` needs no change.
+    and signature. The waits between attempts are about 3 to 6, 6 to 12 and
+    12 to 20 seconds. No retry starts more than 4 minutes after the event; a
+    retry after that is not sent, and the delivery is logged as failed. A
+    receiver that dedupes on the `id` for 5 minutes needs no change.
+  - **Changed behaviour:** a delivery that Kelpie stopped no longer marks
+    the webhook `failing`: its own DNS did not answer (`EAI_AGAIN`), the
+    4 minutes passed, or the worker stopped. The status is still the last
+    delivery's to settle, so a slow failure can mark a webhook `failing`
+    after a later success.
   - **Changed behaviour:** the `warn` log line `webhook delivery failed` is
     now `webhook delivery attempt failed`, once for each failed attempt,
     with `attempt` in place of `attempts`.

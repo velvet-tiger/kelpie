@@ -1,9 +1,13 @@
+import { createServer } from 'node:net'
+
 import { describe, expect, it } from 'vitest'
 
 import {
   AppError,
+  describeCauseForLog,
   describeThrown,
   describeThrownWithCause,
+  hasErrorCode,
   internalErrorBody,
   toErrorBody,
   toErrorDetails,
@@ -127,5 +131,90 @@ describe('describeThrownWithCause', () => {
   it('is describeThrown when there is no cause', () => {
     expect(describeThrownWithCause(new Error('boom'))).toBe('Error: boom')
     expect(describeThrownWithCause('boom')).toBe('boom')
+  })
+})
+
+/**
+ * Real `fetch` failures, no stub: the shape of `cause` is what the helpers
+ * read, and a stub can only repeat what the author believed it to be.
+ */
+describe('describeThrownWithCause against a real fetch', () => {
+  /** A port that refuses: a server took it, then closed. */
+  async function closedPort(): Promise<number> {
+    const server = createServer()
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve)
+    })
+
+    const address = server.address()
+
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve()
+      })
+    })
+
+    if (address === null || typeof address === 'string') {
+      throw new Error('The test server had no port')
+    }
+
+    return address.port
+  }
+
+  async function failureOf(url: string): Promise<unknown> {
+    try {
+      await fetch(url)
+    } catch (error: unknown) {
+      return error
+    }
+
+    throw new Error(`${url} answered`)
+  }
+
+  it('names a refused connection by its code, and keeps the address for the log', async () => {
+    const error = await failureOf(`http://127.0.0.1:${String(await closedPort())}/`)
+
+    expect(describeThrownWithCause(error)).toBe('TypeError: fetch failed (ECONNREFUSED)')
+    expect(describeCauseForLog(error)).toContain('127.0.0.1')
+  })
+
+  it('names a port that fetch refuses to use', async () => {
+    const error = await failureOf('http://127.0.0.1:1/')
+
+    expect(describeThrownWithCause(error)).toBe('TypeError: fetch failed (bad port)')
+  })
+})
+
+describe('describeCauseForLog', () => {
+  it('gives every member of an AggregateError cause, messages included', () => {
+    const cause = new AggregateError([
+      Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:443'), { code: 'ECONNREFUSED' }),
+      Object.assign(new Error('connect ECONNREFUSED [fd00::5]:443'), { code: 'ECONNREFUSED' }),
+    ])
+    const described = describeCauseForLog(new TypeError('fetch failed', { cause }))
+
+    expect(described).toContain('10.0.0.5')
+    expect(described).toContain('fd00::5')
+  })
+
+  it('is undefined with no cause', () => {
+    expect(describeCauseForLog(new Error('boom'))).toBeUndefined()
+    expect(describeCauseForLog('boom')).toBeUndefined()
+  })
+})
+
+describe('hasErrorCode', () => {
+  const dns = Object.assign(new Error('getaddrinfo EAI_AGAIN example.com'), { code: 'EAI_AGAIN' })
+
+  it('finds the code on the error, its cause, and the members of an AggregateError cause', () => {
+    expect(hasErrorCode(dns, 'EAI_AGAIN')).toBe(true)
+    expect(hasErrorCode(new TypeError('fetch failed', { cause: dns }), 'EAI_AGAIN')).toBe(true)
+    expect(hasErrorCode(new TypeError('fetch failed', { cause: new AggregateError([dns]) }), 'EAI_AGAIN')).toBe(true)
+  })
+
+  it('is false for another code and for a value that is not an error', () => {
+    expect(hasErrorCode(dns, 'ENOTFOUND')).toBe(false)
+    expect(hasErrorCode('EAI_AGAIN', 'EAI_AGAIN')).toBe(false)
   })
 })

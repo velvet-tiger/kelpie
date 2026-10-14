@@ -215,16 +215,54 @@ function errorCodeOf(value: unknown): string | undefined {
 }
 
 /**
+ * Cause messages that are fixed text, with no address or host in them, keyed
+ * to the word the reason shows. `fetch` refuses a port the Fetch standard
+ * blocks (1, 25, 6000, …) with the message `bad port` and no code; without
+ * this the reason would say only "fetch failed".
+ */
+const FIXED_CAUSE_MESSAGES: Readonly<Record<string, string>> = {
+  'bad port': 'bad port',
+}
+
+/** The cause, and the members of an `AggregateError` cause: one per address a connection tried. */
+function causeMembersOf(error: Error): readonly unknown[] {
+  const cause: unknown = error.cause
+
+  return cause instanceof AggregateError ? [cause, ...(cause.errors as unknown[])] : [cause]
+}
+
+/**
  * The codes on the cause of `error`, for example `ECONNREFUSED`, `ENOTFOUND`
- * or `CERT_HAS_EXPIRED`. A connection that tried several addresses rejects
- * with an `AggregateError` cause, so its members' codes count too.
+ * or `CERT_HAS_EXPIRED`, or the word for a fixed message with no code.
  */
 function causeCodesOf(error: Error): readonly string[] {
-  const cause: unknown = error.cause
-  const members = cause instanceof AggregateError ? [cause, ...(cause.errors as unknown[])] : [cause]
-  const codes = members.map(errorCodeOf).filter((code): code is string => code !== undefined)
+  const codes = causeMembersOf(error)
+    .map((member) => errorCodeOf(member) ?? fixedMessageOf(member))
+    .filter((code): code is string => code !== undefined)
 
   return [...new Set(codes)]
+}
+
+function fixedMessageOf(value: unknown): string | undefined {
+  return value instanceof Error ? FIXED_CAUSE_MESSAGES[value.message] : undefined
+}
+
+/**
+ * The whole cause of `error`, messages included, for the server log only.
+ *
+ * Node's network messages hold the address it connected to (`connect
+ * ECONNREFUSED 10.0.0.5:443`). That is what an operator needs to find a
+ * fault, and what a reason that the people of a workspace read must never
+ * hold. Use `describeThrownWithCause` for such a reason.
+ *
+ * @returns Undefined when there is no cause.
+ */
+export function describeCauseForLog(error: unknown): string | undefined {
+  if (!(error instanceof Error) || error.cause === undefined) {
+    return undefined
+  }
+
+  return causeMembersOf(error).map(describeThrown).join('; ')
 }
 
 /**
@@ -250,4 +288,17 @@ export function describeThrownWithCause(error: unknown): string {
   const codes = causeCodesOf(error)
 
   return codes.length === 0 ? described : `${described} (${codes.join(', ')})`
+}
+
+/**
+ * True when `error`, or its cause, or a member of an `AggregateError` cause,
+ * carries `code`. A DNS failure reaches a sender from the egress check as the
+ * resolver's own error, and from `fetch` as the cause of a `TypeError`.
+ */
+export function hasErrorCode(error: unknown, code: string): boolean {
+  if (errorCodeOf(error) === code) {
+    return true
+  }
+
+  return error instanceof Error && causeMembersOf(error).some((member) => errorCodeOf(member) === code)
 }

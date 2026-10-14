@@ -8,10 +8,12 @@ import {
   DELIVERY_RETRY_DELAY_MAX_SECONDS,
   DELIVERY_RETRY_DELAY_SECONDS,
   DELIVERY_RETRY_LIMIT,
+  DELIVERY_RETRY_WINDOW_MS,
   DELIVERY_TIMEOUT_MS,
   createHttpSender,
   deliveryJobDataSchema,
   deliveryRetentionConfigSchema,
+  isPastRetryWindow,
   retentionCutoff,
 } from './delivery.ts'
 import type { DeliveryRequest } from './delivery.ts'
@@ -39,31 +41,59 @@ function longestWaitAfter(retryCount: number): number {
 describe('the retry schedule', () => {
   /** The worker's poll, which is how a retried job is found. */
   const POLL_SECONDS = 2
-  const ATTEMPT_SECONDS = DELIVERY_TIMEOUT_MS / 1000
 
-  /**
-   * A receiver keeps a delivery id until its `created_at` plus 5 minutes, so
-   * every attempt must land well inside 5 minutes of the first. The sum is the
-   * one the comment on `DELIVERY_RETRY_LIMIT` states.
-   */
-  it('lands the last attempt within half of the five minute dedupe window', () => {
+  /** The sum the comment on `DELIVERY_RETRY_LIMIT` states, for a queue with no contention. */
+  it('ends the last attempt within about two minutes of the enqueue when nothing contends', () => {
     const retries = Array.from({ length: DELIVERY_RETRY_LIMIT }, (_, retryCount) => retryCount)
     const waiting = retries.reduce((sum, retryCount) => sum + longestWaitAfter(retryCount), 0)
-    // Each retry may also wait one poll, and one attempt for a free slot of its group.
-    const queueing = DELIVERY_RETRY_LIMIT * (POLL_SECONDS + ATTEMPT_SECONDS)
-    const worstCase = (DELIVERY_RETRY_LIMIT + 1) * ATTEMPT_SECONDS + waiting + queueing
+    const worstCase = (DELIVERY_RETRY_LIMIT + 1) * DELIVERY_EXPIRE_SECONDS + waiting + DELIVERY_RETRY_LIMIT * POLL_SECONDS
 
-    expect(waiting).toBe(70)
-    expect(worstCase).toBe(146)
-    expect(worstCase).toBeLessThan(150)
+    expect(waiting).toBe(38)
+    expect(worstCase).toBe(124)
+    expect(worstCase * 1000).toBeLessThan(DELIVERY_RETRY_WINDOW_MS)
+  })
+
+  /**
+   * A retry may start up to the window's end, and runs until its expiry at
+   * most. It must land inside the 5 minutes a receiver keeps an id.
+   */
+  it('lands a retry that starts at the end of the window inside the dedupe window', () => {
+    expect(DELIVERY_RETRY_WINDOW_MS + DELIVERY_EXPIRE_SECONDS * 1000).toBeLessThan(5 * 60_000)
   })
 
   it('gives an attempt longer than the send timeout before the queue counts it lost', () => {
-    expect(DELIVERY_EXPIRE_SECONDS).toBeGreaterThanOrEqual(3 * ATTEMPT_SECONDS)
+    expect(DELIVERY_EXPIRE_SECONDS * 1000).toBeGreaterThanOrEqual(2 * DELIVERY_TIMEOUT_MS)
   })
 
   it('leaves free slots on a worker when one workspace has a backlog', () => {
     expect(DELIVERY_GROUP_CONCURRENCY).toBeLessThan(DELIVERY_LOCAL_CONCURRENCY)
+  })
+})
+
+describe('isPastRetryWindow', () => {
+  const enqueuedAt = '2026-10-15T09:00:00.000Z'
+  const job = {
+    workspaceId: 'ws_01',
+    webhookId: 'wh_01',
+    deliveryId: 'whd_01',
+    event: 'record.created' as const,
+    data: {},
+    enqueuedAt,
+  }
+
+  function at(milliseconds: number): Date {
+    return new Date(Date.parse(enqueuedAt) + milliseconds)
+  }
+
+  it('stops a retry after the window, and not at its end', () => {
+    expect(isPastRetryWindow(job, 2, at(DELIVERY_RETRY_WINDOW_MS))).toBe(false)
+    expect(isPastRetryWindow(job, 2, at(DELIVERY_RETRY_WINDOW_MS + 1))).toBe(true)
+    expect(isPastRetryWindow(job, 4, at(60 * 60_000))).toBe(true)
+  })
+
+  /** No receiver holds a copy before the first attempt, however long it waited in the queue. */
+  it('never stops a first attempt', () => {
+    expect(isPastRetryWindow(job, 1, at(60 * 60_000))).toBe(false)
   })
 })
 
@@ -147,6 +177,7 @@ describe('createHttpSender', () => {
       delivered: false,
       status: null,
       reason: 'TypeError: fetch failed',
+      kelpieFault: false,
     })
   })
 
@@ -158,6 +189,52 @@ describe('createHttpSender', () => {
 
     expect(outcome.reason).toBe('TypeError: fetch failed (ECONNREFUSED)')
     expect(outcome.reason).not.toContain('10.0.0.5')
+    // The log gets the whole cause.
+    expect(outcome.logDetail).toContain('10.0.0.5')
+    expect(outcome.kelpieFault).toBe(false)
+  })
+
+  it('counts a DNS resolver that did not answer as Kelpie’s fault', async () => {
+    const resolverDown = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () =>
+      Promise.reject(Object.assign(new Error('getaddrinfo EAI_AGAIN example.com'), { code: 'EAI_AGAIN' })),
+    )
+    const outcome = await createHttpSender(resolverDown, respondWith(200))(request)
+
+    expect(outcome).toMatchObject({ delivered: false, status: null, kelpieFault: true })
+    expect(outcome.reason).toContain('EAI_AGAIN')
+  })
+
+  /** pg-boss frees the slot of an expired job but cannot stop its handler; the job's signal does. */
+  it('stops waiting on a DNS check that hangs when the job expires', async () => {
+    const hanging = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () => new Promise<never>(() => undefined))
+    let fetched = false
+    const send = createHttpSender(hanging, () => {
+      fetched = true
+
+      return Promise.resolve(new Response(null, { status: 200 }))
+    })
+    const job = new AbortController()
+    const sending = send(request, job.signal)
+
+    job.abort(new Error('the job expired'))
+
+    expect(await sending).toMatchObject({ delivered: false, status: null, reason: 'Error: the job expired' })
+    expect(fetched).toBe(false)
+  })
+
+  it('hands the job signal to fetch, so an expired job stops its request', async () => {
+    let seen: AbortSignal | undefined
+    const send = createHttpSender(allowAll, (_url, init) => {
+      seen = init?.signal ?? undefined
+
+      return Promise.resolve(new Response(null, { status: 200 }))
+    })
+    const job = new AbortController()
+
+    await send(request, job.signal)
+    job.abort()
+
+    expect(seen?.aborted).toBe(true)
   })
 
   it('lets go of the response body without reading it', async () => {
@@ -231,6 +308,7 @@ describe('deliveryJobDataSchema', () => {
     deliveryId: 'whd_01',
     event: 'record.created',
     data: { object_type: 'person', record_id: 'per_01' },
+    enqueuedAt: '2026-10-15T09:00:00.000Z',
   }
 
   it('reads a job as the bus handler writes it', () => {

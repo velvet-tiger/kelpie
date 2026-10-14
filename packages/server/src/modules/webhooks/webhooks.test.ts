@@ -21,6 +21,7 @@ import {
   ABANDONED_DELIVERY_REASON,
   DEFAULT_DELIVERY_RETENTION_DAYS,
   DELIVERY_RETRY_LIMIT,
+  DELIVERY_RETRY_WINDOW_MS,
   DELIVER_WEBHOOK_JOB,
   attemptDelivery,
   createHttpSender,
@@ -1328,6 +1329,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
         deliveryId: expect.stringMatching(/^whd_/u),
         event: 'record.created',
         data: { object_type: 'person', record_id: personId },
+        enqueuedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT[\d:.]+Z$/u),
       })
     })
 
@@ -1465,6 +1467,67 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
       expect(sent).toHaveLength(1)
       expect((await deliveryRows(id)).map((row) => row.status)).toEqual(['failed'])
       expect((await listWebhooks()).at(0)?.status).toBe('failing')
+    })
+
+    it('does not send a retry after the retry window, records it as failed, and leaves the status', async () => {
+      const { id, job } = await queueOne()
+      const logLines: string[] = []
+      const late = { ...job, enqueuedAt: new Date(Date.now() - DELIVERY_RETRY_WINDOW_MS - 1_000).toISOString() }
+
+      await attemptDelivery(deliveryDependencies(send, logLines), late, run(logLines, 3))
+
+      expect(sent).toEqual([])
+      expect((await deliveryRows(id)).map((row) => ({ status: row.status, attempts: row.attempts }))).toEqual([
+        { status: 'failed', attempts: 2 },
+      ])
+      expect((await listWebhooks()).at(0)?.status).toBe('active')
+      expect(linesNamed(logLines, 'webhook delivery not retried: the retry window closed')).toHaveLength(1)
+    })
+
+    it('sends a first attempt however long it waited in the queue', async () => {
+      const { id, job } = await queueOne()
+      const logLines: string[] = []
+      const waited = { ...job, enqueuedAt: new Date(Date.now() - 60 * 60_000).toISOString() }
+
+      await attemptDelivery(deliveryDependencies(send, logLines), waited, run(logLines, 1))
+
+      expect(sent).toHaveLength(1)
+      expect((await deliveryRows(id)).map((row) => row.status)).toEqual(['success'])
+    })
+
+    it('records a last attempt that Kelpie’s DNS resolver failed without marking the hook failing', async () => {
+      const { id, job } = await queueOne()
+      const logLines: string[] = []
+      const resolverDown = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () =>
+        Promise.reject(Object.assign(new Error('getaddrinfo EAI_AGAIN example.com'), { code: 'EAI_AGAIN' })),
+      )
+
+      await attemptDelivery(deliveryDependencies(createHttpSender(resolverDown), logLines), job, run(logLines, MAX_ATTEMPTS))
+
+      expect((await deliveryRows(id)).map((row) => row.status)).toEqual(['failed'])
+      expect((await listWebhooks()).at(0)?.status).toBe('active')
+      expect(linesNamed(logLines, 'webhook delivery attempt failed')).toEqual([
+        expect.objectContaining({ kelpieFault: true }),
+      ])
+    })
+
+    it('throws and records nothing when the job expired during the send', async () => {
+      const { id, job } = await queueOne()
+      const logLines: string[] = []
+      const expiry = new AbortController()
+      const expiresDuringSend: SendDelivery = () => {
+        expiry.abort(new Error('the job expired'))
+
+        return Promise.resolve(DELIVERED)
+      }
+
+      await expect(
+        attemptDelivery(deliveryDependencies(expiresDuringSend, logLines), job, {
+          ...run(logLines, MAX_ATTEMPTS),
+          signal: expiry.signal,
+        }),
+      ).rejects.toThrow(/the job expired/u)
+      expect(await deliveryRows(id)).toEqual([])
     })
 
     /**
@@ -1612,7 +1675,7 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
         expect(JSON.stringify(await listWebhooks())).not.toContain(REFUSED_ADDRESS)
       })
 
-      it('adds no address to the log line of a failure the guard did not cause', async () => {
+      it('keeps the address of a failure the guard did not cause out of the reason and the log, and gives it to the server log', async () => {
         const { job } = await queueOne()
         const logLines: string[] = []
         const sender = createHttpSender(createEgressGuard({ BLOCK_PRIVATE_EGRESS: false }), () =>
@@ -1630,7 +1693,9 @@ describe.skipIf(connectionString === undefined)('webhooks', () => {
         expect(failures).toHaveLength(1)
         expect(failures[0]).toMatchObject({ reason: 'TypeError: fetch failed (ECONNREFUSED)' })
         expect(failures[0]).not.toHaveProperty('blockedAddress')
-        expect(JSON.stringify(failures)).not.toContain(REFUSED_ADDRESS)
+        // The whole cause is for the operator, in the server log only.
+        expect(failures[0]?.cause).toContain(REFUSED_ADDRESS)
+        expect(JSON.stringify(await deliveryRows(job.webhookId))).not.toContain(REFUSED_ADDRESS)
       })
     })
   })

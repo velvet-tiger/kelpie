@@ -2,12 +2,13 @@ import { WEBHOOK_EVENTS } from '@kelpie/schemas'
 import { z } from 'zod'
 
 import type { Database } from '../../lib/database.ts'
-import { BlockedEgressError } from '../../lib/egress.ts'
+import { attemptSignal, untilAborted } from '../../lib/abort.ts'
 import type { EgressGuard } from '../../lib/egress.ts'
-import { describeThrown, describeThrownWithCause } from '../../lib/errors.ts'
+import { describeThrown } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { JobDefinition, JobHandle } from '../../lib/jobs.ts'
 import type { Logger } from '../../lib/logger.ts'
+import { describeOutboundFailure } from '../../lib/outbound.ts'
 import { SecretDecryptionError } from '../../lib/secrets.ts'
 import type { SecretCipher } from '../../lib/secrets.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
@@ -33,27 +34,44 @@ import type { DeliveryEnvelope } from './signing.ts'
  * enqueue, so every attempt carries the same `id` and a receiver can dedupe.
  * The body is built and signed again for each attempt: `created_at` is the
  * time of that attempt, so a body never goes stale while it waits in the
- * queue.
+ * queue. A retry is not sent later than `DELIVERY_RETRY_WINDOW_MS` after the
+ * enqueue, so it lands while a receiver still keeps the `id`.
  *
  * Each attempt reads the registration again. A delivery for a registration
  * that has been paused, deleted, or no longer takes the event sends nothing
  * and writes nothing. The URL and the secrets are the ones the registration
  * has at that attempt. No delivery result is ever written over `paused`.
  *
+ * The status is the last writer's. Each delivery that settles sets `active` or
+ * `failing` from its own outcome, in the order they settle, not the order of
+ * their events. A delivery that failed slowly can thus mark a registration
+ * `failing` after a later one succeeded, and it stays `failing` until the next
+ * success.
+ *
+ * The status moves only on what the endpoint did: an answer, or a failure to
+ * reach it. A delivery that Kelpie stopped (its own DNS resolver failed, the
+ * retry window closed, or the worker stopped) is logged as failed and leaves
+ * the status as it was.
+ *
  * Fairness. The jobs of one workspace are one pg-boss group, and the queue
- * runs at most `DELIVERY_GROUP_CONCURRENCY` of a group at a time. One
- * workspace's backlog cannot hold every worker.
+ * runs at most `DELIVERY_GROUP_CONCURRENCY` of a group at a time, across all
+ * workers. One workspace cannot take every slot of a worker. Several busy
+ * workspaces can: four with backlogs take 12 slots, more than one worker has.
+ * The queue takes jobs oldest first, so a quiet workspace's delivery then
+ * waits behind the older jobs of the busy ones until a slot frees. A burst of
+ * workers that fetch at the same moment can also pass the group limit for a
+ * moment (see `JobDefaults.groupConcurrency`).
  *
  * There is no limit on how many delivery jobs a workspace may have waiting.
  * A workspace can thus fill the jobs table: a 10,000 row import into a
  * workspace with 20 registrations for `record.created` is 200,000 jobs. The
- * group limit keeps that from starving other workspaces, but the rows and the
- * time to work through them are real.
+ * group limit keeps that from holding every worker, but the rows and the time
+ * to work through them are real.
  */
 
 export const DELIVER_WEBHOOK_JOB = 'webhooks.deliver'
 
-/** How long one attempt may take before it counts as failed. */
+/** How long one attempt may wait for the endpoint, its DNS lookup included. */
 export const DELIVERY_TIMEOUT_MS = 10_000
 
 /**
@@ -61,31 +79,47 @@ export const DELIVERY_TIMEOUT_MS = 10_000
  *
  * With backoff, pg-boss waits `retryDelay * 2^r * (1 + random())` seconds,
  * capped at `retryDelayMax`, after a failure of the run with `retryCount` r
- * (0 on the first run). That is at most 10, 20 and then 40 seconds. A
- * retried job is found by the worker's poll, not by NOTIFY, so each wait can
- * be up to one poll (2 s) longer, and the retry may wait for a free slot of
- * its workspace's group, at most one attempt (10 s). The worst case from the
- * start of the first attempt to the end of the last is then:
+ * (0 on the first run). That is at most 6, 12 and then 20 seconds.
  *
- *   4 attempts × 10 s + (10 + 20 + 40) s + 3 × (2 + 10) s = 146 s
+ * Without contention, the worst case from the enqueue to the end of the last
+ * attempt is each attempt at its expiry (an attempt is stopped there, so it
+ * cannot run longer), plus the waits, plus one poll (2 s) for each retry,
+ * which no NOTIFY wakes:
  *
- * A receiver keeps an `id` until its `created_at` plus 5 minutes. Every
- * attempt must land inside that window of the first, and 146 s is under half
- * of it. The DNS lookup of the egress check runs outside the 10 s timeout and
- * is not counted here. A worker that dies during an attempt is not counted
- * either: supervision puts the job back only after `expireInSeconds` plus up
- * to two supervision intervals.
+ *   4 × 20 s + (6 + 12 + 20) s + 3 × 2 s = 124 s
+ *
+ * With contention there is no such bound. A retry keeps the `created_on` of
+ * its job, and the queue takes a group's jobs oldest first, so a retry waits
+ * behind every older job of its workspace that is still waiting. A dead
+ * worker adds `expireInSeconds` plus up to two supervision intervals. Thus
+ * the hard bound is `DELIVERY_RETRY_WINDOW_MS`, checked by each retry.
  */
 export const DELIVERY_RETRY_LIMIT = 3
-export const DELIVERY_RETRY_DELAY_SECONDS = 5
-export const DELIVERY_RETRY_DELAY_MAX_SECONDS = 40
+export const DELIVERY_RETRY_DELAY_SECONDS = 3
+export const DELIVERY_RETRY_DELAY_MAX_SECONDS = 20
 
 /**
- * When the queue counts a running attempt as lost. Three times the send
- * timeout, so a slow attempt plus its reads and its log write finishes well
- * before it.
+ * When the queue counts a running attempt as lost, and its signal stops the
+ * attempt. Twice the send timeout: the reads, the send and the log write of
+ * one attempt finish well inside it.
  */
-export const DELIVERY_EXPIRE_SECONDS = 30
+export const DELIVERY_EXPIRE_SECONDS = 20
+
+/**
+ * The last moment after the enqueue at which a retry may start: 4 minutes.
+ *
+ * A receiver keeps an `id` until the `created_at` of the first copy it saw
+ * plus 5 minutes. A retry that starts by this time, and is stopped at its
+ * expiry, lands inside that. The time is counted from the enqueue, because
+ * that is the only time the job holds: the job's payload is fixed when it is
+ * made, and nothing records the first attempt before the delivery ends. The
+ * enqueue comes before the first attempt, so the count is never short.
+ *
+ * Only a retry checks it. A first attempt has no copy at any receiver yet, so
+ * it may go however long it waited in the queue. A retry after the window is
+ * not sent: the delivery is logged as failed and the status stays.
+ */
+export const DELIVERY_RETRY_WINDOW_MS = 4 * 60_000
 
 /**
  * Deliveries one worker process runs at the same time, and the most one
@@ -152,6 +186,8 @@ export const deliveryJobDataSchema = z
     deliveryId: z.string().min(1),
     event: z.enum(WEBHOOK_EVENTS),
     data: z.record(z.string(), z.unknown()),
+    /** When the event enqueued the job. A retry is not sent after `DELIVERY_RETRY_WINDOW_MS` from it. */
+    enqueuedAt: z.iso.datetime(),
   })
   .strict()
 
@@ -180,10 +216,23 @@ export interface AttemptOutcome {
 export interface SendOutcome extends AttemptOutcome {
   /** The address the egress guard refused. Absent on every other outcome. */
   readonly blockedAddress?: string
+  /**
+   * True when the attempt failed on Kelpie's side, not the endpoint's: the
+   * deployment's DNS resolver did not answer. Such a failure is retried, and
+   * on the last attempt it is logged without moving the status.
+   */
+  readonly kelpieFault?: boolean
+  /** The whole cause of a failure, addresses included. Server log only. */
+  readonly logDetail?: string
 }
 
-/** The outbound port. Injected so no test makes a network call. */
-export type SendDelivery = (request: DeliveryRequest) => Promise<SendOutcome>
+/**
+ * The outbound port. Injected so no test makes a network call.
+ *
+ * @param signal The job's signal. It fires when the queue counts the job as
+ *   expired, and the attempt must stop then.
+ */
+export type SendDelivery = (request: DeliveryRequest, signal?: AbortSignal) => Promise<SendOutcome>
 
 /**
  * Lets go of a response body nobody reads, so its connection goes back to the
@@ -208,26 +257,32 @@ function discardBody(response: Response): void {
  * anything from a DNS failure to an abort, the set is open, and turning all of
  * it into one outcome is the port's whole job. Nothing is swallowed — the
  * reason reaches the log and the delivery is recorded as failed. The reason
- * names the network fault by its code (`describeThrownWithCause`) and never
- * by an address. A blocked private address (`egress.check`, or the guard's
- * `fetch` at the connection) reaches the same catch and is recorded the same
- * way, as a failed attempt rather than a crash, with the address beside the
- * reason for the server log only.
+ * names the network fault by its code and never by an address
+ * (`describeOutboundFailure`). A blocked private address (`egress.check`, or
+ * the guard's `fetch` at the connection) reaches the same catch and is
+ * recorded the same way, as a failed attempt rather than a crash, with the
+ * address beside the reason for the server log only.
+ *
+ * One signal bounds the whole attempt: the send timeout, or the job's own
+ * signal when the queue expires the job. The egress check takes no signal,
+ * so the attempt stops waiting for it when the signal fires.
  */
 export function createHttpSender(
   egress: EgressGuard,
   fetchImplementation: typeof fetch = egress.fetch,
 ): SendDelivery {
-  return async (request) => {
+  return async (request, jobSignal) => {
+    const signal = attemptSignal(DELIVERY_TIMEOUT_MS, jobSignal)
+
     try {
-      await egress.check(request.url)
+      await untilAborted(egress.check(request.url), signal)
 
       const response = await fetchImplementation(request.url, {
         method: 'POST',
         body: request.body,
         headers: request.headers,
         redirect: 'manual',
-        signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+        signal,
       })
 
       discardBody(response)
@@ -240,9 +295,7 @@ export function createHttpSender(
             reason: `endpoint answered ${String(response.status)}`,
           }
     } catch (error: unknown) {
-      const failed = { delivered: false, status: null, reason: describeThrownWithCause(error) }
-
-      return error instanceof BlockedEgressError ? { ...failed, blockedAddress: error.address } : failed
+      return { delivered: false, status: null, ...describeOutboundFailure(error) }
     }
   }
 }
@@ -265,6 +318,8 @@ export interface AttemptRun {
   /** True when the queue does not run the job again if this attempt fails. */
   readonly lastAttempt: boolean
   readonly log: Logger
+  /** The job's signal: it fires when the queue counts the job as expired. */
+  readonly signal?: AbortSignal
 }
 
 /** One delivery to write to the log. */
@@ -459,17 +514,74 @@ function buildAttempt(
   }
 }
 
+/** The reason in the log for a retry that the retry window stopped. */
+export const RETRY_WINDOW_CLOSED_REASON =
+  'Not retried: the time in which a receiver still recognises this delivery had passed'
+
+/**
+ * True when this run is a retry, and the retry window, counted from the
+ * enqueue, has closed. A first attempt is never stopped: no receiver holds a
+ * copy of the delivery yet (see `DELIVERY_RETRY_WINDOW_MS`).
+ */
+export function isPastRetryWindow(data: DeliveryJobData, attempt: number, now: Date): boolean {
+  return attempt > 1 && now.getTime() - Date.parse(data.enqueuedAt) > DELIVERY_RETRY_WINDOW_MS
+}
+
+/**
+ * Logs a retry the window stopped, and records the delivery as failed with
+ * the attempts made before it. The status stays: no attempt was made, and the
+ * status moves only on what an attempt found. The earlier failed attempts
+ * moved nothing either, since only the last attempt records.
+ */
+async function recordWindowClosed(dependencies: DeliveryDependencies, data: DeliveryJobData, run: AttemptRun): Promise<void> {
+  const sentAt = dependencies.now()
+
+  run.log.warn('webhook delivery not retried: the retry window closed', {
+    webhookId: data.webhookId,
+    deliveryId: data.deliveryId,
+    attempt: run.attempt,
+    enqueuedAt: data.enqueuedAt,
+  })
+
+  await record(dependencies, {
+    data,
+    sentAt,
+    body: deliveryBody(envelopeFor(data, sentAt)),
+    attempts: run.attempt - 1,
+    outcome: { delivered: false, status: null, reason: RETRY_WINDOW_CLOSED_REASON },
+    moveStatus: false,
+  })
+}
+
+function logFailedAttempt(data: DeliveryJobData, run: AttemptRun, outcome: SendOutcome): void {
+  run.log.warn('webhook delivery attempt failed', {
+    webhookId: data.webhookId,
+    deliveryId: data.deliveryId,
+    event: data.event,
+    attempt: run.attempt,
+    lastAttempt: run.lastAttempt,
+    status: outcome.status,
+    reason: outcome.reason,
+    ...(outcome.kelpieFault === true ? { kelpieFault: true } : {}),
+    ...(outcome.blockedAddress === undefined ? {} : { blockedAddress: outcome.blockedAddress }),
+    ...(outcome.logDetail === undefined ? {} : { cause: outcome.logDetail }),
+  })
+}
+
 /**
  * One attempt of one delivery. The job's handler; exported so a test can run
  * it without a worker.
  *
  * Sends nothing when the registration no longer takes this delivery, or when
  * the log already holds it (an earlier run recorded it and then stopped
- * before the queue heard).
+ * before the queue heard). A retry after the retry window is not sent, and
+ * the delivery is recorded as failed.
  *
- * @throws Error when the attempt failed and the queue will try again. Nothing
- *   is recorded until the delivery lands or the last attempt fails, so the log
- *   holds one row per delivery, with the number of attempts it took.
+ * @throws Error when the attempt failed and the queue will try again, and when
+ *   the job's signal fired during the send: the queue has already counted
+ *   that run as failed. Nothing is recorded until the delivery lands or the
+ *   last attempt fails, so the log holds one row per delivery, with the number
+ *   of attempts it took.
  */
 export async function attemptDelivery(
   dependencies: DeliveryDependencies,
@@ -488,25 +600,26 @@ export async function attemptDelivery(
     return
   }
 
+  if (isPastRetryWindow(data, run.attempt, dependencies.now())) {
+    await recordWindowClosed(dependencies, data, run)
+
+    return
+  }
+
   const built = buildAttempt(dependencies, webhook, data, run.log)
 
   if (built === undefined) {
     return
   }
 
-  const outcome = await dependencies.send(built.request)
+  const outcome = await dependencies.send(built.request, run.signal)
+
+  if (run.signal?.aborted === true) {
+    throw new Error(`webhook delivery ${data.deliveryId} attempt ${String(run.attempt)} stopped: the job expired`)
+  }
 
   if (!outcome.delivered) {
-    run.log.warn('webhook delivery attempt failed', {
-      webhookId: data.webhookId,
-      deliveryId: data.deliveryId,
-      event: data.event,
-      attempt: run.attempt,
-      lastAttempt: run.lastAttempt,
-      status: outcome.status,
-      reason: outcome.reason,
-      ...(outcome.blockedAddress === undefined ? {} : { blockedAddress: outcome.blockedAddress }),
-    })
+    logFailedAttempt(data, run, outcome)
 
     if (!run.lastAttempt) {
       throw new Error(
@@ -516,28 +629,30 @@ export async function attemptDelivery(
   }
 
   // The last failed attempt records and returns rather than throwing. The
-  // failure is the endpoint's, and it is in the delivery log; a dead-letter
-  // row for it would fill the operators' queue with customers' outages.
+  // failure is in the delivery log; a dead-letter row for it would fill the
+  // operators' queue with customers' outages.
   await record(dependencies, {
     data,
     sentAt: built.sentAt,
     body: built.body,
     attempts: run.attempt,
     outcome: { delivered: outcome.delivered, status: outcome.status, reason: outcome.reason },
-    moveStatus: true,
+    moveStatus: outcome.kelpieFault !== true,
   })
 }
 
 /** The reason in the log for a delivery whose last attempt never finished. */
-export const ABANDONED_DELIVERY_REASON = 'The last attempt did not finish: the worker running it stopped'
+export const ABANDONED_DELIVERY_REASON = 'The last attempt did not finish'
 
 /**
  * The dead-letter handler: a delivery job the queue gave up on.
  *
- * The handler records every ending it sees (a success, or a failure on the
- * last attempt), and ends the job for a secret that will not decrypt. So a
- * job gets here when no handler finished its last run: the worker died, or
- * the run threw on something other than the endpoint, such as the database.
+ * The handler records every ending it sees (a success, a failure on the last
+ * attempt, a closed retry window), and ends the job for a secret that will
+ * not decrypt. So a job gets here when no handler finished its last run: the
+ * worker died, the job expired, or the run threw on something other than the
+ * endpoint, such as the database. The reason says only that the last attempt
+ * did not finish, because this function cannot tell which.
  *
  * Writes one failed row when the log has none for this delivery, and the
  * registration still takes it. It does not move the registration to
@@ -597,11 +712,12 @@ export function defineDeliveryJob(dependencies: DeliveryDependencies): JobDefini
       localConcurrency: DELIVERY_LOCAL_CONCURRENCY,
       groupConcurrency: DELIVERY_GROUP_CONCURRENCY,
     },
-    handler: ({ data, log, attempt, lastAttempt }) =>
+    handler: ({ data, log, attempt, lastAttempt, signal }) =>
       attemptDelivery(dependencies, data, {
         attempt: attempt ?? 1,
         lastAttempt: lastAttempt === true,
         log,
+        signal,
       }),
     onDeadLetter: ({ data, log }) => recordAbandonedDelivery(dependencies, data, log),
   }
@@ -611,6 +727,7 @@ export interface FanOutDependencies {
   readonly db: Database
   readonly transaction: TransactionScope
   readonly createId: IdFactory
+  readonly now: () => Date
   readonly deliveryJob: JobHandle<DeliveryJobData>
 }
 
@@ -636,19 +753,24 @@ export function createDeliveryFanOut(dependencies: FanOutDependencies): Delivery
         return
       }
 
+      const enqueuedAt = dependencies.now().toISOString()
+
       await dependencies.transaction(async ({ jobs }) => {
         for (const webhook of subscribed) {
           await jobs.enqueue(
             dependencies.deliveryJob,
-            jobDataFor(payload, webhook.id, dependencies.createId('webhookDelivery')),
+            {
+              workspaceId: payload.workspaceId,
+              webhookId: webhook.id,
+              deliveryId: dependencies.createId('webhookDelivery'),
+              event: payload.event,
+              data: payload.data,
+              enqueuedAt,
+            },
             { group: { id: payload.workspaceId } },
           )
         }
       })
     },
   }
-}
-
-function jobDataFor(payload: WebhookEventPayload, webhookId: string, deliveryId: string): DeliveryJobData {
-  return { workspaceId: payload.workspaceId, webhookId, deliveryId, event: payload.event, data: payload.data }
 }

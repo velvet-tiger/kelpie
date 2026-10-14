@@ -81,6 +81,7 @@ export function createWebhooksModule(
         db: context.db,
         transaction: context.transaction,
         createId: context.createId,
+        now: context.now,
         deliveryJob,
       })
 
