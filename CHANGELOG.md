@@ -324,6 +324,12 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **A job queue takes the settings of the running
+  release.** The job runtime made each queue with pg-boss's `createQueue`,
+  which does nothing when the queue exists. A queue thus kept the retry and
+  expiry settings of the release that first made it. The runtime now calls
+  `updateQueue` after it on every start, with pg-boss's default for each
+  setting a definition leaves out. No migration.
 - **`create-kelpie`** — **The bundled Postgres matches `--database-url`.**
   `docker-compose.yml` always made the user `kelpie`, the password `kelpie`
   and the database `kelpie`, so a project with another name in

@@ -9,6 +9,7 @@ import type {
   EnqueueOptions,
   JobContext,
   JobDefinition,
+  JobDefaults,
   JobGroup,
   JobHandle,
   JobRegistry,
@@ -28,7 +29,10 @@ import type { Transaction } from './transaction.ts'
  *    yet.
  * 2. `start()`, from the entry point. Opens the pg-boss instance, primes the
  *    queue cache, and calls `createQueue` for every registered handle plus
- *    its dead-letter queue. Idempotent (`create_queue` upserts).
+ *    its dead-letter queue, then `updateQueue` with the definition's
+ *    settings. `create_queue` does nothing for a queue that exists, so
+ *    without the update a queue would keep the retry and expiry settings of
+ *    the release that first made it. Safe to run on every boot.
  *
  * The API and the worker both call `start()`: the API needs a boss instance
  * to insert jobs on request-scoped transactions; the worker adds a
@@ -157,6 +161,38 @@ export interface JobsRuntime {
   stop(): Promise<void>
 }
 
+/**
+ * The queue-level settings of a definition, with pg-boss's own default in
+ * every place the definition gives none.
+ *
+ * Every setting has a value, so the `updateQueue` at boot puts back the
+ * default when a release removes a setting a former release set. An absent
+ * key would leave the old value: pg-boss's update keeps a column it is not
+ * given.
+ */
+export function queueSettingsFor(defaults: JobDefaults | undefined): QueueSettings {
+  return {
+    retryLimit: defaults?.retryLimit ?? PGBOSS_DEFAULT_RETRY_LIMIT,
+    retryDelay: defaults?.retryDelay ?? 0,
+    retryBackoff: defaults?.retryBackoff ?? false,
+    retryDelayMax: defaults?.retryDelayMax ?? null,
+    expireInSeconds: defaults?.expireInSeconds ?? PGBOSS_DEFAULT_EXPIRE_SECONDS,
+  }
+}
+
+/** The settings `ensureQueuesFor` writes to a queue row. `retryDelayMax` null is no cap. */
+export interface QueueSettings {
+  readonly retryLimit: number
+  readonly retryDelay: number
+  readonly retryBackoff: boolean
+  readonly retryDelayMax: number | null
+  readonly expireInSeconds: number
+}
+
+/** pg-boss's `QUEUE_DEFAULTS` (`plans.js`), for a definition that sets none. */
+const PGBOSS_DEFAULT_RETRY_LIMIT = 2
+const PGBOSS_DEFAULT_EXPIRE_SECONDS = 15 * 60
+
 /** The port's group as pg-boss takes it, with no `tier: undefined` key. */
 function toGroupOptions(group: JobGroup): GroupOptions {
   return group.tier === undefined ? { id: group.id } : { id: group.id, tier: group.tier }
@@ -230,6 +266,7 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
       }
 
       const deadLetter = deadLetterQueueName(definition.name)
+      const settings = queueSettingsFor(definition.defaults)
 
       // Dead letter queue must exist before the main queue references it.
       await instance.createQueue(deadLetter, {
@@ -237,26 +274,19 @@ export function createJobsRuntime(options: JobsRuntimeOptions): JobsRuntime {
         notify: false,
       })
 
+      const { retryDelayMax, ...uncapped } = settings
+
       await instance.createQueue(definition.name, {
         policy: 'standard',
         deadLetter,
         notify: true,
-        ...(definition.defaults?.retryLimit === undefined
-          ? {}
-          : { retryLimit: definition.defaults.retryLimit }),
-        ...(definition.defaults?.retryDelay === undefined
-          ? {}
-          : { retryDelay: definition.defaults.retryDelay }),
-        ...(definition.defaults?.retryBackoff === undefined
-          ? {}
-          : { retryBackoff: definition.defaults.retryBackoff }),
-        ...(definition.defaults?.retryDelayMax === undefined
-          ? {}
-          : { retryDelayMax: definition.defaults.retryDelayMax }),
-        ...(definition.defaults?.expireInSeconds === undefined
-          ? {}
-          : { expireInSeconds: definition.defaults.expireInSeconds }),
+        ...uncapped,
+        ...(retryDelayMax === null ? {} : { retryDelayMax }),
       })
+
+      // `createQueue` leaves an existing queue as it was. This brings its
+      // settings to what this release defines, every boot.
+      await instance.updateQueue(definition.name, { deadLetter, notify: true, ...settings })
 
       queuesCreated.add(definition.name)
     }

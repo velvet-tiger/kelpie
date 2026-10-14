@@ -428,6 +428,122 @@ describe.skipIf(connectionString === undefined)('jobs runtime (pg-boss)', () => 
     }
   }, 20_000)
 
+  it('runs no more than a groupConcurrency above 1 of one group at a time', async () => {
+    // pg-boss counts active jobs per group with other SQL for a limit of 1,
+    // so a limit above 1 needs its own test.
+    //
+    // The jobs arrive one at a time, as events do. A burst of jobs that idle
+    // workers fetch at the same instant can pass the limit, because each
+    // fetch reads the count before the others claim (see
+    // `JobDefaults.groupConcurrency`); with six workers and five jobs at once
+    // this test saw four run.
+    const runtime = buildRuntime()
+    let active = 0
+    let peak = 0
+    let finished = 0
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const handle = runtime.registry.define({
+      name: 'jobs.group-concurrency-3',
+      schema: z.object({}).strict(),
+      handler: async () => {
+        active += 1
+        peak = Math.max(peak, active)
+        await held
+        active -= 1
+        finished += 1
+      },
+      defaults: { localConcurrency: 6, groupConcurrency: 3 },
+    })
+
+    await runtime.start()
+    await runtime.startWorking()
+
+    try {
+      for (let index = 0; index < 5; index += 1) {
+        await scopeFor(runtime)(
+          async ({ jobs }) => {
+            await jobs.enqueue(handle, {}, { group: { id: 'busy' } })
+          },
+          { workspaceId: fixture.workspaceId },
+        )
+        // Long enough for a free worker to take the job when the group has room.
+        await new Promise((resolve) => setTimeout(resolve, 700))
+      }
+
+      await waitFor(() => active === 3, { budgetMs: 10_000 })
+      // More than one poll: three workers are free, and none takes a fourth job.
+      await new Promise((resolve) => setTimeout(resolve, 1_200))
+
+      expect(peak).toBe(3)
+
+      release?.()
+      await waitFor(() => finished === 5, { budgetMs: 10_000 })
+
+      expect(peak).toBe(3)
+    } finally {
+      release?.()
+      await runtime.stop()
+    }
+  }, 30_000)
+
+  it('brings the settings of an existing queue to what the definition says, on each start', async () => {
+    // A new name each run: `truncateAll` empties `pgboss.job` but keeps
+    // `pgboss.queue`, and a queue left by an earlier run would hide the bug.
+    const name = `jobs.queue-settings-${createId('event')}`
+    const first = buildRuntime()
+
+    first.registry.define({
+      name,
+      schema: z.object({}).strict(),
+      handler: async () => undefined,
+      defaults: { retryLimit: 1, retryDelay: 5, retryBackoff: true, retryDelayMax: 10, expireInSeconds: 30 },
+    })
+    await first.start()
+    await first.stop()
+
+    // A later release: new limit, and the other settings gone.
+    const second = buildRuntime()
+
+    second.registry.define({
+      name,
+      schema: z.object({}).strict(),
+      handler: async () => undefined,
+      defaults: { retryLimit: 4 },
+    })
+    await second.start()
+
+    try {
+      const rows = await database.db.execute<{
+        retry_limit: number
+        retry_delay: number
+        retry_backoff: boolean
+        retry_delay_max: number | null
+        expire_seconds: number
+        dead_letter: string | null
+      }>(
+        sql`select retry_limit, retry_delay, retry_backoff, retry_delay_max, expire_seconds, dead_letter
+            from pgboss.queue where name = ${name}`,
+      )
+
+      expect([...rows]).toEqual([
+        {
+          retry_limit: 4,
+          // pg-boss's defaults, back in place of the settings the definition dropped.
+          retry_delay: 0,
+          retry_backoff: false,
+          retry_delay_max: null,
+          expire_seconds: 900,
+          dead_letter: `${name}.dead`,
+        },
+      ])
+    } finally {
+      await second.stop()
+    }
+  })
+
   it('retries a job that a dead worker left active past expireInSeconds', async () => {
     if (connectionString === undefined) {
       throw new Error('unreachable: suite skips when no connection string')
