@@ -838,7 +838,7 @@ function PersonConsents({ person }: { readonly person: Person }): React.JSX.Elem
       ) : (
         person.consents.map((consent) => (
           <SidebarField key={consent.purposeSlug} label={consent.purposeLabel}>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <select
                 value={consent.inherited ? '' : consent.status}
                 onChange={(event) => {
@@ -855,7 +855,9 @@ function PersonConsents({ person }: { readonly person: Person }): React.JSX.Elem
                 <option value="withdrawn">Withdrawn</option>
               </select>
               {!consent.inherited && consent.source !== null && (
-                <span className="text-[10px] text-ink-faint">via {consent.source}</span>
+                <span className="min-w-0 break-all text-[10px] text-ink-faint">
+                  via {consent.source}
+                </span>
               )}
             </div>
           </SidebarField>
