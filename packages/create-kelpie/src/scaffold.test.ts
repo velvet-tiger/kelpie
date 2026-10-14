@@ -128,7 +128,7 @@ describe('scaffold', () => {
 
   it('writes the generated key and the database url into .env', () => {
     const directory = scratch()
-    const options = optionsFor(directory, { databaseUrl: 'postgres://someone@db.example:6000/crm' })
+    const options = optionsFor(directory, { databaseUrl: 'postgres://someone@db.example:6000/crm', docker: false })
 
     scaffold(options)
 
@@ -142,6 +142,8 @@ describe('scaffold', () => {
     // Required at boot since 0.5.0: a scaffolded project must carry it or the
     // service it just wrote refuses to start.
     expect(environment).toContain('APP_BASE_URL=http://localhost:5173')
+    // Only the bundled Postgres reads it.
+    expect(environment).not.toMatch(/^POSTGRES_PASSWORD=/mu)
   })
 
   // Windows has no owner, group and other bits; Node reports 0o666 for every
@@ -197,9 +199,80 @@ describe('scaffold', () => {
   it('publishes the bundled Postgres on the port the connection string names', () => {
     const directory = scratch()
 
-    scaffold(optionsFor(directory, { databasePort: 55432 }))
+    scaffold(
+      optionsFor(directory, { databaseUrl: 'postgres://kelpie:kelpie@localhost:55432/kelpie', databasePort: 55432 }),
+    )
 
     expect(readFileSync(join(directory, 'docker-compose.yml'), 'utf8')).toContain('"127.0.0.1:55432:5432"')
+  })
+
+  it('gives the bundled Postgres the user and database name of the connection string', () => {
+    const directory = scratch()
+
+    scaffold(optionsFor(directory, { databaseUrl: 'postgres://demo_user:s3cret-pw@localhost:5432/kelpie_demo' }))
+
+    const compose = readFileSync(join(directory, 'docker-compose.yml'), 'utf8')
+
+    expect(compose).toContain('POSTGRES_USER: "demo_user"')
+    expect(compose).toContain('POSTGRES_DB: "kelpie_demo"')
+    expect(compose).toContain('pg_isready --username demo_user --dbname kelpie_demo')
+  })
+
+  it('puts the bundled Postgres password in .env, which only the owner can read, and not in docker-compose.yml', () => {
+    const directory = scratch()
+
+    scaffold(optionsFor(directory, { databaseUrl: 'postgres://demo_user:s3cret-pw@localhost:5432/kelpie_demo' }))
+
+    const compose = readFileSync(join(directory, 'docker-compose.yml'), 'utf8')
+    const environment = readFileSync(join(directory, '.env'), 'utf8')
+
+    expect(compose).not.toContain('s3cret-pw')
+    expect(compose).toContain('POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?')
+    expect(environment).toMatch(/^POSTGRES_PASSWORD=s3cret-pw$/mu)
+  })
+
+  it('quotes the user and database name, so YAML keeps a name like null or 0123 a string', () => {
+    const directory = scratch()
+
+    scaffold(optionsFor(directory, { databaseUrl: 'postgres://null:pw@localhost:5432/0123' }))
+
+    const compose = readFileSync(join(directory, 'docker-compose.yml'), 'utf8')
+
+    expect(compose).toContain('POSTGRES_USER: "null"')
+    expect(compose).toContain('POSTGRES_DB: "0123"')
+  })
+
+  it('writes a password that looks like a template token as it is', () => {
+    const directory = scratch()
+
+    scaffold(optionsFor(directory, { databaseUrl: 'postgres://kelpie:__PORT__@localhost:5432/kelpie' }))
+
+    const environment = readFileSync(join(directory, '.env'), 'utf8')
+
+    expect(environment).toMatch(/^POSTGRES_PASSWORD=__PORT__$/mu)
+    expect(environment).toContain('DATABASE_URL=postgres://kelpie:__PORT__@localhost:5432/kelpie')
+  })
+
+  it.each([
+    ['a line break', 'postgres://kelpie:kelpie@localhost:5432/kelpie\nSECRET_ENCRYPTION_KEY=injected'],
+    ['a tab', 'postgres://kelpie:kel\tpie@localhost:5432/kelpie'],
+    ['a space', 'postgres://kelpie:kelpie@localhost:5432/kelpie '],
+  ])('refuses a connection string with %s, with or without the bundled Postgres, and writes nothing', (_name, databaseUrl) => {
+    for (const docker of [true, false]) {
+      const directory = scratch()
+
+      expect(() => scaffold(optionsFor(directory, { databaseUrl, docker }))).toThrow(/control character/u)
+      expect(readdirSync(join(directory, '..'))).toEqual([])
+    }
+  })
+
+  it('writes nothing when the connection string does not fit the bundled Postgres', () => {
+    const directory = scratch()
+
+    expect(() => scaffold(optionsFor(directory, { databaseUrl: 'postgres://kelpie:kelpie@db.example:5432/kelpie' }))).toThrow(
+      ScaffoldError,
+    )
+    expect(readdirSync(join(directory, '..'))).toEqual([])
   })
 
   it('publishes the bundled Postgres on this machine only', () => {

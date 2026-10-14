@@ -77,6 +77,7 @@ egress, module-locking, and per-account login-limit settings — is
 | `API_PORT` | The same number again, for the dev server's proxy |
 | `WEB_PORT` | The Vite dev server's port. Development only |
 | `DATABASE_URL` | A `postgres://` or `postgresql://` connection string |
+| `POSTGRES_PASSWORD` | Only with `docker-compose.yml`. Docker Compose reads it for the bundled Postgres, and it must match the password in `DATABASE_URL`. Postgres reads it only when it first creates its data volume, so a later change has no effect until you run `docker compose down --volumes`, which deletes the data. A `POSTGRES_PASSWORD` exported in your shell overrides this file |
 | `APP_BASE_URL` | The address people reach this Kelpie on. Emailed links (verification, password reset, invitations) are built from it. In development that is the Vite dev server; a deployment sets its real origin |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
 | `EMAIL_PROVIDER` | Name of the transactional-mail sender to use. `log` (built in) writes to the log instead of sending; `smtp` sends over SMTP through the built-in `smtp-email` core module; other names come from third-party provider modules |

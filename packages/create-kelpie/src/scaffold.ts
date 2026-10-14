@@ -10,6 +10,10 @@ import { mkdirSync, readFileSync, readdirSync, existsSync, writeFileSync } from 
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import type { BundledDatabase } from './bundledDatabase.ts'
+import { bundledDatabaseFor } from './bundledDatabase.ts'
+import { ScaffoldError } from './errors.ts'
+
 /** Resolves the same from `src/` and from `dist/`; both sit one level down. */
 const templateDirectory = fileURLToPath(new URL('../templates/', import.meta.url))
 
@@ -30,13 +34,7 @@ export interface ScaffoldOptions {
   readonly coreVersion: string
 }
 
-/** A precondition failed. Reported as a message rather than a stack. */
-export class ScaffoldError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ScaffoldError'
-  }
-}
+export { ScaffoldError }
 
 /**
  * The output file that holds secrets: `SECRET_ENCRYPTION_KEY` and the
@@ -82,10 +80,26 @@ const TEMPLATE_FILES: ReadonlyMap<string, string> = new Map([
 /** Written only when the project takes the bundled Postgres. */
 const DOCKER_TEMPLATE = 'docker-compose.yml'
 
-/** Anything left matching this after substitution is a token nobody filled in. */
-const UNRESOLVED_TOKEN = /__[A-Z][A-Z0-9_]*__/
+/** A token in a template. Each one must have a value in `tokensFor`. */
+const TOKEN = /__[A-Z][A-Z0-9_]*__/gu
 
-function tokensFor(options: ScaffoldOptions): ReadonlyMap<string, string> {
+/**
+ * The `.env` lines for the bundled Postgres, or nothing without it. Docker
+ * Compose reads `POSTGRES_PASSWORD` from `.env` for `docker-compose.yml`.
+ */
+function bundledDatabaseEnvironment(database: BundledDatabase | undefined): string {
+  if (database === undefined) {
+    return ''
+  }
+
+  return (
+    '\n# Read by Docker Compose for the bundled Postgres in docker-compose.yml. It\n' +
+    '# must match the password in DATABASE_URL.\n' +
+    `POSTGRES_PASSWORD=${database.password}\n`
+  )
+}
+
+function tokensFor(options: ScaffoldOptions, database: BundledDatabase | undefined): ReadonlyMap<string, string> {
   return new Map([
     ['__PROJECT_NAME__', options.projectName],
     ['__CORE_VERSION__', options.coreVersion],
@@ -95,23 +109,27 @@ function tokensFor(options: ScaffoldOptions): ReadonlyMap<string, string> {
     ['__PORT__', String(options.port)],
     ['__WEB_PORT__', String(options.webPort)],
     ['__SECRET_ENCRYPTION_KEY__', options.secretEncryptionKey],
+    ['__BUNDLED_DATABASE_ENV__', bundledDatabaseEnvironment(database)],
+    // Empty without the bundled Postgres: docker-compose.yml is not written then.
+    ['__POSTGRES_USER__', database?.user ?? ''],
+    ['__POSTGRES_DB__', database?.name ?? ''],
   ])
 }
 
+/**
+ * One pass over the template, so a value is never scanned again: a password
+ * that looks like `__PORT__` stays as it is, and is never named in an error.
+ */
 function render(template: string, tokens: ReadonlyMap<string, string>, source: string): string {
-  let rendered = template
+  return template.replace(TOKEN, (token) => {
+    const value = tokens.get(token)
 
-  for (const [token, value] of tokens) {
-    rendered = rendered.replaceAll(token, value)
-  }
+    if (value === undefined) {
+      throw new ScaffoldError(`The template ${source} contains ${token}, which nothing fills in.`)
+    }
 
-  const leftover = UNRESOLVED_TOKEN.exec(rendered)
-
-  if (leftover !== null) {
-    throw new ScaffoldError(`The template ${source} still contains ${leftover[0]} after substitution.`)
-  }
-
-  return rendered
+    return value
+  })
 }
 
 /**
@@ -139,31 +157,49 @@ export function assertWritable(directory: string): void {
   }
 }
 
+/**
+ * `DATABASE_URL` goes into `.env` as it was typed. A newline in it would add
+ * a line of its own to `.env`, and the URL parser drops tabs and newlines, so
+ * a parsed URL would not show it. The message does not repeat the URL: it may
+ * hold the password.
+ */
+export function assertSingleLine(databaseUrl: string): void {
+  if (/[\s\p{Cc}]/u.test(databaseUrl)) {
+    throw new ScaffoldError('--database-url contains a space, a tab, a line break or another control character.')
+  }
+}
+
 /** Writes the assembly. Returns the output paths, relative to the directory, in write order. */
 export function scaffold(options: ScaffoldOptions): readonly string[] {
   assertWritable(options.directory)
+  assertSingleLine(options.databaseUrl)
 
-  const tokens = tokensFor(options)
+  // Checked before anything is written, so a refused URL leaves no files.
+  const database = options.docker ? bundledDatabaseFor(options.databaseUrl, options.databasePort) : undefined
+  const tokens = tokensFor(options, database)
   const files = new Map(TEMPLATE_FILES)
 
   if (options.docker) {
     files.set(DOCKER_TEMPLATE, DOCKER_TEMPLATE)
   }
 
-  const written: string[] = []
+  // Every file is rendered before the first write, so a template that fails
+  // leaves no half-written project behind.
+  const rendered = [...files].map(([source, target]) => ({
+    target,
+    content: render(readFileSync(join(templateDirectory, source), 'utf8'), tokens, source),
+  }))
 
-  for (const [source, target] of files) {
-    const template = readFileSync(join(templateDirectory, source), 'utf8')
+  for (const { target, content } of rendered) {
     const destination = join(options.directory, target)
 
     mkdirSync(dirname(destination), { recursive: true })
     // The mode applies because the file is new: `assertWritable` refused a
     // directory that held anything.
-    writeFileSync(destination, render(template, tokens, source), {
+    writeFileSync(destination, content, {
       mode: target === ENVIRONMENT_FILE ? OWNER_ONLY_MODE : DEFAULT_MODE,
     })
-    written.push(target)
   }
 
-  return written
+  return rendered.map(({ target }) => target)
 }

@@ -287,6 +287,23 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`create-kelpie`** — **The bundled Postgres matches `--database-url`.**
+  `docker-compose.yml` always made the user `kelpie`, the password `kelpie`
+  and the database `kelpie`, so a project with another name in
+  `--database-url` failed at boot. The compose file now takes the user and
+  database name from the URL. The password goes into `.env` as
+  `POSTGRES_PASSWORD`, which Docker Compose reads, and not into the compose
+  file. With `docker-compose.yml`, the scaffolder now refuses a URL that the
+  bundled Postgres cannot serve: a host that is not `localhost` or
+  `127.0.0.1`, a port that is not `--database-port`, or a user, database name
+  or password with characters that would need quoting. A prompted URL is
+  checked at once and asked again. It writes no files then. A project
+  scaffolded before this change keeps its own files.
+- **`create-kelpie`** — **A `--database-url` with a space, a tab, a line
+  break or another control character is refused.** The scaffolder wrote it
+  into `.env` as typed, so a line break added a line of its own to the
+  file. The scaffolder also renders every file before it writes the first
+  one, so a refusal leaves no files.
 - **`@kelpie/server`** — **The `smtp-email` module boots with empty
   `SMTP_USER` and `SMTP_PASSWORD`.** A project from `npm create kelpie`
   has the lines `SMTP_USER=` and `SMTP_PASSWORD=` with no value. The module

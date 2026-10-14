@@ -12,7 +12,9 @@ import { basename, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { parseArgs } from 'node:util'
 
-import { ScaffoldError } from './scaffold.ts'
+import { bundledDatabaseFor } from './bundledDatabase.ts'
+import { ScaffoldError } from './errors.ts'
+import { assertSingleLine } from './scaffold.ts'
 import type { ScaffoldOptions } from './scaffold.ts'
 
 const DEFAULT_DIRECTORY = 'kelpie'
@@ -36,7 +38,9 @@ its own rather than passing them on.
 
 Options:
   --name <name>            Package name. Defaults to the directory name
-  --database-url <url>     postgres:// connection string
+  --database-url <url>     postgres:// connection string. The bundled Postgres
+                           (the default) takes its user, password, database
+                           and port from it
   --port <port>            API port (default ${DEFAULT_PORT})
   --web-port <port>        Dev server port (default ${DEFAULT_WEB_PORT})
   --database-port <port>   Host port for the bundled Postgres (default ${DEFAULT_DATABASE_PORT})
@@ -186,6 +190,55 @@ function createPrompter(): Prompter {
 }
 
 /**
+ * The connection string, checked before any later prompt: for a control
+ * character, and against the bundled Postgres when there is one. A prompted
+ * URL that fails is asked again; one from `--database-url` is refused at
+ * once. `scaffold` checks it again, for a caller that does not come through
+ * here.
+ */
+async function resolveDatabaseUrl(
+  parsed: ParsedArguments,
+  docker: boolean,
+  prompter: Prompter | undefined,
+): Promise<string> {
+  const defaultDatabaseUrl = bundledDatabaseUrl(parsed.databasePort)
+
+  if (parsed.databaseUrl !== undefined || prompter === undefined) {
+    const databaseUrl = parsed.databaseUrl ?? defaultDatabaseUrl
+
+    assertSingleLine(databaseUrl)
+
+    if (docker) {
+      bundledDatabaseFor(databaseUrl, parsed.databasePort)
+    }
+
+    return databaseUrl
+  }
+
+  for (;;) {
+    const databaseUrl = await prompter.ask('DATABASE_URL', defaultDatabaseUrl)
+
+    try {
+      assertSingleLine(databaseUrl)
+
+      if (docker) {
+        bundledDatabaseFor(databaseUrl, parsed.databasePort)
+      }
+
+      return databaseUrl
+    } catch (error) {
+      if (!(error instanceof ScaffoldError)) {
+        throw error
+      }
+
+      // The message may name a flag. At a prompt, the user can also type
+      // another URL.
+      process.stderr.write(`${error.message}\nEnter another URL, or press Enter for the default.\n`)
+    }
+  }
+}
+
+/**
  * Fills the gaps argv left, asking where there is a terminal to ask on.
  *
  * Without one, `--yes` is required rather than assumed. A scaffolder that
@@ -208,9 +261,7 @@ export async function resolveOptions(parsed: ParsedArguments, interactive: boole
     const projectName = parsed.name ?? toPackageName(basename(directory))
     const docker = parsed.docker ?? (await prompter?.confirm('Write a docker-compose.yml for Postgres?', true)) ?? true
 
-    const defaultDatabaseUrl = bundledDatabaseUrl(parsed.databasePort)
-    const databaseUrl =
-      parsed.databaseUrl ?? (await prompter?.ask('DATABASE_URL', defaultDatabaseUrl)) ?? defaultDatabaseUrl
+    const databaseUrl = await resolveDatabaseUrl(parsed, docker, prompter)
 
     const emailFrom =
       parsed.emailFrom ?? (await prompter?.ask('Send mail from', DEFAULT_EMAIL_FROM)) ?? DEFAULT_EMAIL_FROM

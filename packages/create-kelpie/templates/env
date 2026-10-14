@@ -17,7 +17,7 @@ API_PORT=__PORT__
 WEB_PORT=__WEB_PORT__
 
 DATABASE_URL=__DATABASE_URL__
-
+__BUNDLED_DATABASE_ENV__
 # The address people reach this Kelpie on, used to build the links in emails
 # (verification, password reset, invitations). In development that is the Vite
 # dev server below; a deployment sets its real origin.

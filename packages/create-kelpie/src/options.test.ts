@@ -8,7 +8,7 @@ import {
   resolveOptions,
   toPackageName,
 } from './options.ts'
-import { ScaffoldError } from './scaffold.ts'
+import { ScaffoldError } from './errors.ts'
 
 describe('parseArguments', () => {
   it('takes the directory as a positional and the rest as flags', () => {
@@ -92,7 +92,10 @@ describe('resolveOptions', () => {
   })
 
   it('keeps an explicit database url and database port in step', async () => {
-    const explicit = await resolveOptions(parseArguments(['crm', '--yes', '--database-url', 'postgres://x/y']), false)
+    const explicit = await resolveOptions(
+      parseArguments(['crm', '--yes', '--no-docker', '--database-url', 'postgres://x/y']),
+      false,
+    )
 
     expect(explicit.databaseUrl).toBe('postgres://x/y')
 
@@ -100,6 +103,31 @@ describe('resolveOptions', () => {
 
     expect(bundled.databaseUrl).toBe(bundledDatabaseUrl(6543))
     expect(bundled.databasePort).toBe(6543)
+  })
+
+  it('refuses a --database-url the bundled Postgres cannot serve before it asks anything else', async () => {
+    const parsed = parseArguments(['crm', '--yes', '--database-url', 'postgres://kelpie:kelpie@localhost:5462/kelpie'])
+
+    await expect(resolveOptions(parsed, false)).rejects.toThrow(/--database-port 5462/u)
+  })
+
+  it('refuses a --database-url with a line break before it asks anything else, without the bundled Postgres too', async () => {
+    const parsed = parseArguments(['crm', '--yes', '--no-docker', '--database-url', 'postgres://x/y\nPORT=1'])
+
+    await expect(resolveOptions(parsed, false)).rejects.toThrow(/control character/u)
+  })
+
+  it('keeps a matching --database-url and --database-port for the bundled Postgres', async () => {
+    const parsed = parseArguments([
+      'crm',
+      '--yes',
+      '--database-url',
+      'postgres://demo_user:pw@localhost:5462/kelpie_demo',
+      '--database-port',
+      '5462',
+    ])
+
+    expect((await resolveOptions(parsed, false)).databaseUrl).toBe('postgres://demo_user:pw@localhost:5462/kelpie_demo')
   })
 
   it('resolves the directory against the working directory', async () => {

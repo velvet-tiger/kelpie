@@ -1,16 +1,17 @@
 # Postgres for this Kelpie install.
 #
-# The credentials are fixed here and repeated in .env. They are not secret, so
-# the port below is published on 127.0.0.1 only: no other machine can connect.
-# Do not remove the address. For anything other than local use, point
-# DATABASE_URL at a real database and delete this file.
+# The user, database and port come from DATABASE_URL in .env. The password is
+# POSTGRES_PASSWORD in .env: Docker Compose reads that file itself. The port
+# below is published on 127.0.0.1 only: no other machine can connect. Do not
+# remove the address. For anything other than local use, point DATABASE_URL
+# at a real database and delete this file.
 services:
   db:
     image: postgres:18-alpine
     environment:
-      POSTGRES_USER: kelpie
-      POSTGRES_PASSWORD: kelpie
-      POSTGRES_DB: kelpie
+      POSTGRES_USER: "__POSTGRES_USER__"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: "__POSTGRES_DB__"
     ports:
       - "127.0.0.1:__DATABASE_PORT__:5432"
     # Postgres 18 images want the whole directory mounted, not the data
@@ -18,7 +19,7 @@ services:
     volumes:
       - kelpie_db_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready --username kelpie --dbname kelpie"]
+      test: ["CMD-SHELL", "pg_isready --username __POSTGRES_USER__ --dbname __POSTGRES_DB__"]
       interval: 5s
       timeout: 5s
       retries: 10

@@ -64,6 +64,14 @@ from the cause.
 
 It refuses a directory that already contains anything.
 
+With `docker-compose.yml`, the bundled Postgres takes its user, password,
+database name and port from `--database-url`. The password goes into `.env`,
+which only you can read, and Docker Compose reads it from there. The URL must
+name `localhost` or `127.0.0.1` and the same port as `--database-port`. The
+user and database name may use letters, digits and `_`. The password may use
+letters, digits and `. _ ~ -`. Any other URL is refused before a file is
+written: pass `--no-docker` to use a database you run yourself.
+
 ## Versions
 
 The generated manifest pins `@kelpie/server` and `@kelpie/ui` at this package's

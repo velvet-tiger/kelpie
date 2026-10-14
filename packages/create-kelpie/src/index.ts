@@ -12,7 +12,8 @@
 import { relative } from 'node:path'
 
 import { USAGE, parseArguments, resolveOptions } from './options.ts'
-import { ScaffoldError, scaffold } from './scaffold.ts'
+import { ScaffoldError } from './errors.ts'
+import { scaffold } from './scaffold.ts'
 
 function report(message: string): void {
   process.stdout.write(`${message}\n`)

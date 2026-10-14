@@ -25,7 +25,7 @@ Useful flags (`npm create kelpie@latest -- --help` lists them all):
 | --- | --- |
 | `--yes` / `-y` | Accept every default. Required when there is no terminal to prompt on. |
 | `--no-docker` | Skip the compose file; you bring your own Postgres. |
-| `--database-url <url>` | Your Postgres connection string. |
+| `--database-url <url>` | Your Postgres connection string. With the compose file, the bundled Postgres takes its user, password, database name and port from it. The host must be `localhost` or `127.0.0.1`. |
 | `--port`, `--web-port`, `--database-port` | The API, dev-UI, and Postgres ports. |
 | `--email-from <address>` | The from address for transactional mail. |
 

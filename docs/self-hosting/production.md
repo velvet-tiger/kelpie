@@ -21,7 +21,7 @@ Set `APP_BASE_URL` to the real public origin (`https://crm.example.com`). Every 
 
 Set `EMAIL_PROVIDER` to a provider that sends, such as `smtp`. A scaffolded project's `.env` says `log`, which sends nothing. In production the `log` provider writes no message body, so the log holds no sign-in links, and the service logs a warning at boot. With `EMAIL_PROVIDER=smtp` and `SMTP_SECURE=false`, the mail server must offer STARTTLS. Details: [Configuration](configuration.md#email).
 
-The `docker-compose.yml` that the scaffolder writes is for local use. Its Postgres password is public, so it publishes the port on `127.0.0.1` only. For a deployment, point `DATABASE_URL` at a database with its own password.
+The `docker-compose.yml` that the scaffolder writes is for local use. Its default Postgres password is public, so it publishes the port on `127.0.0.1` only. For a deployment, point `DATABASE_URL` at a database with its own password.
 
 ## Migrations
 
