@@ -30,9 +30,9 @@ SECRET_ENCRYPTION_KEY=__SECRET_ENCRYPTION_KEY__
 
 # EMAIL_PROVIDER picks a named sender the runtime resolves. `log` is a
 # built-in that writes messages to the log instead of sending them; `smtp`
-# comes from `@kelpie/module-smtp-email`, which reads the SMTP variables
-# below. A different provider module (Resend, Postmark, …) registers its
-# own name — set EMAIL_PROVIDER to that name to use it.
+# is the built-in `smtp-email` module in `@kelpie/server`, which reads the
+# SMTP variables below. A different provider module (Resend, Postmark, …)
+# registers its own name — set EMAIL_PROVIDER to that name to use it.
 #
 # `log` is for development. When NODE_ENV=production it writes no message
 # body, so the log has no invitation or password-reset links, and the
@@ -44,7 +44,7 @@ EMAIL_PROVIDER=log
 # One address, or a name and an address: Kelpie <kelpie@example.com>
 EMAIL_FROM=__EMAIL_FROM__
 
-# Read by `@kelpie/module-smtp-email` when EMAIL_PROVIDER=smtp. Ignored
+# Read by the built-in `smtp-email` module when EMAIL_PROVIDER=smtp. Ignored
 # otherwise.
 #
 # SMTP_SECURE is "true" for a server that expects TLS from the first byte

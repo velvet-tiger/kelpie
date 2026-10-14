@@ -44,14 +44,25 @@ export const SMTP_EMAIL_PROVIDER = 'smtp'
 
 export type { EmailMessage } from '../../lib/email.ts'
 
+function isOnlySpaces(value: string | undefined): boolean {
+  return value !== undefined && value.trim() === ''
+}
+
 /**
  * An empty value counts as unset. The scaffolded `.env` writes `SMTP_USER=`
  * and `SMTP_PASSWORD=` with no value, and dotenv reads those lines as empty
  * strings. Without this rule a local catch-all could not boot from that file.
+ *
+ * A value of only spaces fails boot. It is almost always a typo, and the relay
+ * would refuse it at sign-in on each send. Real values are not trimmed.
  */
 const optionalCredentialSchema = z.preprocess(
   (value) => (value === '' ? undefined : value),
-  z.string().min(1).optional(),
+  z
+    .string()
+    .min(1)
+    .refine((value) => !isOnlySpaces(value), 'must not be only spaces')
+    .optional(),
 )
 
 export const smtpEmailConfigSchema = z
@@ -71,7 +82,12 @@ export const smtpEmailConfigSchema = z
   .superRefine((config, ctx) => {
     // A half-set pair is a misconfiguration, not a mode. Report both keys so
     // the operator sees which side of the pair is missing without having to
-    // guess.
+    // guess. A value of only spaces already has its own issue, and the pair
+    // message would send the operator to the wrong key, so skip the check.
+    if (isOnlySpaces(config.SMTP_USER) || isOnlySpaces(config.SMTP_PASSWORD)) {
+      return
+    }
+
     if ((config.SMTP_USER === undefined) !== (config.SMTP_PASSWORD === undefined)) {
       const message = 'SMTP_USER and SMTP_PASSWORD must be set together, or both left unset or empty for an unauthenticated relay'
 
@@ -161,8 +177,27 @@ export function smtpPlainTextWarning(
 
   return (
     'SMTP_REQUIRE_TLS is "false" and SMTP_HOST is not this machine. ' +
-    'When the relay does not offer STARTTLS, the SMTP password and each message go in plain text. ' +
+    'When the relay does not offer STARTTLS, the SMTP password, if one is set, and each message go in plain text. ' +
     'Use this only for a relay on a private network that you trust.'
+  )
+}
+
+/**
+ * The warning for a relay on another machine with no credentials, or
+ * `undefined` when there is nothing to say. The module writes it at boot.
+ * A trusted relay with no SMTP AUTH is valid, so this does not fail boot. But
+ * most relays refuse mail without AUTH, and then every send fails.
+ */
+export function smtpNoAuthWarning(
+  config: Pick<SmtpEmailConfig, 'SMTP_HOST' | 'SMTP_USER' | 'SMTP_PASSWORD'>,
+): string | undefined {
+  if (isLoopbackHost(config.SMTP_HOST) || config.SMTP_USER !== undefined || config.SMTP_PASSWORD !== undefined) {
+    return undefined
+  }
+
+  return (
+    'SMTP_HOST is not this machine and SMTP_USER and SMTP_PASSWORD are not set. ' +
+    'The relay must accept mail without SMTP AUTH.'
   )
 }
 
@@ -338,7 +373,8 @@ export interface SmtpEmailModuleOptions {
  * on a missing or malformed required variable, or on a half-set
  * `SMTP_USER` / `SMTP_PASSWORD` pair. Omitting both credentials is valid and
  * makes the module connect without SMTP AUTH. A config that permits plain text
- * to another machine boots with a warning (`smtpPlainTextWarning`).
+ * to another machine boots with a warning (`smtpPlainTextWarning`). So does
+ * a relay on another machine with no credentials (`smtpNoAuthWarning`).
  *
  * The module stays in `coreModules` unconditionally: on any other provider
  * (e.g. `EMAIL_PROVIDER=log`) the factory never runs, so the SMTP environment
@@ -352,10 +388,10 @@ export function createSmtpEmailModule(options: SmtpEmailModuleOptions = {}): Kel
     register(context) {
       context.provideEmailSender(SMTP_EMAIL_PROVIDER, () => {
         const config = context.config(smtpEmailConfigSchema)
-        const plainTextWarning = smtpPlainTextWarning(config)
-
-        if (plainTextWarning !== undefined) {
-          context.log.warn(plainTextWarning)
+        for (const warning of [smtpPlainTextWarning(config), smtpNoAuthWarning(config)]) {
+          if (warning !== undefined) {
+            context.log.warn(warning)
+          }
         }
 
         return options.transport === undefined

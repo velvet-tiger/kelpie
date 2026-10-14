@@ -19,6 +19,7 @@ import {
   isPermanentSmtpFailure,
   smtpConnectionOptions,
   smtpEmailConfigSchema,
+  smtpNoAuthWarning,
   smtpPlainTextWarning,
   smtpRequiresStartTls,
 } from './index.ts'
@@ -619,6 +620,30 @@ describe('smtpPlainTextWarning', () => {
   })
 })
 
+describe('smtpNoAuthWarning', () => {
+  it('warns when a relay on another machine has no credentials', () => {
+    expect(smtpNoAuthWarning({ SMTP_HOST: 'smtp.example.com' })).toContain('without SMTP AUTH')
+  })
+
+  it('warns when TLS starts at the first byte, because AUTH is separate from TLS', () => {
+    expect(smtpNoAuthWarning({ SMTP_HOST: 'smtp.example.com' })).toBeDefined()
+    expect(
+      smtpConnectionOptions(
+        { EMAIL_FROM: 'kelpie@example.com', SMTP_HOST: 'smtp.example.com', SMTP_PORT: 465, SMTP_SECURE: true },
+        SMTP_TIMEOUTS,
+      ),
+    ).not.toHaveProperty('auth')
+  })
+
+  it.each([
+    ['the relay is on this machine', { SMTP_HOST: 'localhost' }],
+    ['the relay is a loopback address', { SMTP_HOST: '127.0.0.1' }],
+    ['both credentials are set', { SMTP_HOST: 'smtp.example.com', SMTP_USER: 'kelpie', SMTP_PASSWORD: 'a-real-password' }],
+  ])('says nothing when %s', (_name, config) => {
+    expect(smtpNoAuthWarning(config)).toBeUndefined()
+  })
+})
+
 describe('smtpEmailConfigSchema', () => {
   const baseEnv = {
     EMAIL_FROM: 'kelpie@example.com',
@@ -668,6 +693,33 @@ describe('smtpEmailConfigSchema', () => {
     const keys = result.error.issues.map((issue) => issue.path[0])
     expect(keys).toContain('SMTP_USER')
     expect(keys).toContain('SMTP_PASSWORD')
+  })
+
+  it.each(['SMTP_USER', 'SMTP_PASSWORD'] as const)('rejects %s of only spaces, naming the key', (key) => {
+    const credentials = { SMTP_USER: 'kelpie', SMTP_PASSWORD: 'a-real-password', [key]: ' \t ' }
+    const result = smtpEmailConfigSchema.safeParse({ ...baseEnv, ...credentials })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues.map((issue) => [issue.path[0], issue.message])).toEqual([[key, 'must not be only spaces']])
+  })
+
+  it.each([
+    { SMTP_USER: ' ', SMTP_PASSWORD: '' },
+    { SMTP_USER: ' ' },
+  ])('names only the key of only spaces, not the pair rule: %o', (credentials) => {
+    const result = smtpEmailConfigSchema.safeParse({ ...baseEnv, ...credentials })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues.map((issue) => [issue.path[0], issue.message])).toEqual([
+      ['SMTP_USER', 'must not be only spaces'],
+    ])
+  })
+
+  it('keeps the spaces around a real credential', () => {
+    const parsed = smtpEmailConfigSchema.parse({ ...baseEnv, SMTP_USER: ' kelpie ', SMTP_PASSWORD: ' a-real-password ' })
+
+    expect(parsed.SMTP_USER).toBe(' kelpie ')
+    expect(parsed.SMTP_PASSWORD).toBe(' a-real-password ')
   })
 
   it('reads SMTP_REQUIRE_TLS as true or false, and leaves it unset when it is absent', () => {
@@ -763,7 +815,30 @@ describe('createSmtpEmailModule', () => {
   })
 
   it('gives no warning at boot when STARTTLS is required', async () => {
-    expect(await bootWarnings({ SMTP_HOST: 'smtp.example.com' })).toEqual([])
+    expect(
+      await bootWarnings({ SMTP_HOST: 'smtp.example.com', SMTP_USER: 'kelpie', SMTP_PASSWORD: 'a-real-password' }),
+    ).toEqual([])
+  })
+
+  it('warns at boot when a relay on another machine has no credentials', async () => {
+    const warnings = await bootWarnings({ SMTP_HOST: 'smtp.example.com', SMTP_USER: '', SMTP_PASSWORD: '' })
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('without SMTP AUTH')
+  })
+
+  it('writes both warnings at boot for plain text to a remote relay with no credentials', async () => {
+    const warnings = await bootWarnings({ SMTP_HOST: 'mail.internal', SMTP_REQUIRE_TLS: 'false' })
+
+    expect(warnings).toHaveLength(2)
+    expect(warnings[0]).toContain('SMTP_REQUIRE_TLS is "false"')
+    expect(warnings[1]).toContain('without SMTP AUTH')
+  })
+
+  it('fails boot on an SMTP_PASSWORD of only spaces, naming the key and not the value', async () => {
+    const boot = bootWarnings({ SMTP_HOST: 'smtp.example.com', SMTP_USER: 'kelpie', SMTP_PASSWORD: '   ' })
+
+    await expect(boot).rejects.toThrow(/SMTP_PASSWORD: must not be only spaces/u)
   })
 
   it('boots for a local catch-all with the empty SMTP_USER and SMTP_PASSWORD of the scaffolded .env', async () => {

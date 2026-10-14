@@ -12,6 +12,11 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **`@kelpie/server`** — **The `smtp-email` module warns at boot about a
+  remote relay with no credentials.** When `SMTP_HOST` is not this machine
+  and `SMTP_USER` and `SMTP_PASSWORD` are unset or empty, the relay must
+  accept mail without SMTP AUTH. Most relays do not, and then every send
+  fails. The service still boots. No migration.
 - **`@kelpie/server`** — **A module declares the scopes of its routes.**
   `context.routeScopes([{ methods, path, scope }])` names the scope a
   scoped API key needs for a module's `/v1` routes. The type
@@ -77,6 +82,10 @@ While the major version is `0`, a minor bump may break the API.
     Neither is a webhook event.
 ### Changed
 
+- **`@kelpie/server`** — **An `SMTP_USER` or `SMTP_PASSWORD` of only
+  spaces fails boot.** Before, the module sent it to the relay, which
+  refused it at sign-in on each send. The boot error names the key and not
+  the value. Spaces around a real value are kept. No migration.
 - **The OAuth consent page shows sensitive permissions apart, and clear.**
   A scope is sensitive when it gives a delete, a handbook write or
   `decisions:commit`, by its own name or through a preset: `people:delete`,
