@@ -426,6 +426,26 @@ describe('PersonIntakePanel', () => {
     })
   })
 
+  it('shows Confirm from the saved person, with Check again, when the identify run cannot be read after a failed research run', async () => {
+    sessionStorage.setItem(
+      SAVED_RUN_KEY,
+      JSON.stringify(
+        savedRun({ run_id: null, identify_run_id: 'ai_1', step: 'confirm', text: 'Dana Reyes', candidate: CANDIDATE }),
+      ),
+    )
+    renderDialog({
+      ai: true,
+      readRun: () => {
+        throw new ApiError(503, 'service_unreachable', 'Kelpie could not be reached')
+      },
+    })
+
+    expect(await screen.findByText('Kelpie could not be reached')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy()
+    expect(screen.getByText('Is this the right person?')).toBeTruthy()
+    expect(screen.getByText('CTO at Brightline Health')).toBeTruthy()
+  })
+
   it('keeps the notes when identify fails, and shows them after a reload', async () => {
     renderDialog({
       ai: true,

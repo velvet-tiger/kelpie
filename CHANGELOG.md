@@ -120,7 +120,8 @@ While the major version is `0`, a minor bump may break the API.
     `ai_runs.result_expires_at` and `ai_runs.requested_scopes`.
   - **`@kelpie/schemas`:** new `personIntakeRunWireSchema`,
     `personIntakeRunSchema`, `personIntakeRunStartedSchema`,
-    `personIntakeSavedRunSchema` and their types. `@kelpie/ui`:
+    `personIntakeSavedRunSchema`, `personIntakeCandidateSchema` and their
+    types. `@kelpie/ui`:
     `AiDrawerTask` gains `onEnd`, and `useAiDrawer()` gains `restore`. The
     wizard's request hooks are internal to the package and changed with it.
   - **UI:** the wizard polls the run every 2 seconds and keeps the run and

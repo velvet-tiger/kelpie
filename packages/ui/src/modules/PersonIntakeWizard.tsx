@@ -444,9 +444,16 @@ function IntakeWizard({
   )
 }
 
-/** Where a run the wizard could not read leaves it: the Confirm step for research, else the notes. */
+/**
+ * Where a run the wizard could not read leaves it: the Confirm step for
+ * research, or for a reload of a failed research run the saved person's
+ * Confirm step, else the notes.
+ */
 function confirmOrNotes(watched: WatchedRun): Step {
-  return watched.candidate === null ? { kind: 'notes' } : confirmFor(watched)
+  if (watched.candidate !== null) return confirmFor(watched)
+  if (watched.fallback !== null) return confirmFrom(watched.fallback.candidate, null, watched.fallback.existingPersonId)
+
+  return { kind: 'notes' }
 }
 
 /** A failed run's reason. The server wrote it for the user, so it is shown as it is. */
