@@ -299,7 +299,15 @@ export const PERSON_INTAKE_SAVED_STEPS = ['notes', 'confirm', 'choose'] as const
  * been written by an older build or by hand.
  */
 export const personIntakeSavedRunSchema = z.strictObject({
-  run_id: z.string().min(1),
+  /** The signed-in user who saved it. Another user in the same tab never reads it. */
+  user_id: z.string().min(1),
+  /** The run to read. Null after a run failed: the step and the notes are kept, with no run to wait on. */
+  run_id: z.string().min(1).nullable(),
+  /**
+   * The identify run a research run was started from, so the Confirm step can
+   * be rebuilt from its result after a research run failed.
+   */
+  identify_run_id: z.string().min(1).nullable(),
   step: z.enum(PERSON_INTAKE_SAVED_STEPS),
   text: z.string().max(PERSON_INTAKE_MAX_TEXT),
   candidate: personIntakeCandidateWireSchema.nullable(),

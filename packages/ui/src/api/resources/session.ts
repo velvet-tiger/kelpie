@@ -26,6 +26,7 @@ import type {
 } from '@kelpie/schemas'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { clearAllSavedIntakeRuns } from '../../lib/personIntakeRunStorage.ts'
 import { ApiError } from '../client.ts'
 import type { ApiClient } from '../client.ts'
 import { useApiClient } from '../context.ts'
@@ -136,6 +137,9 @@ export function useLogOut(): MutationResult<void, void> {
     // and the next protected route asks for the session itself.
     onSettled: () => {
       queryClient.clear()
+      // The person-intake wizard saves its notes in this tab. The next person
+      // to sign in here must not find them.
+      clearAllSavedIntakeRuns()
     },
   })
 

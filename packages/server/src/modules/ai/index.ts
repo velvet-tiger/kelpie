@@ -21,7 +21,7 @@ import { mountPersonIntakeRoutes } from './intakeRoutes.ts'
 import type { IdFactory } from './ids.ts'
 import { createOpenAiPort } from './openai.ts'
 import type { AiProviderPort } from './provider.ts'
-import { findSettings } from './repository.ts'
+import { clearExpiredResults, findSettings } from './repository.ts'
 import { mountAiRoutes } from './routes.ts'
 import {
   AI_RUNS_LIMIT,
@@ -61,8 +61,9 @@ import { createAiRunSettler } from './settle.ts'
  * **Person intake.** `/v1/ai/person-intake/*` identifies a person from
  * pasted notes, researches them, and writes the records the user ticks. The
  * two model calls are queued runs that act as the member who started them,
- * and their results are kept for an hour. They are the only place the model gets a tool: the provider's own web search, when
- * the workspace's `web_search` setting allows it (`intake.ts`).
+ * and their results are kept for an hour. They are the only place the model
+ * gets a tool: the provider's own web search, when the workspace's
+ * `web_search` setting allows it (`intake.ts`).
  *
  * **Limits.** The module declares `ai.runs.limit`. With no provider for it in
  * the assembly it answers unlimited. A hosted assembly answers it from its
@@ -226,6 +227,9 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
       const drainJob: JobHandle<AiDrainJobData> = context.jobs.define(
         defineAiDrainJob({
           executor,
+          clearExpiredResults: async (workspaceId) => {
+            await clearExpiredResults(context.db, workspaceId, context.now())
+          },
           enqueueNext: async (workspaceId) => {
             await context.transaction(async ({ jobs }) => {
               await jobs.enqueue(drainJob, { workspaceId })

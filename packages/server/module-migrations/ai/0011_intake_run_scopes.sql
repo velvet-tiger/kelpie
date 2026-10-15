@@ -1,0 +1,1 @@
+ALTER TABLE "ai_runs" ADD COLUMN "requested_scopes" text[];

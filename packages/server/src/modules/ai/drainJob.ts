@@ -25,6 +25,12 @@ export type AiDrainJobData = z.infer<typeof aiDrainJobDataSchema>
 
 export interface AiDrainJobDependencies {
   readonly executor: AiExecutor
+  /**
+   * Deletes the workspace's person-intake results whose hour has passed. Run
+   * on every job as well as on intake and on read, so a result does not sit
+   * past its hour in a workspace nobody reads.
+   */
+  readonly clearExpiredResults: (workspaceId: string) => Promise<void>
   /** Enqueues the next `ai.drain` job for a workspace, in its own transaction. */
   readonly enqueueNext: (workspaceId: string) => Promise<void>
   /** `AI_RUN_TIMEOUT_MINUTES`. A job runs one run, so it shares the run's limit. */
@@ -43,6 +49,7 @@ export function defineAiDrainJob(dependencies: AiDrainJobDependencies): JobDefin
       localConcurrency: dependencies.concurrency,
     },
     async handler({ data }) {
+      await dependencies.clearExpiredResults(data.workspaceId)
       const outcome = await dependencies.executor.runNext(data.workspaceId)
 
       if (outcome === 'ran_more_queued') {

@@ -26,7 +26,21 @@ afterEach(() => {
  * identify run as still running, so the wizard has to poll.
  */
 
-const SAVED_RUN_KEY = 'kelpie.personIntake.run.ws_1'
+const SAVED_RUN_KEY = 'kelpie.personIntake.run.ws_1.usr_1'
+
+/** A saved run for usr_1, as the wizard writes one. */
+function savedRun(fields: Record<string, unknown>): Record<string, unknown> {
+  return {
+    user_id: 'usr_1',
+    run_id: null,
+    identify_run_id: null,
+    step: 'notes',
+    text: '',
+    candidate: null,
+    existing_person_id: null,
+    ...fields,
+  }
+}
 
 /** Long enough for one 2-second poll and the render after it. */
 const POLL_WAIT = { timeout: 5000 }
@@ -275,6 +289,8 @@ describe('PersonIntakePanel', () => {
     sessionStorage.setItem(
       SAVED_RUN_KEY,
       JSON.stringify({
+        user_id: 'usr_1',
+        identify_run_id: null,
         run_id: 'ai_2',
         step: 'confirm',
         text: 'Dana Reyes, dana@brightline.health',
@@ -294,7 +310,7 @@ describe('PersonIntakePanel', () => {
   it('shows the Confirm step, still working, for a research run that has not settled', async () => {
     sessionStorage.setItem(
       SAVED_RUN_KEY,
-      JSON.stringify({ run_id: 'ai_2', step: 'confirm', text: 'Dana', candidate: CANDIDATE, existing_person_id: 'per_old' }),
+      JSON.stringify({ user_id: 'usr_1', identify_run_id: null, run_id: 'ai_2', step: 'confirm', text: 'Dana', candidate: CANDIDATE, existing_person_id: 'per_old' }),
     )
     renderDialog({ ai: true, readRun: (runId) => runBody(runId, 'research', 'running', null) })
 
@@ -305,7 +321,7 @@ describe('PersonIntakePanel', () => {
   it('says the result has gone, with the notes still filled in, for a run the server no longer has', async () => {
     sessionStorage.setItem(
       SAVED_RUN_KEY,
-      JSON.stringify({ run_id: 'ai_gone', step: 'notes', text: 'Dana Reyes, met at HLTH', candidate: null, existing_person_id: null }),
+      JSON.stringify({ user_id: 'usr_1', identify_run_id: null, run_id: 'ai_gone', step: 'notes', text: 'Dana Reyes, met at HLTH', candidate: null, existing_person_id: null }),
     )
     renderDialog({
       ai: true,
@@ -322,12 +338,80 @@ describe('PersonIntakePanel', () => {
   it('says the result has gone for a run that succeeded more than an hour ago', async () => {
     sessionStorage.setItem(
       SAVED_RUN_KEY,
-      JSON.stringify({ run_id: 'ai_old', step: 'confirm', text: 'Dana Reyes', candidate: null, existing_person_id: null }),
+      JSON.stringify({ user_id: 'usr_1', identify_run_id: null, run_id: 'ai_old', step: 'confirm', text: 'Dana Reyes', candidate: null, existing_person_id: null }),
     )
     renderDialog({ ai: true, readRun: (runId) => runBody(runId, 'identify', 'succeeded', null) })
 
     expect(await screen.findByText('This result is no longer available. Start again.')).toBeTruthy()
     expect((screen.getByLabelText(/^What do you know/u) as HTMLTextAreaElement).value).toBe('Dana Reyes')
+  })
+
+  it('keeps watching a run it cannot read, starts nothing new, and reads it again on request', async () => {
+    sessionStorage.setItem(SAVED_RUN_KEY, JSON.stringify(savedRun({ run_id: 'ai_1', step: 'notes', text: 'Dana Reyes' })))
+    let failing = true
+    renderDialog({
+      ai: true,
+      readRun: () => {
+        if (failing) throw new ApiError(503, 'service_unreachable', 'Kelpie could not be reached')
+        return runBody('ai_1', 'identify', 'succeeded', IDENTIFY)
+      },
+    })
+
+    expect(await screen.findByText('Kelpie could not be reached')).toBeTruthy()
+    // The run goes on at the server, so no second one can start.
+    expect((screen.getByRole('button', { name: 'Looking them up…' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(JSON.parse(sessionStorage.getItem(SAVED_RUN_KEY) ?? 'null')).toMatchObject({ run_id: 'ai_1' })
+
+    failing = false
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+
+    expect(await screen.findByText('Is this the right person?')).toBeTruthy()
+    expect(screen.queryByText('Kelpie could not be reached')).toBeNull()
+  })
+
+  it('keeps the step and the notes when research fails, and rebuilds Confirm after a reload', async () => {
+    sessionStorage.setItem(SAVED_RUN_KEY, JSON.stringify(savedRun({ run_id: 'ai_1', step: 'confirm', text: 'Dana Reyes' })))
+    const readRun = (runId: string): unknown =>
+      runId === 'ai_1'
+        ? runBody('ai_1', 'identify', 'succeeded', IDENTIFY)
+        : { ...runBody(runId, 'research', 'failed', null), failure_reason: 'The model declined this request' }
+    renderDialog({ ai: true, readRun })
+
+    fireEvent.click(await screen.findByLabelText('Create a new person'))
+    fireEvent.click(screen.getByRole('button', { name: 'This is them: research' }))
+
+    expect(await screen.findByText('The model declined this request', {}, POLL_WAIT)).toBeTruthy()
+    expect(JSON.parse(sessionStorage.getItem(SAVED_RUN_KEY) ?? 'null')).toMatchObject({
+      run_id: null,
+      identify_run_id: 'ai_1',
+      step: 'confirm',
+      text: 'Dana Reyes',
+      candidate: { name: 'Dana Reyes' },
+    })
+
+    // A reload: the identify run's result is still kept, so Confirm comes back whole.
+    cleanup()
+    renderDialog({ ai: true, readRun })
+
+    expect(await screen.findByText('Is this the right person?')).toBeTruthy()
+    expect(screen.getByText('This may already be in Kelpie.')).toBeTruthy()
+  }, 10_000)
+
+  it('keeps the notes when identify fails, and shows them after a reload', async () => {
+    renderDialog({
+      ai: true,
+      readRun: (runId) => ({ ...runBody(runId, 'identify', 'failed', null), failure_reason: 'The provider is overloaded.' }),
+    })
+
+    await typeNotes('Dana Reyes, met at HLTH')
+    fireEvent.click(await screen.findByRole('button', { name: 'Find this person' }))
+    expect(await screen.findByText('The provider is overloaded.')).toBeTruthy()
+
+    cleanup()
+    renderDialog({ ai: true })
+
+    expect(await screen.findByRole('button', { name: 'Find this person' })).toBeTruthy()
+    expect((screen.getByLabelText(/^What do you know/u) as HTMLTextAreaElement).value).toBe('Dana Reyes, met at HLTH')
   })
 
   it('treats saved state it cannot read as no saved run', async () => {

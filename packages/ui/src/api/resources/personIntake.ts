@@ -85,6 +85,8 @@ export interface PersonIntakeRunResult {
   readonly error: Error | null
   /** The server has no such run for this caller, or never had one. */
   readonly isNotFound: boolean
+  /** Reads the run again now, for a read that failed. */
+  readonly refetch: () => void
 }
 
 /** One intake run, read every 2 seconds until it settles. Nothing is read while `runId` is undefined. */
@@ -107,6 +109,9 @@ export function usePersonIntakeRun(runId: string | undefined): PersonIntakeRunRe
     run: result.data,
     error: toError(result.error),
     isNotFound: result.error instanceof ApiError && result.error.status === 404,
+    refetch: () => {
+      void result.refetch()
+    },
   }
 }
 

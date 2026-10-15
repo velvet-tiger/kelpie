@@ -63,12 +63,22 @@ export function AiDrawerProvider({ children }: { readonly children: ReactNode })
   const activeRef = useRef<AiDrawerTask | undefined>(undefined)
   const { session } = useSession()
   const workspaceId = session?.workspaceId ?? null
-  const workspaceRef = useRef<string | null>(workspaceId)
+  // The session's workspace, current before any child's effect runs, so a
+  // task opened from an effect during a switch is recorded against the new one.
+  const currentWorkspaceRef = useRef<string | null>(workspaceId)
+  // The workspace the active task belongs to.
+  const taskWorkspaceRef = useRef<string | null>(null)
+
+  useLayoutEffect(() => {
+    currentWorkspaceRef.current = workspaceId
+  }, [workspaceId])
 
   const finish = useCallback((): void => {
     const ended = activeRef.current
+    const endedWorkspace = taskWorkspaceRef.current
     activeRef.current = undefined
-    ended?.onEnd?.(workspaceRef.current)
+    taskWorkspaceRef.current = null
+    ended?.onEnd?.(endedWorkspace)
     setActiveTask(undefined)
     setIsOpen(false)
     setIsPending(false)
@@ -84,6 +94,7 @@ export function AiDrawerProvider({ children }: { readonly children: ReactNode })
     }
 
     activeRef.current = task
+    taskWorkspaceRef.current = currentWorkspaceRef.current
     setActiveTask(task)
     setBusyNotice(false)
     return true
@@ -93,6 +104,7 @@ export function AiDrawerProvider({ children }: { readonly children: ReactNode })
     if (activeRef.current !== undefined) return false
 
     activeRef.current = task
+    taskWorkspaceRef.current = currentWorkspaceRef.current
     setActiveTask(task)
     setIsOpen(false)
     return true
@@ -108,13 +120,17 @@ export function AiDrawerProvider({ children }: { readonly children: ReactNode })
   }, [])
 
   // A task belongs to one workspace. The switcher asks first when a request is
-  // pending; this is the backstop for any other way the session moves.
+  // pending; this is the backstop for any other way the session moves. It ends
+  // only a task of another workspace, so a task restored for the new one in
+  // the same commit stays.
   useEffect(() => {
-    if (workspaceRef.current !== null && workspaceId !== null && workspaceRef.current !== workspaceId) {
+    const taskWorkspace = taskWorkspaceRef.current
+
+    const otherWorkspace = taskWorkspace !== null && workspaceId !== null && taskWorkspace !== workspaceId
+
+    if (activeRef.current !== undefined && otherWorkspace) {
       finish()
     }
-
-    if (workspaceId !== null) workspaceRef.current = workspaceId
   }, [workspaceId, finish])
 
   const state = useMemo<AiDrawerState>(

@@ -133,6 +133,13 @@ export const aiRuns = pgTable(
      */
     requestedBy: text('requested_by'),
     /**
+     * The scopes of the key or grant that started a person-intake run. Null
+     * for a session or a key with full access. A reader must hold at least
+     * these, so a narrower key of the same person cannot read what the run
+     * read. Kept after the run settles, like `requested_by`.
+     */
+    requestedScopes: text('requested_scopes').array(),
+    /**
      * A person-intake run's reply body, the one exception to "metadata only":
      * the user paid for it, and a dropped request or a reload must not lose
      * it. Set when the run succeeds and deleted at `result_expires_at`.

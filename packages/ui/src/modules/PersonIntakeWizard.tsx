@@ -32,8 +32,8 @@ import { useSession } from '../api/resources/session.ts'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { IntakeFrame, NotesField } from '../components/PersonIntakePanel.tsx'
-import { clearSavedIntakeRun, readSavedIntakeRun, saveIntakeRun } from '../components/personIntakeRunStorage.ts'
 import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
+import { clearSavedIntakeRuns, readSavedIntakeRun, saveIntakeRun } from '../lib/personIntakeRunStorage.ts'
 import type { PersonIntakeWizardProps } from '../registry/contributions.ts'
 import { effectiveSelection } from './personIntakeSelection.ts'
 
@@ -52,7 +52,13 @@ import { effectiveSelection } from './personIntakeSelection.ts'
 type Step =
   | { readonly kind: 'restoring'; readonly saved: PersonIntakeSavedRun['step'] }
   | { readonly kind: 'notes' }
-  | { readonly kind: 'confirm'; readonly identified: PersonIntakeIdentifyResult; readonly target?: string | null }
+  | {
+      readonly kind: 'confirm'
+      readonly identified: PersonIntakeIdentifyResult
+      /** The identify run behind this step, when its result is still on the server. */
+      readonly identifyRunId: string | null
+      readonly target?: string | null
+    }
   | { readonly kind: 'choose'; readonly research: PersonIntakeResearchResult }
   | { readonly kind: 'done'; readonly results: readonly PersonIntakeResult[] }
 
@@ -60,10 +66,15 @@ type Step =
 interface WatchedRun {
   readonly runId: string
   readonly text: string
+  /** The identify run a research run was started from. */
+  readonly identifyRunId: string | null
   /** The confirmed person, for a research run. */
   readonly candidate: PersonIntakeCandidateWire | null
   readonly existingPersonId: string | null
 }
+
+/** What the wizard keeps for a reload, less the user it belongs to. */
+type SavedState = Omit<PersonIntakeSavedRun, 'user_id'>
 
 const STEP_LABELS = ['Notes', 'Confirm', 'Choose', 'Done'] as const
 
@@ -86,56 +97,104 @@ const secondaryButton =
   'rounded-md px-2.5 py-1.5 text-[12px] font-medium text-ink-muted hover:text-ink disabled:opacity-50'
 
 /** The Confirm step for a research run, rebuilt from the person it was started with. */
-function confirmFor(watched: WatchedRun): Step {
-  if (watched.candidate === null) return { kind: 'notes' }
+function confirmFrom(
+  candidate: PersonIntakeCandidateWire | null,
+  identifyRunId: string | null,
+  existingPersonId: string | null,
+): Step {
+  if (candidate === null) return { kind: 'notes' }
 
   return {
     kind: 'confirm',
     identified: personIntakeIdentifyResultSchema.parse({
-      candidates: [watched.candidate],
+      candidates: [candidate],
       question: null,
       sources: [],
-      run_id: watched.runId,
+      run_id: identifyRunId ?? 'unknown',
     }),
-    target: watched.existingPersonId,
+    identifyRunId,
+    target: existingPersonId,
   }
+}
+
+function confirmFor(watched: WatchedRun): Step {
+  return confirmFrom(watched.candidate, watched.identifyRunId, watched.existingPersonId)
 }
 
 function stepIndex(step: Step): number {
   return step.kind === 'restoring' ? STEP_INDEX[step.saved] : STEP_INDEX[step.kind]
 }
 
+/**
+ * Where a reload starts: the run to read, or, for a run that failed, the step
+ * and the notes alone. A failed research run reads its identify run again,
+ * while that result is kept, to rebuild the Confirm step.
+ */
+function restoredState(saved: PersonIntakeSavedRun | undefined): { step: Step; watched: WatchedRun | undefined } {
+  if (saved === undefined) return { step: { kind: 'notes' }, watched: undefined }
+
+  const runId = saved.run_id ?? (saved.step === 'confirm' ? saved.identify_run_id : null)
+
+  if (runId !== null) {
+    return {
+      step: { kind: 'restoring', saved: saved.step },
+      watched: {
+        runId,
+        text: saved.text,
+        identifyRunId: saved.run_id === null ? null : saved.identify_run_id,
+        candidate: saved.run_id === null ? null : saved.candidate,
+        existingPersonId: saved.run_id === null ? null : saved.existing_person_id,
+      },
+    }
+  }
+
+  return {
+    step: saved.step === 'confirm' ? confirmFrom(saved.candidate, null, saved.existing_person_id) : { kind: 'notes' },
+    watched: undefined,
+  }
+}
+
 export function PersonIntakeWizard(props: PersonIntakeWizardProps): React.JSX.Element {
   const { session } = useSession()
 
-  // The saved run is per workspace, so the wizard waits until it knows which.
+  // The saved run is per workspace and user, so the wizard waits until it knows both.
   if (session === undefined) return <LoadingPanel label="Loading…" />
 
-  return <IntakeWizard key={session.workspaceId ?? ''} {...props} workspaceId={session.workspaceId} />
+  return (
+    <IntakeWizard
+      key={`${session.workspaceId ?? ''}:${session.userId}`}
+      {...props}
+      workspaceId={session.workspaceId}
+      userId={session.userId}
+    />
+  )
 }
 
 function IntakeWizard({
   onClose,
   onPendingChange,
   workspaceId,
-}: PersonIntakeWizardProps & { readonly workspaceId: string | null }): React.JSX.Element {
-  const [saved] = useState(() => (workspaceId === null ? undefined : readSavedIntakeRun(workspaceId)))
-  const [step, setStep] = useState<Step>(
-    saved === undefined ? { kind: 'notes' } : { kind: 'restoring', saved: saved.step },
-  )
-  const [text, setText] = useState(saved?.text ?? '')
-  const [watched, setWatched] = useState<WatchedRun | undefined>(
-    saved === undefined
-      ? undefined
-      : { runId: saved.run_id, text: saved.text, candidate: saved.candidate, existingPersonId: saved.existing_person_id },
-  )
-  const [runError, setRunError] = useState<Error | null>(null)
+  userId,
+}: PersonIntakeWizardProps & { readonly workspaceId: string | null; readonly userId: string }): React.JSX.Element {
+  const [restored] = useState(() => {
+    const saved = workspaceId === null ? undefined : readSavedIntakeRun(workspaceId, userId)
+
+    return { ...restoredState(saved), text: saved?.text ?? '' }
+  })
+  const [step, setStep] = useState<Step>(restored.step)
+  const [text, setText] = useState(restored.text)
+  const [watched, setWatched] = useState<WatchedRun | undefined>(restored.watched)
+  /** Why the last run failed, from the server. Shown as written: it is the run log's reason. */
+  const [runFailure, setRunFailure] = useState<string | null>(null)
   const [resultGone, setResultGone] = useState(false)
   const identify = useStartIdentify()
   const research = useStartResearch()
   const apply = useApplyPersonIntake()
   const polled = usePersonIntakeRun(watched?.runId)
+  // While a run is watched, even one the wizard cannot read just now, nothing
+  // new starts: the server run goes on, and a second would spend another.
   const pending = identify.isPending || research.isPending || apply.isPending || watched !== undefined
+  const readError = watched !== undefined && !polled.isNotFound ? polled.error : null
 
   useEffect(() => {
     onPendingChange?.(pending)
@@ -145,8 +204,12 @@ function IntakeWizard({
   useEffect(() => {
     if (watched === undefined) return
 
+    function keep(state: SavedState): void {
+      if (workspaceId !== null) saveIntakeRun(workspaceId, { user_id: userId, ...state })
+    }
+
     function forget(): void {
-      if (workspaceId !== null) clearSavedIntakeRun(workspaceId)
+      if (workspaceId !== null) clearSavedIntakeRuns(workspaceId)
     }
 
     if (polled.isNotFound) {
@@ -158,9 +221,8 @@ function IntakeWizard({
     }
 
     if (polled.error !== null) {
-      // The run may still finish; the saved run lets a reload try again.
-      setWatched(undefined)
-      setRunError(polled.error)
+      // The run may still finish. Keep watching it, and show the error with
+      // a way to read it again; the step leaves the loading state.
       setStep((current) => (current.kind === 'restoring' ? confirmOrNotes(watched) : current))
       return
     }
@@ -178,39 +240,45 @@ function IntakeWizard({
     setWatched(undefined)
 
     if (run.status === 'failed') {
-      setRunError(new Error(run.failureReason ?? 'The AI run failed.'))
+      setRunFailure(run.failureReason ?? 'The AI run failed.')
       setStep((current) =>
         current.kind === 'confirm' ? current : run.kind === 'identify' ? { kind: 'notes' } : confirmFor(watched),
       )
-      forget()
+      // The step and the notes stay saved, with no run to wait on.
+      keep({
+        run_id: null,
+        identify_run_id: run.kind === 'research' ? watched.identifyRunId : null,
+        step: run.kind === 'identify' ? 'notes' : 'confirm',
+        text: watched.text,
+        candidate: run.kind === 'research' ? watched.candidate : null,
+        existing_person_id: run.kind === 'research' ? watched.existingPersonId : null,
+      })
       return
     }
 
     if (run.kind === 'identify' && run.result !== null) {
-      setStep({ kind: 'confirm', identified: run.result })
-      if (workspaceId !== null) {
-        saveIntakeRun(workspaceId, {
-          run_id: run.runId,
-          step: 'confirm',
-          text: watched.text,
-          candidate: null,
-          existing_person_id: null,
-        })
-      }
+      setStep({ kind: 'confirm', identified: run.result, identifyRunId: run.runId })
+      keep({
+        run_id: run.runId,
+        identify_run_id: null,
+        step: 'confirm',
+        text: watched.text,
+        candidate: null,
+        existing_person_id: null,
+      })
       return
     }
 
     if (run.kind === 'research' && run.result !== null) {
       setStep({ kind: 'choose', research: run.result })
-      if (workspaceId !== null) {
-        saveIntakeRun(workspaceId, {
-          run_id: run.runId,
-          step: 'choose',
-          text: watched.text,
-          candidate: watched.candidate,
-          existing_person_id: watched.existingPersonId,
-        })
-      }
+      keep({
+        run_id: run.runId,
+        identify_run_id: watched.identifyRunId,
+        step: 'choose',
+        text: watched.text,
+        candidate: watched.candidate,
+        existing_person_id: watched.existingPersonId,
+      })
       return
     }
 
@@ -218,14 +286,16 @@ function IntakeWizard({
     setResultGone(true)
     setStep({ kind: 'notes' })
     forget()
-  }, [watched, polled.run, polled.error, polled.isNotFound, workspaceId])
+  }, [watched, polled.run, polled.error, polled.isNotFound, workspaceId, userId])
 
   function remember(run: WatchedRun, savedStep: PersonIntakeSavedRun['step']): void {
     setWatched(run)
     if (workspaceId === null) return
 
     saveIntakeRun(workspaceId, {
+      user_id: userId,
       run_id: run.runId,
+      identify_run_id: run.identifyRunId,
       step: savedStep,
       text: run.text,
       candidate: run.candidate,
@@ -234,23 +304,36 @@ function IntakeWizard({
   }
 
   function forgetSaved(): void {
-    if (workspaceId !== null) clearSavedIntakeRun(workspaceId)
+    if (workspaceId !== null) clearSavedIntakeRuns(workspaceId)
   }
 
   async function runIdentify(): Promise<void> {
-    setRunError(null)
+    setRunFailure(null)
     setResultGone(false)
     const notes = text.trim()
     const started = await identify.runAsync(notes)
-    remember({ runId: started.runId, text: notes, candidate: null, existingPersonId: null }, 'notes')
+    remember(
+      { runId: started.runId, text: notes, identifyRunId: null, candidate: null, existingPersonId: null },
+      'notes',
+    )
   }
 
-  async function runResearch(candidate: PersonIntakeCandidate, existingPersonId: string | null): Promise<void> {
-    setRunError(null)
+  async function runResearch(
+    candidate: PersonIntakeCandidate,
+    existingPersonId: string | null,
+    identifyRunId: string | null,
+  ): Promise<void> {
+    setRunFailure(null)
     const notes = text.trim()
     const started = await research.runAsync({ text: notes, candidate, existingPersonId })
     remember(
-      { runId: started.runId, text: notes, candidate: personIntakeCandidateBody(candidate), existingPersonId },
+      {
+        runId: started.runId,
+        text: notes,
+        identifyRunId,
+        candidate: personIntakeCandidateBody(candidate),
+        existingPersonId,
+      },
       'confirm',
     )
   }
@@ -262,7 +345,7 @@ function IntakeWizard({
   }
 
   function startAgain(): void {
-    setRunError(null)
+    setRunFailure(null)
     setStep({ kind: 'notes' })
     forgetSaved()
   }
@@ -270,13 +353,31 @@ function IntakeWizard({
   return (
     <>
       <StepBar current={stepIndex(step)} />
+      {readError !== null && (
+        <div role="alert" className="border-b border-border px-4 py-3">
+          <ErrorPanel error={readError} />
+          <p className="mt-2 text-[12px] text-ink-muted">
+            The run may still be working. Kelpie will not start another until this one is read.
+          </p>
+          <button
+            type="button"
+            className={`${secondaryButton} mt-1`}
+            onClick={() => {
+              polled.refetch()
+            }}
+          >
+            Check again
+          </button>
+        </div>
+      )}
       {step.kind === 'restoring' && <LoadingPanel label="Picking up where you left off…" />}
       {step.kind === 'notes' && (
         <NotesStep
           text={text}
           onChange={setText}
-          pending={identify.isPending || watched !== undefined}
-          error={identify.error ?? runError}
+          pending={pending}
+          error={identify.error}
+          failure={runFailure}
           notice={resultGone ? RESULT_GONE_MESSAGE : null}
           onNext={() => {
             void runIdentify().catch(() => undefined)
@@ -287,11 +388,12 @@ function IntakeWizard({
         <ConfirmStep
           identified={step.identified}
           initialTarget={step.target}
-          pending={research.isPending || watched !== undefined}
-          error={research.error ?? runError}
+          pending={pending}
+          error={research.error}
+          failure={runFailure}
           onBack={startAgain}
           onNext={(candidate, existingPersonId) => {
-            void runResearch(candidate, existingPersonId).catch(() => undefined)
+            void runResearch(candidate, existingPersonId, step.identifyRunId).catch(() => undefined)
           }}
         />
       )}
@@ -316,6 +418,15 @@ function confirmOrNotes(watched: WatchedRun): Step {
   return watched.candidate === null ? { kind: 'notes' } : confirmFor(watched)
 }
 
+/** A failed run's reason. The server wrote it for the user, so it is shown as it is. */
+function RunFailure({ reason }: { readonly reason: string }): React.JSX.Element {
+  return (
+    <div role="alert" className="mt-3 rounded-md border border-danger/40 bg-danger-soft px-4 py-3">
+      <p className="text-[13px] font-medium text-danger">{reason}</p>
+    </div>
+  )
+}
+
 function StepBar({ current }: { readonly current: number }): React.JSX.Element {
   return (
     <ol className="flex gap-4 border-b border-border px-4 py-2 text-[11px]">
@@ -338,12 +449,15 @@ function NotesStep({
   pending,
   error,
   notice,
+  failure,
   onNext,
 }: {
   readonly text: string
   readonly onChange: (value: string) => void
   readonly pending: boolean
   readonly error: Error | null
+  /** Why the run failed, as the server put it. */
+  readonly failure: string | null
   /** A line above the notes, such as the result having gone. */
   readonly notice: string | null
   readonly onNext: () => void
@@ -373,6 +487,7 @@ function NotesStep({
           <ErrorPanel error={error} />
         </div>
       )}
+      {failure !== null && <RunFailure reason={failure} />}
     </IntakeFrame>
   )
 }
@@ -391,6 +506,7 @@ function ConfirmStep({
   initialTarget,
   pending,
   error,
+  failure,
   onBack,
   onNext,
 }: {
@@ -399,6 +515,8 @@ function ConfirmStep({
   readonly initialTarget?: string | null | undefined
   readonly pending: boolean
   readonly error: Error | null
+  /** Why the research run failed, as the server put it. */
+  readonly failure: string | null
   readonly onBack: () => void
   readonly onNext: (candidate: PersonIntakeCandidate, existingPersonId: string | null) => void
 }): React.JSX.Element {
@@ -541,6 +659,7 @@ function ConfirmStep({
           <ErrorPanel error={error} />
         </div>
       )}
+      {failure !== null && <RunFailure reason={failure} />}
     </IntakeFrame>
   )
 }

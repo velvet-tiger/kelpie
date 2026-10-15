@@ -11,8 +11,11 @@ import type { AiRunNextOutcome } from './executor.ts'
 
 const log = createLogger({ level: 'error', transports: [createCaptureTransport(() => undefined)] })
 
-async function runWith(outcome: AiRunNextOutcome): Promise<{ readonly ranFor: string[]; readonly enqueued: string[] }> {
+async function runWith(
+  outcome: AiRunNextOutcome,
+): Promise<{ readonly ranFor: string[]; readonly enqueued: string[]; readonly cleared: string[] }> {
   const ranFor: string[] = []
+  const cleared: string[] = []
   const enqueued: string[] = []
   const definition = defineAiDrainJob({
     executor: {
@@ -20,6 +23,10 @@ async function runWith(outcome: AiRunNextOutcome): Promise<{ readonly ranFor: st
         ranFor.push(workspaceId)
         return Promise.resolve(outcome)
       },
+    },
+    clearExpiredResults: (workspaceId) => {
+      cleared.push(workspaceId)
+      return Promise.resolve()
     },
     enqueueNext: (workspaceId) => {
       enqueued.push(workspaceId)
@@ -36,13 +43,14 @@ async function runWith(outcome: AiRunNextOutcome): Promise<{ readonly ranFor: st
     signal: new AbortController().signal,
   })
 
-  return { ranFor, enqueued }
+  return { ranFor, enqueued, cleared }
 }
 
 describe('ai.drain', () => {
   it('is never retried, expires with the run timeout, and caps the process', () => {
     const definition = defineAiDrainJob({
       executor: { runNext: () => Promise.resolve('idle') },
+      clearExpiredResults: () => Promise.resolve(),
       enqueueNext: () => Promise.resolve(),
       runTimeoutMinutes: 15,
       concurrency: 4,
@@ -53,16 +61,17 @@ describe('ai.drain', () => {
   })
 
   it('asks for the next job when a run settled and another is waiting', async () => {
-    expect(await runWith('ran_more_queued')).toEqual({ ranFor: ['wsp_1'], enqueued: ['wsp_1'] })
+    expect(await runWith('ran_more_queued')).toEqual({ ranFor: ['wsp_1'], enqueued: ['wsp_1'], cleared: ['wsp_1'] })
   })
 
   it.each<AiRunNextOutcome>(['ran', 'at_capacity', 'idle'])('asks for nothing more after %s', async (outcome) => {
-    expect(await runWith(outcome)).toEqual({ ranFor: ['wsp_1'], enqueued: [] })
+    expect(await runWith(outcome)).toEqual({ ranFor: ['wsp_1'], enqueued: [], cleared: ['wsp_1'] })
   })
 
   it('refuses a payload with no workspace', () => {
     const definition = defineAiDrainJob({
       executor: { runNext: () => Promise.resolve('idle') },
+      clearExpiredResults: () => Promise.resolve(),
       enqueueNext: () => Promise.resolve(),
       runTimeoutMinutes: 15,
       concurrency: 4,

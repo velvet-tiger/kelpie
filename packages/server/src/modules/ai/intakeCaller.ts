@@ -1,8 +1,12 @@
-import { API_KEY_SCOPES, MEMBER_ROLES } from '@kelpie/schemas'
+import { API_KEY_SCOPES, MEMBER_ROLES, expandApiKeyScopes, satisfiesApiKeyScope } from '@kelpie/schemas'
+import type { ApiKeyScope } from '@kelpie/schemas'
 import { z } from 'zod'
+
+import { isScopedCredential } from '../../lib/apiKeyScopes.ts'
 
 import type { Queryable } from '../../runtime/transaction.ts'
 import * as apiKeyRepository from '../api-keys/repository.ts'
+import { isOAuthActor } from '../auth/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import * as authRepository from '../auth/repository.ts'
 import * as oauthRepository from '../oauth/repository.ts'
@@ -92,11 +96,45 @@ export function requesterKey(actor: Actor): string {
   }
 }
 
+/**
+ * The scopes a run's reader must hold, from the credential that started it
+ * (`ai_runs.requested_scopes`). Null for a session or a key with full access,
+ * which reach everything.
+ */
+export function startingScopes(actor: Actor): readonly ApiKeyScope[] | null {
+  return actor.kind !== 'session' && isScopedCredential(actor) ? [...actor.scopes] : null
+}
+
+const storedScopesSchema = z.array(z.enum(API_KEY_SCOPES))
+
+/**
+ * Whether `reader` may see what a run started with `starting` read.
+ *
+ * The result holds records the run read with the starter's scopes. A person
+ * may read their run with another credential, but only one that reaches at
+ * least as far: otherwise a narrow key of theirs would see, through the run,
+ * records it cannot read directly. A session or a full-access key reads
+ * every run. A scoped reader needs every scope the starter held; a run a
+ * session or a full-access key started needs an unscoped reader. A stored
+ * value that does not parse counts as covering nothing.
+ */
+export function readerCovers(reader: Actor, starting: readonly string[] | null): boolean {
+  if (reader.kind === 'session' || !isScopedCredential(reader)) return true
+  if (starting === null) return false
+  if (isOAuthActor(reader) && reader.scopes.length === 0) return false
+
+  const parsed = storedScopesSchema.safeParse(starting)
+  if (!parsed.success) return false
+
+  return [...expandApiKeyScopes(parsed.data)].every((scope) => satisfiesApiKeyScope(reader.scopes, scope))
+}
+
 export type ResolvedCaller =
   | { readonly ok: true; readonly actor: Actor }
   | { readonly ok: false; readonly reason: string }
 
 const LEFT_WORKSPACE = 'The person who started this run is no longer a member of the workspace'
+const SESSION_ENDED = 'The session that started this run has ended.'
 const KEY_GONE = 'The API key that started this run was deleted'
 const GRANT_GONE = 'The OAuth access that started this run was revoked'
 
@@ -104,22 +142,27 @@ const GRANT_GONE = 'The OAuth access that started this run was revoked'
  * The actor a run acts as at job start, or why there is none.
  *
  * Built from the same lookups request-time credential resolution makes
- * (`modules/auth/credentials.ts`): the membership row by workspace and user,
- * the key row, the grant row. They are core's repository functions, the
+ * (`modules/auth/credentials.ts`): the live session, the membership row by
+ * workspace and user, the key row, the grant row. They are core's repository functions, the
  * existing port for these questions. There is no service in the module
  * context that answers "is this user a member, and with what role" without
  * already holding an actor for them, and the `workspace_members_list` tool
  * needs an actor that is a member to answer at all. So the job decides on the
- * same rows a fresh request would, and a member removed since the start, or a
- * key or grant revoked since, makes no model call.
+ * same rows a fresh request would, and a member removed since the start, a
+ * session signed out or expired since, or a key or grant revoked since, makes
+ * no model call.
  */
 export async function resolveStoredCaller(
   db: Queryable,
   workspaceId: string,
   caller: StoredCaller,
+  now: Date,
 ): Promise<ResolvedCaller> {
   switch (caller.kind) {
     case 'session': {
+      const session = await authRepository.findLiveSessionById(db, caller.session_id, caller.user_id, now)
+      if (session === undefined) return { ok: false, reason: SESSION_ENDED }
+
       const membership = await memberOf(db, workspaceId, caller.user_id)
       if (membership === undefined) return { ok: false, reason: LEFT_WORKSPACE }
 

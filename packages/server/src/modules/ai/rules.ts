@@ -40,7 +40,6 @@ export function isPersonIntakeTask(taskId: string): boolean {
 /** How long a person-intake run keeps its result after it succeeds. */
 export const INTAKE_RESULT_TTL_MS = 60 * 60 * 1000
 
-
 export const DEFAULT_RUN_TIMEOUT_MINUTES = 15
 
 /**

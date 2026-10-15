@@ -44,7 +44,7 @@ If the provider refuses the key, or the account has no quota, the run fails with
 
 On **People**, **Add from notes** (beside **Add person**) builds a full record from what you already know.
 
-It opens in the AI drawer, at the right side of the page. The page stays usable while Kelpie works. **Close** hides the drawer and keeps the task: a button in the header shows it, with a spinner while Kelpie is working, and opens it again. **Discard** ends the task. One task runs at a time. A switch to another workspace ends it. A reload does not: the task comes back in the header with the drawer closed, on the step it was on. Kelpie keeps each step's result for an hour; after that the task asks you to start again, with your notes still filled in.
+It opens in the AI drawer, at the right side of the page. The page stays usable while Kelpie works. **Close** hides the drawer and keeps the task: a button in the header shows it, with a spinner while Kelpie is working, and opens it again. **Discard** ends the task. One task runs at a time. A switch to another workspace ends it. A reload does not: the task comes back in the header with the drawer closed, on the step it was on. Kelpie keeps each step's result for an hour; after that the task asks you to start again, with your notes still filled in. Signing out forgets the task, so the next person to sign in to that browser tab does not see your notes.
 
 1. Paste anything about the person: a name, an email, a LinkedIn URL, a signature block, meeting notes.
 2. Kelpie looks the person up and shows up to three matches. Pick the right one. If the person is already in Kelpie, choose **Update** that record or **Create new**.

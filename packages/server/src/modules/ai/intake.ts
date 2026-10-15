@@ -21,7 +21,14 @@ import type { McpTool } from '../../runtime/module.ts'
 import { actorWorkspaceId, asAiAuthor } from '../auth/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import type { AiPortResolution } from './executor.ts'
-import { requesterKey, resolveStoredCaller, storeCaller, storedCallerSchema } from './intakeCaller.ts'
+import {
+  readerCovers,
+  requesterKey,
+  resolveStoredCaller,
+  startingScopes,
+  storeCaller,
+  storedCallerSchema,
+} from './intakeCaller.ts'
 import type { StoredCaller } from './intakeCaller.ts'
 import {
   renderIdentifyInstructions,
@@ -302,7 +309,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
     const resolution = await dependencies.resolvePort(workspaceId)
 
     if (resolution.kind === 'unavailable') {
-      // `withSyncRun` settles the run as failed with this message.
+      // `settleAround` settles the run as failed with this message.
       throw AppError.conflict(resolution.reason)
     }
 
@@ -495,7 +502,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
    * @throws AppError when the caller has gone, so the run fails with that reason.
    */
   async function callerActor(workspaceId: string, context: StoredCaller): Promise<Actor> {
-    const resolved = await resolveStoredCaller(dependencies.db, workspaceId, context)
+    const resolved = await resolveStoredCaller(dependencies.db, workspaceId, context, dependencies.now())
 
     if (!resolved.ok) {
       throw AppError.conflict(resolved.reason)
@@ -713,6 +720,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
         prompt: text,
         context: identifyContextSchema.parse({ caller: requireStoredCaller(actor) }),
         requestedBy: requesterKey(actor),
+        requestedScopes: startingScopes(actor),
       })
 
       return { run_id: run.id }
@@ -739,6 +747,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
           existing_person_id: input.existingPersonId,
         }),
         requestedBy: requesterKey(actor),
+        requestedScopes: startingScopes(actor),
       })
 
       return { run_id: run.id }
@@ -748,7 +757,12 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
       const workspaceId = requireWorkspace(actor)
       const run = await findRun(dependencies.db, workspaceId, runId)
 
-      if (run === undefined || !isPersonIntakeTask(run.taskId) || run.requestedBy !== requesterKey(actor)) {
+      if (
+        run === undefined ||
+        !isPersonIntakeTask(run.taskId) ||
+        run.requestedBy !== requesterKey(actor) ||
+        !readerCovers(actor, run.requestedScopes)
+      ) {
         throw AppError.notFound(NOT_FOUND_MESSAGE)
       }
 

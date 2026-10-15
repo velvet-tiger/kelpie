@@ -136,6 +136,8 @@ export interface IntakeRunInput {
   readonly context: Readonly<Record<string, unknown>>
   /** Who may read the run (`ai_runs.requested_by`). */
   readonly requestedBy: string
+  /** The scopes a reader must hold (`ai_runs.requested_scopes`). */
+  readonly requestedScopes: readonly string[] | null
 }
 
 /** An operation as the run log shows it: its outcome plus the records its detail cites. */
@@ -610,6 +612,7 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
             prompt: input.prompt,
             context: input.context,
             requestedBy: input.requestedBy,
+            requestedScopes: input.requestedScopes,
           },
           now,
         )

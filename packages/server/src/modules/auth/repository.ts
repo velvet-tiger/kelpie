@@ -147,6 +147,26 @@ export async function findLiveSessionByTokenHash(
   return found
 }
 
+/**
+ * A session by id, with the same liveness rule as `findLiveSessionByTokenHash`.
+ * For work that started on a session and runs after the request, such as a
+ * queued AI run, to check the session has not ended since.
+ */
+export async function findLiveSessionById(
+  db: Queryable,
+  sessionId: string,
+  userId: string,
+  now: Date,
+): Promise<SessionRecord | undefined> {
+  const [found] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId), gt(sessions.expiresAt, now)))
+    .limit(1)
+
+  return found
+}
+
 export async function listSessionsForUser(db: Queryable, userId: string): Promise<SessionRecord[]> {
   return db.select().from(sessions).where(eq(sessions.userId, userId)).orderBy(desc(sessions.lastActiveAt))
 }

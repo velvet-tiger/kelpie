@@ -100,27 +100,36 @@ While the major version is `0`, a minor bump may break the API.
   expires_at }`, and `result` is the body the step answered before. Only
   the caller who started the run can read it: the same user for a session,
   a personal key or an OAuth grant, and the same key for a workspace key.
-  Anyone else gets `404`. The route needs `ai:write`. `apply` does not
-  change.
+  Anyone else gets `404`, and so does the same person on a credential
+  narrower than the one that started the run: a key must hold every scope
+  the starting key held, and a run a session or a full-access key started
+  is read only by a session or a full-access key. The route needs
+  `ai:write`. `apply` does not change.
   - **The run acts as its caller.** It stores the caller's identity while it
     waits. At job start it checks that the caller is still a member and takes
     the member's current role; a key keeps its scopes. A caller who has left,
-    or a deleted key or revoked grant, fails the run with that reason and no
-    model call. Kelpie AI's own actor is never used for intake.
-  - **The result is kept for one hour,** then deleted when the run is read
-    or by the sweep on the next intake. Intake runs share
-    `AI_MAX_CONCURRENT_RUNS` with agent-task runs and are never retried.
-  - **Migration:** `ai` module migration `0010_intake_run_results` adds
-    `ai_runs.requested_by`, `ai_runs.result` and `ai_runs.result_expires_at`.
+    a session that has ended, or a deleted key or revoked grant, fails the run
+    with that reason and no model call. Kelpie AI's own actor is never used for intake.
+  - **The result is kept for one hour,** then deleted when the run is read,
+    by the sweep on the next intake, or by the next `ai.drain` job. Intake
+    runs share `AI_MAX_CONCURRENT_RUNS` with agent-task runs and are never
+    retried. An intake run still `queued` past `AI_RUN_TIMEOUT_MINUTES` is
+    failed by the stale sweep, which clears its notes.
+  - **Migration:** `ai` module migrations `0010_intake_run_results` and
+    `0011_intake_run_scopes` add `ai_runs.requested_by`, `ai_runs.result`,
+    `ai_runs.result_expires_at` and `ai_runs.requested_scopes`.
   - **`@kelpie/schemas`:** new `personIntakeRunWireSchema`,
     `personIntakeRunSchema`, `personIntakeRunStartedSchema`,
     `personIntakeSavedRunSchema` and their types. `@kelpie/ui`:
-    `useIdentifyPerson` and `useResearchPerson` are replaced by
-    `useStartIdentify`, `useStartResearch` and `usePersonIntakeRun`.
-    `AiDrawerTask` gains `onEnd`, and `useAiDrawer()` gains `restore`.
+    `AiDrawerTask` gains `onEnd`, and `useAiDrawer()` gains `restore`. The
+    wizard's request hooks are internal to the package and changed with it.
   - **UI:** the wizard polls the run every 2 seconds and keeps the run and
-    the step in `sessionStorage`, one entry per workspace. After a reload the
-    task comes back in the header with the drawer closed. A run whose result
+    the step in `sessionStorage`, one entry per workspace and user. Sign-out
+    clears every entry, and another user signing in to the tab clears the
+    previous user's. After a reload the task comes back in the header with
+    the drawer closed. A failed run keeps the step and the notes. While a run
+    cannot be read, the wizard keeps waiting on it, offers **Check again**,
+    and starts no other. A run whose result
     has gone shows "This result is no longer available. Start again." with
     the notes still filled in.
   - **Upgrade:** a client of `identify` or `research` must read the run

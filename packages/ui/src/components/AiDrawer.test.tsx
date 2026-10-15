@@ -100,20 +100,24 @@ function identifyRun(status: string, result: unknown): Record<string, unknown> {
 }
 
 function shellClient(stubs: Stubs = {}): ApiClient {
+  // The session follows a switch, as the server's does.
+  let session: Record<string, unknown> = SESSION
+
   return stubClient({
     get: (path) => {
-      if (path === '/auth/me') return SESSION
+      if (path === '/auth/me') return session
       if (path === '/account') return ACCOUNT
       if (path === '/account/preferences') return PREFERENCES
       if (path === '/workspaces/ws_1') return { id: 'ws_1', name: 'Acme Labs', timezone: 'UTC' }
+      if (path === '/workspaces/ws_2') return { id: 'ws_2', name: 'Globex', timezone: 'UTC' }
       if (path === '/ai/settings') return AI_SETTINGS
-      if (path === '/ai/person-intake/runs/ai_1') {
+      if (path.startsWith('/ai/person-intake/runs/')) {
         return stubs.readRun === undefined ? identifyRun('succeeded', IDENTIFIED) : stubs.readRun()
       }
       throw new Error(`Unexpected get ${path}`)
     },
     list: (path) => {
-      if (path === '/workspaces/ws_1/modules') return { items: [], nextCursor: null }
+      if (path === '/workspaces/ws_1/modules' || path === '/workspaces/ws_2/modules') return { items: [], nextCursor: null }
       if (path === '/auth/workspaces') return { items: WORKSPACES, nextCursor: null }
       if (path === '/agents') return { items: [KELPIE_AI_AGENT], nextCursor: null }
       throw new Error(`Unexpected list ${path}`)
@@ -121,12 +125,26 @@ function shellClient(stubs: Stubs = {}): ApiClient {
     post: (path, body) => {
       if (path === '/auth/workspace') {
         const record = body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {}
-        return { ...SESSION, workspace_id: record.workspace_id, role: 'member' }
+        session = { ...SESSION, workspace_id: record.workspace_id, role: 'member' }
+        return session
       }
       if (path === '/ai/person-intake/identify') return { run_id: 'ai_1' }
       throw new Error(`Unexpected post ${path}`)
     },
   })
+}
+
+/** A saved intake run for usr_1 waiting on the Confirm step, as the wizard writes one. */
+function savedIntake(runId: string): Record<string, unknown> {
+  return {
+    user_id: 'usr_1',
+    run_id: runId,
+    identify_run_id: null,
+    step: 'confirm',
+    text: 'Dana Reyes',
+    candidate: null,
+    existing_person_id: null,
+  }
 }
 
 /** A task with state of its own, so a test can tell a remount from a hidden panel. */
@@ -307,6 +325,48 @@ describe('the AI drawer', () => {
     })
   })
 
+  it('restores the new workspace\'s saved intake run on a switch, and clears only the old one', async () => {
+    vi.stubGlobal('confirm', () => true)
+    sessionStorage.setItem('kelpie.personIntake.run.ws_1.usr_1', JSON.stringify(savedIntake('ai_1')))
+    sessionStorage.setItem('kelpie.personIntake.run.ws_2.usr_1', JSON.stringify(savedIntake('ai_1')))
+    renderShell({ extensions: registerUiModules([aiUi]) })
+    await screen.findByText('Dashboard page')
+    // Workspace 1's run is the active task, in the header.
+    await screen.findByRole('button', { name: 'Add a person from notes' })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Switch workspace' })).toBeTruthy()
+    })
+    await click('Switch workspace')
+    await act(async () => {
+      screen.getByRole('menuitem', { name: /Globex/u }).click()
+    })
+
+    // The old task ended and cleared its own workspace's run. Workspace 2's
+    // run was found once the drawer was free, and waits closed in the header.
+    await waitFor(() => {
+      expect(sessionStorage.getItem('kelpie.personIntake.run.ws_1.usr_1')).toBeNull()
+    })
+    expect(sessionStorage.getItem('kelpie.personIntake.run.ws_2.usr_1')).not.toBeNull()
+    expect(await screen.findByRole('button', { name: 'Add a person from notes' })).toBeTruthy()
+    expect(drawer()?.hidden).toBe(true)
+  })
+
+  it('deletes a saved intake run another user left in the tab, and does not restore it', async () => {
+    sessionStorage.setItem(
+      'kelpie.personIntake.run.ws_1.usr_2',
+      JSON.stringify({ ...savedIntake('ai_1'), user_id: 'usr_2', text: 'Someone else\'s notes' }),
+    )
+    renderShell({ extensions: registerUiModules([aiUi]) })
+    await screen.findByText('Dashboard page')
+
+    await waitFor(() => {
+      expect(sessionStorage.getItem('kelpie.personIntake.run.ws_1.usr_2')).toBeNull()
+    })
+    expect(screen.queryByRole('button', { name: 'Add a person from notes' })).toBeNull()
+    expect(drawer()).toBeNull()
+  })
+
   it('lets person intake finish while the user works on another page', async () => {
     let settled = false
     const readRun = (): unknown => (settled ? identifyRun('succeeded', IDENTIFIED) : identifyRun('running', null))
@@ -343,8 +403,8 @@ describe('the AI drawer', () => {
 
   it('finds a saved intake run after a reload, with the drawer closed', async () => {
     sessionStorage.setItem(
-      'kelpie.personIntake.run.ws_1',
-      JSON.stringify({ run_id: 'ai_1', step: 'confirm', text: 'Dana Reyes', candidate: null, existing_person_id: null }),
+      'kelpie.personIntake.run.ws_1.usr_1',
+      JSON.stringify({ user_id: 'usr_1', identify_run_id: null, run_id: 'ai_1', step: 'confirm', text: 'Dana Reyes', candidate: null, existing_person_id: null }),
     )
     renderShell({ extensions: registerUiModules([aiUi]) })
     await screen.findByText('Dashboard page')
@@ -360,8 +420,8 @@ describe('the AI drawer', () => {
 
   it('forgets the saved intake run when the task is discarded', async () => {
     sessionStorage.setItem(
-      'kelpie.personIntake.run.ws_1',
-      JSON.stringify({ run_id: 'ai_1', step: 'confirm', text: 'Dana Reyes', candidate: null, existing_person_id: null }),
+      'kelpie.personIntake.run.ws_1.usr_1',
+      JSON.stringify({ user_id: 'usr_1', identify_run_id: null, run_id: 'ai_1', step: 'confirm', text: 'Dana Reyes', candidate: null, existing_person_id: null }),
     )
     renderShell({ extensions: registerUiModules([aiUi]) })
     await screen.findByRole('button', { name: 'Add a person from notes' })
@@ -373,6 +433,6 @@ describe('the AI drawer', () => {
     await click('Discard')
 
     expect(drawer()).toBeNull()
-    expect(sessionStorage.getItem('kelpie.personIntake.run.ws_1')).toBeNull()
+    expect(sessionStorage.getItem('kelpie.personIntake.run.ws_1.usr_1')).toBeNull()
   })
 })

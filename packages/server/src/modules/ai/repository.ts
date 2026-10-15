@@ -1,5 +1,5 @@
 import type { Queryable, Transaction } from '../../runtime/transaction.ts'
-import { and, count, desc, eq, gte, inArray, isNotNull, lt, lte, notInArray, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gte, inArray, isNotNull, lt, lte, notInArray, or, sql } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
@@ -7,7 +7,10 @@ import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
 import type { OperationOutcome } from './proposal.ts'
 import type { AiRunStatus } from '@kelpie/schemas'
 import { workspaces } from '../workspace/schema.ts'
+import { PERSON_INTAKE_TASKS } from './rules.ts'
 import { aiRuns, aiSettings } from './schema.ts'
+
+const intakeTaskIds: readonly string[] = Object.values(PERSON_INTAKE_TASKS)
 
 /**
  * The shape of the `context` bag persisted with each run. Kept loose (unknown
@@ -67,6 +70,8 @@ export interface AiRunRecord {
   readonly webSearches: number | null
   /** Who may read a person-intake run (`schema.ts`). Null on an agent-task run. */
   readonly requestedBy: string | null
+  /** The starting credential's scopes (`schema.ts`). Parsed by the intake code when read. */
+  readonly requestedScopes: readonly string[] | null
   /**
    * A person-intake run's reply body while it is kept. Not typed here: the
    * intake code parses it with the wire schema of the run's step when it
@@ -96,6 +101,7 @@ function toRun(row: {
   modelRequests: number | null
   webSearches: number | null
   requestedBy: string | null
+  requestedScopes: string[] | null
   result: unknown
   resultExpiresAt: Date | null
   createdAt: Date
@@ -122,6 +128,7 @@ function toRun(row: {
     modelRequests: row.modelRequests,
     webSearches: row.webSearches,
     requestedBy: row.requestedBy,
+    requestedScopes: row.requestedScopes,
     result: row.result,
     resultExpiresAt: row.resultExpiresAt,
     createdAt: row.createdAt,
@@ -290,6 +297,7 @@ export async function insertIntakeRun(
     readonly prompt: string
     readonly context: Readonly<Record<string, unknown>>
     readonly requestedBy: string
+    readonly requestedScopes: readonly string[] | null
   },
   now: Date,
 ): Promise<AiRunRecord> {
@@ -306,6 +314,7 @@ export async function insertIntakeRun(
       prompt: values.prompt,
       context: values.context,
       requestedBy: values.requestedBy,
+      requestedScopes: values.requestedScopes === null ? null : [...values.requestedScopes],
       status: 'queued',
       createdAt: now,
       updatedAt: now,
@@ -357,6 +366,11 @@ export async function hasQueuedRun(db: Queryable, workspaceId: string): Promise<
  * Deliberately runs on the intake path (there is no scheduler), so a crashed
  * executor never wedges a workspace's queue forever.
  *
+ * A person-intake run still `queued` past `before` goes too. Its user is
+ * polling for it, and one whose job was lost would otherwise keep the notes
+ * and the caller in `prompt` and `context` for good. Agent-task runs that
+ * wait are left alone: core's dispatch owns their lifetime.
+ *
  * @returns The swept runs, so the caller can log them and report each one settled.
  */
 export async function sweepStaleRuns(
@@ -372,7 +386,10 @@ export async function sweepStaleRuns(
     .where(
       and(
         eq(aiRuns.workspaceId, workspaceId),
-        eq(aiRuns.status, 'running'),
+        or(
+          eq(aiRuns.status, 'running'),
+          and(eq(aiRuns.status, 'queued'), inArray(aiRuns.taskId, [...intakeTaskIds])),
+        ),
         lt(aiRuns.updatedAt, before),
       ),
     )

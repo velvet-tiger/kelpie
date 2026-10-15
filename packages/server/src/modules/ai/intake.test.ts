@@ -5,6 +5,8 @@ import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { runMigrations } from '../../runtime/migrate.ts'
 import { createTestApp } from '../../testing/app.ts'
+import { PERSON_INTAKE_TASKS } from './rules.ts'
+import { resolveStoredCaller, storedCallerSchema } from './intakeCaller.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestClient, readList, readRecord, readString } from '../../testing/client.ts'
 import type { TestClient } from '../../testing/client.ts'
@@ -1279,8 +1281,9 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect((await readIntakeRun(h, runId, { bearer: workspaceKey })).status).toBe(404)
       expect((await readIntakeRun(h, runId, { cookie: stranger.cookie })).status).toBe(404)
       expect((await readIntakeRun(h, 'ai_missing', { cookie: owner.cookie })).status).toBe(404)
-      // The same person with another credential reads their own run.
-      expect((await readIntakeRun(h, runId, { bearer: personalKey })).status).toBe(200)
+      // The same person's key is narrower than the session that started the
+      // run, so it cannot read it (the scope rules have their own test).
+      expect((await readIntakeRun(h, runId, { bearer: personalKey })).status).toBe(404)
 
       // A workspace key reads its own run, and nobody else does.
       h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
@@ -1355,6 +1358,112 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
         context: null,
         modelRequests: null,
       })
+    })
+
+    it('lets the same person read a run only with a credential that reaches as far as the one that started it', async () => {
+      const owner = await enabledOwner(h, 'scope-cover@example.com')
+      const narrow = await mintKey(owner.cookie, { name: 'narrow', kind: 'personal', scopes: ['ai:write'] })
+      const reader = await mintKey(owner.cookie, { name: 'reader', kind: 'personal', scopes: ['ai:write', 'people:read'] })
+      const writer = await mintKey(owner.cookie, { name: 'writer', kind: 'personal', scopes: ['ai:write', 'people:write'] })
+
+      // Started by the session: only a session or a full-access key reads it.
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      const bySession = readString(await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' }), 'run_id')
+      expect((await readIntakeRun(h, bySession, { bearer: narrow })).status).toBe(404)
+      expect((await readIntakeRun(h, bySession, { bearer: reader })).status).toBe(404)
+
+      // Started by a key with people:read: a key without it gets 404, one that
+      // covers it (people:write implies read) and the session read it.
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      const byReader = readString(await intakeRun(h, 'identify', { bearer: reader }, { text: 'Dana Reyes' }), 'run_id')
+      const [row] = (await runRows(h, owner.workspaceId)).filter((candidate) => candidate.id === byReader)
+      expect(row?.requestedScopes).toEqual(['ai:write', 'people:read'])
+      expect((await readIntakeRun(h, byReader, { bearer: narrow })).status).toBe(404)
+      expect((await readIntakeRun(h, byReader, { bearer: writer })).status).toBe(200)
+      expect((await readIntakeRun(h, byReader, { cookie: owner.cookie })).status).toBe(200)
+    })
+
+    it('fails the run with no model call when the session that started it has ended', async () => {
+      const owner = await enabledOwner(h, 'signed-out@example.com')
+      const started = await startIntake(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      expect(started.status).toBe(202)
+      const runId = readString(await started.json(), 'run_id')
+
+      const loggedOut = await h.client.send('POST', '/v1/auth/logout', { cookie: owner.cookie })
+      expect(loggedOut.status).toBeLessThan(300)
+      await h.app.runQueuedJobs()
+
+      expect(h.provider.requests).toHaveLength(0)
+      const [row] = (await runRows(h, owner.workspaceId)).filter((candidate) => candidate.id === runId)
+      expect(row).toMatchObject({
+        status: 'failed',
+        failureReason: 'The session that started this run has ended.',
+        prompt: null,
+        context: null,
+      })
+    })
+
+    it('acts with the member\'s role as it is when the job starts, not when the run started', async () => {
+      const owner = await enabledOwner(h, 'role-owner@example.com')
+      const memberCookie = await addMember(owner, 'promoted@example.com')
+      const started = await startIntake(h, 'identify', { cookie: memberCookie }, { text: 'Dana Reyes' })
+      const runId = readString(await started.json(), 'run_id')
+      const [queued] = (await runRows(h, owner.workspaceId)).filter((candidate) => candidate.id === runId)
+      const stored = storedCallerSchema.parse(readRecord(queued?.context).caller)
+
+      const before = await resolveStoredCaller(h.app.services.db, owner.workspaceId, stored, new Date())
+      expect(before).toMatchObject({ ok: true, actor: { kind: 'session', role: 'member' } })
+
+      const members = readList(
+        await (await h.client.send('GET', `/v1/workspaces/${owner.workspaceId}/members`, { cookie: owner.cookie })).json(),
+      )
+      const promoted = members.find((member) => readRecord(member).email === 'promoted@example.com')
+      const changed = await h.client.send(
+        'PATCH',
+        `/v1/workspaces/${owner.workspaceId}/members/${readString(promoted, 'id')}`,
+        { cookie: owner.cookie, body: { role: 'admin' } },
+      )
+      expect(changed.status).toBe(200)
+
+      // The run stored identity only; the role comes from the membership now.
+      expect(stored).not.toHaveProperty('role')
+      const after = await resolveStoredCaller(h.app.services.db, owner.workspaceId, stored, new Date())
+      expect(after).toMatchObject({ ok: true, actor: { kind: 'session', role: 'admin' } })
+    })
+
+    it('deletes expired results when a drain job runs, with no intake and no read', async () => {
+      const owner = await enabledOwner(h, 'drain-expiry@example.com')
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      expect((await runRows(h, owner.workspaceId))[0]?.result).not.toBeNull()
+
+      h.clockOffsetMs = 61 * 60 * 1000
+      const drain = h.app.jobs?.definitions.get('ai.drain')
+      if (drain === undefined) throw new Error('ai.drain is not defined')
+      await drain.handler({
+        id: 'job_test',
+        data: { workspaceId: owner.workspaceId },
+        log: createLogger({ level: 'error', transports: [createCaptureTransport(() => undefined)] }),
+        signal: new AbortController().signal,
+        lastAttempt: true,
+        attempt: 1,
+      })
+
+      expect((await runRows(h, owner.workspaceId))[0]?.result).toBeNull()
+    })
+
+    it('fails an intake run left queued past the run timeout, and clears its notes', async () => {
+      const owner = await enabledOwner(h, 'lost-job@example.com')
+      const started = await startIntake(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      const runId = readString(await started.json(), 'run_id')
+      // The job is lost: nothing works the queue.
+      h.app.services.queuedJobs.length = 0
+
+      h.clockOffsetMs = 16 * 60 * 1000
+      await startIntake(h, 'identify', { cookie: owner.cookie }, { text: 'Sam' })
+
+      const [lost] = (await runRows(h, owner.workspaceId)).filter((candidate) => candidate.id === runId)
+      expect(lost).toMatchObject({ taskId: PERSON_INTAKE_TASKS.identify, status: 'failed', prompt: null, context: null })
     })
 
     it('does not run a failed run again', async () => {
