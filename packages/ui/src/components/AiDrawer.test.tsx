@@ -20,6 +20,8 @@ import { Shell } from './Shell.tsx'
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  sessionStorage.clear()
 })
 
 /**
@@ -79,9 +81,22 @@ const CANDIDATE = {
   existing_people: [],
 }
 
+const IDENTIFIED = { candidates: [CANDIDATE], question: null, sources: [], run_id: 'ai_1' }
+
 interface Stubs {
-  /** Resolves the pending `identify` request. */
-  identify?: Promise<unknown>
+  /** Answers each read of the identify run. Defaults to a run that has settled. */
+  readRun?: () => unknown
+}
+
+function identifyRun(status: string, result: unknown): Record<string, unknown> {
+  return {
+    run_id: 'ai_1',
+    kind: 'identify',
+    status,
+    result,
+    failure_reason: null,
+    expires_at: status === 'succeeded' ? '2026-10-15T13:00:00.000Z' : null,
+  }
 }
 
 function shellClient(stubs: Stubs = {}): ApiClient {
@@ -92,6 +107,9 @@ function shellClient(stubs: Stubs = {}): ApiClient {
       if (path === '/account/preferences') return PREFERENCES
       if (path === '/workspaces/ws_1') return { id: 'ws_1', name: 'Acme Labs', timezone: 'UTC' }
       if (path === '/ai/settings') return AI_SETTINGS
+      if (path === '/ai/person-intake/runs/ai_1') {
+        return stubs.readRun === undefined ? identifyRun('succeeded', IDENTIFIED) : stubs.readRun()
+      }
       throw new Error(`Unexpected get ${path}`)
     },
     list: (path) => {
@@ -105,7 +123,7 @@ function shellClient(stubs: Stubs = {}): ApiClient {
         const record = body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {}
         return { ...SESSION, workspace_id: record.workspace_id, role: 'member' }
       }
-      if (path === '/ai/person-intake/identify' && stubs.identify !== undefined) return stubs.identify
+      if (path === '/ai/person-intake/identify') return { run_id: 'ai_1' }
       throw new Error(`Unexpected post ${path}`)
     },
   })
@@ -290,11 +308,9 @@ describe('the AI drawer', () => {
   })
 
   it('lets person intake finish while the user works on another page', async () => {
-    let resolveIdentify: (value: unknown) => void = () => undefined
-    const identify = new Promise<unknown>((resolve) => {
-      resolveIdentify = resolve
-    })
-    renderShell({ stubs: { identify }, extensions: registerUiModules([aiUi]) })
+    let settled = false
+    const readRun = (): unknown => (settled ? identifyRun('succeeded', IDENTIFIED) : identifyRun('running', null))
+    renderShell({ stubs: { readRun }, extensions: registerUiModules([aiUi]) })
     await screen.findByText('Dashboard page')
 
     await click(/Add from notes/u)
@@ -310,14 +326,53 @@ describe('the AI drawer', () => {
     await click('Go elsewhere')
     await screen.findByText('Companies page')
 
-    await act(async () => {
-      resolveIdentify({ candidates: [CANDIDATE], question: null, sources: [], run_id: 'ai_1' })
-      await identify
-    })
+    // The next poll finds the run settled.
+    settled = true
+    await waitFor(
+      () => {
+        expect(screen.getByRole('button', { name: 'Add a person from notes' }).title).not.toContain('working')
+      },
+      { timeout: 5000 },
+    )
 
     await click('Add a person from notes')
 
     expect(await screen.findByText('Dana Reyes')).toBeTruthy()
     expect(screen.getByText('Is this the right person?')).toBeTruthy()
+  }, 10_000)
+
+  it('finds a saved intake run after a reload, with the drawer closed', async () => {
+    sessionStorage.setItem(
+      'kelpie.personIntake.run.ws_1',
+      JSON.stringify({ run_id: 'ai_1', step: 'confirm', text: 'Dana Reyes', candidate: null, existing_person_id: null }),
+    )
+    renderShell({ extensions: registerUiModules([aiUi]) })
+    await screen.findByText('Dashboard page')
+
+    // The page stays uncovered: the task is in the header, the drawer hidden.
+    const launcher = await screen.findByRole('button', { name: 'Add a person from notes' })
+    expect(drawer()?.hidden).toBe(true)
+
+    await click('Add a person from notes')
+    expect(launcher.isConnected).toBe(false)
+    expect(await screen.findByText('Is this the right person?')).toBeTruthy()
+  })
+
+  it('forgets the saved intake run when the task is discarded', async () => {
+    sessionStorage.setItem(
+      'kelpie.personIntake.run.ws_1',
+      JSON.stringify({ run_id: 'ai_1', step: 'confirm', text: 'Dana Reyes', candidate: null, existing_person_id: null }),
+    )
+    renderShell({ extensions: registerUiModules([aiUi]) })
+    await screen.findByRole('button', { name: 'Add a person from notes' })
+    await click('Add a person from notes')
+    await screen.findByText('Is this the right person?')
+    // Discard asks first while a request may still be pending; this test is about what it clears.
+    vi.stubGlobal('confirm', () => true)
+
+    await click('Discard')
+
+    expect(drawer()).toBeNull()
+    expect(sessionStorage.getItem('kelpie.personIntake.run.ws_1')).toBeNull()
   })
 })

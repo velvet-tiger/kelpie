@@ -166,6 +166,9 @@ const ROUTE_SCOPE_RULES: readonly RouteScopeRule[] = [
   // Person intake spends the workspace's AI budget. Every record it reads or
   // writes also needs that record's own scope, which the tools check.
   { methods: ['POST'], pattern: /^\/v1\/ai\/person-intake\/(?:identify|research|apply)$/u, scope: 'ai:write' },
+  // Reading a run is part of the same work, and its result is what identify
+  // or research would have answered, so it needs the same scope.
+  { methods: ['GET'], pattern: /^\/v1\/ai\/person-intake\/runs\/[^/]+$/u, scope: 'ai:write' },
 ]
 
 function storedScopes(actor: Actor): readonly ApiKeyScope[] {

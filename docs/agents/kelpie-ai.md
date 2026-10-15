@@ -44,7 +44,7 @@ If the provider refuses the key, or the account has no quota, the run fails with
 
 On **People**, **Add from notes** (beside **Add person**) builds a full record from what you already know.
 
-It opens in the AI drawer, at the right side of the page. The page stays usable while Kelpie works. **Close** hides the drawer and keeps the task: a button in the header shows it, with a spinner while Kelpie is working, and opens it again. **Discard** ends the task. One task runs at a time. A reload, or a switch to another workspace, ends it.
+It opens in the AI drawer, at the right side of the page. The page stays usable while Kelpie works. **Close** hides the drawer and keeps the task: a button in the header shows it, with a spinner while Kelpie is working, and opens it again. **Discard** ends the task. One task runs at a time. A switch to another workspace ends it. A reload does not: the task comes back in the header with the drawer closed, on the step it was on. Kelpie keeps each step's result for an hour; after that the task asks you to start again, with your notes still filled in.
 
 1. Paste anything about the person: a name, an email, a LinkedIn URL, a signature block, meeting notes.
 2. Kelpie looks the person up and shows up to three matches. Pick the right one. If the person is already in Kelpie, choose **Update** that record or **Create new**.
@@ -53,7 +53,7 @@ It opens in the AI drawer, at the right side of the page. The page stays usable 
 
 Updating an existing Person only adds: it fills empty fields and adds new tags, phones and profiles. It does not replace the name, the summary, or anything else that already has a value.
 
-The two AI steps each count as one run in the run log and against any monthly limit. With web search on, each step can take a minute or more.
+The two AI steps each count as one run in the run log and against any monthly limit. With web search on, each step can take a minute or more. Each step runs in the background as you: it reads the CRM with your role and, for an API key, the key's scopes. If you leave the workspace before it starts, it fails and makes no model call.
 
 **Web search.** Kelpie uses your provider's own web search for this, and only for this. Agent-task runs never search. It keeps a source link only when the search really returned that page or your notes contain it. It keeps a source or a profile link only when the link is `http` or `https`. With web search on, research makes two model requests: the first searches from your pasted notes and the person you confirmed, and never sees CRM records; the second builds the records from the findings and the CRM, with no tool. To work from your notes and the CRM only, switch **Web search** off on **Admin → AI**.
 

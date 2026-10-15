@@ -2,27 +2,38 @@ import {
   PERSON_INTAKE_KIND_LABELS,
   PERSON_INTAKE_KINDS,
   PERSON_INTAKE_PERSON_KEY,
+  personIntakeCandidateBody,
   personIntakeDependencies,
+  personIntakeIdentifyResultSchema,
 } from '@kelpie/schemas'
 import type {
   PersonIntakeCandidate,
+  PersonIntakeCandidateWire,
   PersonIntakeIdentifyResult,
   PersonIntakeItem,
   PersonIntakeKind,
   PersonIntakeResearchResult,
   PersonIntakeResult,
   PersonIntakeResultStatus,
+  PersonIntakeSavedRun,
   PersonIntakeSource,
 } from '@kelpie/schemas'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 
 import { useAiServiceLabel } from '../api/resources/ai.ts'
-import { useApplyPersonIntake, useIdentifyPerson, useResearchPerson } from '../api/resources/personIntake.ts'
+import {
+  useApplyPersonIntake,
+  usePersonIntakeRun,
+  useStartIdentify,
+  useStartResearch,
+} from '../api/resources/personIntake.ts'
+import { useSession } from '../api/resources/session.ts'
 import { Chip } from '../components/Chip.tsx'
 import type { ChipTone } from '../components/Chip.tsx'
 import { IntakeFrame, NotesField } from '../components/PersonIntakePanel.tsx'
-import { ErrorPanel } from '../components/QueryState.tsx'
+import { clearSavedIntakeRun, readSavedIntakeRun, saveIntakeRun } from '../components/personIntakeRunStorage.ts'
+import { ErrorPanel, LoadingPanel } from '../components/QueryState.tsx'
 import type { PersonIntakeWizardProps } from '../registry/contributions.ts'
 import { effectiveSelection } from './personIntakeSelection.ts'
 
@@ -31,19 +42,40 @@ import { effectiveSelection } from './personIntakeSelection.ts'
  * person, choose what to create, done. Spec: person intake, in the `ai`
  * module's docs (`docs/agents/kelpie-ai.md`).
  *
- * The wizard holds no records of its own. Each step is one call to
- * `/v1/ai/person-intake/*`, and the last writes only the ticked items.
+ * The wizard holds no records of its own. `identify` and `research` each start
+ * an AI run on the server, and the wizard reads the run every 2 seconds until
+ * it settles. The run and the step are kept in `sessionStorage`, so a reload
+ * picks the task up again; the server keeps a run's result for an hour. The
+ * last step writes only the ticked items.
  */
 
 type Step =
+  | { readonly kind: 'restoring'; readonly saved: PersonIntakeSavedRun['step'] }
   | { readonly kind: 'notes' }
-  | { readonly kind: 'confirm'; readonly identified: PersonIntakeIdentifyResult }
+  | { readonly kind: 'confirm'; readonly identified: PersonIntakeIdentifyResult; readonly target?: string | null }
   | { readonly kind: 'choose'; readonly research: PersonIntakeResearchResult }
   | { readonly kind: 'done'; readonly results: readonly PersonIntakeResult[] }
 
+/** A run the wizard is waiting on, and what it was started with. */
+interface WatchedRun {
+  readonly runId: string
+  readonly text: string
+  /** The confirmed person, for a research run. */
+  readonly candidate: PersonIntakeCandidateWire | null
+  readonly existingPersonId: string | null
+}
+
 const STEP_LABELS = ['Notes', 'Confirm', 'Choose', 'Done'] as const
 
-const STEP_INDEX: Readonly<Record<Step['kind'], number>> = { notes: 0, confirm: 1, choose: 2, done: 3 }
+const STEP_INDEX: Readonly<Record<Exclude<Step['kind'], 'restoring'>, number>> = {
+  notes: 0,
+  confirm: 1,
+  choose: 2,
+  done: 3,
+}
+
+/** Shown, with the notes still filled in, when a run's result has gone. */
+const RESULT_GONE_MESSAGE = 'This result is no longer available. Start again.'
 
 /** Pipeline records start unticked: the model suggests them, the user decides. */
 const OFF_BY_DEFAULT: ReadonlySet<PersonIntakeKind> = new Set(['partnership', 'deal', 'enquiry'])
@@ -53,42 +85,199 @@ const primaryButton =
 const secondaryButton =
   'rounded-md px-2.5 py-1.5 text-[12px] font-medium text-ink-muted hover:text-ink disabled:opacity-50'
 
-export function PersonIntakeWizard({ onClose, onPendingChange }: PersonIntakeWizardProps): React.JSX.Element {
-  const [step, setStep] = useState<Step>({ kind: 'notes' })
-  const [text, setText] = useState('')
-  const identify = useIdentifyPerson()
-  const research = useResearchPerson()
+/** The Confirm step for a research run, rebuilt from the person it was started with. */
+function confirmFor(watched: WatchedRun): Step {
+  if (watched.candidate === null) return { kind: 'notes' }
+
+  return {
+    kind: 'confirm',
+    identified: personIntakeIdentifyResultSchema.parse({
+      candidates: [watched.candidate],
+      question: null,
+      sources: [],
+      run_id: watched.runId,
+    }),
+    target: watched.existingPersonId,
+  }
+}
+
+function stepIndex(step: Step): number {
+  return step.kind === 'restoring' ? STEP_INDEX[step.saved] : STEP_INDEX[step.kind]
+}
+
+export function PersonIntakeWizard(props: PersonIntakeWizardProps): React.JSX.Element {
+  const { session } = useSession()
+
+  // The saved run is per workspace, so the wizard waits until it knows which.
+  if (session === undefined) return <LoadingPanel label="Loading…" />
+
+  return <IntakeWizard key={session.workspaceId ?? ''} {...props} workspaceId={session.workspaceId} />
+}
+
+function IntakeWizard({
+  onClose,
+  onPendingChange,
+  workspaceId,
+}: PersonIntakeWizardProps & { readonly workspaceId: string | null }): React.JSX.Element {
+  const [saved] = useState(() => (workspaceId === null ? undefined : readSavedIntakeRun(workspaceId)))
+  const [step, setStep] = useState<Step>(
+    saved === undefined ? { kind: 'notes' } : { kind: 'restoring', saved: saved.step },
+  )
+  const [text, setText] = useState(saved?.text ?? '')
+  const [watched, setWatched] = useState<WatchedRun | undefined>(
+    saved === undefined
+      ? undefined
+      : { runId: saved.run_id, text: saved.text, candidate: saved.candidate, existingPersonId: saved.existing_person_id },
+  )
+  const [runError, setRunError] = useState<Error | null>(null)
+  const [resultGone, setResultGone] = useState(false)
+  const identify = useStartIdentify()
+  const research = useStartResearch()
   const apply = useApplyPersonIntake()
-  const pending = identify.isPending || research.isPending || apply.isPending
+  const polled = usePersonIntakeRun(watched?.runId)
+  const pending = identify.isPending || research.isPending || apply.isPending || watched !== undefined
 
   useEffect(() => {
     onPendingChange?.(pending)
   }, [pending, onPendingChange])
 
+  // Moves the wizard on when the run it waits on changes, once per settled run.
+  useEffect(() => {
+    if (watched === undefined) return
+
+    function forget(): void {
+      if (workspaceId !== null) clearSavedIntakeRun(workspaceId)
+    }
+
+    if (polled.isNotFound) {
+      setWatched(undefined)
+      setResultGone(true)
+      setStep({ kind: 'notes' })
+      forget()
+      return
+    }
+
+    if (polled.error !== null) {
+      // The run may still finish; the saved run lets a reload try again.
+      setWatched(undefined)
+      setRunError(polled.error)
+      setStep((current) => (current.kind === 'restoring' ? confirmOrNotes(watched) : current))
+      return
+    }
+
+    const run = polled.run
+    if (run === undefined) return
+
+    if (run.status === 'queued' || run.status === 'running') {
+      setStep((current) =>
+        current.kind !== 'restoring' ? current : run.kind === 'identify' ? { kind: 'notes' } : confirmFor(watched),
+      )
+      return
+    }
+
+    setWatched(undefined)
+
+    if (run.status === 'failed') {
+      setRunError(new Error(run.failureReason ?? 'The AI run failed.'))
+      setStep((current) =>
+        current.kind === 'confirm' ? current : run.kind === 'identify' ? { kind: 'notes' } : confirmFor(watched),
+      )
+      forget()
+      return
+    }
+
+    if (run.kind === 'identify' && run.result !== null) {
+      setStep({ kind: 'confirm', identified: run.result })
+      if (workspaceId !== null) {
+        saveIntakeRun(workspaceId, {
+          run_id: run.runId,
+          step: 'confirm',
+          text: watched.text,
+          candidate: null,
+          existing_person_id: null,
+        })
+      }
+      return
+    }
+
+    if (run.kind === 'research' && run.result !== null) {
+      setStep({ kind: 'choose', research: run.result })
+      if (workspaceId !== null) {
+        saveIntakeRun(workspaceId, {
+          run_id: run.runId,
+          step: 'choose',
+          text: watched.text,
+          candidate: watched.candidate,
+          existing_person_id: watched.existingPersonId,
+        })
+      }
+      return
+    }
+
+    // Succeeded, and the hour has passed: the result is gone.
+    setResultGone(true)
+    setStep({ kind: 'notes' })
+    forget()
+  }, [watched, polled.run, polled.error, polled.isNotFound, workspaceId])
+
+  function remember(run: WatchedRun, savedStep: PersonIntakeSavedRun['step']): void {
+    setWatched(run)
+    if (workspaceId === null) return
+
+    saveIntakeRun(workspaceId, {
+      run_id: run.runId,
+      step: savedStep,
+      text: run.text,
+      candidate: run.candidate,
+      existing_person_id: run.existingPersonId,
+    })
+  }
+
+  function forgetSaved(): void {
+    if (workspaceId !== null) clearSavedIntakeRun(workspaceId)
+  }
+
   async function runIdentify(): Promise<void> {
-    const identified = await identify.runAsync(text.trim())
-    setStep({ kind: 'confirm', identified })
+    setRunError(null)
+    setResultGone(false)
+    const notes = text.trim()
+    const started = await identify.runAsync(notes)
+    remember({ runId: started.runId, text: notes, candidate: null, existingPersonId: null }, 'notes')
   }
 
   async function runResearch(candidate: PersonIntakeCandidate, existingPersonId: string | null): Promise<void> {
-    const researched = await research.runAsync({ text: text.trim(), candidate, existingPersonId })
-    setStep({ kind: 'choose', research: researched })
+    setRunError(null)
+    const notes = text.trim()
+    const started = await research.runAsync({ text: notes, candidate, existingPersonId })
+    remember(
+      { runId: started.runId, text: notes, candidate: personIntakeCandidateBody(candidate), existingPersonId },
+      'confirm',
+    )
   }
 
   async function runApply(items: readonly PersonIntakeItem[]): Promise<void> {
     const applied = await apply.runAsync(items)
     setStep({ kind: 'done', results: applied.results })
+    forgetSaved()
+  }
+
+  function startAgain(): void {
+    setRunError(null)
+    setStep({ kind: 'notes' })
+    forgetSaved()
   }
 
   return (
     <>
-      <StepBar current={STEP_INDEX[step.kind]} />
+      <StepBar current={stepIndex(step)} />
+      {step.kind === 'restoring' && <LoadingPanel label="Picking up where you left off…" />}
       {step.kind === 'notes' && (
         <NotesStep
           text={text}
           onChange={setText}
-          pending={identify.isPending}
-          error={identify.error}
+          pending={identify.isPending || watched !== undefined}
+          error={identify.error ?? runError}
+          notice={resultGone ? RESULT_GONE_MESSAGE : null}
           onNext={() => {
             void runIdentify().catch(() => undefined)
           }}
@@ -97,11 +286,10 @@ export function PersonIntakeWizard({ onClose, onPendingChange }: PersonIntakeWiz
       {step.kind === 'confirm' && (
         <ConfirmStep
           identified={step.identified}
-          pending={research.isPending}
-          error={research.error}
-          onBack={() => {
-            setStep({ kind: 'notes' })
-          }}
+          initialTarget={step.target}
+          pending={research.isPending || watched !== undefined}
+          error={research.error ?? runError}
+          onBack={startAgain}
           onNext={(candidate, existingPersonId) => {
             void runResearch(candidate, existingPersonId).catch(() => undefined)
           }}
@@ -112,9 +300,7 @@ export function PersonIntakeWizard({ onClose, onPendingChange }: PersonIntakeWiz
           research={step.research}
           pending={apply.isPending}
           error={apply.error}
-          onBack={() => {
-            setStep({ kind: 'notes' })
-          }}
+          onBack={startAgain}
           onNext={(items) => {
             void runApply(items).catch(() => undefined)
           }}
@@ -123,6 +309,11 @@ export function PersonIntakeWizard({ onClose, onPendingChange }: PersonIntakeWiz
       {step.kind === 'done' && <DoneStep results={step.results} onClose={onClose} />}
     </>
   )
+}
+
+/** Where a run the wizard could not read leaves it: the Confirm step for research, else the notes. */
+function confirmOrNotes(watched: WatchedRun): Step {
+  return watched.candidate === null ? { kind: 'notes' } : confirmFor(watched)
 }
 
 function StepBar({ current }: { readonly current: number }): React.JSX.Element {
@@ -146,12 +337,15 @@ function NotesStep({
   onChange,
   pending,
   error,
+  notice,
   onNext,
 }: {
   readonly text: string
   readonly onChange: (value: string) => void
   readonly pending: boolean
   readonly error: Error | null
+  /** A line above the notes, such as the result having gone. */
+  readonly notice: string | null
   readonly onNext: () => void
 }): React.JSX.Element {
   const serviceLabel = useAiServiceLabel()
@@ -163,6 +357,11 @@ function NotesStep({
         </button>
       }
     >
+      {notice !== null && (
+        <p role="status" className="mb-2 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-[12px] text-ink">
+          {notice}
+        </p>
+      )}
       <NotesField value={text} onChange={onChange} disabled={pending} />
       {pending && (
         <p className="mt-2 text-[12px] text-ink-muted">
@@ -189,12 +388,15 @@ type Target = string
 
 function ConfirmStep({
   identified,
+  initialTarget,
   pending,
   error,
   onBack,
   onNext,
 }: {
   readonly identified: PersonIntakeIdentifyResult
+  /** The target a research run was started with, when the step is rebuilt after a reload. */
+  readonly initialTarget?: string | null | undefined
   readonly pending: boolean
   readonly error: Error | null
   readonly onBack: () => void
@@ -203,7 +405,9 @@ function ConfirmStep({
   const serviceLabel = useAiServiceLabel()
   const first = identified.candidates[0]
   const [candidateKey, setCandidateKey] = useState(first?.key ?? '')
-  const [target, setTarget] = useState<Target>(first?.existingPeople[0]?.id ?? 'new')
+  const [target, setTarget] = useState<Target>(
+    initialTarget === undefined ? (first?.existingPeople[0]?.id ?? 'new') : (initialTarget ?? 'new'),
+  )
   const candidate = identified.candidates.find((entry) => entry.key === candidateKey)
 
   if (identified.candidates.length === 0) {

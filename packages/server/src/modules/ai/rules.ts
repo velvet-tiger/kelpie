@@ -26,6 +26,21 @@ export const AI_RUNS_LIMIT: LimitCapability = {
 
 export const DEFAULT_MAX_CONCURRENT_RUNS = 2
 
+/** The task ids of the two person-intake steps that call a model. */
+export const PERSON_INTAKE_TASKS = {
+  identify: 'person_intake.identify',
+  research: 'person_intake.research',
+} as const
+
+/** True for a run the executor hands to the person-intake code. */
+export function isPersonIntakeTask(taskId: string): boolean {
+  return taskId === PERSON_INTAKE_TASKS.identify || taskId === PERSON_INTAKE_TASKS.research
+}
+
+/** How long a person-intake run keeps its result after it succeeds. */
+export const INTAKE_RESULT_TTL_MS = 60 * 60 * 1000
+
+
 export const DEFAULT_RUN_TIMEOUT_MINUTES = 15
 
 /**

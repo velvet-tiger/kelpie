@@ -32,6 +32,7 @@ import {
   touchRun,
 } from './repository.ts'
 import type { AiRunRecord } from './repository.ts'
+import { isPersonIntakeTask } from './rules.ts'
 import type { AiRunSettler } from './settle.ts'
 import { aiActorFor } from './tools.ts'
 
@@ -56,6 +57,9 @@ import { aiActorFor } from './tools.ts'
  * settles its row itself and never rejects. A job that finds the workspace at
  * its cap ends without running anything: a run that is going sees the queued
  * one when it finishes, and its job enqueues the next.
+ *
+ * A person-intake run takes the same queue and the same cap, and goes to
+ * `runIntake` instead: it acts as the member who started it, not as the AI.
  *
  * A crash mid-run leaves a row `running`; the next intake's stale sweep marks
  * it failed. The job is never retried, because a repeated model call would
@@ -88,6 +92,12 @@ export interface AiExecutorDependencies {
   readonly now: () => Date
   readonly maxTokens: number
   readonly maxConcurrentRuns: number
+  /**
+   * Runs a claimed `person_intake.*` run and settles it. Injected, because the
+   * intake code is built on the service, which is built on the job that calls
+   * this executor. Must not reject; a rejection is logged and fails the run.
+   */
+  readonly runIntake: (run: AiRunRecord) => Promise<void>
   readonly log: Logger
 }
 
@@ -384,6 +394,20 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
     }
   }
 
+  async function executeIntake(run: AiRunRecord): Promise<void> {
+    try {
+      await dependencies.runIntake(run)
+    } catch (thrown: unknown) {
+      dependencies.log.error('ai intake run threw', { runId: run.id, workspaceId: run.workspaceId, error: describeThrown(thrown) })
+
+      try {
+        await dependencies.settler.settle(run.workspaceId, run.id, { status: 'failed', failureReason: PROVIDER_FAILURE_MESSAGE })
+      } catch (settleError: unknown) {
+        dependencies.log.error('ai run could not be settled after failure', { runId: run.id, error: describeThrown(settleError) })
+      }
+    }
+  }
+
   return {
     async runNext(workspaceId) {
       if ((await countRunningRuns(dependencies.db, workspaceId)) >= dependencies.maxConcurrentRuns) {
@@ -396,7 +420,11 @@ export function createAiExecutor(dependencies: AiExecutorDependencies): AiExecut
         return 'idle'
       }
 
-      await execute(run)
+      if (isPersonIntakeTask(run.taskId)) {
+        await executeIntake(run)
+      } else {
+        await execute(run)
+      }
 
       return (await hasQueuedRun(dependencies.db, workspaceId)) ? 'ran_more_queued' : 'ran'
     },

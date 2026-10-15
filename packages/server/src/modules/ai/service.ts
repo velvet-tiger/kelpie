@@ -22,13 +22,14 @@ import type { AiCredentialResolver, AiCredentials } from './credentials.ts'
 import type { AiDrainJobData } from './drainJob.ts'
 import type { IdFactory as AiIdFactory } from './ids.ts'
 import {
+  clearExpiredResults,
   countRunsSince,
   deleteRuns,
   deleteSettings,
   findRun,
   findSettings,
+  insertIntakeRun,
   insertRunIfNew,
-  insertRunningRun,
   listRuns,
   lockSettings,
   DEFAULT_RUN_SORT,
@@ -38,7 +39,7 @@ import {
 } from './repository.ts'
 import type { AiRunSettler } from './settle.ts'
 import type { OperationOutcome } from './proposal.ts'
-import type { AiRunRecord, AiSettingsRow, SettleRunInput } from './repository.ts'
+import type { AiRunRecord, AiSettingsRow } from './repository.ts'
 import {
   AI_RUNS_LIMIT,
   keyHint,
@@ -125,11 +126,16 @@ export interface AiSettingsChanges {
   readonly webSearch?: boolean
 }
 
-/** A synchronous run the caller drives itself: the row, and what to run it with. */
-export interface AiSyncRun {
-  readonly run: AiRunRecord
-  readonly model: string
-  readonly webSearch: boolean
+/** A person-intake run to record and queue. */
+export interface IntakeRunInput {
+  readonly workspaceId: string
+  readonly taskId: string
+  /** The pasted notes. Cleared when the run settles. */
+  readonly prompt: string
+  /** The step's input and the caller's identity. Cleared when the run settles. */
+  readonly context: Readonly<Record<string, unknown>>
+  /** Who may read the run (`ai_runs.requested_by`). */
+  readonly requestedBy: string
 }
 
 /** An operation as the run log shows it: its outcome plus the records its detail cites. */
@@ -236,12 +242,12 @@ export interface AiService {
    */
   accept(payload: DispatchPayload): Promise<void>
   /**
-   * Admits and records a run the caller makes itself, such as a person-intake
-   * call. The same checks as `accept`: enabled, configured, under the monthly
-   * limit. The row starts `running`; the caller must settle it.
+   * Admits a person-intake run, records it `queued` and enqueues `ai.drain`
+   * in the same transaction. The same checks as `accept`: enabled,
+   * configured, under the monthly limit. The executor hands the run to the
+   * intake code when it claims it.
    */
-  startSyncRun(workspaceId: string, taskId: string, prompt: string): Promise<AiSyncRun>
-  settleSyncRun(workspaceId: string, runId: string, changes: SettleRunInput): Promise<void>
+  acceptIntakeRun(input: IntakeRunInput): Promise<AiRunRecord>
   /** Removes every row this module holds for the workspace. Idempotent. */
   forget(workspaceId: string): Promise<void>
 }
@@ -354,7 +360,7 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
   }
 
   /**
-   * The checks every run passes before it is recorded, queued or synchronous.
+   * The checks every run passes before it is recorded: an agent-task run or a person-intake run.
    * Answers the credentials the run will use; throws `AppError` otherwise.
    */
   async function admit(workspaceId: string, now: Date): Promise<{ credentials: AiCredentials; settings: AiSettingsRow }> {
@@ -388,6 +394,10 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
     if (swept > 0) {
       dependencies.log.warn('ai stale runs swept', { workspaceId, count: swept })
     }
+
+    // A person-intake result is kept for an hour. The same inline sweep
+    // deletes the ones past it; a read of a run deletes its own as well.
+    await clearExpiredResults(dependencies.db, workspaceId, now)
 
     // Retention, inline for the same reason as the sweep. The month window
     // is spared so the cap check below still counts every run this month.
@@ -583,28 +593,31 @@ export function createAiService(dependencies: AiServiceDependencies): AiService 
       // the concurrency cap. The job's worker executes it.
     },
 
-    async startSyncRun(workspaceId, taskId, prompt) {
+    async acceptIntakeRun(input) {
       const now = dependencies.now()
-      const { credentials, settings } = await admit(workspaceId, now)
-      const run = await insertRunningRun(
-        dependencies.db,
-        {
-          id: dependencies.createRunId(),
-          workspaceId,
-          taskId,
-          targetType: 'workspace',
-          targetId: workspaceId,
-          model: credentials.model,
-          prompt,
-        },
-        now,
-      )
+      const { credentials } = await admit(input.workspaceId, now)
 
-      return { run, model: credentials.model, webSearch: settings.webSearch }
-    },
+      // The job commits with the row, as in `accept`: a recorded run always
+      // has a job to start it.
+      return dependencies.transaction(async ({ tx, jobs }) => {
+        const run = await insertIntakeRun(
+          tx,
+          {
+            id: dependencies.createRunId(),
+            workspaceId: input.workspaceId,
+            taskId: input.taskId,
+            model: credentials.model,
+            prompt: input.prompt,
+            context: input.context,
+            requestedBy: input.requestedBy,
+          },
+          now,
+        )
 
-    async settleSyncRun(workspaceId, runId, changes) {
-      await dependencies.settler.settle(workspaceId, runId, changes)
+        await jobs.enqueue(dependencies.drainJob, { workspaceId: input.workspaceId })
+
+        return run
+      })
     },
 
     async forget(workspaceId) {

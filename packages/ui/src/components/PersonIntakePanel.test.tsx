@@ -4,19 +4,32 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiProvider } from '../api/ApiProvider.tsx'
+import { ApiError } from '../api/client.ts'
 import { aiUi } from '../modules/ai.tsx'
 import { UiExtensionProvider } from '../registry/UiExtensionProvider.tsx'
 import { NO_UI_MODULES, registerUiModules } from '../registry/registry.ts'
 import { stubClient } from '../testing/stubClient.ts'
 import { PersonIntakePanel } from './PersonIntakePanel.tsx'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  sessionStorage.clear()
+})
 
 /**
  * People's Add from notes. With Kelpie AI ready it is the wizard: notes,
  * confirm, choose, done. Without it, the panel copies the add-person prompt
  * with the notes appended, for the user's own agent.
+ *
+ * `identify` and `research` start a run on the server, and the wizard reads it
+ * every 2 seconds until it settles. The stub answers the first read of the
+ * identify run as still running, so the wizard has to poll.
  */
+
+const SAVED_RUN_KEY = 'kelpie.personIntake.run.ws_1'
+
+/** Long enough for one 2-second poll and the render after it. */
+const POLL_WAIT = { timeout: 5000 }
 
 const SESSION = { user_id: 'usr_1', session_id: 'ses_1', workspace_id: 'ws_1', role: 'owner', email_verified: true }
 const WORKSPACE = { id: 'ws_1', name: 'Acme', timezone: 'UTC' }
@@ -74,17 +87,47 @@ const RESEARCH = {
   run_id: 'ai_2',
 }
 
-interface Recorded {
-  readonly posts: { path: string; body: unknown }[]
+const IDENTIFY = { candidates: [CANDIDATE], question: null, sources: [], run_id: 'ai_1' }
+
+function runBody(runId: string, kind: 'identify' | 'research', status: string, result: unknown): Record<string, unknown> {
+  return {
+    run_id: runId,
+    kind,
+    status,
+    result,
+    failure_reason: null,
+    expires_at: status === 'succeeded' ? '2026-10-15T13:00:00.000Z' : null,
+  }
 }
 
-function renderDialog(options: { readonly ai: boolean; readonly settings?: Record<string, unknown> }): Recorded {
-  const recorded: Recorded = { posts: [] }
+interface Recorded {
+  readonly posts: { path: string; body: unknown }[]
+  readonly gets: string[]
+}
+
+interface DialogOptions {
+  readonly ai: boolean
+  readonly settings?: Record<string, unknown>
+  /** Answers a read of a run, instead of the default identify and research runs. */
+  readonly readRun?: (runId: string) => unknown
+}
+
+function renderDialog(options: DialogOptions): Recorded {
+  const recorded: Recorded = { posts: [], gets: [] }
+  let identifyReads = 0
   const client = stubClient({
     get: (path) => {
+      recorded.gets.push(path)
       if (path === '/auth/me') return SESSION
       if (path === '/workspaces/ws_1') return WORKSPACE
       if (path === '/ai/settings') return options.settings ?? AI_SETTINGS
+      const runId = /^\/ai\/person-intake\/runs\/(?<id>.+)$/u.exec(path)?.groups?.id
+      if (runId !== undefined && options.readRun !== undefined) return options.readRun(runId)
+      if (runId === 'ai_1') {
+        identifyReads += 1
+        return identifyReads === 1 ? runBody('ai_1', 'identify', 'running', null) : runBody('ai_1', 'identify', 'succeeded', IDENTIFY)
+      }
+      if (runId === 'ai_2') return runBody('ai_2', 'research', 'succeeded', RESEARCH)
       throw new Error(`Unexpected get ${path}`)
     },
     list: (path) => {
@@ -111,10 +154,8 @@ function renderDialog(options: { readonly ai: boolean; readonly settings?: Recor
           },
         }
       }
-      if (path === '/ai/person-intake/identify') {
-        return { candidates: [CANDIDATE], question: null, sources: [], run_id: 'ai_1' }
-      }
-      if (path === '/ai/person-intake/research') return RESEARCH
+      if (path === '/ai/person-intake/identify') return { run_id: 'ai_1' }
+      if (path === '/ai/person-intake/research') return { run_id: 'ai_2' }
       if (path === '/ai/person-intake/apply') {
         return {
           results: [
@@ -183,8 +224,14 @@ describe('PersonIntakePanel', () => {
     await typeNotes('Dana Reyes, dana@brightline.health')
     fireEvent.click(await screen.findByRole('button', { name: 'Find this person' }))
 
-    // Confirm: the candidate, and the existing record it may be.
-    expect(await screen.findByText('CTO at Brightline Health')).toBeTruthy()
+    // The run is saved for a reload while it works.
+    await waitFor(() => {
+      expect(JSON.parse(sessionStorage.getItem(SAVED_RUN_KEY) ?? 'null')).toMatchObject({ run_id: 'ai_1', step: 'notes' })
+    })
+
+    // Confirm, after the poll finds the run settled: the candidate, and the existing record it may be.
+    expect(await screen.findByText('CTO at Brightline Health', {}, POLL_WAIT)).toBeTruthy()
+    expect(recorded.gets.filter((path) => path === '/ai/person-intake/runs/ai_1').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('This may already be in Kelpie.')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('Create a new person'))
     fireEvent.click(screen.getByRole('button', { name: 'This is them: research' }))
@@ -220,5 +267,74 @@ describe('PersonIntakePanel', () => {
     expect(screen.getByRole('link', { name: 'Brightline Health' }).getAttribute('href')).toBe('/companies/com_1')
     expect(screen.getByRole('link', { name: 'CTO at Brightline Health' }).getAttribute('href')).toBe('/people/per_1')
     expect(screen.getByRole('link', { name: 'Open Dana Reyes' }).getAttribute('href')).toBe('/people/per_1')
+    // Done ends the saved run.
+    expect(sessionStorage.getItem(SAVED_RUN_KEY)).toBeNull()
+  }, 10_000)
+
+  it('picks a saved run up again on the saved step after a reload', async () => {
+    sessionStorage.setItem(
+      SAVED_RUN_KEY,
+      JSON.stringify({
+        run_id: 'ai_2',
+        step: 'confirm',
+        text: 'Dana Reyes, dana@brightline.health',
+        candidate: CANDIDATE,
+        existing_person_id: null,
+      }),
+    )
+    const recorded = renderDialog({ ai: true })
+
+    // The research run settled while the page was gone: the Choose step shows its result.
+    expect(await screen.findByText('Dana Reyes is CTO of Brightline Health.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Create 4 items' })).toBeTruthy()
+    expect(recorded.posts).toEqual([])
+    expect(JSON.parse(sessionStorage.getItem(SAVED_RUN_KEY) ?? 'null')).toMatchObject({ run_id: 'ai_2', step: 'choose' })
+  })
+
+  it('shows the Confirm step, still working, for a research run that has not settled', async () => {
+    sessionStorage.setItem(
+      SAVED_RUN_KEY,
+      JSON.stringify({ run_id: 'ai_2', step: 'confirm', text: 'Dana', candidate: CANDIDATE, existing_person_id: 'per_old' }),
+    )
+    renderDialog({ ai: true, readRun: (runId) => runBody(runId, 'research', 'running', null) })
+
+    expect(await screen.findByRole('button', { name: 'Researching…' })).toBeTruthy()
+    expect(screen.getByText('Dana Reyes')).toBeTruthy()
+  })
+
+  it('says the result has gone, with the notes still filled in, for a run the server no longer has', async () => {
+    sessionStorage.setItem(
+      SAVED_RUN_KEY,
+      JSON.stringify({ run_id: 'ai_gone', step: 'notes', text: 'Dana Reyes, met at HLTH', candidate: null, existing_person_id: null }),
+    )
+    renderDialog({
+      ai: true,
+      readRun: () => {
+        throw new ApiError(404, 'not_found', 'No person-intake run has that id')
+      },
+    })
+
+    expect(await screen.findByText('This result is no longer available. Start again.')).toBeTruthy()
+    expect((screen.getByLabelText(/^What do you know/u) as HTMLTextAreaElement).value).toBe('Dana Reyes, met at HLTH')
+    expect(sessionStorage.getItem(SAVED_RUN_KEY)).toBeNull()
+  })
+
+  it('says the result has gone for a run that succeeded more than an hour ago', async () => {
+    sessionStorage.setItem(
+      SAVED_RUN_KEY,
+      JSON.stringify({ run_id: 'ai_old', step: 'confirm', text: 'Dana Reyes', candidate: null, existing_person_id: null }),
+    )
+    renderDialog({ ai: true, readRun: (runId) => runBody(runId, 'identify', 'succeeded', null) })
+
+    expect(await screen.findByText('This result is no longer available. Start again.')).toBeTruthy()
+    expect((screen.getByLabelText(/^What do you know/u) as HTMLTextAreaElement).value).toBe('Dana Reyes')
+  })
+
+  it('treats saved state it cannot read as no saved run', async () => {
+    sessionStorage.setItem(SAVED_RUN_KEY, '{not json')
+    renderDialog({ ai: true })
+
+    expect(await screen.findByRole('button', { name: 'Find this person' })).toBeTruthy()
+    expect((screen.getByLabelText(/^What do you know/u) as HTMLTextAreaElement).value).toBe('')
   })
 })

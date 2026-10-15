@@ -1,18 +1,28 @@
 import {
   PERSON_INTAKE_KIND_LABELS,
   PERSON_INTAKE_PERSON_KEY,
+  personIntakeCandidateWireSchema,
   personIntakeIdentifyResponseWireSchema,
   personIntakeResearchResponseWireSchema,
 } from '@kelpie/schemas'
-import type { PersonIntakeCandidateWire, PersonIntakeItemWire, PersonIntakeResultStatus } from '@kelpie/schemas'
-import type { z } from 'zod'
+import type {
+  PersonIntakeCandidateWire,
+  PersonIntakeItemWire,
+  PersonIntakeResultStatus,
+  PersonIntakeRunKind,
+  PersonIntakeRunWire,
+} from '@kelpie/schemas'
+import { z } from 'zod'
 
+import type { Database } from '../../lib/database.ts'
 import { AppError, describeThrown } from '../../lib/errors.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { McpTool } from '../../runtime/module.ts'
 import { actorWorkspaceId, asAiAuthor } from '../auth/actor.ts'
 import type { Actor } from '../auth/actor.ts'
 import type { AiPortResolution } from './executor.ts'
+import { requesterKey, resolveStoredCaller, storeCaller, storedCallerSchema } from './intakeCaller.ts'
+import type { StoredCaller } from './intakeCaller.ts'
 import {
   renderIdentifyInstructions,
   renderIdentifyMessage,
@@ -35,17 +45,23 @@ import {
 } from './intakeReply.ts'
 import type { ResearchFindingsReply } from './intakeReply.ts'
 import type { AiCompletionResult, AiMessage, AiProviderPort, AiWebSource } from './provider.ts'
+import { clearExpiredResults, findRun, findSettings, touchRun } from './repository.ts'
+import type { AiRunRecord } from './repository.ts'
+import { INTAKE_RESULT_TTL_MS, PERSON_INTAKE_TASKS, isPersonIntakeTask } from './rules.ts'
 import type { AiService } from './service.ts'
+import type { AiRunSettler } from './settle.ts'
 
 /**
  * Person intake: paste notes, and Kelpie AI identifies the person, researches
  * them, and proposes records. Spec: `plans/features/person-intake.md` in the
  * working folder's docs.
  *
- * `identify` and `research` are synchronous AI runs: each is admitted and
- * metered like a queued run (`AiService.startSyncRun`), then makes its model
- * call inside the request and settles its own row. The model gets no Kelpie
- * tools, only the provider's web search when the workspace allows it.
+ * `identify` and `research` are AI runs on the job queue. The route admits
+ * and records the run (`AiService.acceptIntakeRun`) and answers `202` with its
+ * id; the executor hands the claimed run to `execute`, which makes the model
+ * calls and settles the row with the reply body as its `result`, kept for an
+ * hour. The caller reads it with `readRun`. The model gets no Kelpie tools,
+ * only the provider's web search when the workspace allows it.
  *
  * A call that can search never holds a CRM record. A web tool can open a URL,
  * and text in the notes or on a page can ask for one with data in it. So
@@ -54,7 +70,8 @@ import type { AiService } from './service.ts'
  * there is one turn, as nothing in it can reach the web.
  *
  * Kelpie reads the CRM for the model (existing People, candidate Companies)
- * through the in-process MCP tools with the **caller's** actor, and `apply`
+ * through the in-process MCP tools with the **caller's** actor, rebuilt at job
+ * start from the identity stored on the run (`intakeCaller.ts`), and `apply`
  * writes through the same tools with the same actor. So every read and write
  * passes the role checks and validation a direct API call would, and the
  * records are the user's, not the AI's.
@@ -78,14 +95,37 @@ export interface ResearchInput {
   readonly existingPersonId: string | null
 }
 
+/** What `identify` and `research` answer: the run to read. */
+export interface StartedIntakeRun {
+  readonly run_id: string
+}
+
 export interface PersonIntake {
-  identify(actor: Actor, text: string): Promise<WireIdentifyResponse>
-  research(actor: Actor, input: ResearchInput): Promise<WireResearchResponse>
+  /** Records and queues an identify run. */
+  identify(actor: Actor, text: string): Promise<StartedIntakeRun>
+  /**
+   * Records and queues a research run. Reads the existing Person first, with
+   * the caller's actor, so a wrong id is a 404 and costs no run.
+   */
+  research(actor: Actor, input: ResearchInput): Promise<StartedIntakeRun>
+  /**
+   * One of the caller's own intake runs. Deletes the result first when its
+   * hour has passed. Any other run, or another caller's, is a 404.
+   */
+  readRun(actor: Actor, runId: string): Promise<PersonIntakeRunWire>
   apply(actor: Actor, items: readonly PersonIntakeItemWire[]): Promise<readonly WireApplyResult[]>
+  /**
+   * Runs a claimed intake run as its caller and settles it. The executor's
+   * `runIntake`. Never rejects: every failure lands on the row.
+   */
+  execute(run: AiRunRecord): Promise<void>
 }
 
 export interface PersonIntakeDependencies {
+  readonly db: Database
   readonly service: AiService
+  readonly settler: AiRunSettler
+  readonly now: () => Date
   readonly resolvePort: (workspaceId: string) => Promise<AiPortResolution>
   /** Every MCP tool in the assembly. Read at call time, after boot. */
   readonly listTools: () => readonly McpTool[]
@@ -175,6 +215,17 @@ function requireWorkspace(actor: Actor): string {
   return workspaceId
 }
 
+/** The caller's identity to store on the run. Every actor with a workspace has one. */
+function requireStoredCaller(actor: Actor): StoredCaller {
+  const stored = storeCaller(actor)
+
+  if (stored === undefined) {
+    throw AppError.notFound('This session has no workspace')
+  }
+
+  return stored
+}
+
 function indexByName(tools: readonly McpTool[]): ReadonlyMap<string, McpTool> {
   return new Map(tools.map((tool) => [tool.name, tool]))
 }
@@ -217,17 +268,33 @@ function emailDomain(email: string | null): string | null {
   return domain === undefined || domain === '' || FREE_MAIL_DOMAINS.has(domain) ? null : domain
 }
 
-/** What a sync run's body is handed: the run, and where to report each model call's spend. */
-interface SyncRun {
+/** What an intake run's body is handed: the run, and where to report each model call's spend. */
+interface IntakeRun {
   readonly runId: string
   readonly model: string
-  readonly webSearch: boolean
   /**
    * Adds one provider request's usage to the run. `callForJson` calls it as
    * soon as each request answers, so a run that fails later, for any reason,
    * still records what the provider billed.
    */
   readonly spend: Spend
+  /** Refreshes the run's heartbeat before a long call, so the stale sweep leaves it alone. */
+  readonly beat: () => Promise<void>
+}
+
+/** The input and the caller each step stores in `context` while the run waits. */
+const identifyContextSchema = z.strictObject({ caller: storedCallerSchema })
+
+const researchContextSchema = z.strictObject({
+  caller: storedCallerSchema,
+  candidate: personIntakeCandidateWireSchema,
+  existing_person_id: z.string().min(1).nullable(),
+})
+
+const NOT_FOUND_MESSAGE = 'No person-intake run has that id'
+
+function kindOf(taskId: string): PersonIntakeRunKind {
+  return taskId === PERSON_INTAKE_TASKS.identify ? 'identify' : 'research'
 }
 
 export function createPersonIntake(dependencies: PersonIntakeDependencies): PersonIntake {
@@ -278,12 +345,12 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
 
   /**
    * One model call and, when the reply does not parse, one repair turn. The
-   * same shape as the executor. Each request's usage goes to `spend` when it
-   * answers, so a repair request that throws does not lose the first one's.
+   * same shape as the executor. Each request's usage goes to `run.spend` when
+   * it answers, so a repair request that throws does not lose the first one's.
    */
   async function callForJson<Value>(
     port: AiProviderPort,
-    spend: Spend,
+    run: IntakeRun,
     request: {
       readonly model: string
       readonly instructions: string
@@ -298,6 +365,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
     const webSources: AiWebSource[] = []
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      await run.beat()
       const result = await port.complete({
         model: request.model,
         maxTokens: dependencies.maxTokens,
@@ -308,7 +376,7 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
         webSearch: request.maxSearches === null || attempt > 0 ? undefined : { maxUses: request.maxSearches },
       })
 
-      spend({
+      run.spend({
         inputTokens: result.usage.inputTokens,
         outputTokens: result.usage.outputTokens,
         modelRequests: result.usage.requests ?? 1,
@@ -359,12 +427,11 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
    */
   function searchForResearch(
     port: AiProviderPort,
-    spend: Spend,
-    model: string,
+    run: IntakeRun,
     context: ResearchSearchContext,
   ): Promise<JsonCall<ResearchFindingsReply>> {
-    return callForJson(port, spend, {
-      model,
+    return callForJson(port, run, {
+      model: run.model,
       instructions: renderResearchSearchInstructions(),
       message: renderResearchSearchMessage(context),
       schemaName: 'kelpie_person_intake_research_findings',
@@ -375,56 +442,77 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
   }
 
   /**
-   * Runs `body` inside a synchronous AI run: admits it, and settles the row
-   * whatever happens, so a thrown error never leaves it `running`. The row
-   * gets every request's usage reported through `spend`, on success and on
-   * failure alike. A run that made no request has no counts at all, which is
-   * not the same as a request that spent nothing.
+   * Runs `body` for a claimed intake run and settles the row whatever
+   * happens, so a thrown error never leaves it `running`. On success the row
+   * keeps the reply body for an hour. The row gets every request's usage
+   * reported through `spend`, on success and on failure alike. A run that
+   * made no request has no counts at all, which is not the same as a request
+   * that spent nothing. Never rejects.
    */
-  async function withSyncRun<Result>(
-    workspaceId: string,
-    taskId: string,
-    prompt: string,
-    body: (sync: SyncRun) => Promise<Result>,
-  ): Promise<Result> {
-    const sync = await dependencies.service.startSyncRun(workspaceId, taskId, prompt)
-    const runId = sync.run.id
+  async function settleAround(
+    run: AiRunRecord,
+    body: (intakeRun: IntakeRun) => Promise<Readonly<Record<string, unknown>>>,
+  ): Promise<void> {
     let spent: RunUsage | undefined
-    let settled = false
 
     try {
       const result = await body({
-        runId,
-        model: sync.model,
-        webSearch: sync.webSearch,
+        runId: run.id,
+        model: run.model,
         spend: (usage) => {
           spent = addUsage(spent ?? NO_USAGE, usage)
         },
+        beat: () => touchRun(dependencies.db, run.id, dependencies.now()),
       })
-      settled = true
-      await dependencies.service.settleSyncRun(workspaceId, runId, { status: 'succeeded', ...spent })
 
-      return result
+      await dependencies.settler.settle(run.workspaceId, run.id, {
+        status: 'succeeded',
+        result,
+        resultExpiresAt: new Date(dependencies.now().getTime() + INTAKE_RESULT_TTL_MS),
+        ...spent,
+      })
     } catch (thrown: unknown) {
-      if (!settled) {
-        await dependencies.service
-          .settleSyncRun(workspaceId, runId, {
-            status: 'failed',
-            failureReason: thrown instanceof AppError ? thrown.message : PROVIDER_FAILURE_MESSAGE,
-            ...spent,
-          })
-          .catch((settleError: unknown) => {
-            dependencies.log.error('ai intake run could not be settled', { runId, error: describeThrown(settleError) })
-          })
-      }
       if (!(thrown instanceof AppError)) {
-        dependencies.log.error('ai intake threw', { runId, error: describeThrown(thrown) })
-        const failure = new AppError('internal_error', PROVIDER_FAILURE_MESSAGE)
-        failure.cause = thrown
-        throw failure
+        dependencies.log.error('ai intake threw', { runId: run.id, error: describeThrown(thrown) })
       }
-      throw thrown
+
+      await dependencies.settler
+        .settle(run.workspaceId, run.id, {
+          status: 'failed',
+          failureReason: thrown instanceof AppError ? thrown.message : PROVIDER_FAILURE_MESSAGE,
+          ...spent,
+        })
+        .catch((settleError: unknown) => {
+          dependencies.log.error('ai intake run could not be settled', { runId: run.id, error: describeThrown(settleError) })
+        })
     }
+  }
+
+  /**
+   * The caller, as the job acts: the stored identity, checked against the
+   * workspace's members as they are now.
+   *
+   * @throws AppError when the caller has gone, so the run fails with that reason.
+   */
+  async function callerActor(workspaceId: string, context: StoredCaller): Promise<Actor> {
+    const resolved = await resolveStoredCaller(dependencies.db, workspaceId, context)
+
+    if (!resolved.ok) {
+      throw AppError.conflict(resolved.reason)
+    }
+
+    return resolved.actor
+  }
+
+  /** Whether this workspace may search now. Read at job start: an admin may have switched it since. */
+  async function webSearchFor(workspaceId: string): Promise<boolean> {
+    const settings = await findSettings(dependencies.db, workspaceId)
+
+    if (settings === undefined) {
+      throw AppError.conflict('AI is not enabled for this workspace; an admin can enable it in AI settings')
+    }
+
+    return settings.webSearch
   }
 
   async function existingPeopleFor(
@@ -467,136 +555,253 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
     return found
   }
 
+  /** Identify, as `actor`: one model call, then the caller's own lookups for existing People. */
+  async function identifyAs(
+    actor: Actor,
+    text: string,
+    run: IntakeRun,
+    webSearch: boolean,
+  ): Promise<WireIdentifyResponse> {
+    const workspaceId = requireWorkspace(actor)
+    const tools = indexByName(dependencies.listTools())
+    const port = await portFor(workspaceId)
+    const call = await callForJson(port, run, {
+      model: run.model,
+      instructions: renderIdentifyInstructions(webSearch),
+      message: renderIdentifyMessage(text),
+      schemaName: 'kelpie_person_intake_identify',
+      jsonSchema: IDENTIFY_REPLY_JSON_SCHEMA,
+      schema: identifyReplySchema,
+      maxSearches: webSearch ? IDENTIFY_MAX_SEARCHES : null,
+    })
+
+    if (!call.ok) throw call.error
+
+    const candidates = normaliseCandidates(call.value)
+    for (const [index, candidate] of candidates.entries()) {
+      candidates[index] = { ...candidate, existing_people: await existingPeopleFor(tools, actor, candidate) }
+    }
+
+    return personIntakeIdentifyResponseWireSchema.parse({
+      candidates,
+      question: candidates.length === 0 ? (call.value.question ?? 'Add more detail about this person.') : null,
+      sources: keepSources(call.value.sources, webSearch ? call.webSources : undefined, text),
+      run_id: run.runId,
+    })
+  }
+
+  /**
+   * Research, as `actor`. The CRM is read first, with the caller's actor, and
+   * only the record turn sees it; the search turn never does.
+   */
+  async function researchAs(
+    actor: Actor,
+    input: ResearchInput,
+    run: IntakeRun,
+    webSearch: boolean,
+  ): Promise<WireResearchResponse> {
+    const workspaceId = requireWorkspace(actor)
+    const tools = indexByName(dependencies.listTools())
+    let existingPerson: string | null = null
+    const heldPositions = new Set<string>()
+    const companyTerms = new Set<string>()
+
+    if (input.existingPersonId !== null) {
+      const person = await requireTool(tools, 'people_get').invoke({ id: input.existingPersonId }, actor)
+      const positions = listData(
+        await requireTool(tools, 'positions_list').invoke({ person_id: input.existingPersonId, limit: 50 }, actor),
+      )
+
+      existingPerson = '```json\n' + JSON.stringify(person, null, 2) + '\n```'
+      for (const position of positions) {
+        const companyId = stringField(position, 'company_id')
+        if (companyId !== null) heldPositions.add(`${companyId}:${(stringField(position, 'title') ?? '').toLowerCase()}`)
+      }
+    }
+
+    if (input.candidate.company_name !== null && input.candidate.company_name !== '') {
+      companyTerms.add(input.candidate.company_name)
+    }
+    const domain = emailDomain(input.candidate.email)
+    if (domain !== null) companyTerms.add(domain)
+
+    const companies = await existingCompaniesFor(tools, actor, [...companyTerms])
+    const existingCompanies =
+      companies.size === 0
+        ? 'None found.'
+        : [...companies.values()]
+            .map((company) => {
+              const id = stringField(company, 'id') ?? ''
+              const companyDomain = stringField(company, 'domain')
+              return `- ${stringField(company, 'name') ?? ''} (id ${id}${companyDomain === null ? '' : `, ${companyDomain}`})`
+            })
+            .join('\n')
+
+    const port = await portFor(workspaceId)
+    let findings: ResearchFindings | null = null
+    let searched: readonly AiWebSource[] | undefined
+
+    if (webSearch) {
+      const search = await searchForResearch(port, run, { text: input.text, candidate: input.candidate })
+
+      if (!search.ok) throw search.error
+
+      searched = search.webSources
+      findings = {
+        text: search.value.findings,
+        sources: keepSources(search.value.sources, searched, input.text),
+      }
+    }
+
+    const call = await callForJson(port, run, {
+      model: run.model,
+      instructions: renderResearchInstructions(findings !== null),
+      message: renderResearchMessage({
+        text: input.text,
+        candidate: input.candidate,
+        findings,
+        existingPerson,
+        existingCompanies,
+      }),
+      schemaName: 'kelpie_person_intake_research',
+      jsonSchema: RESEARCH_REPLY_JSON_SCHEMA,
+      schema: researchReplySchema,
+      // This turn holds CRM records, so it and its repair turn get no web tool.
+      maxSearches: null,
+    })
+
+    if (!call.ok) throw call.error
+
+    // The record turn cannot search, so the pages the search turn was
+    // given are still the allow-list for what it cites.
+    const sources = keepSources(call.value.sources, searched, input.text)
+    const items = normaliseResearch({
+      reply: call.value,
+      existingPersonId: input.existingPersonId,
+      offeredCompanyIds: new Set(companies.keys()),
+      heldPositions,
+      sources,
+    })
+
+    return personIntakeResearchResponseWireSchema.parse({
+      summary: call.value.summary,
+      items,
+      sources,
+      run_id: run.runId,
+    })
+  }
+
+  /** A kept result, parsed back with its step's wire schema. A row that does not parse reads as gone. */
+  function storedResult<Value>(runId: string, stored: unknown, schema: z.ZodType<Value>): Value | null {
+    if (stored === null || stored === undefined) return null
+
+    const parsed = schema.safeParse(stored)
+    if (!parsed.success) {
+      dependencies.log.warn('ai intake result did not parse', { runId })
+      return null
+    }
+
+    return parsed.data
+  }
+
   return {
     async identify(actor, text) {
       const workspaceId = requireWorkspace(actor)
-      const tools = indexByName(dependencies.listTools())
-
-      return withSyncRun(workspaceId, 'person_intake.identify', text, async (sync) => {
-        const port = await portFor(workspaceId)
-        const call = await callForJson(port, sync.spend, {
-          model: sync.model,
-          instructions: renderIdentifyInstructions(sync.webSearch),
-          message: renderIdentifyMessage(text),
-          schemaName: 'kelpie_person_intake_identify',
-          jsonSchema: IDENTIFY_REPLY_JSON_SCHEMA,
-          schema: identifyReplySchema,
-          maxSearches: sync.webSearch ? IDENTIFY_MAX_SEARCHES : null,
-        })
-
-        if (!call.ok) throw call.error
-
-        const candidates = normaliseCandidates(call.value)
-        for (const [index, candidate] of candidates.entries()) {
-          candidates[index] = { ...candidate, existing_people: await existingPeopleFor(tools, actor, candidate) }
-        }
-
-        return personIntakeIdentifyResponseWireSchema.parse({
-          candidates,
-          question: candidates.length === 0 ? (call.value.question ?? 'Add more detail about this person.') : null,
-          sources: keepSources(call.value.sources, sync.webSearch ? call.webSources : undefined, text),
-          run_id: sync.runId,
-        })
+      const run = await dependencies.service.acceptIntakeRun({
+        workspaceId,
+        taskId: PERSON_INTAKE_TASKS.identify,
+        prompt: text,
+        context: identifyContextSchema.parse({ caller: requireStoredCaller(actor) }),
+        requestedBy: requesterKey(actor),
       })
+
+      return { run_id: run.id }
     },
 
     async research(actor, input) {
       const workspaceId = requireWorkspace(actor)
       const tools = indexByName(dependencies.listTools())
 
-      // Read what the CRM already holds before the run starts, so a wrong
-      // Person id is a plain 404 and costs no AI run.
-      let existingPerson: string | null = null
-      const heldPositions = new Set<string>()
-      const companyTerms = new Set<string>()
-
+      // Before the run is recorded, so a wrong Person id, or one the caller
+      // cannot read, is a plain 404 and costs no AI run. The job reads it
+      // again, as the caller is then.
       if (input.existingPersonId !== null) {
-        const person = await requireTool(tools, 'people_get').invoke({ id: input.existingPersonId }, actor)
-        const positions = listData(
-          await requireTool(tools, 'positions_list').invoke({ person_id: input.existingPersonId, limit: 50 }, actor),
+        await requireTool(tools, 'people_get').invoke({ id: input.existingPersonId }, actor)
+      }
+
+      const run = await dependencies.service.acceptIntakeRun({
+        workspaceId,
+        taskId: PERSON_INTAKE_TASKS.research,
+        prompt: input.text,
+        context: researchContextSchema.parse({
+          caller: requireStoredCaller(actor),
+          candidate: input.candidate,
+          existing_person_id: input.existingPersonId,
+        }),
+        requestedBy: requesterKey(actor),
+      })
+
+      return { run_id: run.id }
+    },
+
+    async readRun(actor, runId) {
+      const workspaceId = requireWorkspace(actor)
+      const run = await findRun(dependencies.db, workspaceId, runId)
+
+      if (run === undefined || !isPersonIntakeTask(run.taskId) || run.requestedBy !== requesterKey(actor)) {
+        throw AppError.notFound(NOT_FOUND_MESSAGE)
+      }
+
+      const now = dependencies.now()
+      const expired = run.resultExpiresAt !== null && run.resultExpiresAt.getTime() <= now.getTime()
+
+      if (expired && run.result !== null) {
+        await clearExpiredResults(dependencies.db, workspaceId, now)
+      }
+
+      const kept = run.status === 'succeeded' && !expired ? run.result : null
+      const common = {
+        run_id: run.id,
+        status: run.status,
+        failure_reason: run.status === 'failed' ? run.failureReason : null,
+        expires_at: run.resultExpiresAt === null ? null : run.resultExpiresAt.toISOString(),
+      }
+
+      if (kindOf(run.taskId) === 'identify') {
+        return { ...common, kind: 'identify', result: storedResult(run.id, kept, personIntakeIdentifyResponseWireSchema) }
+      }
+
+      return { ...common, kind: 'research', result: storedResult(run.id, kept, personIntakeResearchResponseWireSchema) }
+    },
+
+    async execute(run) {
+      const workspaceId = run.workspaceId
+      const prompt = run.prompt
+
+      await settleAround(run, async (intakeRun) => {
+        if (prompt === null) {
+          throw AppError.conflict('The run has no notes to send')
+        }
+
+        if (kindOf(run.taskId) === 'identify') {
+          const context = identifyContextSchema.safeParse(run.context)
+          if (!context.success) throw new AppError('internal_error', 'The run holds no valid input')
+
+          // The caller first: one who has left makes no model call.
+          const actor = await callerActor(workspaceId, context.data.caller)
+          return identifyAs(actor, prompt, intakeRun, await webSearchFor(workspaceId))
+        }
+
+        const context = researchContextSchema.safeParse(run.context)
+        if (!context.success) throw new AppError('internal_error', 'The run holds no valid input')
+
+        const actor = await callerActor(workspaceId, context.data.caller)
+        return researchAs(
+          actor,
+          { text: prompt, candidate: context.data.candidate, existingPersonId: context.data.existing_person_id },
+          intakeRun,
+          await webSearchFor(workspaceId),
         )
-
-        existingPerson = '```json\n' + JSON.stringify(person, null, 2) + '\n```'
-        for (const position of positions) {
-          const companyId = stringField(position, 'company_id')
-          if (companyId !== null) heldPositions.add(`${companyId}:${(stringField(position, 'title') ?? '').toLowerCase()}`)
-        }
-      }
-
-      if (input.candidate.company_name !== null && input.candidate.company_name !== '') {
-        companyTerms.add(input.candidate.company_name)
-      }
-      const domain = emailDomain(input.candidate.email)
-      if (domain !== null) companyTerms.add(domain)
-
-      const companies = await existingCompaniesFor(tools, actor, [...companyTerms])
-      const existingCompanies =
-        companies.size === 0
-          ? 'None found.'
-          : [...companies.values()]
-              .map((company) => {
-                const id = stringField(company, 'id') ?? ''
-                const companyDomain = stringField(company, 'domain')
-                return `- ${stringField(company, 'name') ?? ''} (id ${id}${companyDomain === null ? '' : `, ${companyDomain}`})`
-              })
-              .join('\n')
-
-      return withSyncRun(workspaceId, 'person_intake.research', input.text, async (sync) => {
-        const port = await portFor(workspaceId)
-        let findings: ResearchFindings | null = null
-        let searched: readonly AiWebSource[] | undefined
-
-        if (sync.webSearch) {
-          const search = await searchForResearch(port, sync.spend, sync.model, {
-            text: input.text,
-            candidate: input.candidate,
-          })
-
-          if (!search.ok) throw search.error
-
-          searched = search.webSources
-          findings = {
-            text: search.value.findings,
-            sources: keepSources(search.value.sources, searched, input.text),
-          }
-        }
-
-        const call = await callForJson(port, sync.spend, {
-          model: sync.model,
-          instructions: renderResearchInstructions(findings !== null),
-          message: renderResearchMessage({
-            text: input.text,
-            candidate: input.candidate,
-            findings,
-            existingPerson,
-            existingCompanies,
-          }),
-          schemaName: 'kelpie_person_intake_research',
-          jsonSchema: RESEARCH_REPLY_JSON_SCHEMA,
-          schema: researchReplySchema,
-          // This turn holds CRM records, so it and its repair turn get no web tool.
-          maxSearches: null,
-        })
-
-        if (!call.ok) throw call.error
-
-        // The record turn cannot search, so the pages the search turn was
-        // given are still the allow-list for what it cites.
-        const sources = keepSources(call.value.sources, searched, input.text)
-        const items = normaliseResearch({
-          reply: call.value,
-          existingPersonId: input.existingPersonId,
-          offeredCompanyIds: new Set(companies.keys()),
-          heldPositions,
-          sources,
-        })
-
-        return personIntakeResearchResponseWireSchema.parse({
-          summary: call.value.summary,
-          items,
-          sources,
-          run_id: sync.runId,
-        })
       })
     },
 

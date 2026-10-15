@@ -18,7 +18,8 @@ import { AI_RUN_STATUSES } from '@kelpie/schemas'
  * so a database that applied them there sees them as done.
  *
  * `ai_runs` records every run this module handled: metadata only, never the
- * model's reply. The dedupe key is the
+ * model's reply, except a person-intake result for its first hour. The dedupe
+ * key is the
  * `agent_run_id` core assigned, because core dispatches at-least-once in
  * principle (in practice one attempt with no retries, per its own dispatch
  * doctrine) and the intake must be idempotent regardless.
@@ -123,6 +124,22 @@ export const aiRuns = pgTable(
     modelRequests: integer('model_requests'),
     /** Web searches the provider reported for the run. Null as above. */
     webSearches: integer('web_searches'),
+    /**
+     * Who may read a person-intake run: `user:<id>` for a session, a personal
+     * key or an OAuth grant, `api_key:<id>` for a workspace key. Null on an
+     * agent-task run, which only the admin run log reads. Kept after the run
+     * settles, unlike `context`, so the rule still holds once the result has
+     * gone.
+     */
+    requestedBy: text('requested_by'),
+    /**
+     * A person-intake run's reply body, the one exception to "metadata only":
+     * the user paid for it, and a dropped request or a reload must not lose
+     * it. Set when the run succeeds and deleted at `result_expires_at`.
+     */
+    result: jsonb('result'),
+    /** When `result` is deleted. Kept after that, so the run still says when it went. */
+    resultExpiresAt: timestamp('result_expires_at', { withTimezone: true, mode: 'date' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },

@@ -1,5 +1,5 @@
 import type { Queryable, Transaction } from '../../runtime/transaction.ts'
-import { and, count, desc, eq, gte, inArray, lt, notInArray, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gte, inArray, isNotNull, lt, lte, notInArray, sql } from 'drizzle-orm'
 
 import { keysetCondition, orderByWindow, timestampSort } from '../../lib/pagination.ts'
 import type { ListWindow, SortableFields } from '../../lib/pagination.ts'
@@ -65,6 +65,15 @@ export interface AiRunRecord {
   readonly outputTokens: number | null
   readonly modelRequests: number | null
   readonly webSearches: number | null
+  /** Who may read a person-intake run (`schema.ts`). Null on an agent-task run. */
+  readonly requestedBy: string | null
+  /**
+   * A person-intake run's reply body while it is kept. Not typed here: the
+   * intake code parses it with the wire schema of the run's step when it
+   * reads it back.
+   */
+  readonly result: unknown
+  readonly resultExpiresAt: Date | null
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -86,6 +95,9 @@ function toRun(row: {
   outputTokens: number | null
   modelRequests: number | null
   webSearches: number | null
+  requestedBy: string | null
+  result: unknown
+  resultExpiresAt: Date | null
   createdAt: Date
   updatedAt: Date
 }): AiRunRecord {
@@ -109,6 +121,9 @@ function toRun(row: {
     outputTokens: row.outputTokens,
     modelRequests: row.modelRequests,
     webSearches: row.webSearches,
+    requestedBy: row.requestedBy,
+    result: row.result,
+    resultExpiresAt: row.resultExpiresAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -258,24 +273,23 @@ export async function insertRunIfNew(
 }
 
 /**
- * Records a synchronous run, such as a person-intake call, already `running`.
+ * Records a person-intake run, `queued`, for the executor to claim like any
+ * other run.
  *
- * Not queued, so the executor never claims it: the caller makes the
- * model call itself and settles the row. It still counts against the monthly
- * limit and shows in the run log. The row's own id doubles as its
- * `agent_run_id`, because no core agent run stands behind it and the column is
- * a unique, non-null dedupe key.
+ * The row's own id doubles as its `agent_run_id`, because no core agent run
+ * stands behind it and the column is a unique, non-null dedupe key. `context`
+ * holds the step's input and the caller, until the run settles.
  */
-export async function insertRunningRun(
+export async function insertIntakeRun(
   db: Queryable,
   values: {
     readonly id: string
     readonly workspaceId: string
     readonly taskId: string
-    readonly targetType: string
-    readonly targetId: string
     readonly model: string
     readonly prompt: string
+    readonly context: Readonly<Record<string, unknown>>
+    readonly requestedBy: string
   },
   now: Date,
 ): Promise<AiRunRecord> {
@@ -286,12 +300,13 @@ export async function insertRunningRun(
       workspaceId: values.workspaceId,
       agentRunId: values.id,
       taskId: values.taskId,
-      targetType: values.targetType,
-      targetId: values.targetId,
+      targetType: 'workspace',
+      targetId: values.workspaceId,
       model: values.model,
       prompt: values.prompt,
-      context: null,
-      status: 'running',
+      context: values.context,
+      requestedBy: values.requestedBy,
+      status: 'queued',
       createdAt: now,
       updatedAt: now,
     })
@@ -407,6 +422,9 @@ export interface SettleRunInput {
   readonly outputTokens?: number | null
   readonly modelRequests?: number | null
   readonly webSearches?: number | null
+  /** A person-intake run's reply body, kept until `resultExpiresAt`. */
+  readonly result?: Readonly<Record<string, unknown>>
+  readonly resultExpiresAt?: Date
 }
 
 export async function settleRun(
@@ -425,11 +443,31 @@ export async function settleRun(
   if (changes.outputTokens !== undefined) update.outputTokens = changes.outputTokens
   if (changes.modelRequests !== undefined) update.modelRequests = changes.modelRequests
   if (changes.webSearches !== undefined) update.webSearches = changes.webSearches
+  if (changes.result !== undefined) update.result = changes.result
+  if (changes.resultExpiresAt !== undefined) update.resultExpiresAt = changes.resultExpiresAt
 
   const rows = await db.update(aiRuns).set(update).where(eq(aiRuns.id, id)).returning()
   const row = rows[0]
 
   return row === undefined ? undefined : toRun(row)
+}
+
+/**
+ * Deletes the person-intake results of this workspace whose hour has passed.
+ * `result_expires_at` stays, so a read can still say when the result went.
+ *
+ * @returns How many results went.
+ */
+export async function clearExpiredResults(db: Queryable, workspaceId: string, now: Date): Promise<number> {
+  const cleared = await db
+    .update(aiRuns)
+    .set({ result: null })
+    .where(
+      and(eq(aiRuns.workspaceId, workspaceId), isNotNull(aiRuns.result), lte(aiRuns.resultExpiresAt, now)),
+    )
+    .returning({ id: aiRuns.id })
+
+  return cleared.length
 }
 
 /**

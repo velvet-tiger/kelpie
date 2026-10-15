@@ -88,6 +88,45 @@ While the major version is `0`, a minor bump may break the API.
     Neither is a webhook event.
 ### Changed
 
+- **Breaking, `@kelpie/server`, `@kelpie/schemas`, `@kelpie/ui`** — **Person
+  intake runs on the job queue, and a reload finds the run again.**
+  `POST /v1/ai/person-intake/identify` and `/research` now answer `202` with
+  `{ run_id }` instead of `200` with the result. They check the body and
+  admit the run as before, save it `queued`, and queue `ai.drain` in the same
+  transaction. `research` still reads the existing Person first, so a wrong
+  id is a `404` and costs no run. A client reads the new
+  `GET /v1/ai/person-intake/runs/:id` until `status` is `succeeded` or
+  `failed`. It answers `{ run_id, kind, status, result, failure_reason,
+  expires_at }`, and `result` is the body the step answered before. Only
+  the caller who started the run can read it: the same user for a session,
+  a personal key or an OAuth grant, and the same key for a workspace key.
+  Anyone else gets `404`. The route needs `ai:write`. `apply` does not
+  change.
+  - **The run acts as its caller.** It stores the caller's identity while it
+    waits. At job start it checks that the caller is still a member and takes
+    the member's current role; a key keeps its scopes. A caller who has left,
+    or a deleted key or revoked grant, fails the run with that reason and no
+    model call. Kelpie AI's own actor is never used for intake.
+  - **The result is kept for one hour,** then deleted when the run is read
+    or by the sweep on the next intake. Intake runs share
+    `AI_MAX_CONCURRENT_RUNS` with agent-task runs and are never retried.
+  - **Migration:** `ai` module migration `0010_intake_run_results` adds
+    `ai_runs.requested_by`, `ai_runs.result` and `ai_runs.result_expires_at`.
+  - **`@kelpie/schemas`:** new `personIntakeRunWireSchema`,
+    `personIntakeRunSchema`, `personIntakeRunStartedSchema`,
+    `personIntakeSavedRunSchema` and their types. `@kelpie/ui`:
+    `useIdentifyPerson` and `useResearchPerson` are replaced by
+    `useStartIdentify`, `useStartResearch` and `usePersonIntakeRun`.
+    `AiDrawerTask` gains `onEnd`, and `useAiDrawer()` gains `restore`.
+  - **UI:** the wizard polls the run every 2 seconds and keeps the run and
+    the step in `sessionStorage`, one entry per workspace. After a reload the
+    task comes back in the header with the drawer closed. A run whose result
+    has gone shows "This result is no longer available. Start again." with
+    the notes still filled in.
+  - **Upgrade:** a client of `identify` or `research` must read the run
+    instead of the response body. An intake run left `running` by an older
+    version is failed by the stale sweep.
+
 - **`@kelpie/server`** — **Agent-task runs are dispatched through the job
   queue.** A Run writes the run and one `agent-tasks.dispatch` job in one
   transaction, so a restart no longer strands a run at `queued`. The job

@@ -573,6 +573,8 @@ export {
   PERSON_INTAKE_MAX_TEXT,
   PERSON_INTAKE_PERSON_KEY,
   PERSON_INTAKE_RESULT_STATUSES,
+  PERSON_INTAKE_RUN_KINDS,
+  PERSON_INTAKE_SAVED_STEPS,
   personIntakeApplyResultSchema,
   personIntakeApplyResponseWireSchema,
   personIntakeCandidateBody,
@@ -584,6 +586,11 @@ export {
   personIntakeItemWireSchema,
   personIntakeResearchResponseWireSchema,
   personIntakeResearchResultSchema,
+  personIntakeRunSchema,
+  personIntakeRunStartedSchema,
+  personIntakeRunStartedWireSchema,
+  personIntakeRunWireSchema,
+  personIntakeSavedRunSchema,
   personIntakeSourceWireSchema,
 } from './personIntake.ts'
 export type {
@@ -601,6 +608,11 @@ export type {
   PersonIntakeResearchResult,
   PersonIntakeResult,
   PersonIntakeResultStatus,
+  PersonIntakeRun,
+  PersonIntakeRunKind,
+  PersonIntakeRunStarted,
+  PersonIntakeRunWire,
+  PersonIntakeSavedRun,
   PersonIntakeSource,
 } from './personIntake.ts'
 

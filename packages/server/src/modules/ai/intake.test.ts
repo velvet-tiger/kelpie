@@ -78,12 +78,18 @@ interface Harness {
   limit: number | undefined
   /** True makes the module fail to build a port, as a run that dies before any model request. */
   portFails: boolean
+  /** Added to the real clock the services read, so a test can move past the result's hour. */
+  clockOffsetMs: number
 }
 
 async function buildHarness(database: TestDatabase): Promise<Harness> {
   const provider = makeProviderFake()
   const entitlements = createEntitlementRegistry()
-  const state: { limit: number | undefined; portFails: boolean } = { limit: undefined, portFails: false }
+  const state: { limit: number | undefined; portFails: boolean; clockOffsetMs: number } = {
+    limit: undefined,
+    portFails: false,
+    clockOffsetMs: 0,
+  }
 
   entitlements.provide((_workspaceId, capability) =>
     Promise.resolve(
@@ -100,7 +106,7 @@ async function buildHarness(database: TestDatabase): Promise<Harness> {
   const app = await createTestApp({
     modules: [...coreModules, createAiModule({ keyMode: 'workspace', providers: { openai: build, anthropic: build } })],
     environment: TEST_ENVIRONMENT,
-    services: createTestServices({ db: database.db }),
+    services: createTestServices({ db: database.db, now: () => new Date(Date.now() + state.clockOffsetMs) }),
     entitlements,
   })
 
@@ -125,6 +131,12 @@ async function buildHarness(database: TestDatabase): Promise<Harness> {
     },
     set portFails(value) {
       state.portFails = value
+    },
+    get clockOffsetMs() {
+      return state.clockOffsetMs
+    },
+    set clockOffsetMs(value) {
+      state.clockOffsetMs = value
     },
   }
 }
@@ -242,6 +254,46 @@ async function seedCrmRecords(
   }
 }
 
+type IntakeStep = 'identify' | 'research'
+
+type Credential = { readonly cookie: string } | { readonly bearer: string }
+
+/** Starts an intake step. The step answers before any model call. */
+function startIntake(h: Harness, step: IntakeStep, credential: Credential, body: unknown): Promise<Response> {
+  return h.client.send('POST', `/v1/ai/person-intake/${step}`, { ...credential, body })
+}
+
+/** Reads an intake run as `credential`. */
+function readIntakeRun(h: Harness, runId: string, credential: Credential): Promise<Response> {
+  return h.client.send('GET', `/v1/ai/person-intake/runs/${runId}`, credential)
+}
+
+/**
+ * Starts an intake step, works the queue as the worker would, and reads the
+ * run back as its caller.
+ */
+async function intakeRun(
+  h: Harness,
+  step: IntakeStep,
+  credential: Credential,
+  body: unknown,
+): Promise<Record<string, unknown>> {
+  const started = await startIntake(h, step, credential, body)
+  if (started.status !== 202) {
+    throw new Error(`Starting ${step} answered ${String(started.status)}: ${await started.text()}`)
+  }
+
+  const runId = readString(await started.json(), 'run_id')
+  await h.app.runQueuedJobs()
+
+  const read = await readIntakeRun(h, runId, credential)
+  if (read.status !== 200) {
+    throw new Error(`Reading run ${runId} answered ${String(read.status)}: ${await read.text()}`)
+  }
+
+  return readRecord(await read.json())
+}
+
 async function runRows(h: Harness, workspaceId: string): Promise<(typeof aiRuns.$inferSelect)[]> {
   return h.app.services.db.select().from(aiRuns).where(eq(aiRuns.workspaceId, workspaceId))
 }
@@ -273,15 +325,13 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
     h.provider.reset()
     h.limit = undefined
     h.portFails = false
+    h.clockOffsetMs = 0
   })
 
   describe('identify', () => {
     it('refuses while AI is not enabled, and records no run', async () => {
       const owner = await h.client.owner('off@example.com')
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes' },
-      })
+      const response = await startIntake(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
 
       expect(response.status).toBe(409)
       expect(h.provider.requests).toHaveLength(0)
@@ -290,10 +340,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
 
     it('refuses empty notes', async () => {
       const owner = await enabledOwner(h, 'empty@example.com')
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: '   ' },
-      })
+      const response = await startIntake(h, 'identify', { cookie: owner.cookie }, { text: '   ' })
 
       expect(response.status).toBe(422)
     })
@@ -307,13 +354,10 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       const existingId = readString(readRecord(await existing.json()), 'id')
 
       h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes, dana@brightline.health, met at HLTH' },
-      })
+      const intake = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes, dana@brightline.health, met at HLTH' })
 
-      expect(response.status).toBe(200)
-      const body = readRecord(await response.json())
+      expect(intake.status).toBe('succeeded')
+      const body = readRecord(intake.result)
       const [candidate] = body.candidates as Record<string, unknown>[]
 
       expect(h.provider.requests[0]?.webSearch).toEqual({ maxUses: 4 })
@@ -352,11 +396,8 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect(readRecord(await saved.json()).web_search).toBe(false)
 
       h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes, see https://brightline.health/team' },
-      })
-      const body = readRecord(await response.json())
+      const intake = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes, see https://brightline.health/team' })
+      const body = readRecord(intake.result)
 
       expect(h.provider.requests[0]?.webSearch).toBeUndefined()
       expect(h.provider.requests[0]?.instructions).toContain('Web search is off')
@@ -395,13 +436,10 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
           [...SEARCHED, { url: 'javascript:alert(1)', title: 'A search result that is not a page' }],
         ),
       )
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes, dana@brightline.health, met at HLTH' },
-      })
+      const intake = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes, dana@brightline.health, met at HLTH' })
 
-      expect(response.status).toBe(200)
-      const body = readRecord(await response.json())
+      expect(intake.status).toBe('succeeded')
+      const body = readRecord(intake.result)
       const [candidate] = body.candidates as Record<string, unknown>[]
 
       expect(candidate?.profile_urls).toEqual(['https://linkedin.com/in/danareyes'])
@@ -417,11 +455,8 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       const owner = await enabledOwner(h, 'question@example.com')
       h.provider.queue(reply({ candidates: [], question: 'Which company does Sam work at?', sources: [] }))
 
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Sam' },
-      })
-      const body = readRecord(await response.json())
+      const intake = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Sam' })
+      const body = readRecord(intake.result)
 
       expect(body.candidates).toEqual([])
       expect(body.question).toBe('Which company does Sam work at?')
@@ -431,11 +466,8 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       const owner = await enabledOwner(h, 'counts@example.com')
       h.provider.queue({ ...reply(IDENTIFY_REPLY, SEARCHED), usage: { inputTokens: 100, outputTokens: 50, requests: 3, webSearches: 4 } })
 
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes, dana@brightline.health' },
-      })
-      expect(response.status).toBe(200)
+      const intake = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes, dana@brightline.health' })
+      expect(intake.status).toBe('succeeded')
 
       const [run] = await runRows(h, owner.workspaceId)
       expect(run).toMatchObject({ modelRequests: 3, webSearches: 4 })
@@ -462,22 +494,17 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       h.provider.queue(reply('not json at all'))
       h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
 
-      const repaired = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes' },
-      })
-      expect(repaired.status).toBe(200)
+      const repaired = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      expect(repaired.status).toBe('succeeded')
       expect(h.provider.requests).toHaveLength(2)
       expect(h.provider.requests[1]?.webSearch).toBeUndefined()
       expect(h.provider.requests[1]?.messages[2]?.text).toContain('did not match the required JSON shape')
 
       h.provider.queue(reply('still not json'))
       h.provider.queue(reply({ candidates: 'nope' }))
-      const failed = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes' },
-      })
-      expect(failed.status).toBe(409)
+      const failed = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      expect(failed).toMatchObject({ status: 'failed', result: null })
+      expect(String(failed.failure_reason)).toContain('The model did not return a valid reply')
 
       const rows = await runRows(h, owner.workspaceId)
       expect(rows.map((row) => row.status).sort()).toEqual(['failed', 'succeeded'])
@@ -491,12 +518,13 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       // One reply only: the repair request finds the fake empty, and it rejects.
       h.provider.queue({ ...reply('not json at all'), usage: { inputTokens: 100, outputTokens: 50, webSearches: 2 } })
 
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes' },
-      })
+      const intake = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
 
-      expect(response.status).toBe(500)
+      expect(intake).toMatchObject({
+        status: 'failed',
+        failure_reason: 'The AI service was unavailable. Try again shortly.',
+        result: null,
+      })
       expect(h.provider.requests).toHaveLength(2)
       const [run] = await runRows(h, owner.workspaceId)
       expect(run).toMatchObject({
@@ -514,12 +542,9 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       // The run is admitted, then no port can be built for it.
       h.portFails = true
 
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes' },
-      })
+      const intake = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
 
-      expect(response.status).toBe(500)
+      expect(intake.status).toBe('failed')
       expect(h.provider.requests).toHaveLength(0)
       const [run] = await runRows(h, owner.workspaceId)
       expect(run).toMatchObject({
@@ -547,13 +572,9 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
         failure: { code: 'invalid_api_key', message: 'The Anthropic API key was rejected.' },
       })
 
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes' },
-      })
+      const intake = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
 
-      expect(response.status).toBe(500)
-      expect(readString(readRecord(await response.json()).error, 'message')).toBe('The Anthropic API key was rejected.')
+      expect(intake).toMatchObject({ status: 'failed', failure_reason: 'The Anthropic API key was rejected.' })
       const [run] = await runRows(h, owner.workspaceId)
       expect(run?.status).toBe('failed')
     })
@@ -562,10 +583,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       const owner = await enabledOwner(h, 'limit@example.com')
       h.limit = 0
 
-      const response = await h.client.send('POST', '/v1/ai/person-intake/identify', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes' },
-      })
+      const response = await startIntake(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
 
       expect(response.status).toBe(403)
       expect(h.provider.requests).toHaveLength(0)
@@ -583,13 +601,10 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
 
       h.provider.queue(reply(FINDINGS_REPLY, SEARCHED))
       h.provider.queue(reply(researchReply(companyId)))
-      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes, dana@brightline.health', candidate: CANDIDATE },
-      })
+      const intake = await intakeRun(h, 'research', { cookie: owner.cookie }, { text: 'Dana Reyes, dana@brightline.health', candidate: CANDIDATE })
 
-      expect(response.status).toBe(200)
-      const body = readRecord(await response.json())
+      expect(intake.status).toBe('succeeded')
+      const body = readRecord(intake.result)
       const [search, record] = h.provider.requests
 
       // The search turn searches; the turn that is offered the companies does not.
@@ -644,12 +659,9 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
         }),
         usage: { inputTokens: 300, outputTokens: 70 },
       })
-      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes, dana@brightline.health', candidate: CANDIDATE, existing_person_id: crm.personId },
-      })
+      const intake = await intakeRun(h, 'research', { cookie: owner.cookie }, { text: 'Dana Reyes, dana@brightline.health', candidate: CANDIDATE, existing_person_id: crm.personId })
 
-      expect(response.status).toBe(200)
+      expect(intake.status).toBe('succeeded')
       expect(h.provider.requests).toHaveLength(2)
       const [search, record] = h.provider.requests
 
@@ -674,7 +686,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
 
       // A source counts when the search turn's search returned it, though the record turn cited it.
       // A URL that is only in the findings text was never searched, so it does not count.
-      const body = readRecord(await response.json())
+      const body = readRecord(intake.result)
       expect(body.sources).toEqual([{ url: 'https://www.brightline.health/team/', title: 'Team' }])
       const items = body.items as Record<string, unknown>[]
       expect(items[0]).toMatchObject({ kind: 'person', action: 'update', existing_id: crm.personId })
@@ -700,12 +712,9 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       h.provider.queue(reply(FINDINGS_REPLY))
       h.provider.queue(reply('still not json'))
       h.provider.queue(reply(researchReply(crm.companyId)))
-      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes, dana@brightline.health', candidate: CANDIDATE, existing_person_id: crm.personId },
-      })
+      const intake = await intakeRun(h, 'research', { cookie: owner.cookie }, { text: 'Dana Reyes, dana@brightline.health', candidate: CANDIDATE, existing_person_id: crm.personId })
 
-      expect(response.status).toBe(200)
+      expect(intake.status).toBe('succeeded')
       expect(h.provider.requests.map((request) => request.webSearch)).toEqual([{ maxUses: 8 }, undefined, undefined, undefined])
       // The search turn's repair is still the search turn: no CRM record joins it.
       for (const request of h.provider.requests.slice(0, 2)) {
@@ -713,7 +722,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       }
       expect(h.provider.requests[3]?.messages[2]?.text).toContain('did not match the required JSON shape')
       // The first attempt's search still vouches for the source.
-      expect(readRecord(await response.json()).sources).toEqual([{ url: 'https://www.brightline.health/team/', title: 'Team' }])
+      expect(readRecord(intake.result).sources).toEqual([{ url: 'https://www.brightline.health/team/', title: 'Team' }])
 
       const [run] = await runRows(h, owner.workspaceId)
       expect(run).toMatchObject({ status: 'succeeded', inputTokens: 400, outputTokens: 200, modelRequests: 4 })
@@ -725,12 +734,9 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       h.provider.queue(reply(FINDINGS_REPLY))
       h.provider.queue(reply(researchReply(null)))
 
-      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes', candidate: CANDIDATE },
-      })
+      const intake = await intakeRun(h, 'research', { cookie: owner.cookie }, { text: 'Dana Reyes', candidate: CANDIDATE })
 
-      expect(response.status).toBe(200)
+      expect(intake.status).toBe('succeeded')
       expect(h.provider.requests).toHaveLength(3)
       expect(h.provider.requests[1]?.responseFormat.name).toBe('kelpie_person_intake_research_findings')
       expect(h.provider.requests[1]?.webSearch).toBeUndefined()
@@ -748,15 +754,13 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
         usage: { inputTokens: 300, outputTokens: 70 },
       })
 
-      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes', candidate: CANDIDATE },
-      })
+      const intake = await intakeRun(h, 'research', { cookie: owner.cookie }, { text: 'Dana Reyes', candidate: CANDIDATE })
 
-      expect(response.status).toBe(500)
-      expect(readString(readRecord(await response.json()).error, 'message')).toBe(
-        'The AI service was unavailable. Try again shortly.',
-      )
+      expect(intake).toMatchObject({
+        status: 'failed',
+        failure_reason: 'The AI service was unavailable. Try again shortly.',
+        result: null,
+      })
       const [run] = await runRows(h, owner.workspaceId)
       expect(run).toMatchObject({
         status: 'failed',
@@ -786,16 +790,13 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
           [...SEARCHED, { url: 'https://searched-only.example/dana', title: 'Searched only' }],
         ),
       )
-      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: {
+      const intake = await intakeRun(h, 'research', { cookie: owner.cookie }, {
           text: 'Dana Reyes, see https://brightline.health/team',
           candidate: CANDIDATE,
           existing_person_id: crm.personId,
-        },
-      })
+        })
 
-      expect(response.status).toBe(200)
+      expect(intake.status).toBe('succeeded')
       expect(h.provider.requests).toHaveLength(1)
       const [request] = h.provider.requests
 
@@ -805,7 +806,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect(request?.messages[0]?.text).toContain(`Quillfeather Holdings (id ${crm.companyId}, brightline.health)`)
       expect(request?.messages[0]?.text).toContain('Kestrel renewal')
       expect(request?.messages[0]?.text).not.toContain('What the web search found')
-      expect(readRecord(await response.json()).sources).toEqual([{ url: 'https://brightline.health/team', title: 'Team' }])
+      expect(readRecord(intake.result).sources).toEqual([{ url: 'https://brightline.health/team', title: 'Team' }])
 
       const [run] = await runRows(h, owner.workspaceId)
       expect(run).toMatchObject({ status: 'succeeded', inputTokens: 100, outputTokens: 50, modelRequests: 1, webSearches: 0 })
@@ -820,13 +821,9 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
         failure: { code: 'refusal', message: 'The model declined this request' },
       })
 
-      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes', candidate: CANDIDATE },
-      })
+      const intake = await intakeRun(h, 'research', { cookie: owner.cookie }, { text: 'Dana Reyes', candidate: CANDIDATE })
 
-      expect(response.status).toBe(409)
-      expect(readString(readRecord(await response.json()).error, 'message')).toBe('The model declined this request')
+      expect(intake).toMatchObject({ status: 'failed', failure_reason: 'The model declined this request' })
       expect(h.provider.requests).toHaveLength(1)
       const [run] = await runRows(h, owner.workspaceId)
       expect(run).toMatchObject({
@@ -848,22 +845,18 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
         failure: { code: 'rate_limited', message: 'Anthropic rate-limited this key.' },
       })
 
-      const failed = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes', candidate: CANDIDATE },
-      })
+      const failed = await intakeRun(h, 'research', { cookie: owner.cookie }, { text: 'Dana Reyes', candidate: CANDIDATE })
 
-      expect(failed.status).toBe(500)
-      expect(readString(readRecord(await failed.json()).error, 'message')).toBe('Anthropic rate-limited this key.')
+      expect(failed).toMatchObject({ status: 'failed', failure_reason: 'Anthropic rate-limited this key.' })
 
       h.provider.queue(reply(FINDINGS_REPLY, SEARCHED))
       h.provider.queue({ stopReason: 'max_tokens', text: '{"summary": "Dana', usage: { inputTokens: 300, outputTokens: 900 } })
-      const cutOff = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes', candidate: CANDIDATE },
-      })
+      const cutOff = await intakeRun(h, 'research', { cookie: owner.cookie }, { text: 'Dana Reyes', candidate: CANDIDATE })
 
-      expect(cutOff.status).toBe(409)
+      expect(cutOff).toMatchObject({
+        status: 'failed',
+        failure_reason: 'The reply was cut off at AI_MAX_TOKENS. Try shorter notes.',
+      })
       expect(h.provider.requests.map((request) => request.webSearch)).toEqual([{ maxUses: 8 }, undefined, { maxUses: 8 }, undefined])
 
       const rows = await runRows(h, owner.workspaceId)
@@ -904,13 +897,10 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
           ],
         }),
       )
-      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana Reyes, dana@brightline.health', candidate: CANDIDATE },
-      })
+      const intake = await intakeRun(h, 'research', { cookie: owner.cookie }, { text: 'Dana Reyes, dana@brightline.health', candidate: CANDIDATE })
 
-      expect(response.status).toBe(200)
-      const body = readRecord(await response.json())
+      expect(intake.status).toBe('succeeded')
+      const body = readRecord(intake.result)
       const items = body.items as Record<string, unknown>[]
       const note = items.find((item) => item.kind === 'note')
 
@@ -931,13 +921,10 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       const owner = await enabledOwner(h, 'candidate-scheme@example.com')
 
       for (const url of ['javascript:alert(1)', 'data:text/html,hi', 'file:///etc/passwd']) {
-        const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-          cookie: owner.cookie,
-          body: {
+        const response = await startIntake(h, 'research', { cookie: owner.cookie }, {
             text: 'Dana Reyes, dana@brightline.health',
             candidate: { ...CANDIDATE, profile_urls: ['https://linkedin.com/in/danareyes', url] },
-          },
-        })
+          })
 
         expect(response.status, url).toBe(422)
       }
@@ -948,10 +935,7 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
 
     it('answers 404 for an unknown existing person and spends no run', async () => {
       const owner = await enabledOwner(h, 'missing@example.com')
-      const response = await h.client.send('POST', '/v1/ai/person-intake/research', {
-        cookie: owner.cookie,
-        body: { text: 'Dana', candidate: CANDIDATE, existing_person_id: 'per_missing' },
-      })
+      const response = await startIntake(h, 'research', { cookie: owner.cookie }, { text: 'Dana', candidate: CANDIDATE, existing_person_id: 'per_missing' })
 
       expect(response.status).toBe(404)
       expect(await runRows(h, owner.workspaceId)).toHaveLength(0)
@@ -1171,6 +1155,226 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       })
 
       expect(response.status).toBe(422)
+    })
+  })
+
+  describe('runs on the queue', () => {
+    /** Invites `email` as a member and accepts as a fresh account. Answers the cookie. */
+    async function addMember(owner: { readonly cookie: string; readonly workspaceId: string }, email: string): Promise<string> {
+      const invited = await h.client.send('POST', `/v1/workspaces/${owner.workspaceId}/invites`, {
+        cookie: owner.cookie,
+        body: { email, role: 'member' },
+      })
+      expect(invited.status).toBe(201)
+      await h.app.runQueuedJobs()
+
+      const body = h.app.services.sentEmails.at(-1)?.body ?? ''
+      const token = /token=(?<token>[\w-]+)/u.exec(body)?.groups?.token
+      if (token === undefined) throw new Error(`No invite token in the sent email: ${body}`)
+
+      const cookie = await h.client.signUp(email)
+      const accepted = await h.client.send('POST', '/v1/invites/accept', { cookie, body: { token } })
+      expect(accepted.status).toBe(200)
+
+      return cookie
+    }
+
+    async function mintKey(cookie: string, body: Record<string, unknown>): Promise<string> {
+      const minted = await h.client.send('POST', '/v1/api-keys', { cookie, body })
+      expect(minted.status).toBe(201)
+
+      return readString(await minted.json(), 'secret')
+    }
+
+    it('answers 202 with a queued run, and the job settles it and keeps the result for an hour', async () => {
+      const owner = await enabledOwner(h, 'queued@example.com')
+      const started = await startIntake(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes, dana@brightline.health' })
+
+      expect(started.status).toBe(202)
+      const runId = readString(await started.json(), 'run_id')
+      // Nothing has called the model yet: the run waits for its job.
+      expect(h.provider.requests).toHaveLength(0)
+      const [queued] = await runRows(h, owner.workspaceId)
+      expect(queued).toMatchObject({
+        id: runId,
+        taskId: 'person_intake.identify',
+        status: 'queued',
+        prompt: 'Dana Reyes, dana@brightline.health',
+        result: null,
+      })
+      expect(queued?.requestedBy).toMatch(/^user:/u)
+      expect(queued?.context).toMatchObject({ caller: { kind: 'session' } })
+      expect(h.app.services.queuedJobs.map((job) => job.name)).toContain('ai.drain')
+
+      const waiting = readRecord(await (await readIntakeRun(h, runId, { cookie: owner.cookie })).json())
+      expect(waiting).toEqual({
+        run_id: runId,
+        kind: 'identify',
+        status: 'queued',
+        result: null,
+        failure_reason: null,
+        expires_at: null,
+      })
+
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      await h.app.runQueuedJobs()
+
+      const read = await readIntakeRun(h, runId, { cookie: owner.cookie })
+      expect(read.status).toBe(200)
+      const settled = readRecord(await read.json())
+      expect(settled).toMatchObject({ run_id: runId, kind: 'identify', status: 'succeeded', failure_reason: null })
+      expect(readRecord(settled.result)).toMatchObject({ run_id: runId, question: null })
+      const expiresAt = Date.parse(readString(settled, 'expires_at'))
+      expect(expiresAt - Date.now()).toBeGreaterThan(59 * 60 * 1000)
+      expect(expiresAt - Date.now()).toBeLessThanOrEqual(60 * 60 * 1000)
+
+      // The notes and the caller go when the run settles; the result stays.
+      const [row] = await runRows(h, owner.workspaceId)
+      expect(row).toMatchObject({ status: 'succeeded', prompt: null, context: null })
+      expect(row?.result).not.toBeNull()
+
+      // A second read gives the same result: a dropped request loses nothing.
+      const again = readRecord(await (await readIntakeRun(h, runId, { cookie: owner.cookie })).json())
+      expect(again.result).toEqual(settled.result)
+    })
+
+    it('deletes the result after an hour, on a read and on the next intake', async () => {
+      const owner = await enabledOwner(h, 'expiry@example.com')
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      const first = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      const second = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      expect(first.result).not.toBeNull()
+      expect(second.result).not.toBeNull()
+
+      h.clockOffsetMs = 61 * 60 * 1000
+
+      const expired = readRecord(await (await readIntakeRun(h, readString(first, 'run_id'), { cookie: owner.cookie })).json())
+      expect(expired).toMatchObject({ status: 'succeeded', result: null, expires_at: first.expires_at })
+      const rows = await runRows(h, owner.workspaceId)
+      expect(rows.every((row) => row.result === null)).toBe(true)
+
+      // The sweep on a new intake deletes it too, with no read at all.
+      h.clockOffsetMs = 0
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      const third = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      h.clockOffsetMs = 61 * 60 * 1000
+      await startIntake(h, 'identify', { cookie: owner.cookie }, { text: 'Sam' })
+      const [kept] = (await runRows(h, owner.workspaceId)).filter((row) => row.id === third.run_id)
+      expect(kept?.result).toBeNull()
+    })
+
+    it('answers 404 to anyone but the caller, and for a run that is not an intake run', async () => {
+      const owner = await enabledOwner(h, 'private@example.com')
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      const run = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      const runId = readString(run, 'run_id')
+
+      const memberCookie = await addMember(owner, 'colleague@example.com')
+      const workspaceKey = await mintKey(owner.cookie, { name: 'ws', kind: 'workspace', scopes: ['ai:write', 'people:read'] })
+      const personalKey = await mintKey(owner.cookie, { name: 'mine', kind: 'personal', scopes: ['ai:write'] })
+      const stranger = await enabledOwner(h, 'stranger@example.com')
+
+      expect((await readIntakeRun(h, runId, { cookie: memberCookie })).status).toBe(404)
+      expect((await readIntakeRun(h, runId, { bearer: workspaceKey })).status).toBe(404)
+      expect((await readIntakeRun(h, runId, { cookie: stranger.cookie })).status).toBe(404)
+      expect((await readIntakeRun(h, 'ai_missing', { cookie: owner.cookie })).status).toBe(404)
+      // The same person with another credential reads their own run.
+      expect((await readIntakeRun(h, runId, { bearer: personalKey })).status).toBe(200)
+
+      // A workspace key reads its own run, and nobody else does.
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      const keyRun = await intakeRun(h, 'identify', { bearer: workspaceKey }, { text: 'Dana Reyes' })
+      expect(keyRun.status).toBe('succeeded')
+      expect((await readIntakeRun(h, readString(keyRun, 'run_id'), { cookie: owner.cookie })).status).toBe(404)
+
+      // An agent-task run's id is not an intake run.
+      await h.app.services.db.insert(aiRuns).values({
+        id: 'ai_agent_task',
+        workspaceId: owner.workspaceId,
+        agentRunId: 'arun_1',
+        taskId: 'person.refresh',
+        targetType: 'person',
+        targetId: 'per_1',
+        status: 'succeeded',
+        model: 'claude-opus-5',
+        requestedBy: null,
+      })
+      expect((await readIntakeRun(h, 'ai_agent_task', { cookie: owner.cookie })).status).toBe(404)
+    })
+
+    it('reads the CRM with the caller\'s own scopes, not as Kelpie AI', async () => {
+      const owner = await enabledOwner(h, 'scoped-read@example.com')
+      await h.client.send('POST', '/v1/people', {
+        cookie: owner.cookie,
+        body: { name: 'Dana Reyes', email: 'dana@brightline.health' },
+      })
+      const aiOnly = await mintKey(owner.cookie, { name: 'ai only', kind: 'workspace', scopes: ['ai:write'] })
+      const reader = await mintKey(owner.cookie, { name: 'reader', kind: 'workspace', scopes: ['ai:write', 'people:read'] })
+
+      // A key that may not read People gets no People through the model's run.
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      const refused = await intakeRun(h, 'identify', { bearer: aiOnly }, { text: 'Dana Reyes, dana@brightline.health' })
+      expect(refused).toMatchObject({ status: 'failed', result: null })
+      expect(String(refused.failure_reason)).toContain('people:read')
+
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+      const allowed = await intakeRun(h, 'identify', { bearer: reader }, { text: 'Dana Reyes, dana@brightline.health' })
+      expect(allowed.status).toBe('succeeded')
+      const [candidate] = readRecord(allowed.result).candidates as Record<string, unknown>[]
+      expect(candidate?.existing_people).toMatchObject([{ name: 'Dana Reyes' }])
+    })
+
+    it('fails the run with no model call when the caller left the workspace before it started', async () => {
+      const owner = await enabledOwner(h, 'leaver-owner@example.com')
+      const memberCookie = await addMember(owner, 'leaver@example.com')
+
+      const started = await startIntake(h, 'identify', { cookie: memberCookie }, { text: 'Dana Reyes' })
+      expect(started.status).toBe(202)
+      const runId = readString(await started.json(), 'run_id')
+
+      const members = readList(
+        await (await h.client.send('GET', `/v1/workspaces/${owner.workspaceId}/members`, { cookie: owner.cookie })).json(),
+      )
+      const leaver = members.find((member) => readRecord(member).email === 'leaver@example.com')
+      const removed = await h.client.send(
+        'DELETE',
+        `/v1/workspaces/${owner.workspaceId}/members/${readString(leaver, 'id')}`,
+        { cookie: owner.cookie },
+      )
+      expect(removed.status).toBe(204)
+
+      await h.app.runQueuedJobs()
+
+      expect(h.provider.requests).toHaveLength(0)
+      const [row] = (await runRows(h, owner.workspaceId)).filter((candidate) => candidate.id === runId)
+      expect(row).toMatchObject({
+        status: 'failed',
+        failureReason: 'The person who started this run is no longer a member of the workspace',
+        prompt: null,
+        context: null,
+        modelRequests: null,
+      })
+    })
+
+    it('does not run a failed run again', async () => {
+      const owner = await enabledOwner(h, 'no-retry@example.com')
+      h.provider.queue({
+        stopReason: 'failed',
+        text: '',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        failure: { code: 'overloaded', message: 'The provider is overloaded.' },
+      })
+
+      const failed = await intakeRun(h, 'identify', { cookie: owner.cookie }, { text: 'Dana Reyes' })
+      expect(failed.status).toBe('failed')
+      expect(h.app.services.queuedJobs).toHaveLength(0)
+
+      await h.app.runQueuedJobs()
+
+      expect(h.provider.requests).toHaveLength(1)
+      const [row] = await runRows(h, owner.workspaceId)
+      expect(row?.status).toBe('failed')
     })
   })
 })

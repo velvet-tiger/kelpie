@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { AI_RUN_STATUSES } from './ai.ts'
+import type { AiRunStatus } from './ai.ts'
 import {
   ACCOUNT_TYPES,
   COMPANY_STAGES,
@@ -20,12 +22,16 @@ import type {
   SizeBand,
   SocialNetworkId,
 } from './values.ts'
-import { definedFields } from './wire.ts'
+import { definedFields, nullableTimestampSchema } from './wire.ts'
 
 /**
  * Person intake, from the optional `ai` module: paste notes about someone, and
  * Kelpie AI identifies them, researches them, and proposes the records to
  * create. Three calls: `identify`, `research`, `apply`.
+ *
+ * `identify` and `research` run on the job queue. Each answers `202` with
+ * `{ run_id }`, and the caller reads the run until it settles: its `result` is
+ * the reply body, kept for an hour (`personIntakeRunWireSchema`).
  *
  * The snake_case shapes below are the wire contract. The server validates the
  * model's reply and the `apply` body against them, and the UI decodes them to
@@ -241,6 +247,66 @@ export const personIntakeResultWireSchema = z.strictObject({
 export const personIntakeApplyResponseWireSchema = z.strictObject({
   results: z.array(personIntakeResultWireSchema),
 })
+
+// ---------------------------------------------------------------- runs
+
+/** The two intake steps that call a model, and so run as an AI run. */
+export const PERSON_INTAKE_RUN_KINDS = ['identify', 'research'] as const
+
+export type PersonIntakeRunKind = (typeof PERSON_INTAKE_RUN_KINDS)[number]
+
+/** What `identify` and `research` answer: the run to read, with `202`. */
+export const personIntakeRunStartedWireSchema = z.strictObject({
+  run_id: z.string().min(1),
+})
+
+const personIntakeRunFields = {
+  run_id: z.string().min(1),
+  status: z.enum(AI_RUN_STATUSES),
+  /** Set only on `failed`. */
+  failure_reason: z.string().nullable(),
+  /** When the result goes. Null until the run succeeds. */
+  expires_at: z.iso.datetime().nullable(),
+}
+
+/**
+ * `GET /v1/ai/person-intake/runs/:id`. `result` is the body the step's route
+ * answered before it ran on the queue, present only while `status` is
+ * `succeeded` and `expires_at` has not passed.
+ */
+export const personIntakeRunWireSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    ...personIntakeRunFields,
+    kind: z.literal('identify'),
+    result: personIntakeIdentifyResponseWireSchema.nullable(),
+  }),
+  z.strictObject({
+    ...personIntakeRunFields,
+    kind: z.literal('research'),
+    result: personIntakeResearchResponseWireSchema.nullable(),
+  }),
+])
+
+export type PersonIntakeRunWire = z.infer<typeof personIntakeRunWireSchema>
+
+/** The wizard steps a saved run can reopen on. */
+export const PERSON_INTAKE_SAVED_STEPS = ['notes', 'confirm', 'choose'] as const
+
+/**
+ * What the person-intake wizard keeps in the browser's `sessionStorage`, one
+ * entry per workspace, so a reload finds its run again. Not sent to the
+ * server. Parsed on read, because anything in the browser's storage may have
+ * been written by an older build or by hand.
+ */
+export const personIntakeSavedRunSchema = z.strictObject({
+  run_id: z.string().min(1),
+  step: z.enum(PERSON_INTAKE_SAVED_STEPS),
+  text: z.string().max(PERSON_INTAKE_MAX_TEXT),
+  candidate: personIntakeCandidateWireSchema.nullable(),
+  existing_person_id: z.string().min(1).nullable(),
+})
+
+export type PersonIntakeSavedRun = z.infer<typeof personIntakeSavedRunSchema>
 
 // ---------------------------------------------------------------- decoded
 
@@ -467,6 +533,48 @@ export const personIntakeResearchResultSchema: z.ZodType<PersonIntakeResearchRes
 
 export const personIntakeApplyResultSchema: z.ZodType<PersonIntakeApplyResult, unknown> =
   personIntakeApplyResponseWireSchema
+
+export interface PersonIntakeRunStarted {
+  readonly runId: string
+}
+
+export const personIntakeRunStartedSchema: z.ZodType<PersonIntakeRunStarted, unknown> =
+  personIntakeRunStartedWireSchema.transform((wire): PersonIntakeRunStarted => ({ runId: wire.run_id }))
+
+interface PersonIntakeRunCommon {
+  readonly runId: string
+  readonly status: AiRunStatus
+  readonly failureReason: string | null
+  readonly expiresAt: Date | null
+}
+
+/** An intake run as the wizard reads it while it polls. */
+export type PersonIntakeRun =
+  | (PersonIntakeRunCommon & { readonly kind: 'identify'; readonly result: PersonIntakeIdentifyResult | null })
+  | (PersonIntakeRunCommon & { readonly kind: 'research'; readonly result: PersonIntakeResearchResult | null })
+
+export const personIntakeRunSchema: z.ZodType<PersonIntakeRun, unknown> = personIntakeRunWireSchema.transform(
+  (wire): PersonIntakeRun => {
+    const common: PersonIntakeRunCommon = {
+      runId: wire.run_id,
+      status: wire.status,
+      failureReason: wire.failure_reason,
+      expiresAt: nullableTimestampSchema.parse(wire.expires_at),
+    }
+
+    return wire.kind === 'identify'
+      ? {
+          ...common,
+          kind: 'identify',
+          result: wire.result === null ? null : personIntakeIdentifyResultSchema.parse(wire.result),
+        }
+      : {
+          ...common,
+          kind: 'research',
+          result: wire.result === null ? null : personIntakeResearchResultSchema.parse(wire.result),
+        }
+  },
+)
 
 // ---------------------------------------------------------------- bodies
 

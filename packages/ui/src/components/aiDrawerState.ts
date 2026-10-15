@@ -24,6 +24,12 @@ export interface AiDrawerTask {
   /** A line under the title. */
   readonly description?: string
   readonly render: (controls: AiDrawerControls) => ReactNode
+  /**
+   * Called once when the task ends: Done, Discard, or a workspace switch.
+   * `workspaceId` is the workspace the task belonged to. For clearing
+   * anything the task saved outside React state.
+   */
+  readonly onEnd?: (workspaceId: string | null) => void
 }
 
 export interface AiDrawerState {
@@ -35,6 +41,12 @@ export interface AiDrawerState {
    * one instead, says so, and returns `false`. Nothing is replaced silently.
    */
   readonly open: (task: AiDrawerTask) => boolean
+  /**
+   * Makes `task` the active task with the drawer closed, so the header button
+   * shows it. For a task found again after a reload. Returns `false`, and
+   * changes nothing, when a task is active.
+   */
+  readonly restore: (task: AiDrawerTask) => boolean
   /** Shows the active task again. */
   readonly reopen: () => void
   readonly close: () => void

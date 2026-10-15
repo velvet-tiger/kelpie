@@ -10,6 +10,7 @@ import { useNavItems } from '../registry/context.ts'
 import type { NavItem } from '../registry/contributions.ts'
 import { useVisibleNavItems } from '../registry/visibleNav.ts'
 import { AiDrawerLauncher, AiDrawerPanel, AiDrawerProvider } from './AiDrawer.tsx'
+import { useRestorePersonIntake } from './personIntakeTask.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher.tsx'
 
@@ -102,6 +103,9 @@ export function Shell(): React.JSX.Element {
 }
 
 function ShellLayout(): React.JSX.Element {
+  // A reload finds a person-intake run this tab started, and shows it in the
+  // header with the drawer closed.
+  useRestorePersonIntake()
   const navigate = useNavigate()
   const location = useLocation()
   const { account } = useAccount()

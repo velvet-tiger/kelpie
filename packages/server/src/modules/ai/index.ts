@@ -60,8 +60,8 @@ import { createAiRunSettler } from './settle.ts'
  *
  * **Person intake.** `/v1/ai/person-intake/*` identifies a person from
  * pasted notes, researches them, and writes the records the user ticks. The
- * two model calls are synchronous runs, metered like queued ones, and are
- * the only place the model gets a tool: the provider's own web search, when
+ * two model calls are queued runs that act as the member who started them,
+ * and their results are kept for an hour. They are the only place the model gets a tool: the provider's own web search, when
  * the workspace's `web_search` setting allows it (`intake.ts`).
  *
  * **Limits.** The module declares `ai.runs.limit`. With no provider for it in
@@ -215,6 +215,10 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         now: context.now,
         maxTokens: config.AI_MAX_TOKENS,
         maxConcurrentRuns: config.AI_MAX_CONCURRENT_RUNS,
+        // Late-bound: the intake code is built on the service, which is built
+        // on the drain job, which calls this executor. Read only when a job
+        // runs, after boot.
+        runIntake: (run) => intake.execute(run),
         log: context.log,
       })
       // Read by its own handler, which enqueues the next job when a run is
@@ -250,7 +254,10 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
       })
 
       const intake = createPersonIntake({
+        db: context.db,
         service,
+        settler,
+        now: context.now,
         resolvePort,
         listTools: options.tools ?? (() => context.mcp.list()),
         maxTokens: config.AI_MAX_TOKENS,

@@ -66,7 +66,9 @@ export function AiDrawerProvider({ children }: { readonly children: ReactNode })
   const workspaceRef = useRef<string | null>(workspaceId)
 
   const finish = useCallback((): void => {
+    const ended = activeRef.current
     activeRef.current = undefined
+    ended?.onEnd?.(workspaceRef.current)
     setActiveTask(undefined)
     setIsOpen(false)
     setIsPending(false)
@@ -84,6 +86,15 @@ export function AiDrawerProvider({ children }: { readonly children: ReactNode })
     activeRef.current = task
     setActiveTask(task)
     setBusyNotice(false)
+    return true
+  }, [])
+
+  const restore = useCallback((task: AiDrawerTask): boolean => {
+    if (activeRef.current !== undefined) return false
+
+    activeRef.current = task
+    setActiveTask(task)
+    setIsOpen(false)
     return true
   }, [])
 
@@ -107,8 +118,8 @@ export function AiDrawerProvider({ children }: { readonly children: ReactNode })
   }, [workspaceId, finish])
 
   const state = useMemo<AiDrawerState>(
-    () => ({ activeTask, isOpen, isPending, open, reopen, close, finish }),
-    [activeTask, isOpen, isPending, open, reopen, close, finish],
+    () => ({ activeTask, isOpen, isPending, open, restore, reopen, close, finish }),
+    [activeTask, isOpen, isPending, open, restore, reopen, close, finish],
   )
 
   return (
