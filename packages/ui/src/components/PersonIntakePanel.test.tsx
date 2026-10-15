@@ -397,6 +397,35 @@ describe('PersonIntakePanel', () => {
     expect(screen.getByText('This may already be in Kelpie.')).toBeTruthy()
   }, 10_000)
 
+  it.each([
+    ['its result has expired', (): unknown => runBody('ai_1', 'identify', 'succeeded', null)],
+    [
+      'the server no longer has it',
+      (): unknown => {
+        throw new ApiError(404, 'not_found', 'No person-intake run has that id')
+      },
+    ],
+  ])('rebuilds Confirm from the saved person after a failed research run when the identify run %s', async (_case, readRun) => {
+    sessionStorage.setItem(
+      SAVED_RUN_KEY,
+      JSON.stringify(
+        savedRun({ run_id: null, identify_run_id: 'ai_1', step: 'confirm', text: 'Dana Reyes', candidate: CANDIDATE }),
+      ),
+    )
+    renderDialog({ ai: true, readRun })
+
+    expect(await screen.findByText('Is this the right person?')).toBeTruthy()
+    expect(screen.getByText('CTO at Brightline Health')).toBeTruthy()
+    expect(screen.queryByText('This result is no longer available. Start again.')).toBeNull()
+    // Still saved, now without the identify run, so another reload lands here too.
+    expect(JSON.parse(sessionStorage.getItem(SAVED_RUN_KEY) ?? 'null')).toMatchObject({
+      run_id: null,
+      identify_run_id: null,
+      step: 'confirm',
+      candidate: { name: 'Dana Reyes' },
+    })
+  })
+
   it('keeps the notes when identify fails, and shows them after a reload', async () => {
     renderDialog({
       ai: true,

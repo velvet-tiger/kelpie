@@ -4,7 +4,7 @@ import {
   PERSON_INTAKE_PERSON_KEY,
   personIntakeCandidateBody,
   personIntakeDependencies,
-  personIntakeIdentifyResultSchema,
+  personIntakeCandidateSchema,
 } from '@kelpie/schemas'
 import type {
   PersonIntakeCandidate,
@@ -49,12 +49,20 @@ import { effectiveSelection } from './personIntakeSelection.ts'
  * last step writes only the ticked items.
  */
 
+/**
+ * What the Confirm step shows. It names no run: when the step is rebuilt from
+ * a saved candidate after a reload, the identify run that found the person
+ * may be gone, and there is no id to give it. The run, when it is still known,
+ * is the step's `identifyRunId`.
+ */
+type Identified = Omit<PersonIntakeIdentifyResult, 'runId'>
+
 type Step =
   | { readonly kind: 'restoring'; readonly saved: PersonIntakeSavedRun['step'] }
   | { readonly kind: 'notes' }
   | {
       readonly kind: 'confirm'
-      readonly identified: PersonIntakeIdentifyResult
+      readonly identified: Identified
       /** The identify run behind this step, when its result is still on the server. */
       readonly identifyRunId: string | null
       readonly target?: string | null
@@ -71,6 +79,12 @@ interface WatchedRun {
   /** The confirmed person, for a research run. */
   readonly candidate: PersonIntakeCandidateWire | null
   readonly existingPersonId: string | null
+  /**
+   * After a reload of a failed research run, the person it was started with.
+   * The wizard reads the identify run again for the full Confirm step; when
+   * that run or its result has gone, it rebuilds Confirm from this instead.
+   */
+  readonly fallback: { readonly candidate: PersonIntakeCandidateWire; readonly existingPersonId: string | null } | null
 }
 
 /** What the wizard keeps for a reload, less the user it belongs to. */
@@ -106,12 +120,7 @@ function confirmFrom(
 
   return {
     kind: 'confirm',
-    identified: personIntakeIdentifyResultSchema.parse({
-      candidates: [candidate],
-      question: null,
-      sources: [],
-      run_id: identifyRunId ?? 'unknown',
-    }),
+    identified: { candidates: [personIntakeCandidateSchema.parse(candidate)], question: null, sources: [] },
     identifyRunId,
     target: existingPersonId,
   }
@@ -144,6 +153,10 @@ function restoredState(saved: PersonIntakeSavedRun | undefined): { step: Step; w
         identifyRunId: saved.run_id === null ? null : saved.identify_run_id,
         candidate: saved.run_id === null ? null : saved.candidate,
         existingPersonId: saved.run_id === null ? null : saved.existing_person_id,
+        fallback:
+          saved.run_id === null && saved.candidate !== null
+            ? { candidate: saved.candidate, existingPersonId: saved.existing_person_id }
+            : null,
       },
     }
   }
@@ -212,11 +225,30 @@ function IntakeWizard({
       if (workspaceId !== null) clearSavedIntakeRuns(workspaceId)
     }
 
-    if (polled.isNotFound) {
+    /** The run's result has gone: Confirm from the saved person when there is one, else the notes. */
+    function resultGoneFor(current: WatchedRun): void {
       setWatched(undefined)
+
+      if (current.fallback !== null) {
+        setStep(confirmFrom(current.fallback.candidate, null, current.fallback.existingPersonId))
+        keep({
+          run_id: null,
+          identify_run_id: null,
+          step: 'confirm',
+          text: current.text,
+          candidate: current.fallback.candidate,
+          existing_person_id: current.fallback.existingPersonId,
+        })
+        return
+      }
+
       setResultGone(true)
       setStep({ kind: 'notes' })
       forget()
+    }
+
+    if (polled.isNotFound) {
+      resultGoneFor(watched)
       return
     }
 
@@ -283,9 +315,7 @@ function IntakeWizard({
     }
 
     // Succeeded, and the hour has passed: the result is gone.
-    setResultGone(true)
-    setStep({ kind: 'notes' })
-    forget()
+    resultGoneFor(watched)
   }, [watched, polled.run, polled.error, polled.isNotFound, workspaceId, userId])
 
   function remember(run: WatchedRun, savedStep: PersonIntakeSavedRun['step']): void {
@@ -313,7 +343,7 @@ function IntakeWizard({
     const notes = text.trim()
     const started = await identify.runAsync(notes)
     remember(
-      { runId: started.runId, text: notes, identifyRunId: null, candidate: null, existingPersonId: null },
+      { runId: started.runId, text: notes, identifyRunId: null, candidate: null, existingPersonId: null, fallback: null },
       'notes',
     )
   }
@@ -333,6 +363,7 @@ function IntakeWizard({
         identifyRunId,
         candidate: personIntakeCandidateBody(candidate),
         existingPersonId,
+        fallback: null,
       },
       'confirm',
     )
@@ -510,7 +541,7 @@ function ConfirmStep({
   onBack,
   onNext,
 }: {
-  readonly identified: PersonIntakeIdentifyResult
+  readonly identified: Identified
   /** The target a research run was started with, when the step is rebuilt after a reload. */
   readonly initialTarget?: string | null | undefined
   readonly pending: boolean

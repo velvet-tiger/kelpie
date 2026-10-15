@@ -519,6 +519,10 @@ function decodeItem(wire: PersonIntakeItemWire): PersonIntakeItem {
   }
 }
 
+/** One candidate, decoded. For a client that kept a candidate's wire shape and shows it again. */
+export const personIntakeCandidateSchema: z.ZodType<PersonIntakeCandidate, unknown> =
+  personIntakeCandidateWireSchema.transform(decodeCandidate)
+
 export const personIntakeIdentifyResultSchema: z.ZodType<PersonIntakeIdentifyResult, unknown> =
   personIntakeIdentifyResponseWireSchema.transform(
     (wire): PersonIntakeIdentifyResult => ({

@@ -578,6 +578,7 @@ export {
   personIntakeApplyResultSchema,
   personIntakeApplyResponseWireSchema,
   personIntakeCandidateBody,
+  personIntakeCandidateSchema,
   personIntakeCandidateWireSchema,
   personIntakeDependencies,
   personIntakeIdentifyResponseWireSchema,
