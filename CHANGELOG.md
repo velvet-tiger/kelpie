@@ -8,7 +8,7 @@ The packages share one version and release together. An assembly pins core, and 
 
 While the major version is `0`, a minor bump may break the API.
 
-## [Unreleased]
+## [0.23.0] - 2026-10-16
 
 ### Added
 
