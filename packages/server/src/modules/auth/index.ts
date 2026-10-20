@@ -51,6 +51,7 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
         transaction: context.transaction,
         createId: context.createId,
         now: context.now,
+        log: context.log,
         emailJobs: {
           verification: context.jobs.define(defineSendVerificationEmailJob(emailDependencies)),
           passwordReset: context.jobs.define(defineSendPasswordResetEmailJob(emailDependencies)),

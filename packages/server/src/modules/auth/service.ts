@@ -1,8 +1,11 @@
+import { DrizzleQueryError } from 'drizzle-orm'
+
 import { isSingleEmailAddress } from '../../lib/emailAddress.ts'
 import { AppError, ExternalSignInError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
-import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
+import { UNIQUE_VIOLATION, describeWriteFailure, postgresErrorCode } from '../../lib/database.ts'
 import type { Database } from '../../lib/database.ts'
+import type { Logger } from '../../lib/logger.ts'
 import {
   MINIMUM_PASSWORD_LENGTH,
   hashPassword,
@@ -32,6 +35,8 @@ import * as repository from './repository.ts'
  */
 
 const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
+/** The most expired sessions one sign-in deletes. See `sweepExpiredSessions`. */
+const EXPIRED_SESSION_SWEEP_LIMIT = 1000
 /**
  * The longest address a reset request puts on the queue. The route sets no
  * length limit and the caller is a stranger, so without one a job payload
@@ -44,6 +49,8 @@ export interface AuthDependencies {
   readonly transaction: TransactionScope
   readonly createId: IdFactory
   readonly now: () => Date
+  /** Where a failed sweep of expired sessions is reported. Nothing else here logs. */
+  readonly log: Logger
   /**
    * The emails this service asks for. It sends none itself: each one is a job
    * added inside the transaction that made it necessary. See `emailJobs.ts`.
@@ -82,12 +89,14 @@ export interface IssuedSession {
  */
 export interface RotatedSession {
   readonly sessionToken: string
+  /** Unchanged by the rotation. The new cookie must end when the row does. */
+  readonly expiresAt: Date
 }
 
-/** What `updateAccount` returns. `sessionToken` is null when the change did not rotate it. */
+/** What `updateAccount` returns. `rotated` is null when the change did not rotate the session. */
 export interface UpdatedAccount {
   readonly account: AccountView
-  readonly sessionToken: string | null
+  readonly rotated: RotatedSession | null
 }
 
 /** What `completeExternalSignIn` returns: an issued session plus whether it made the account. */
@@ -228,8 +237,11 @@ export interface AuthService {
   completeExternalSignIn(input: ExternalSignInInput): Promise<ExternalIssuedSession>
   logOut(actor: SessionActor): Promise<void>
   getAccount(actor: SessionActor): Promise<AccountView>
-  /** Answers a new session token whenever `email` is part of the change. */
-  updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<UpdatedAccount>
+  /**
+   * `sessionToken` is the token the caller authenticated with. The session gets
+   * a new one whenever `email` is part of the change.
+   */
+  updateAccount(actor: SessionActor, sessionToken: string, changes: UpdateAccountChanges): Promise<UpdatedAccount>
   /** Answers documented defaults for an account that has never saved any. */
   getPreferences(actor: SessionActor): Promise<PreferenceValues>
   updatePreferences(actor: SessionActor, changes: PreferenceChanges): Promise<PreferenceValues>
@@ -242,14 +254,20 @@ export interface AuthService {
   /** Resolves whether or not the address is registered, after the same work for both. */
   requestPasswordReset(email: string): Promise<void>
   confirmPasswordReset(token: string, newPassword: string): Promise<void>
-  /** Answers the caller's session with a new token. */
-  changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<RotatedSession>
+  /** `sessionToken` is the token the caller authenticated with. Answers the session with a new one. */
+  changePassword(
+    actor: SessionActor,
+    sessionToken: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<RotatedSession>
   /** Queues a fresh verification email. A no-op once already verified. */
   requestEmailVerification(actor: SessionActor): Promise<void>
   /**
    * Spends a verification token. When `sessionToken` is a live session of the
    * account the token verifies, that session gets a new token, which this
-   * answers. Any other `sessionToken` changes nothing and answers null.
+   * answers. Other sessions are not ended. Any other `sessionToken` changes
+   * nothing and answers null.
    */
   confirmEmailVerification(token: string, sessionToken?: string): Promise<RotatedSession | null>
 }
@@ -275,17 +293,60 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
    * Gives the caller's session a new token, on the transaction of the change
    * that made it necessary.
    *
-   * A session whose row is gone or expired cannot make the change, so the
-   * whole transaction is refused rather than committed without a session.
+   * The swap matches the token the caller presented. When it updates nothing,
+   * the session ended, or another request rotated it first, after this one was
+   * authenticated. Either way this caller no longer holds the session, so the
+   * whole change is refused rather than committed.
    */
-  async function rotateCallerSession(tx: repository.Queryable, actor: SessionActor, now: Date): Promise<string> {
+  async function rotateCallerSession(
+    tx: repository.Queryable,
+    actor: SessionActor,
+    presentedToken: string,
+    now: Date,
+  ): Promise<RotatedSession> {
     const token = newToken()
+    const expiresAt = await repository.swapSessionToken(
+      tx,
+      { userId: actor.userId, sessionId: actor.sessionId },
+      hashToken(presentedToken),
+      hashToken(token),
+      now,
+    )
 
-    if (!(await repository.replaceSessionToken(tx, actor.userId, actor.sessionId, hashToken(token), now))) {
+    if (expiresAt === undefined) {
       throw AppError.unauthorized('Your session has expired')
     }
 
-    return token
+    return { sessionToken: token, expiresAt }
+  }
+
+  /**
+   * Deletes expired sessions, after the sign-in that called it has committed.
+   *
+   * Core has no scheduler: pg-boss runs with `schedule: false`. So the
+   * housekeeping runs on the path that creates the rows, as the oauth module's
+   * `sweepTokens` and the idempotency middleware's
+   * `pruneExpiredIdempotencyKeys` do.
+   *
+   * It runs outside the sign-in's transaction so it cannot hold that
+   * transaction's locks or roll it back. A failed query is logged and the
+   * sign-in still succeeds: a live session was issued, and the next sign-in
+   * sweeps again. Any other error is a defect and is thrown.
+   */
+  async function sweepExpiredSessions(now: Date): Promise<void> {
+    try {
+      await repository.deleteExpiredSessions(dependencies.db, now, EXPIRED_SESSION_SWEEP_LIMIT)
+    } catch (error: unknown) {
+      if (!(error instanceof DrizzleQueryError)) {
+        throw error
+      }
+
+      dependencies.log.error('expired session sweep failed', {
+        limit: EXPIRED_SESSION_SWEEP_LIMIT,
+        before: now.toISOString(),
+        error: describeWriteFailure(error),
+      })
+    }
   }
 
   async function issueSession(
@@ -300,13 +361,6 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     const token = newToken()
     const expiresAt = new Date(now.getTime() + SESSION_LIFETIME_MS)
     const membership = await repository.findFirstMembership(db, user.id)
-
-    // Core has no scheduler: pg-boss runs with `schedule: false`. So the
-    // housekeeping runs on the path that creates the rows, as the oauth module's
-    // `sweepTokens` and the idempotency middleware's
-    // `pruneExpiredIdempotencyKeys` do. Every sign-up, login and external
-    // sign-in comes through here.
-    await repository.deleteExpiredSessions(db, now)
 
     await repository.insertSession(db, {
       id: dependencies.createId('session'),
@@ -345,7 +399,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       const passwordHash = await hashPassword(input.password)
       const now = dependencies.now()
 
-      return dependencies.transaction(async ({ tx, jobs }) => {
+      const issued = await dependencies.transaction(async ({ tx, jobs }) => {
         let user: repository.UserRecord
 
         try {
@@ -378,6 +432,10 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
         return issueSession(tx, user, input.device, input.location)
       })
+
+      await sweepExpiredSessions(now)
+
+      return issued
     },
 
     async logIn(input: LogInInput): Promise<IssuedSession> {
@@ -394,7 +452,11 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         throw AppError.unauthorized('Email or password is incorrect')
       }
 
-      return dependencies.transaction(({ tx }) => issueSession(tx, user, input.device, input.location))
+      const issued = await dependencies.transaction(({ tx }) => issueSession(tx, user, input.device, input.location))
+
+      await sweepExpiredSessions(dependencies.now())
+
+      return issued
     },
 
     /**
@@ -447,7 +509,11 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       const existing = await repository.findUserByEmail(dependencies.db, email)
 
       if (existing !== undefined) {
-        return dependencies.transaction(({ tx }) => link(tx, existing))
+        const linked = await dependencies.transaction(({ tx }) => link(tx, existing))
+
+        await sweepExpiredSessions(now)
+
+        return linked
       }
 
       // The instance-level gate applies before the module's own policy: a
@@ -460,7 +526,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         throw new ExternalSignInError('unknown_identity')
       }
 
-      return dependencies.transaction(async ({ tx }) => {
+      const provisioned = await dependencies.transaction(async ({ tx }) => {
         let user: repository.UserRecord
 
         try {
@@ -491,6 +557,10 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
         return { ...issued, created: true }
       })
+
+      await sweepExpiredSessions(now)
+
+      return provisioned
     },
 
     async logOut(actor: SessionActor): Promise<void> {
@@ -519,7 +589,11 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
      * exactly the mailbox-ownership proof signup's own token exists to require.
      * Submitting the address already on file is not a change and resets nothing.
      */
-    async updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<UpdatedAccount> {
+    async updateAccount(
+      actor: SessionActor,
+      sessionToken: string,
+      changes: UpdateAccountChanges,
+    ): Promise<UpdatedAccount> {
       const user = await requireUser(actor.userId)
 
       const nextEmail =
@@ -560,8 +634,8 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
             throw AppError.unauthorized('This session no longer belongs to an account')
           }
 
-          const sessionToken =
-            changes.email === undefined ? null : await rotateCallerSession(tx, actor, now)
+          const rotated =
+            changes.email === undefined ? null : await rotateCallerSession(tx, actor, sessionToken, now)
 
           if (changes.email !== undefined) {
             await repository.deleteOtherSessionsForUser(tx, actor.userId, actor.sessionId)
@@ -584,7 +658,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
             })
           }
 
-          return { account: toAccountView(saved), sessionToken }
+          return { account: toAccountView(saved), rotated }
         })
 
         return updated
@@ -784,6 +858,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
      */
     async changePassword(
       actor: SessionActor,
+      sessionToken: string,
       currentPassword: string,
       newPassword: string,
     ): Promise<RotatedSession> {
@@ -808,11 +883,11 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       return dependencies.transaction(async ({ tx }) => {
         await repository.updateUserPassword(tx, user.id, passwordHash, now)
-        const sessionToken = await rotateCallerSession(tx, actor, now)
+        const rotated = await rotateCallerSession(tx, actor, sessionToken, now)
         await repository.deleteOtherSessionsForUser(tx, user.id, actor.sessionId)
         await repository.closeOpenPasswordResetTokens(tx, user.id, now)
 
-        return { sessionToken }
+        return rotated
       })
     },
 
@@ -834,9 +909,15 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
     /**
      * The route takes the token in the body and needs no session. When the
-     * request carries a session of the same account, that session gets a new
-     * token: verifying raises what the account may do, and a cookie planted
-     * before the change (session fixation) must not carry that access.
+     * request carries a live session of the same account, that session gets a
+     * new token. The browser that verifies then holds a token nobody saw
+     * before the verification, so a copy of its cookie taken before then stops
+     * working for this session.
+     *
+     * It ends no other session. And it does not protect an account that
+     * somebody else registered with this address: they know its password and
+     * keep their own sessions. That is the pre-registration takeover case,
+     * which `completeExternalSignIn` and the reset flow handle.
      *
      * A session of another account, or one that is unknown or expired, is not
      * an error here. It changes nothing, so the answer does not depend on it.
@@ -885,11 +966,18 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
         const rotated = newToken()
 
-        // The session was read on this transaction, but it can still end
-        // before this write. Then there is nothing to rotate.
-        return (await repository.replaceSessionToken(tx, session.userId, session.id, hashToken(rotated), now))
-          ? { sessionToken: rotated }
-          : null
+        // The session was read on this transaction, but it can still end or be
+        // rotated by another request before this write. Then there is nothing
+        // to rotate.
+        const expiresAt = await repository.swapSessionToken(
+          tx,
+          { userId: session.userId, sessionId: session.id },
+          session.tokenHash,
+          hashToken(rotated),
+          now,
+        )
+
+        return expiresAt === undefined ? null : { sessionToken: rotated, expiresAt }
       })
     },
   }

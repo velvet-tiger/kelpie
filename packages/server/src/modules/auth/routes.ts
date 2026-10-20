@@ -11,7 +11,7 @@ import type { SessionActor } from './actor.ts'
 import { resolveActorFrom } from './credentials.ts'
 import type { CredentialDependencies } from './credentials.ts'
 import type { PreferenceValues } from './preferences.ts'
-import type { AccountView, AuthService, IssuedSession, MeView, SessionView } from './service.ts'
+import type { AccountView, AuthService, IssuedSession, MeView, RotatedSession, SessionView } from './service.ts'
 import { SESSION_COOKIE, clearSessionCookie, describeClient, writeSessionCookie } from './session.ts'
 import type { SessionCookieOptions } from './session.ts'
 import {
@@ -188,6 +188,29 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
   const requireActor = async (context: Context): Promise<SessionActor> =>
     requireSessionActor(await resolveActorFrom(dependencies, context))
 
+  /**
+   * The token a session actor authenticated with. A session actor only ever
+   * comes from this cookie, so a missing one means the request changed under
+   * the resolver, and nothing is changed.
+   */
+  const presentedSessionToken = (context: Context): string => {
+    const token = getCookie(context, SESSION_COOKIE)
+
+    if (token === undefined || token.length === 0) {
+      throw AppError.unauthorized('Sign in to continue')
+    }
+
+    return token
+  }
+
+  /** The rotated token, on a cookie that ends when the session does. */
+  const writeRotatedCookie = (context: Context, rotated: RotatedSession): void => {
+    writeSessionCookie(context, rotated.sessionToken, dependencies.cookie, {
+      expiresAt: rotated.expiresAt,
+      now: dependencies.now(),
+    })
+  }
+
   router.post('/auth/signup', async (context) => {
     const body = await readBody(context, signUpBody)
     const issued = await dependencies.service.signUp({
@@ -255,14 +278,15 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
 
   router.patch('/account', async (context) => {
     const body = await readBody(context, updateAccountBody)
-    const updated = await dependencies.service.updateAccount(await requireActor(context), {
+    const actor = await requireActor(context)
+    const updated = await dependencies.service.updateAccount(actor, presentedSessionToken(context), {
       ...(body.name === undefined ? {} : { name: body.name }),
       ...(body.email === undefined ? {} : { email: body.email }),
       ...(body.current_password === undefined ? {} : { currentPassword: body.current_password }),
     })
 
-    if (updated.sessionToken !== null) {
-      writeSessionCookie(context, updated.sessionToken, dependencies.cookie)
+    if (updated.rotated !== null) {
+      writeRotatedCookie(context, updated.rotated)
     }
 
     return context.json(accountBody(updated.account))
@@ -302,13 +326,15 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
 
   router.patch('/auth/password', async (context) => {
     const body = await readBody(context, changePasswordBody)
+    const actor = await requireActor(context)
     const rotated = await dependencies.service.changePassword(
-      await requireActor(context),
+      actor,
+      presentedSessionToken(context),
       body.current_password,
       body.new_password,
     )
 
-    writeSessionCookie(context, rotated.sessionToken, dependencies.cookie)
+    writeRotatedCookie(context, rotated)
 
     return context.body(null, 204)
   })
@@ -340,8 +366,8 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
 
   /**
    * Needs no session. A session cookie is read only to give it a new token when
-   * it belongs to the account the link verifies, so it is never resolved to an
-   * actor: a bad cookie must not turn this answer into a `401`.
+   * it belongs to the account the link verifies. It is never resolved to an
+   * actor, because a bad cookie must not turn this answer into a `401`.
    */
   router.post('/auth/verify-email/confirm', async (context) => {
     const body = await readBody(context, verifyEmailConfirmBody)
@@ -351,7 +377,7 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
     )
 
     if (rotated !== null) {
-      writeSessionCookie(context, rotated.sessionToken, dependencies.cookie)
+      writeRotatedCookie(context, rotated)
     }
 
     return context.body(null, 204)

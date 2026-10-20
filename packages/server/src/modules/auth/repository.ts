@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, lte, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, ne } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -182,35 +182,51 @@ export async function touchSession(db: Queryable, sessionId: string, now: Date):
 }
 
 /**
- * Deletes every session of every account that has expired. A row is live while
+ * Deletes up to `limit` expired sessions, of any account. A row is live while
  * `expires_at > now`, so a row at or past `now` is not a session any more.
+ *
+ * Bounded so one call never holds a long lock: after an outage of the sweep, a
+ * backlog drains over several sign-ins rather than in one.
  */
-export async function deleteExpiredSessions(db: Queryable, now: Date): Promise<void> {
-  await db.delete(sessions).where(lte(sessions.expiresAt, now))
+export async function deleteExpiredSessions(db: Queryable, now: Date, limit: number): Promise<void> {
+  const expired = db.select({ id: sessions.id }).from(sessions).where(lte(sessions.expiresAt, now)).limit(limit)
+
+  await db.delete(sessions).where(inArray(sessions.id, expired))
 }
 
 /**
- * Gives one live session a new token. The id, expiry and creation time stay,
- * so the session is the same one on the Security page.
+ * Gives one live session a new token, if it still has the token the caller
+ * presented. The id, expiry and creation time stay, so the session is the same
+ * one on the Security page.
  *
- * Answers false when no live session with that id belongs to that user. The
- * user is in the `WHERE` clause so a session id alone can never move another
- * account's token.
+ * Matching on the presented hash makes this a compare-and-swap: of two requests
+ * that authenticated with the same token, only the first rotates it, and a
+ * token that was already replaced cannot replace its successor.
+ *
+ * @returns The session's expiry, or undefined when no live session with that
+ *   id, user and token exists.
  */
-export async function replaceSessionToken(
+export async function swapSessionToken(
   db: Queryable,
-  userId: string,
-  sessionId: string,
-  tokenHash: string,
+  ids: { readonly userId: string; readonly sessionId: string },
+  presentedTokenHash: string,
+  nextTokenHash: string,
   now: Date,
-): Promise<boolean> {
-  const replaced = await db
+): Promise<Date | undefined> {
+  const [swapped] = await db
     .update(sessions)
-    .set({ tokenHash })
-    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId), gt(sessions.expiresAt, now)))
-    .returning({ id: sessions.id })
+    .set({ tokenHash: nextTokenHash })
+    .where(
+      and(
+        eq(sessions.id, ids.sessionId),
+        eq(sessions.userId, ids.userId),
+        eq(sessions.tokenHash, presentedTokenHash),
+        gt(sessions.expiresAt, now),
+      ),
+    )
+    .returning({ expiresAt: sessions.expiresAt })
 
-  return replaced.length > 0
+  return swapped?.expiresAt
 }
 
 export async function deleteSession(db: Queryable, userId: string, sessionId: string): Promise<number> {

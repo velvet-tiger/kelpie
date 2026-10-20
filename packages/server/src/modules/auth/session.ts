@@ -34,14 +34,34 @@ export interface SessionCookieOptions {
   readonly secure: boolean
 }
 
-export function writeSessionCookie(context: Context, token: string, options: SessionCookieOptions): void {
+/** What is left of an existing session, for a cookie that carries its new token. */
+export interface RemainingLifetime {
+  readonly expiresAt: Date
+  readonly now: Date
+}
+
+/**
+ * Sets the session cookie. A new session gets the full thirty days. A session
+ * whose token was rotated passes `remaining`, so the cookie ends when the row
+ * does rather than thirty days after the rotation.
+ */
+export function writeSessionCookie(
+  context: Context,
+  token: string,
+  options: SessionCookieOptions,
+  remaining?: RemainingLifetime,
+): void {
   setCookie(context, SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'Lax',
     secure: options.secure,
     path: '/',
-    maxAge: COOKIE_MAX_AGE_SECONDS,
+    maxAge: remaining === undefined ? COOKIE_MAX_AGE_SECONDS : remainingSeconds(remaining),
   })
+}
+
+function remainingSeconds(remaining: RemainingLifetime): number {
+  return Math.max(0, Math.floor((remaining.expiresAt.getTime() - remaining.now.getTime()) / 1000))
 }
 
 export function clearSessionCookie(context: Context, options: SessionCookieOptions): void {

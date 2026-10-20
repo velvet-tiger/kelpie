@@ -16,12 +16,16 @@ While the major version is `0`, a minor bump may break the API.
   verification link answer with a new session cookie.**
   `PATCH /v1/auth/password` gives the caller's session a new token and
   sets it as the cookie. So does a `PATCH /v1/account` that sends `email`.
-  The old cookie stops working. The session keeps its id and its expiry.
-  `POST /v1/auth/verify-email/confirm` does the same when the request
-  carries a live session of the account the link verifies. Any other
-  cookie, or none, changes nothing, and the answer is still `204`. A
-  cookie that leaked before the change does not keep the new access. No
-  migration.
+  The old cookie stops working, so a copy of it that leaked before the
+  change does not keep the session. The session keeps its id and its
+  expiry, and the new cookie's `Max-Age` is what is left of that expiry.
+  `POST /v1/auth/verify-email/confirm` also rotates the session when the
+  request carries a live session of the account the link verifies. The
+  browser that verifies then holds a token nobody saw before, and a cookie
+  copied from it before then stops working. It does not end other
+  sessions, and it does not protect an account that somebody else
+  registered with the address. Any other cookie, or none, changes nothing,
+  and the answer is still `204`. No migration.
 
 ### Fixed
 
@@ -29,10 +33,11 @@ While the major version is `0`, a minor bump may break the API.
   on a session writes it when the stored time is more than a minute old.
   Expiry stays thirty days from sign-in. No migration.
 - **`@kelpie/server`** — **Expired sessions are not listed, and sign-in
-  deletes them.** `GET /v1/auth/sessions` lists live sessions only. Every
-  sign-up, login and external sign-in deletes the expired sessions of
-  every account. Migration `0067_sessions_expires_index` adds an index on
-  `sessions.expires_at` for that delete.
+  deletes them.** `GET /v1/auth/sessions` lists live sessions only. After
+  every sign-up, login and external sign-in commits, up to 1000 expired
+  sessions of any account are deleted. A failed delete is logged and does
+  not fail the sign-in. Migration `0067_sessions_expires_index` adds an
+  index on `sessions.expires_at` for that delete.
 
 ## [0.23.0] - 2026-10-16
 

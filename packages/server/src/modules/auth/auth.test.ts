@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { PermanentEmailError } from '../../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../../lib/email.ts'
 import { verifyPassword } from '../../lib/passwords.ts'
+import { hashToken } from '../../lib/tokens.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_APP_BASE_URL, TEST_ENVIRONMENT } from '../../testing/environment.ts'
@@ -18,6 +19,7 @@ import {
   sendVerificationEmail,
 } from './emailJobs.ts'
 import { oauthClients, oauthConnections, oauthTokens } from '../oauth/schema.ts'
+import { swapSessionToken } from './repository.ts'
 import { emailVerificationTokens, passwordResetTokens, sessions, userPreferences, users } from './schema.ts'
 
 /**
@@ -1416,6 +1418,24 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       return payload.session_id
     }
 
+    /** The one stored session row. Every case here that reads it has exactly one. */
+    async function onlySession(): Promise<typeof sessions.$inferSelect> {
+      const rows = await database.db.select().from(sessions)
+      expect(rows).toHaveLength(1)
+      const [row] = rows
+
+      if (row === undefined) {
+        throw new Error('Expected one session row')
+      }
+
+      return row
+    }
+
+    /** The token value of a `kelpie_session=…` cookie. */
+    function tokenOf(cookie: string): string {
+      return cookie.slice(cookie.indexOf('=') + 1)
+    }
+
     async function storedLastActiveAt(): Promise<number[]> {
       const rows = await database.db.select({ lastActiveAt: sessions.lastActiveAt }).from(sessions)
 
@@ -1468,9 +1488,28 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect((await database.db.select().from(sessions)).map((row) => row.id)).toEqual([await sessionIdOf(grace)])
     })
 
+    it('deletes expired sessions when another account logs in', async () => {
+      const ada = await signUp()
+      const adaSessionId = await sessionIdOf(ada)
+      const graceSignUp = await post('/v1/auth/signup', GRACE)
+      const graceFirst = sessionCookieFrom(graceSignUp)
+      const graceFirstId = await sessionIdOf(graceFirst)
+      advance(30 * DAY_MS)
+
+      expect((await database.db.select().from(sessions)).map((row) => row.id).toSorted()).toEqual(
+        [adaSessionId, graceFirstId].toSorted(),
+      )
+
+      const grace = sessionCookieFrom(await post('/v1/auth/login', { email: GRACE.email, password: GRACE.password }))
+
+      expect((await database.db.select().from(sessions)).map((row) => row.id)).toEqual([await sessionIdOf(grace)])
+    })
+
     it('gives the session a new cookie on a password change, and the old cookie stops working', async () => {
       const cookie = await signUp()
       const sessionId = await sessionIdOf(cookie)
+      const { expiresAt } = await onlySession()
+      advance(DAY_MS)
 
       const response = await patch(
         '/v1/auth/password',
@@ -1480,10 +1519,38 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
       expect(response.status).toBe(204)
       expect(response.headers.get('Set-Cookie')).toContain('HttpOnly')
+      // The cookie ends with the session, 29 days on, not 30 days after the rotation.
+      expect(response.headers.get('Set-Cookie')).toContain(`Max-Age=${String((29 * DAY_MS) / 1000)}`)
       const rotated = sessionCookieFrom(response)
       expect(rotated).not.toBe(cookie)
       expect((await get('/v1/auth/me', cookie)).status).toBe(401)
       expect(await sessionIdOf(rotated)).toBe(sessionId)
+      expect((await onlySession()).expiresAt.getTime()).toBe(expiresAt.getTime())
+    })
+
+    it('refuses to rotate a session with a token it no longer has', async () => {
+      const cookie = await signUp()
+      const response = await patch(
+        '/v1/auth/password',
+        { current_password: SIGNUP.password, new_password: 'a completely different password' },
+        cookie,
+      )
+      expect(response.status).toBe(204)
+      const before = await onlySession()
+
+      // A request that authenticated with the old token before the rotation
+      // landed, and tries to rotate after it.
+      const swapped = await swapSessionToken(
+        database.db,
+        { userId: before.userId, sessionId: before.id },
+        hashToken(tokenOf(cookie)),
+        hashToken('a token nobody holds'),
+        new Date(current),
+      )
+
+      expect(swapped).toBeUndefined()
+      expect((await onlySession()).tokenHash).toBe(before.tokenHash)
+      expect(before.tokenHash).toBe(hashToken(tokenOf(sessionCookieFrom(response))))
     })
 
     it('does not rotate on a refused password change', async () => {
@@ -1503,6 +1570,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     it('gives the session a new cookie on an email change, and the old cookie stops working', async () => {
       const cookie = await signUp()
       const sessionId = await sessionIdOf(cookie)
+      const { expiresAt } = await onlySession()
 
       const response = await patch(
         '/v1/account',
@@ -1515,6 +1583,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect(rotated).not.toBe(cookie)
       expect((await get('/v1/auth/me', cookie)).status).toBe(401)
       expect(await sessionIdOf(rotated)).toBe(sessionId)
+      expect((await onlySession()).expiresAt.getTime()).toBe(expiresAt.getTime())
     })
 
     it('does not rotate on a change of name only', async () => {
@@ -1530,6 +1599,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     it('gives the session a new cookie when its own account confirms a verification link', async () => {
       const cookie = await signUp()
       const sessionId = await sessionIdOf(cookie)
+      const { expiresAt } = await onlySession()
 
       const response = await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() }, cookie)
 
@@ -1538,6 +1608,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       expect(rotated).not.toBe(cookie)
       expect((await get('/v1/auth/me', cookie)).status).toBe(401)
       expect(await sessionIdOf(rotated)).toBe(sessionId)
+      expect((await onlySession()).expiresAt.getTime()).toBe(expiresAt.getTime())
       expect(await (await get('/v1/account', rotated)).json()).toMatchObject({ email_verified: true })
     })
 
@@ -1555,18 +1626,19 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     })
 
     it('confirms a verification link with an expired cookie of the same account, and sets no cookie', async () => {
-      const expired = await signUp()
-      advance(30 * DAY_MS)
-      // A fresh link, sent after the first session expired.
-      const fresh = sessionCookieFrom(await post('/v1/auth/login', { email: SIGNUP.email, password: SIGNUP.password }))
-      expect((await post('/v1/auth/verify-email', {}, fresh)).status).toBe(202)
-      await harness.runQueuedJobs()
+      const cookie = await signUp()
+      const token = verificationTokenFromEmail()
+      // Expired, and still stored: no sign-in runs between this and the confirm.
+      await database.db.update(sessions).set({ expiresAt: new Date(current - 1000) })
+      const before = await onlySession()
 
-      const response = await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() }, expired)
+      const response = await post('/v1/auth/verify-email/confirm', { token }, cookie)
 
       expect(response.status).toBe(204)
       expect(response.headers.get('Set-Cookie')).toBeNull()
-      expect((await get('/v1/auth/me', fresh)).status).toBe(200)
+      const after = await onlySession()
+      expect(after.id).toBe(before.id)
+      expect(after.tokenHash).toBe(before.tokenHash)
     })
 
     it('confirms a verification link with another account\'s cookie, and leaves that session alone', async () => {
