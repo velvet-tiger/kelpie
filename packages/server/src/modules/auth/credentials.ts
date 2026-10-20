@@ -35,7 +35,10 @@ import { SESSION_COOKIE } from './session.ts'
  */
 const WORKSPACE_KEY_ROLE: MemberRole = 'admin'
 
-/** Writing `last_used_at` on every request would double the write load for no gain. */
+/**
+ * Writing `last_used_at` or `last_active_at` on every request would double the
+ * write load for no gain.
+ */
 const LAST_USED_RESOLUTION_MS = 60_000
 
 export interface CredentialDependencies {
@@ -57,14 +60,17 @@ async function resolveSessionActor(
   dependencies: CredentialDependencies,
   token: string,
 ): Promise<Actor> {
-  const session = await repository.findLiveSessionByTokenHash(
-    dependencies.db,
-    hashToken(token),
-    dependencies.now(),
-  )
+  const now = dependencies.now()
+  const session = await repository.findLiveSessionByTokenHash(dependencies.db, hashToken(token), now)
 
   if (session === undefined) {
     throw AppError.unauthorized('Your session has expired')
+  }
+
+  // Activity moves `last_active_at` only. Expiry stays thirty days from sign-in,
+  // so a stolen cookie that keeps being used still stops working.
+  if (now.getTime() - session.lastActiveAt.getTime() > LAST_USED_RESOLUTION_MS) {
+    await repository.touchSession(dependencies.db, session.id, now)
   }
 
   const membership =

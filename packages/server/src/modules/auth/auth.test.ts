@@ -18,7 +18,7 @@ import {
   sendVerificationEmail,
 } from './emailJobs.ts'
 import { oauthClients, oauthConnections, oauthTokens } from '../oauth/schema.ts'
-import { emailVerificationTokens, passwordResetTokens, userPreferences, users } from './schema.ts'
+import { emailVerificationTokens, passwordResetTokens, sessions, userPreferences, users } from './schema.ts'
 
 /**
  * The auth surface against real Postgres. These assert behaviour a stranger can
@@ -566,7 +566,9 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       )
 
       expect(response.status).toBe(200)
-      expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: keep } })).status).toBe(200)
+      // The caller stays signed in on a new cookie for the same session.
+      const kept = sessionCookieFrom(response)
+      expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: kept } })).status).toBe(200)
       expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: other } })).status).toBe(401)
 
       await harness.runQueuedJobs()
@@ -582,7 +584,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     })
 
     it('resets verification on a real address change, and a no-op change resets nothing', async () => {
-      const cookie = await signUp()
+      let cookie = await signUp()
       await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() })
       expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
 
@@ -593,6 +595,8 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         cookie,
       )
       expect(unchanged.status).toBe(200)
+      // Sending an address ends the other sessions and rotates this one, as a change would.
+      cookie = sessionCookieFrom(unchanged)
       expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
 
       // Nor does it tell the owner that the address changed.
@@ -606,6 +610,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         cookie,
       )
       expect(changed.status).toBe(200)
+      cookie = sessionCookieFrom(changed)
       expect(await changed.json()).toMatchObject({ email: 'ada.king@example.com', email_verified: false })
       expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: false })
 
@@ -619,15 +624,16 @@ describe.skipIf(connectionString === undefined)('auth', () => {
     })
 
     it('refuses a verification link sent to the address the account has moved away from', async () => {
-      const cookie = await signUp()
+      const signedUp = await signUp()
       const tokenForFirstAddress = verificationTokenFromEmail()
 
       const changed = await patch(
         '/v1/account',
         { email: 'ada.king@example.com', current_password: SIGNUP.password },
-        cookie,
+        signedUp,
       )
       expect(changed.status).toBe(200)
+      const cookie = sessionCookieFrom(changed)
       await harness.runQueuedJobs()
 
       // The link in the first mailbox proves nothing about the second address.
@@ -909,7 +915,9 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       })
 
       expect(response.status).toBe(204)
-      expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: keep } })).status).toBe(200)
+      // The caller stays signed in on a new cookie for the same session.
+      const kept = sessionCookieFrom(response)
+      expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: kept } })).status).toBe(200)
       expect((await harness.app.request('/v1/auth/me', { headers: { Cookie: other } })).status).toBe(401)
       expect(
         (await post('/v1/auth/login', { email: SIGNUP.email, password: 'a completely different password' }))
@@ -1020,6 +1028,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
         cookie,
       )
       expect(changed.status).toBe(200)
+      const moved = sessionCookieFrom(changed)
 
       const response = await post('/v1/auth/password-reset/confirm', {
         token,
@@ -1028,7 +1037,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
 
       expect(response.status).toBe(401)
       // The password is unchanged and the session is still open.
-      expect((await get('/v1/account', cookie)).status).toBe(200)
+      expect((await get('/v1/account', moved)).status).toBe(200)
       expect(
         (await post('/v1/auth/login', { email: 'ada.king@example.com', password: SIGNUP.password })).status,
       ).toBe(200)
@@ -1238,7 +1247,7 @@ describe.skipIf(connectionString === undefined)('auth', () => {
           .status,
       ).toBe(401)
       expect((await post('/v1/auth/login', { email: SIGNUP.email, password: NEW_PASSWORD })).status).toBe(200)
-      expect((await get('/v1/auth/me', cookie)).status).toBe(200)
+      expect((await get('/v1/auth/me', sessionCookieFrom(changed))).status).toBe(200)
       expect(await statusWithKey(personalKey)).toBe(200)
       expect(await database.db.select().from(oauthConnections)).toHaveLength(1)
     })
@@ -1369,6 +1378,220 @@ describe.skipIf(connectionString === undefined)('auth', () => {
       const response = await post('/v1/auth/verify-email', {})
 
       expect(response.status).toBe(401)
+    })
+  })
+
+  describe('session lifetime and token rotation', () => {
+    const START = new Date('2026-10-02T09:00:00.000Z')
+    const DAY_MS = 24 * 60 * 60 * 1000
+    const GRACE = {
+      email: 'grace@example.com',
+      name: 'Grace Hopper',
+      password: 'another long enough password',
+    }
+    let current: number
+
+    beforeEach(async () => {
+      current = START.getTime()
+      harness = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db, now: () => new Date(current) }),
+      })
+    })
+
+    function advance(ms: number): void {
+      current += ms
+    }
+
+    async function sessionIdOf(cookie: string): Promise<string> {
+      const response = await get('/v1/auth/me', cookie)
+      expect(response.status).toBe(200)
+      const payload: unknown = await response.json()
+
+      if (!isRecord(payload) || typeof payload.session_id !== 'string') {
+        throw new Error(`Expected /auth/me, got ${JSON.stringify(payload)}`)
+      }
+
+      return payload.session_id
+    }
+
+    async function storedLastActiveAt(): Promise<number[]> {
+      const rows = await database.db.select({ lastActiveAt: sessions.lastActiveAt }).from(sessions)
+
+      return rows.map((row) => row.lastActiveAt.getTime())
+    }
+
+    it('moves last_active_at at most once a minute, and leaves the expiry alone', async () => {
+      const cookie = await signUp()
+      const [before] = await database.db.select().from(sessions)
+
+      advance(30_000)
+      expect((await get('/v1/auth/me', cookie)).status).toBe(200)
+      expect(await storedLastActiveAt()).toEqual([START.getTime()])
+
+      advance(31_000)
+      expect((await get('/v1/auth/me', cookie)).status).toBe(200)
+      expect(await storedLastActiveAt()).toEqual([START.getTime() + 61_000])
+
+      const page = await readSessionPage(await get('/v1/auth/sessions', cookie))
+      expect(page.lastActiveAt).toBe(new Date(START.getTime() + 61_000).toISOString())
+
+      const [after] = await database.db.select().from(sessions)
+      expect(after?.expiresAt.getTime()).toBe(before?.expiresAt.getTime())
+    })
+
+    it('does not list an expired session', async () => {
+      await signUp()
+      advance(29 * DAY_MS)
+      const later = sessionCookieFrom(await post('/v1/auth/login', { email: SIGNUP.email, password: SIGNUP.password }))
+      advance(DAY_MS)
+
+      const page = await readSessionPage(await get('/v1/auth/sessions', later))
+
+      expect(page.sessions).toHaveLength(1)
+      expect(page.sessions[0]).toMatchObject({ id: await sessionIdOf(later), current: true })
+      // The expired row is still stored: no sign-in has run since it expired.
+      expect(await database.db.select().from(sessions)).toHaveLength(2)
+    })
+
+    it('deletes expired sessions when anyone signs in', async () => {
+      const ada = await signUp()
+      const adaSessionId = await sessionIdOf(ada)
+      advance(30 * DAY_MS)
+
+      expect((await get('/v1/auth/me', ada)).status).toBe(401)
+      expect((await database.db.select().from(sessions)).map((row) => row.id)).toEqual([adaSessionId])
+
+      const grace = sessionCookieFrom(await post('/v1/auth/signup', GRACE))
+
+      expect((await database.db.select().from(sessions)).map((row) => row.id)).toEqual([await sessionIdOf(grace)])
+    })
+
+    it('gives the session a new cookie on a password change, and the old cookie stops working', async () => {
+      const cookie = await signUp()
+      const sessionId = await sessionIdOf(cookie)
+
+      const response = await patch(
+        '/v1/auth/password',
+        { current_password: SIGNUP.password, new_password: 'a completely different password' },
+        cookie,
+      )
+
+      expect(response.status).toBe(204)
+      expect(response.headers.get('Set-Cookie')).toContain('HttpOnly')
+      const rotated = sessionCookieFrom(response)
+      expect(rotated).not.toBe(cookie)
+      expect((await get('/v1/auth/me', cookie)).status).toBe(401)
+      expect(await sessionIdOf(rotated)).toBe(sessionId)
+    })
+
+    it('does not rotate on a refused password change', async () => {
+      const cookie = await signUp()
+
+      const response = await patch(
+        '/v1/auth/password',
+        { current_password: 'not it', new_password: 'a completely different password' },
+        cookie,
+      )
+
+      expect(response.status).toBe(401)
+      expect(response.headers.get('Set-Cookie')).toBeNull()
+      expect((await get('/v1/auth/me', cookie)).status).toBe(200)
+    })
+
+    it('gives the session a new cookie on an email change, and the old cookie stops working', async () => {
+      const cookie = await signUp()
+      const sessionId = await sessionIdOf(cookie)
+
+      const response = await patch(
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+
+      expect(response.status).toBe(200)
+      const rotated = sessionCookieFrom(response)
+      expect(rotated).not.toBe(cookie)
+      expect((await get('/v1/auth/me', cookie)).status).toBe(401)
+      expect(await sessionIdOf(rotated)).toBe(sessionId)
+    })
+
+    it('does not rotate on a change of name only', async () => {
+      const cookie = await signUp()
+
+      const response = await patch('/v1/account', { name: 'Ada King' }, cookie)
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Set-Cookie')).toBeNull()
+      expect((await get('/v1/auth/me', cookie)).status).toBe(200)
+    })
+
+    it('gives the session a new cookie when its own account confirms a verification link', async () => {
+      const cookie = await signUp()
+      const sessionId = await sessionIdOf(cookie)
+
+      const response = await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() }, cookie)
+
+      expect(response.status).toBe(204)
+      const rotated = sessionCookieFrom(response)
+      expect(rotated).not.toBe(cookie)
+      expect((await get('/v1/auth/me', cookie)).status).toBe(401)
+      expect(await sessionIdOf(rotated)).toBe(sessionId)
+      expect(await (await get('/v1/account', rotated)).json()).toMatchObject({ email_verified: true })
+    })
+
+    it.each([
+      ['no cookie', undefined],
+      ['an unknown cookie', 'kelpie_session=not-a-real-token'],
+    ])('confirms a verification link with %s, and sets no cookie', async (_label, sent) => {
+      const cookie = await signUp()
+
+      const response = await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() }, sent)
+
+      expect(response.status).toBe(204)
+      expect(response.headers.get('Set-Cookie')).toBeNull()
+      expect(await (await get('/v1/account', cookie)).json()).toMatchObject({ email_verified: true })
+    })
+
+    it('confirms a verification link with an expired cookie of the same account, and sets no cookie', async () => {
+      const expired = await signUp()
+      advance(30 * DAY_MS)
+      // A fresh link, sent after the first session expired.
+      const fresh = sessionCookieFrom(await post('/v1/auth/login', { email: SIGNUP.email, password: SIGNUP.password }))
+      expect((await post('/v1/auth/verify-email', {}, fresh)).status).toBe(202)
+      await harness.runQueuedJobs()
+
+      const response = await post('/v1/auth/verify-email/confirm', { token: verificationTokenFromEmail() }, expired)
+
+      expect(response.status).toBe(204)
+      expect(response.headers.get('Set-Cookie')).toBeNull()
+      expect((await get('/v1/auth/me', fresh)).status).toBe(200)
+    })
+
+    it('confirms a verification link with another account\'s cookie, and leaves that session alone', async () => {
+      const ada = await signUp()
+      const adaToken = verificationTokenFromEmail()
+      // No jobs run, so the last email is still Ada's.
+      const grace = sessionCookieFrom(await post('/v1/auth/signup', GRACE))
+
+      const response = await post('/v1/auth/verify-email/confirm', { token: adaToken }, grace)
+
+      expect(response.status).toBe(204)
+      expect(response.headers.get('Set-Cookie')).toBeNull()
+      expect((await get('/v1/auth/me', grace)).status).toBe(200)
+      expect((await get('/v1/auth/me', ada)).status).toBe(200)
+      expect(await (await get('/v1/account', ada)).json()).toMatchObject({ email_verified: true })
+    })
+
+    it('does not rotate when the verification link is refused', async () => {
+      const cookie = await signUp()
+
+      const response = await post('/v1/auth/verify-email/confirm', { token: 'not-a-real-token' }, cookie)
+
+      expect(response.status).toBe(401)
+      expect(response.headers.get('Set-Cookie')).toBeNull()
+      expect((await get('/v1/auth/me', cookie)).status).toBe(200)
     })
   })
 

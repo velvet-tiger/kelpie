@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNull, lte, ne } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -167,12 +167,50 @@ export async function findLiveSessionById(
   return found
 }
 
-export async function listSessionsForUser(db: Queryable, userId: string): Promise<SessionRecord[]> {
-  return db.select().from(sessions).where(eq(sessions.userId, userId)).orderBy(desc(sessions.lastActiveAt))
+/** Live sessions only, by the same rule as `findLiveSessionByTokenHash`. */
+export async function listSessionsForUser(db: Queryable, userId: string, now: Date): Promise<SessionRecord[]> {
+  return db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.userId, userId), gt(sessions.expiresAt, now)))
+    .orderBy(desc(sessions.lastActiveAt))
 }
 
+/** Writes `last_active_at` only. Expiry stays where sign-in set it. */
 export async function touchSession(db: Queryable, sessionId: string, now: Date): Promise<void> {
   await db.update(sessions).set({ lastActiveAt: now }).where(eq(sessions.id, sessionId))
+}
+
+/**
+ * Deletes every session of every account that has expired. A row is live while
+ * `expires_at > now`, so a row at or past `now` is not a session any more.
+ */
+export async function deleteExpiredSessions(db: Queryable, now: Date): Promise<void> {
+  await db.delete(sessions).where(lte(sessions.expiresAt, now))
+}
+
+/**
+ * Gives one live session a new token. The id, expiry and creation time stay,
+ * so the session is the same one on the Security page.
+ *
+ * Answers false when no live session with that id belongs to that user. The
+ * user is in the `WHERE` clause so a session id alone can never move another
+ * account's token.
+ */
+export async function replaceSessionToken(
+  db: Queryable,
+  userId: string,
+  sessionId: string,
+  tokenHash: string,
+  now: Date,
+): Promise<boolean> {
+  const replaced = await db
+    .update(sessions)
+    .set({ tokenHash })
+    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId), gt(sessions.expiresAt, now)))
+    .returning({ id: sessions.id })
+
+  return replaced.length > 0
 }
 
 export async function deleteSession(db: Queryable, userId: string, sessionId: string): Promise<number> {

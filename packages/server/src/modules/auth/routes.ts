@@ -1,5 +1,6 @@
 import { THEME_PREFERENCES } from '@kelpie/schemas'
 import type { ListViewPreference } from '@kelpie/schemas'
+import { getCookie } from 'hono/cookie'
 import type { Context, Hono } from 'hono'
 import { z } from 'zod'
 
@@ -11,7 +12,7 @@ import { resolveActorFrom } from './credentials.ts'
 import type { CredentialDependencies } from './credentials.ts'
 import type { PreferenceValues } from './preferences.ts'
 import type { AccountView, AuthService, IssuedSession, MeView, SessionView } from './service.ts'
-import { clearSessionCookie, describeClient, writeSessionCookie } from './session.ts'
+import { SESSION_COOKIE, clearSessionCookie, describeClient, writeSessionCookie } from './session.ts'
 import type { SessionCookieOptions } from './session.ts'
 import {
   MAX_ID_LENGTH,
@@ -254,13 +255,17 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
 
   router.patch('/account', async (context) => {
     const body = await readBody(context, updateAccountBody)
-    const account = await dependencies.service.updateAccount(await requireActor(context), {
+    const updated = await dependencies.service.updateAccount(await requireActor(context), {
       ...(body.name === undefined ? {} : { name: body.name }),
       ...(body.email === undefined ? {} : { email: body.email }),
       ...(body.current_password === undefined ? {} : { currentPassword: body.current_password }),
     })
 
-    return context.json(accountBody(account))
+    if (updated.sessionToken !== null) {
+      writeSessionCookie(context, updated.sessionToken, dependencies.cookie)
+    }
+
+    return context.json(accountBody(updated.account))
   })
 
   router.get('/account/preferences', async (context) =>
@@ -297,11 +302,13 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
 
   router.patch('/auth/password', async (context) => {
     const body = await readBody(context, changePasswordBody)
-    await dependencies.service.changePassword(
+    const rotated = await dependencies.service.changePassword(
       await requireActor(context),
       body.current_password,
       body.new_password,
     )
+
+    writeSessionCookie(context, rotated.sessionToken, dependencies.cookie)
 
     return context.body(null, 204)
   })
@@ -331,9 +338,21 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
     return context.body(null, 202)
   })
 
+  /**
+   * Needs no session. A session cookie is read only to give it a new token when
+   * it belongs to the account the link verifies, so it is never resolved to an
+   * actor: a bad cookie must not turn this answer into a `401`.
+   */
   router.post('/auth/verify-email/confirm', async (context) => {
     const body = await readBody(context, verifyEmailConfirmBody)
-    await dependencies.service.confirmEmailVerification(body.token)
+    const rotated = await dependencies.service.confirmEmailVerification(
+      body.token,
+      getCookie(context, SESSION_COOKIE),
+    )
+
+    if (rotated !== null) {
+      writeSessionCookie(context, rotated.sessionToken, dependencies.cookie)
+    }
 
     return context.body(null, 204)
   })

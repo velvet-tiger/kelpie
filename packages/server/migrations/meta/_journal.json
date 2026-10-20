@@ -470,6 +470,13 @@
       "when": 1790918400000,
       "tag": "0066_workspace_members_one_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1791004800000,
+      "tag": "0067_sessions_expires_index",
+      "breakpoints": true
     }
   ]
 }

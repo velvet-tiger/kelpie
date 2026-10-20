@@ -561,10 +561,13 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
 
       // The first account lets the address go and the second one takes it.
       expect((await moveTo(first, 'elsewhere@example.com')).status).toBe(200)
-      expect((await moveTo(second, 'victim@example.com')).status).toBe(200)
+      const moved = await moveTo(second, 'victim@example.com')
+      expect(moved.status).toBe(200)
+      // A change of address gives the session a new cookie, and the old one stops working.
+      const movedCookie = (moved.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
 
       // A new account with a full count of its own, but the same mailbox.
-      expect((await resend(client, second)).status).toBe(429)
+      expect((await resend(client, movedCookie)).status).toBe(429)
     })
   })
 

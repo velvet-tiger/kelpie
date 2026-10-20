@@ -10,6 +10,30 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Changed
+
+- **`@kelpie/server`** — **A password change, an email change and a
+  verification link answer with a new session cookie.**
+  `PATCH /v1/auth/password` gives the caller's session a new token and
+  sets it as the cookie. So does a `PATCH /v1/account` that sends `email`.
+  The old cookie stops working. The session keeps its id and its expiry.
+  `POST /v1/auth/verify-email/confirm` does the same when the request
+  carries a live session of the account the link verifies. Any other
+  cookie, or none, changes nothing, and the answer is still `204`. A
+  cookie that leaked before the change does not keep the new access. No
+  migration.
+
+### Fixed
+
+- **`@kelpie/server`** — **`last_active_at` on a session moves.** A request
+  on a session writes it when the stored time is more than a minute old.
+  Expiry stays thirty days from sign-in. No migration.
+- **`@kelpie/server`** — **Expired sessions are not listed, and sign-in
+  deletes them.** `GET /v1/auth/sessions` lists live sessions only. Every
+  sign-up, login and external sign-in deletes the expired sessions of
+  every account. Migration `0067_sessions_expires_index` adds an index on
+  `sessions.expires_at` for that delete.
+
 ## [0.23.0] - 2026-10-16
 
 ### Added

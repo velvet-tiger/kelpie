@@ -75,6 +75,21 @@ export interface IssuedSession {
   readonly activeWorkspaceId: string | null
 }
 
+/**
+ * The caller's session after a change that raised what its cookie can do. The
+ * id and expiry stay. Only the token is new, and the plaintext exists only in
+ * this return value.
+ */
+export interface RotatedSession {
+  readonly sessionToken: string
+}
+
+/** What `updateAccount` returns. `sessionToken` is null when the change did not rotate it. */
+export interface UpdatedAccount {
+  readonly account: AccountView
+  readonly sessionToken: string | null
+}
+
 /** What `completeExternalSignIn` returns: an issued session plus whether it made the account. */
 export interface ExternalIssuedSession extends IssuedSession {
   readonly created: boolean
@@ -213,7 +228,8 @@ export interface AuthService {
   completeExternalSignIn(input: ExternalSignInInput): Promise<ExternalIssuedSession>
   logOut(actor: SessionActor): Promise<void>
   getAccount(actor: SessionActor): Promise<AccountView>
-  updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<AccountView>
+  /** Answers a new session token whenever `email` is part of the change. */
+  updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<UpdatedAccount>
   /** Answers documented defaults for an account that has never saved any. */
   getPreferences(actor: SessionActor): Promise<PreferenceValues>
   updatePreferences(actor: SessionActor, changes: PreferenceChanges): Promise<PreferenceValues>
@@ -226,10 +242,16 @@ export interface AuthService {
   /** Resolves whether or not the address is registered, after the same work for both. */
   requestPasswordReset(email: string): Promise<void>
   confirmPasswordReset(token: string, newPassword: string): Promise<void>
-  changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<void>
+  /** Answers the caller's session with a new token. */
+  changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<RotatedSession>
   /** Queues a fresh verification email. A no-op once already verified. */
   requestEmailVerification(actor: SessionActor): Promise<void>
-  confirmEmailVerification(token: string): Promise<void>
+  /**
+   * Spends a verification token. When `sessionToken` is a live session of the
+   * account the token verifies, that session gets a new token, which this
+   * answers. Any other `sessionToken` changes nothing and answers null.
+   */
+  confirmEmailVerification(token: string, sessionToken?: string): Promise<RotatedSession | null>
 }
 
 export function createAuthService(dependencies: AuthDependencies): AuthService {
@@ -249,6 +271,23 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     return user
   }
 
+  /**
+   * Gives the caller's session a new token, on the transaction of the change
+   * that made it necessary.
+   *
+   * A session whose row is gone or expired cannot make the change, so the
+   * whole transaction is refused rather than committed without a session.
+   */
+  async function rotateCallerSession(tx: repository.Queryable, actor: SessionActor, now: Date): Promise<string> {
+    const token = newToken()
+
+    if (!(await repository.replaceSessionToken(tx, actor.userId, actor.sessionId, hashToken(token), now))) {
+      throw AppError.unauthorized('Your session has expired')
+    }
+
+    return token
+  }
+
   async function issueSession(
     db: repository.Queryable,
     user: repository.UserRecord,
@@ -261,6 +300,13 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     const token = newToken()
     const expiresAt = new Date(now.getTime() + SESSION_LIFETIME_MS)
     const membership = await repository.findFirstMembership(db, user.id)
+
+    // Core has no scheduler: pg-boss runs with `schedule: false`. So the
+    // housekeeping runs on the path that creates the rows, as the oauth module's
+    // `sweepTokens` and the idempotency middleware's
+    // `pruneExpiredIdempotencyKeys` do. Every sign-up, login and external
+    // sign-in comes through here.
+    await repository.deleteExpiredSessions(db, now)
 
     await repository.insertSession(db, {
       id: dependencies.createId('session'),
@@ -463,7 +509,8 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
      * whoever controls the sign-in address controls the account through a
      * password reset. The current password must verify, every other session
      * ends, and the address being replaced is told, in case the caller was not
-     * its owner.
+     * its owner. The caller's session gets a new token, so a copy of the old
+     * cookie that leaked before the change does not keep that control.
      *
      * A real change of address also resets verification and queues a fresh
      * verification email to the new one. Verifying the old address proves nothing about the
@@ -472,7 +519,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
      * exactly the mailbox-ownership proof signup's own token exists to require.
      * Submitting the address already on file is not a change and resets nothing.
      */
-    async updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<AccountView> {
+    async updateAccount(actor: SessionActor, changes: UpdateAccountChanges): Promise<UpdatedAccount> {
       const user = await requireUser(actor.userId)
 
       const nextEmail =
@@ -513,6 +560,9 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
             throw AppError.unauthorized('This session no longer belongs to an account')
           }
 
+          const sessionToken =
+            changes.email === undefined ? null : await rotateCallerSession(tx, actor, now)
+
           if (changes.email !== undefined) {
             await repository.deleteOtherSessionsForUser(tx, actor.userId, actor.sessionId)
           }
@@ -534,10 +584,10 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
             })
           }
 
-          return saved
+          return { account: toAccountView(saved), sessionToken }
         })
 
-        return toAccountView(updated)
+        return updated
       } catch (error: unknown) {
         if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
           // The caller typed this address, so naming the clash discloses nothing
@@ -585,7 +635,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
     },
 
     async listSessions(actor: SessionActor): Promise<readonly SessionView[]> {
-      const records = await repository.listSessionsForUser(dependencies.db, actor.userId)
+      const records = await repository.listSessionsForUser(dependencies.db, actor.userId, dependencies.now())
 
       return records.map((record) => ({
         id: record.id,
@@ -724,11 +774,19 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
      * Keeps the caller signed in, ends every other session, and closes every
      * open reset link.
      *
+     * The caller's session gets a new token. A copy of the old cookie that
+     * leaked before the change would otherwise outlive the change that was
+     * meant to shut it out.
+     *
      * Personal API keys and connected apps stay. A routine change is not a
      * report of compromise, and ending them would stop integrations the
      * caller set up and can still revoke one by one. A reset ends them.
      */
-    async changePassword(actor: SessionActor, currentPassword: string, newPassword: string): Promise<void> {
+    async changePassword(
+      actor: SessionActor,
+      currentPassword: string,
+      newPassword: string,
+    ): Promise<RotatedSession> {
       if (newPassword.length < MINIMUM_PASSWORD_LENGTH) {
         throw AppError.validationFailed('Password is too short', [
           { field: 'new_password', message: `Must be at least ${MINIMUM_PASSWORD_LENGTH} characters` },
@@ -748,10 +806,13 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       const now = dependencies.now()
       const passwordHash = await hashPassword(newPassword)
 
-      await dependencies.transaction(async ({ tx }) => {
+      return dependencies.transaction(async ({ tx }) => {
         await repository.updateUserPassword(tx, user.id, passwordHash, now)
+        const sessionToken = await rotateCallerSession(tx, actor, now)
         await repository.deleteOtherSessionsForUser(tx, user.id, actor.sessionId)
         await repository.closeOpenPasswordResetTokens(tx, user.id, now)
+
+        return { sessionToken }
       })
     },
 
@@ -771,7 +832,16 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       })
     },
 
-    async confirmEmailVerification(token: string): Promise<void> {
+    /**
+     * The route takes the token in the body and needs no session. When the
+     * request carries a session of the same account, that session gets a new
+     * token: verifying raises what the account may do, and a cookie planted
+     * before the change (session fixation) must not carry that access.
+     *
+     * A session of another account, or one that is unknown or expired, is not
+     * an error here. It changes nothing, so the answer does not depend on it.
+     */
+    async confirmEmailVerification(token: string, sessionToken?: string): Promise<RotatedSession | null> {
       const now = dependencies.now()
       const record = await repository.findUsableEmailVerificationToken(
         dependencies.db,
@@ -785,7 +855,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       const { email } = record
 
-      await dependencies.transaction(async ({ tx }) => {
+      return dependencies.transaction(async ({ tx }) => {
         // The token verifies the address it was sent to and no other. An
         // account that has changed address since needs the link sent to the
         // new one. The same answer as an unknown token.
@@ -802,6 +872,24 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         }
 
         await repository.markEmailAddressVerified(tx, record.userId, email, now)
+
+        if (sessionToken === undefined || sessionToken.length === 0) {
+          return null
+        }
+
+        const session = await repository.findLiveSessionByTokenHash(tx, hashToken(sessionToken), now)
+
+        if (session === undefined || session.userId !== record.userId) {
+          return null
+        }
+
+        const rotated = newToken()
+
+        // The session was read on this transaction, but it can still end
+        // before this write. Then there is nothing to rotate.
+        return (await repository.replaceSessionToken(tx, session.userId, session.id, hashToken(rotated), now))
+          ? { sessionToken: rotated }
+          : null
       })
     },
   }

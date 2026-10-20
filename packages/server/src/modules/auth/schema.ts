@@ -1,6 +1,6 @@
 import { THEME_PREFERENCES } from '@kelpie/schemas'
 import type { ListViewPreference, ThemePreference } from '@kelpie/schemas'
-import { boolean, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
+import { boolean, index, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
 
 import { checkOneOf, citext, createdAt, moment, primaryId, updatedAt } from '../../lib/columns.ts'
 
@@ -30,25 +30,30 @@ export const users = pgTable('users', {
   updatedAt: updatedAt(),
 })
 
-export const sessions = pgTable('sessions', {
-  id: primaryId(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  activeWorkspaceId: text('active_workspace_id'),
-  tokenHash: text('token_hash').notNull().unique(),
-  device: text('device'),
-  location: text('location'),
-  /**
-   * Which module completed this sign-in (`sign-in:google`), null for a password
-   * one. The Security page lists sessions, and a person should be able to tell
-   * the two apart.
-   */
-  signedInVia: text('signed_in_via'),
-  lastActiveAt: moment('last_active_at').notNull().defaultNow(),
-  expiresAt: moment('expires_at').notNull(),
-  createdAt: createdAt(),
-})
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: primaryId(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    activeWorkspaceId: text('active_workspace_id'),
+    tokenHash: text('token_hash').notNull().unique(),
+    device: text('device'),
+    location: text('location'),
+    /**
+     * Which module completed this sign-in (`sign-in:google`), null for a password
+     * one. The Security page lists sessions, and a person should be able to tell
+     * the two apart.
+     */
+    signedInVia: text('signed_in_via'),
+    lastActiveAt: moment('last_active_at').notNull().defaultNow(),
+    expiresAt: moment('expires_at').notNull(),
+    createdAt: createdAt(),
+  },
+  // Every sign-in deletes the expired rows, so that delete must not scan the table.
+  (table) => [index('sessions_expires_idx').on(table.expiresAt)],
+)
 
 /**
  * Settings that belong to the person rather than to a workspace.
