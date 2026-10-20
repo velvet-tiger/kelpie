@@ -916,8 +916,10 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
      *
      * It ends no other session. And it does not protect an account that
      * somebody else registered with this address: they know its password and
-     * keep their own sessions. That is the pre-registration takeover case,
-     * which `completeExternalSignIn` and the reset flow handle.
+     * keep their own sessions. Nothing here can tell that from a normal
+     * verification. Once the address is verified, `completeExternalSignIn` no
+     * longer treats it as a takeover, so only a password reset by the owner
+     * ends those sessions.
      *
      * A session of another account, or one that is unknown or expired, is not
      * an error here. It changes nothing, so the answer does not depend on it.
