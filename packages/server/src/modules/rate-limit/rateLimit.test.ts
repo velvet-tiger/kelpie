@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest'
 
 import type { RateLimitConfig } from '../../lib/rateLimit.ts'
+import type { KelpieModule } from '../../runtime/module.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { createTestClient, readRecord, readString } from '../../testing/client.ts'
@@ -667,6 +668,170 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
 
       expect(blocked.status).toBe(429)
       expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
+    })
+  })
+
+  describe('a budget a module declares', () => {
+    /**
+     * Declares a budget over `/portal/*`, a guard over the same pattern that
+     * counts how often it runs, and one route outside the pattern.
+     */
+    function portalModule(options: { readonly windowSeconds: number }, guardCalls: { count: number }): KelpieModule {
+      return {
+        id: 'portal',
+        register(context) {
+          context.rateLimit('/portal/*', { limit: 2, windowSeconds: options.windowSeconds, key: 'ip' })
+          context.appMiddleware('/portal/*', async (_requestContext, next) => {
+            guardCalls.count += 1
+            await next()
+          })
+          context.appRoute('GET', '/portal/ping', (requestContext) => requestContext.json({ pong: true }))
+          context.appRoute('POST', '/portal/submit', (requestContext) => requestContext.json({ ok: true }))
+          context.appRoute('GET', '/lobby/ping', (requestContext) => requestContext.json({ pong: true }))
+          return Promise.resolve()
+        },
+      }
+    }
+
+    async function portalHarness(
+      options: { readonly windowSeconds: number },
+      now: () => Date,
+      guardCalls: { count: number } = { count: 0 },
+    ): Promise<TestApp> {
+      return createTestApp({
+        modules: [...coreModules, portalModule(options, guardCalls)],
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db, now }),
+        rateLimit: rateLimitConfig({}),
+      })
+    }
+
+    it('answers 429 with Retry-After once one IP is over the budget', async () => {
+      const harness = await portalHarness({ windowSeconds: 60 }, midWindowClock)
+
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.60')).status).toBe(200)
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.60')).status).toBe(200)
+
+      const limited = await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.60')
+
+      expect(limited.status).toBe(429)
+      // 30 seconds into a 60-second window.
+      expect(limited.headers.get('Retry-After')).toBe('30')
+      expect(await limited.json()).toMatchObject({ error: { code: 'rate_limited' } })
+    })
+
+    it('counts every path and method the pattern matches as one budget', async () => {
+      const harness = await portalHarness({ windowSeconds: 60 }, midWindowClock)
+
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.61')).status).toBe(200)
+      expect((await sendFrom(harness.app, 'POST', '/portal/submit', '203.0.113.61', {})).status).toBe(200)
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.61')).status).toBe(429)
+    })
+
+    it('counts each IP separately and leaves paths outside the pattern alone', async () => {
+      const harness = await portalHarness({ windowSeconds: 60 }, midWindowClock)
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.62')
+      }
+
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.62')).status).toBe(429)
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.63')).status).toBe(200)
+      expect((await sendFrom(harness.app, 'GET', '/lobby/ping', '203.0.113.62')).status).toBe(200)
+    })
+
+    it('refuses a caller over budget before any declared middleware runs', async () => {
+      const guardCalls = { count: 0 }
+      const harness = await portalHarness({ windowSeconds: 60 }, midWindowClock, guardCalls)
+
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.64')
+      }
+
+      expect(guardCalls.count).toBe(2)
+    })
+
+    /**
+     * Pruning used to cut off at the longest core window, 60 seconds here. A
+     * new window opening 20 minutes into this hour-long one swept the first
+     * caller's bucket, and their count started again from nothing.
+     */
+    /** One module counting a guard registered ahead of another module's budget. */
+    function guardFirstModules(guardCalls: { count: number }): readonly KelpieModule[] {
+      const guard: KelpieModule = {
+        id: 'warden',
+        register(context) {
+          context.appMiddleware('/shared/*', async (_requestContext, next) => {
+            guardCalls.count += 1
+            await next()
+          })
+          context.appRoute('GET', '/shared/ping', (requestContext) => requestContext.json({ pong: true }))
+          return Promise.resolve()
+        },
+      }
+      const tight: KelpieModule = {
+        id: 'tight',
+        register(context) {
+          context.rateLimit('/shared/*', { limit: 2, windowSeconds: 60, key: 'ip' })
+          return Promise.resolve()
+        },
+      }
+      const loose: KelpieModule = {
+        id: 'loose',
+        register(context) {
+          context.rateLimit('/shared/*', { limit: 3, windowSeconds: 60, key: 'ip' })
+          return Promise.resolve()
+        },
+      }
+
+      return [guard, tight, loose]
+    }
+
+    it("checks a budget before a guard from a module that registered first", async () => {
+      const guardCalls = { count: 0 }
+      const harness = await createTestApp({
+        modules: [...coreModules, ...guardFirstModules(guardCalls)],
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db, now: midWindowClock }),
+        rateLimit: rateLimitConfig({}),
+      })
+
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await sendFrom(harness.app, 'GET', '/shared/ping', '203.0.113.67')
+      }
+
+      expect(guardCalls.count).toBe(2)
+    })
+
+    /**
+     * Sharing one counter, each request would spend two units, and the
+     * second request would already be over the tighter budget of two.
+     */
+    it('keeps a separate counter for each module that declares the same pattern', async () => {
+      const harness = await createTestApp({
+        modules: [...coreModules, ...guardFirstModules({ count: 0 })],
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db, now: midWindowClock }),
+        rateLimit: rateLimitConfig({}),
+      })
+
+      expect((await sendFrom(harness.app, 'GET', '/shared/ping', '203.0.113.68')).status).toBe(200)
+      expect((await sendFrom(harness.app, 'GET', '/shared/ping', '203.0.113.68')).status).toBe(200)
+      expect((await sendFrom(harness.app, 'GET', '/shared/ping', '203.0.113.68')).status).toBe(429)
+    })
+
+    it('keeps a bucket whose window is longer than every core window', async () => {
+      let now = new Date('2026-01-01T00:00:30Z')
+      const harness = await portalHarness({ windowSeconds: 3600 }, () => now)
+
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.65')).status).toBe(200)
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.65')).status).toBe(200)
+
+      now = new Date('2026-01-01T00:20:30Z')
+      // Another caller opens a bucket, which is what triggers a prune.
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.66')).status).toBe(200)
+
+      expect((await sendFrom(harness.app, 'GET', '/portal/ping', '203.0.113.65')).status).toBe(429)
     })
   })
 

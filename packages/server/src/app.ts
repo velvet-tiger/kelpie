@@ -22,6 +22,7 @@ import { createMcpEndpoint } from './modules/mcp/router.ts'
 import { createApiKeyScopeMiddleware } from './modules/api-keys/scopeMiddleware.ts'
 import {
   createApiBudgetCharger,
+  createAppRateLimitMiddleware,
   createAuthAndApiRateLimitMiddleware,
   createFormSubmitRateLimitMiddleware,
   createOAuthRateLimitMiddleware,
@@ -175,6 +176,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
     credentials: dependencies.credentials,
     resolveClientIp: dependencies.resolveClientIp,
     config: dependencies.rateLimit,
+    appRateLimits: dependencies.contributions.appRateLimits,
   }
 
   // Ahead of idempotency, so a rate-limited request never reserves an
@@ -297,13 +299,19 @@ export function createApp(dependencies: AppDependencies): Hono<AppBindings> {
   app.use(`${OAUTH_ROUTE_PREFIX}/*`, createOAuthRateLimitMiddleware(rateLimitDependencies))
 
   // Module declarations on the app itself, outside /v1 (`runtime/module.ts`).
-  // Middleware first, all of it, then routes: within one request Hono
-  // composes matching handlers in registration order, so this is what makes
-  // a declared pattern cover matching routes from every module, whichever
-  // registered first. Registered after core's own surfaces above, so nothing
-  // here can run ahead of them. Not rate limited: the `/v1` budgets are
-  // per-workspace-credential, and a declared surface owns its own access
+  // Budgets first, then middleware, all of it, then routes: within one
+  // request Hono composes matching handlers in registration order, so this is
+  // what makes a declared pattern cover matching routes from every module,
+  // whichever registered first, and what keeps a caller over budget away from
+  // a guard that does database work. Registered after core's own surfaces
+  // above, so nothing here can run ahead of them. A declared surface has no
+  // budget unless a module declares one with `rateLimit`: the `/v1` budgets
+  // are per workspace credential, and a declared surface owns its own access
   // rules.
+  for (const declaration of dependencies.contributions.appRateLimits) {
+    app.use(declaration.pattern, createAppRateLimitMiddleware(rateLimitDependencies, declaration))
+  }
+
   for (const middleware of dependencies.contributions.appMiddleware) {
     app.use(middleware.pattern, middleware.handler)
   }

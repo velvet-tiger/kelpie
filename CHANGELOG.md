@@ -10,6 +10,21 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`** — **A module can give its app-level routes a rate
+  limit.** `context.rateLimit(pattern, { limit, windowSeconds, key: 'ip' })`
+  declares a budget for a path pattern outside `/v1`, beside `appRoute`
+  and `appMiddleware`. Core counts it in `rate_limit_buckets` with its own
+  limiter and finds the client address the way its own budgets do, behind
+  `TRUSTED_PROXY_HOP_COUNT`. A request over the budget answers `429` with
+  `Retry-After`, before any declared middleware runs. A bad limit, a window
+  over a day, a bad key, a bad pattern or one over 200 characters, or one
+  pattern declared twice by one module, fails boot.
+  The types `AppRateLimitOptions` and `AppRateLimitContribution` are
+  exported, and `ModuleContributions` has `appRateLimits`. An assembly
+  whose modules declare no budget behaves as before. No migration.
+
 ### Changed
 
 - **`@kelpie/server`** — **A password change, an email change and a
@@ -29,6 +44,10 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **Pruning keeps a module budget's live buckets.**
+  The limiter deletes old buckets with a cutoff of its longest window. That
+  cutoff now includes the windows modules declare, so a module budget
+  longer than every core budget is not reset partway through its window.
 - **`@kelpie/server`** — **`last_active_at` on a session moves.** A request
   on a session writes it when the stored time is more than a minute old.
   Expiry stays thirty days from sign-in. No migration.

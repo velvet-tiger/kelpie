@@ -9,6 +9,7 @@ import { MAX_SHORT_TEXT_LENGTH } from '../../lib/fieldLimits.ts'
 import { PUBLIC_ROUTE_PREFIX } from '../../lib/http.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { RateLimitBudget, RateLimitConfig } from '../../lib/rateLimit.ts'
+import type { AppRateLimitContribution } from '../../runtime/registry.ts'
 import { readBearerToken } from '../api-keys/keys.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -31,6 +32,11 @@ export interface RateLimitMiddlewareDependencies {
   readonly credentials: CredentialDependencies
   readonly resolveClientIp: (context: Context) => string
   readonly config: RateLimitConfig
+  /**
+   * The budgets modules declared with `rateLimit`. Read for their windows,
+   * so pruning never removes a bucket one of them is still counting in.
+   */
+  readonly appRateLimits: readonly AppRateLimitContribution[]
 }
 
 /**
@@ -108,18 +114,22 @@ function windowStart(now: Date, windowMs: number): Date {
 }
 
 /**
- * The largest configured window across every budget. A bucket cannot be expired
- * before its own window elapses, so this is a safe cutoff for pruning regardless
- * of which budget created the row. The `login-account` window is the longest by
- * default, so leaving it out would prune a live account bucket early.
+ * The largest configured window across every budget, a module's included. A
+ * bucket cannot be expired before its own window elapses, so this is a safe
+ * cutoff for pruning regardless of which budget created the row. The
+ * `login-account` window is the longest by default, so leaving it out would
+ * prune a live account bucket early. A module may declare a longer one still.
  */
-function maxWindowMs(config: RateLimitConfig): number {
+function maxWindowMs(dependencies: RateLimitMiddlewareDependencies): number {
+  const { config } = dependencies
+
   return Math.max(
     config.forms.windowMs,
     config.auth.windowMs,
     config.loginAccount.windowMs,
     config.api.windowMs,
     config.oauth.windowMs,
+    ...dependencies.appRateLimits.map((declaration) => declaration.windowMs),
   )
 }
 
@@ -212,7 +222,7 @@ async function enforceBudget(
 
   // Equal to the amount means this request opened the window.
   if (count === amount) {
-    await pruneExpiredRateLimitBuckets(dependencies.db, new Date(now.getTime() - maxWindowMs(dependencies.config)))
+    await pruneExpiredRateLimitBuckets(dependencies.db, new Date(now.getTime() - maxWindowMs(dependencies)))
   }
 
   if (count > params.budget.limit) {
@@ -366,6 +376,38 @@ export function createOAuthRateLimitMiddleware(
       scope: 'oauth',
       key: clientKey(dependencies, context),
       budget: dependencies.config.oauth,
+    })
+    await next()
+  }
+}
+
+/**
+ * Guards the paths one module's `rateLimit` declaration covers, keyed by the
+ * caller's IP.
+ *
+ * The bucket scope carries the module id and the pattern, so it cannot share
+ * a counter with a core budget or with another module's declaration. The
+ * `module:` prefix cannot clash with a core scope name, none of which has a
+ * colon. The id is encoded so it holds no colon either: the first colon after
+ * the prefix always ends the id, and a pattern with a colon in it cannot make
+ * two declarations share a scope.
+ *
+ * Every method counts, a CORS preflight `OPTIONS` included, and this runs
+ * ahead of a module's own CORS middleware, so a `429` carries no CORS
+ * headers.
+ */
+export function createAppRateLimitMiddleware(
+  dependencies: RateLimitMiddlewareDependencies,
+  declaration: AppRateLimitContribution,
+): MiddlewareHandler {
+  const scope = `module:${encodeURIComponent(declaration.moduleId)}:${declaration.pattern}`
+  const budget: RateLimitBudget = { limit: declaration.limit, windowMs: declaration.windowMs }
+
+  return async (context, next) => {
+    await enforceBudget(dependencies, context, {
+      scope,
+      key: clientKey(dependencies, context),
+      budget,
     })
     await next()
   }

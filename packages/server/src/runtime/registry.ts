@@ -25,6 +25,7 @@ import { createEventBus } from './events.ts'
 import type { EventBus } from './events.ts'
 import type {
   AgentDispatcher,
+  AppRateLimitOptions,
   CompletedSignIn,
   ExternalSignInHandler,
   KelpieModule,
@@ -52,6 +53,8 @@ export interface ModuleContributions {
   readonly appMiddleware: readonly AppMiddlewareContribution[]
   /** Routes declared at full paths on the app itself, outside `/v1`. */
   readonly appRoutes: readonly AppRouteContribution[]
+  /** Budgets declared on the app itself. Checked before every `appMiddleware` entry. */
+  readonly appRateLimits: readonly AppRateLimitContribution[]
   readonly schemas: readonly SchemaContribution[]
   readonly mcpTools: readonly McpTool[]
   /**
@@ -85,6 +88,15 @@ export interface AppMiddlewareContribution {
   readonly moduleId: string
   readonly pattern: string
   readonly handler: MiddlewareHandler
+}
+
+/** A budget a module declared with `rateLimit`, its window already in milliseconds. */
+export interface AppRateLimitContribution {
+  readonly moduleId: string
+  readonly pattern: string
+  readonly limit: number
+  readonly windowMs: number
+  readonly key: AppRateLimitOptions['key']
 }
 
 /**
@@ -149,6 +161,76 @@ function assertMountablePath(moduleId: string, kind: string, path: string): void
       `module "${moduleId}" declares ${kind} "${path}" under "${reserved}", which is core's surface`,
     ])
   }
+}
+
+/**
+ * The longest window a module may declare, one day. Pruning cuts off at the
+ * longest window of any budget, core's included, so a longer one would keep
+ * every core bucket that long, and an absurd one would put the cutoff before
+ * a date Postgres can store and fail every prune.
+ */
+const MAX_APP_RATE_LIMIT_WINDOW_SECONDS = 86_400
+
+/**
+ * The longest pattern a module may declare a budget for. The pattern is part
+ * of the bucket scope, and an index entry over Postgres's limit would fail
+ * every request the pattern covers.
+ */
+const MAX_APP_RATE_LIMIT_PATTERN_LENGTH = 200
+
+/**
+ * Checks a budget a module declared with `rateLimit` and converts it to the
+ * shape the app mounts.
+ *
+ * The options arrive from module code, possibly plain JavaScript, so each
+ * field is checked rather than trusted to the type. A zero or fractional
+ * limit would make every request a `429`, or none.
+ *
+ * @throws ModuleBootError naming the module, the pattern and the bad field.
+ */
+function appRateLimitContribution(
+  moduleId: string,
+  pattern: string,
+  options: AppRateLimitOptions,
+  declared: readonly AppRateLimitContribution[],
+): AppRateLimitContribution {
+  const problems: string[] = []
+
+  if (!Number.isInteger(options.limit) || options.limit <= 0) {
+    problems.push(`module "${moduleId}" declares rate limit "${pattern}" with limit ${String(options.limit)}, which must be a positive integer`)
+  }
+
+  if (!Number.isInteger(options.windowSeconds) || options.windowSeconds <= 0) {
+    problems.push(
+      `module "${moduleId}" declares rate limit "${pattern}" with windowSeconds ${String(options.windowSeconds)}, which must be a positive integer`,
+    )
+  } else if (options.windowSeconds > MAX_APP_RATE_LIMIT_WINDOW_SECONDS) {
+    problems.push(
+      `module "${moduleId}" declares rate limit "${pattern}" with windowSeconds ${String(options.windowSeconds)}, which must be at most ${String(MAX_APP_RATE_LIMIT_WINDOW_SECONDS)}`,
+    )
+  }
+
+  if (pattern.length > MAX_APP_RATE_LIMIT_PATTERN_LENGTH) {
+    problems.push(
+      `module "${moduleId}" declares a rate limit on a pattern of ${String(pattern.length)} characters, which must be at most ${String(MAX_APP_RATE_LIMIT_PATTERN_LENGTH)}`,
+    )
+  }
+
+  if (options.key !== 'ip') {
+    problems.push(`module "${moduleId}" declares rate limit "${pattern}" with key "${String(options.key)}". The only key is "ip"`)
+  }
+
+  // Both would count into one bucket scope, so the tighter limit would apply
+  // to a counter the looser one also spends.
+  if (declared.some((existing) => existing.moduleId === moduleId && existing.pattern === pattern)) {
+    problems.push(`module "${moduleId}" declares rate limit "${pattern}" twice`)
+  }
+
+  if (problems.length > 0) {
+    throw new ModuleBootError(problems)
+  }
+
+  return { moduleId, pattern, limit: options.limit, windowMs: options.windowSeconds * 1000, key: options.key }
 }
 
 /**
@@ -523,6 +605,7 @@ interface Accumulator {
   readonly publicRouters: ModuleRouter[]
   readonly appMiddleware: AppMiddlewareContribution[]
   readonly appRoutes: AppRouteContribution[]
+  readonly appRateLimits: AppRateLimitContribution[]
   readonly schemas: SchemaContribution[]
   readonly mcpTools: McpTool[]
   readonly routeScopeRules: RouteScopeRule[]
@@ -801,6 +884,11 @@ function createModuleContext(
       accumulator.appMiddleware.push({ moduleId: module.id, pattern, handler })
     },
 
+    rateLimit(pattern, options) {
+      assertMountablePath(module.id, 'rate limit', pattern)
+      accumulator.appRateLimits.push(appRateLimitContribution(module.id, pattern, options, accumulator.appRateLimits))
+    },
+
     schema(tables, migrationsDir) {
       accumulator.schemas.push({ moduleId: module.id, tables, migrationsDir })
     },
@@ -941,6 +1029,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     publicRouters: [],
     appMiddleware: [],
     appRoutes: [],
+    appRateLimits: [],
     schemas: [],
     mcpTools: [],
     routeScopeRules: [],
@@ -1099,6 +1188,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     publicRouters: accumulator.publicRouters,
     appMiddleware: accumulator.appMiddleware,
     appRoutes: accumulator.appRoutes,
+    appRateLimits: accumulator.appRateLimits,
     schemas: accumulator.schemas,
     mcpTools: accumulator.mcpTools,
     routeScopeRules: accumulator.routeScopeRules,

@@ -55,6 +55,14 @@ Core checks the router of a toggleable module. Keep to the same rules in a struc
 - The path starts with `/` and then a segment of plain text, from the same characters. `/auth/:provider/callback` and `/operator/api/*` pass. `/`, `/*` and `/:name/login` fail.
 - The first segment is not `v1`, `mcp` or `healthz`, in any letter case. Those paths are core's.
 
+**`context.rateLimit`.** A route you declare with `appRoute` has no request budget. Give it one with `context.rateLimit('/auth/*', { limit: 30, windowSeconds: 60, key: 'ip' })`. Core counts it with the limiter it uses for its own budgets, so the client address is found behind trusted proxies (`TRUSTED_PROXY_HOP_COUNT`) and an IPv6 client is counted by its `/64`. Do not resolve the address yourself.
+
+- The pattern follows the rules above and has at most 200 characters. Every method on every path it matches counts against one budget per client. That includes a CORS preflight `OPTIONS` and a path that no route answers.
+- A request over the budget answers `429` with `Retry-After`. Core checks budgets before any `appMiddleware`, so your guard does no work for that request. Your CORS middleware does not run either, so a browser on another origin cannot read the `429`.
+- `limit` is a positive integer. `windowSeconds` is a positive integer of at most 86400, one day. `key` is `'ip'`, the only key.
+- One module declaring the same pattern twice fails boot. Budgets never share a counter: when two declarations match a request, from your module or another, both apply.
+- To let a deployment change the numbers, read them through `context.config` and pass them in.
+
 ## Scopes for your routes
 
 An API key can be limited to scopes. A scoped key reaches a `/v1` route only when a scope is declared for that route. Declare one for each route a scoped key may call:

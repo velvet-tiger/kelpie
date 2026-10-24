@@ -97,6 +97,20 @@ export interface RouteScopeDeclaration {
   readonly scope: ApiKeyGranularScope
 }
 
+/** A budget a module declares with `rateLimit`. */
+export interface AppRateLimitOptions {
+  /** How many requests one client may make in a window. A positive integer. */
+  readonly limit: number
+  /** The length of the fixed window. A positive integer, at most 86400 (one day). */
+  readonly windowSeconds: number
+  /**
+   * Who a request is counted against. `'ip'` is the client address, resolved
+   * behind trusted proxies the way core's own budgets resolve it, and an IPv6
+   * client counted by its `/64`.
+   */
+  readonly key: 'ip'
+}
+
 /** How an agent dispatch ended. The same shape whether it went over HTTP or in-process. */
 export interface AgentDispatchOutcome {
   readonly delivered: boolean
@@ -372,6 +386,28 @@ export interface ModuleContext extends ModuleServices {
    * reserved name.
    */
   appMiddleware(pattern: string, handler: MiddlewareHandler): void
+  /**
+   * Declares a request budget for a path pattern (`/auth/*`), counted with
+   * core's own limiter. A request over it answers `429` with `Retry-After`.
+   *
+   * A surface declared with `appRoute` has no budget otherwise. This is the
+   * way to give it one without a copy of the limiter, and without a copy of
+   * the `TRUSTED_PROXY_HOP_COUNT` rule that finds the real client address
+   * behind a proxy.
+   *
+   * The app checks every declared budget before any declared middleware, so
+   * a caller over budget never reaches a guard that does database work. That
+   * includes a module's CORS middleware: a `429` carries no CORS headers. The
+   * budget counts every method on every path the pattern matches, preflight
+   * `OPTIONS` and paths no route answers included, as one counter per
+   * client. Budgets do not share counters: two declarations that match one
+   * request, from one module or two, both apply.
+   *
+   * The pattern follows the path rules of `appRoute` and has at most 200
+   * characters. The window is at most 86400 seconds. A module that declares
+   * the same pattern twice fails boot.
+   */
+  rateLimit(pattern: string, options: AppRateLimitOptions): void
   schema(tables: Readonly<Record<string, unknown>>, migrationsDir: string): void
   readonly mcp: McpToolRegistry
   /** In-process dispatch for the agent rows this module manages. */

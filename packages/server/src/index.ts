@@ -122,6 +122,7 @@ export type {
   AgentDispatchOutcome,
   AgentDispatchRegistry,
   AgentDispatcher,
+  AppRateLimitOptions,
   CompletedSignIn,
   CompletedSignInAccount,
   ExternalSignInHandler,
@@ -213,6 +214,7 @@ export type { KeyKind, MintedKey } from './modules/api-keys/keys.ts'
 export { registerModules } from './runtime/registry.ts'
 export type {
   AppMiddlewareContribution,
+  AppRateLimitContribution,
   AppRouteContribution,
   ModuleContributions,
   ModuleRouter,

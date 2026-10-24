@@ -9,7 +9,7 @@ import { createTestApp } from '../testing/app.ts'
 import { workspaceKeyActor } from '../testing/fixtures.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import type { Environment, RuntimeMode } from '../lib/config.ts'
-import type { KelpieModule } from './module.ts'
+import type { AppRateLimitOptions, KelpieModule } from './module.ts'
 import { ModuleBootError } from './order.ts'
 import { registerModules } from './registry.ts'
 
@@ -291,9 +291,9 @@ describe('module app routes and middleware', () => {
     ).rejects.toThrow(/module "crooked".*must start with "\/"/)
   })
 
-  type AppDeclarationKind = 'app route' | 'app middleware'
+  type AppDeclarationKind = 'app route' | 'app middleware' | 'rate limit'
 
-  const APP_DECLARATION_KINDS: readonly AppDeclarationKind[] = ['app route', 'app middleware']
+  const APP_DECLARATION_KINDS: readonly AppDeclarationKind[] = ['app route', 'app middleware', 'rate limit']
 
   /** Boots one module that makes one declaration on the app, and nothing else. */
   const bootDeclaring = (kind: AppDeclarationKind, path: string): ReturnType<typeof registerModules> => {
@@ -302,8 +302,10 @@ describe('module app routes and middleware', () => {
       register(context) {
         if (kind === 'app route') {
           context.appRoute('GET', path, (requestContext) => requestContext.json({}))
-        } else {
+        } else if (kind === 'app middleware') {
           context.appMiddleware(path, async (_requestContext, next) => next())
+        } else {
+          context.rateLimit(path, { limit: 10, windowSeconds: 60, key: 'ip' })
         }
 
         return Promise.resolve()
@@ -390,6 +392,101 @@ describe('module app routes and middleware', () => {
     ])('is accepted when its first segment is literal: %s', async (path) => {
       await expect(bootDeclaring(kind, path)).resolves.toBeDefined()
     })
+  })
+})
+
+describe('module rate limits', () => {
+  /** Boots one module that declares the given budgets on `/portal/*`, and nothing else. */
+  const bootWithBudgets = (budgets: readonly AppRateLimitOptions[]): ReturnType<typeof registerModules> => {
+    const portal: KelpieModule = {
+      id: 'portal',
+      register(context) {
+        for (const budget of budgets) {
+          context.rateLimit('/portal/*', budget)
+        }
+
+        return Promise.resolve()
+      },
+    }
+
+    return registerModules({
+      modules: [portal],
+      environment: {},
+      logger: silentLogger(),
+      services: createTestServices(),
+      email: { provider: 'log', from: TEST_EMAIL_FROM },
+    })
+  }
+
+  it('collects the declaration with its module and the window in milliseconds', async () => {
+    const contributions = await bootWithBudgets([{ limit: 30, windowSeconds: 60, key: 'ip' }])
+
+    expect(contributions.appRateLimits).toEqual([
+      { moduleId: 'portal', pattern: '/portal/*', limit: 30, windowMs: 60_000, key: 'ip' },
+    ])
+  })
+
+  it('declares nothing for an assembly whose modules declare no budget', async () => {
+    const { contributions } = await createTestApp({ modules: [consoleModule, gadgetModule] })
+
+    expect(contributions.appRateLimits).toEqual([])
+  })
+
+  it.each([0, -1, 1.5, Number.NaN])('refuses a limit of %s at boot', async (limit) => {
+    await expect(bootWithBudgets([{ limit, windowSeconds: 60, key: 'ip' }])).rejects.toThrow(
+      /module "portal" declares rate limit "\/portal\/\*" with limit .*, which must be a positive integer/,
+    )
+  })
+
+  it.each([0, -60, 0.5, Number.POSITIVE_INFINITY])('refuses a window of %s seconds at boot', async (windowSeconds) => {
+    await expect(bootWithBudgets([{ limit: 10, windowSeconds, key: 'ip' }])).rejects.toThrow(
+      /module "portal" declares rate limit "\/portal\/\*" with windowSeconds .*, which must be a positive integer/,
+    )
+  })
+
+  it('refuses a window longer than a day at boot', async () => {
+    await expect(bootWithBudgets([{ limit: 10, windowSeconds: 86_401, key: 'ip' }])).rejects.toThrow(
+      /with windowSeconds 86401, which must be at most 86400/,
+    )
+  })
+
+  it('accepts a window of exactly a day', async () => {
+    await expect(bootWithBudgets([{ limit: 10, windowSeconds: 86_400, key: 'ip' }])).resolves.toBeDefined()
+  })
+
+  it('refuses a pattern longer than 200 characters at boot', async () => {
+    const portal: KelpieModule = {
+      id: 'portal',
+      register(context) {
+        context.rateLimit(`/portal/${'a'.repeat(200)}`, { limit: 10, windowSeconds: 60, key: 'ip' })
+        return Promise.resolve()
+      },
+    }
+
+    await expect(
+      registerModules({
+        modules: [portal],
+        environment: {},
+        logger: silentLogger(),
+        services: createTestServices(),
+        email: { provider: 'log', from: TEST_EMAIL_FROM },
+      }),
+    ).rejects.toThrow(/a rate limit on a pattern of 208 characters, which must be at most 200/)
+  })
+
+  /** Plain JavaScript can pass a key the type does not allow. */
+  it('refuses a key other than ip at boot', async () => {
+    const budget = { limit: 10, windowSeconds: 60, key: 'account' } as unknown as AppRateLimitOptions
+
+    await expect(bootWithBudgets([budget])).rejects.toThrow(/with key "account". The only key is "ip"/)
+  })
+
+  it('refuses the same pattern declared twice by one module at boot', async () => {
+    const budget: AppRateLimitOptions = { limit: 10, windowSeconds: 60, key: 'ip' }
+
+    await expect(bootWithBudgets([budget, budget])).rejects.toThrow(
+      'module "portal" declares rate limit "/portal/*" twice',
+    )
   })
 })
 
