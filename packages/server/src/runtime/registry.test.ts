@@ -9,7 +9,7 @@ import { createTestApp } from '../testing/app.ts'
 import { workspaceKeyActor } from '../testing/fixtures.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import type { Environment, RuntimeMode } from '../lib/config.ts'
-import type { AppRateLimitOptions, KelpieModule } from './module.ts'
+import type { AppRateLimitOptions, KelpieModule, SignUpAttempt, SignUpGuard, SignUpVerdict } from './module.ts'
 import { ModuleBootError } from './order.ts'
 import { registerModules } from './registry.ts'
 
@@ -557,6 +557,93 @@ describe('external sign-in', () => {
     await app.request('/consumer/sign-in')
 
     await expect(completed).rejects.toThrow(/auth module/u)
+  })
+})
+
+describe('sign-up guards', () => {
+  const attempt: SignUpAttempt = {
+    email: 'ada@example.com',
+    name: 'Ada',
+    method: 'password',
+    verifiedBy: null,
+  }
+
+  function guardModule(id: string, guard: SignUpGuard): KelpieModule {
+    return {
+      id,
+      register(context) {
+        context.guardSignUp(guard)
+
+        return Promise.resolve()
+      },
+    }
+  }
+
+  /** Boots `modules` plus a consumer, and hands back the consumer's `checkSignUp`. */
+  async function checkerFor(
+    modules: readonly KelpieModule[],
+  ): Promise<(attempt: SignUpAttempt) => Promise<SignUpVerdict>> {
+    let checker: ((attempt: SignUpAttempt) => Promise<SignUpVerdict>) | undefined
+
+    const consumer: KelpieModule = {
+      id: 'consumer',
+      register(context) {
+        checker = (value) => context.checkSignUp(value)
+
+        return Promise.resolve()
+      },
+    }
+
+    await createTestApp({ modules: [consumer, ...modules], environment: {}, services: createTestServices() })
+
+    if (checker === undefined) {
+      throw new Error('the consumer module did not register')
+    }
+
+    return checker
+  }
+
+  it('allows a sign-up when no module added a guard', async () => {
+    const check = await checkerFor([])
+
+    expect(await check(attempt)).toEqual({ allowed: true })
+  })
+
+  it('runs guards in registration order and returns the first rejection', async () => {
+    const calls: string[] = []
+    const check = await checkerFor([
+      guardModule('first', () => {
+        calls.push('first')
+        return Promise.resolve({ allowed: true })
+      }),
+      guardModule('second', () => {
+        calls.push('second')
+        return Promise.resolve({ allowed: false, message: 'Second says no' })
+      }),
+      guardModule('third', () => {
+        calls.push('third')
+        return Promise.resolve({ allowed: false, message: 'Third says no' })
+      }),
+    ])
+
+    expect(await check(attempt)).toEqual({ allowed: false, message: 'Second says no' })
+    expect(calls).toEqual(['first', 'second'])
+  })
+
+  it('rejects, naming the module, when a guard refuses without a message', async () => {
+    const check = await checkerFor([guardModule('quiet', () => Promise.resolve({ allowed: false, message: '  ' }))])
+
+    await expect(check(attempt)).rejects.toThrow('sign-up guard of module "quiet" rejected a sign-up without a message')
+  })
+
+  it('wraps a guard that throws with the module id and keeps the cause', async () => {
+    const cause = new Error('directory unreachable')
+    const check = await checkerFor([guardModule('directory', () => Promise.reject(cause))])
+
+    await expect(check(attempt)).rejects.toMatchObject({
+      message: 'sign-up guard of module "directory" failed: Error: directory unreachable',
+      cause,
+    })
   })
 })
 

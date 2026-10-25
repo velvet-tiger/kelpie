@@ -161,6 +161,15 @@ describe('translateEnvelopeEvent', () => {
     })
   })
 
+  it('drops an account event, which belongs to no workspace, even with a record target', () => {
+    expect(
+      translateEnvelopeEvent({
+        ...envelope('accounts.person.created', { type: 'person', id: 'per_1' }, {}),
+        workspaceId: null,
+      }),
+    ).toBeUndefined()
+  })
+
   it('drops an envelope whose verb is not deliverable', () => {
     expect(
       translateEnvelopeEvent(

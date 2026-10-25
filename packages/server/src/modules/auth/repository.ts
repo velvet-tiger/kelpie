@@ -38,6 +38,13 @@ export async function findUserById(db: Queryable, userId: string): Promise<UserR
   return found
 }
 
+/** Reads the account and holds its row until the transaction ends, so two changes to it run one after the other. */
+export async function findUserByIdForUpdate(tx: Transaction, userId: string): Promise<UserRecord | undefined> {
+  const [found] = await tx.select().from(users).where(eq(users.id, userId)).limit(1).for('update')
+
+  return found
+}
+
 export async function insertUser(db: Queryable, values: typeof users.$inferInsert): Promise<UserRecord> {
   const [created] = await db.insert(users).values(values).returning()
 

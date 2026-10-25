@@ -193,6 +193,37 @@ export type ExternalSignInHandler = (
 ) => Promise<CompletedSignIn>
 
 /**
+ * A brand-new account core is about to create, as a sign-up guard sees it.
+ *
+ * Never the password. A guard decides on the address and how it arrived.
+ */
+export interface SignUpAttempt {
+  /** Normalised the way core stores it: trimmed and lowercase. */
+  readonly email: string
+  readonly name: string
+  /** `password` for `POST /v1/auth/signup`, `external` for a provisioning `completeExternalSignIn`. */
+  readonly method: 'password' | 'external'
+  /** The `verifiedBy` of an external sign-up. Null for a password one. */
+  readonly verifiedBy: string | null
+}
+
+/**
+ * A guard's answer. `message` is shown to the person signing up, so it says
+ * what to do next ("Try again in a minute"), not why internally.
+ */
+export type SignUpVerdict =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly message: string }
+
+/**
+ * Runs before core commits a new account, on both creation paths. Returning a
+ * rejection stops the sign-up. Throwing is a fault, not a refusal: the
+ * sign-up fails with a `500` and the error is logged, message and all. Keep
+ * the address and the name out of anything a guard throws.
+ */
+export type SignUpGuard = (attempt: SignUpAttempt) => Promise<SignUpVerdict>
+
+/**
  * How an MCP client learns to authenticate, installed by the module that runs
  * the authorization server (core's `oauth`).
  *
@@ -338,6 +369,28 @@ export interface ModuleContext extends ModuleServices {
    *   the module asked for `provision: 'refuse'`.
    */
   completeExternalSignIn(context: Context, identity: VerifiedIdentity): Promise<CompletedSignIn>
+  /**
+   * Adds a sign-up guard. Any number of modules may add one. Guards run in
+   * module registration order and the first rejection wins; later guards do
+   * not run.
+   *
+   * A guard runs after core's own checks (signups closed, password length,
+   * the provider's `provision` policy) and outside the transaction that
+   * inserts the account, so a slow guard holds no database locks. The cost is
+   * that a guard can allow a sign-up that then fails, for example on an
+   * address that is already registered. Anything a guard records must
+   * therefore be safe to record again. A record with no matching
+   * `auth.user.created` after a while is one such failure, and is the
+   * guard's to reconcile: core sends no signal for it.
+   *
+   * Signing in to an existing account, by either path, runs no guard.
+   */
+  guardSignUp(guard: SignUpGuard): void
+  /**
+   * Runs every sign-up guard in registration order. Core's `auth` module
+   * calls this; other modules have no reason to.
+   */
+  checkSignUp(attempt: SignUpAttempt): Promise<SignUpVerdict>
   /**
    * Installs what the MCP endpoint's `401` tells a client about OAuth. Core's
    * `oauth` module calls this; a second caller fails boot.

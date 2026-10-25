@@ -1,6 +1,6 @@
-import type { KelpieEvent, WebhookEvent } from '@kelpie/schemas'
+import type { WebhookEvent } from '@kelpie/schemas'
 
-import type { EventBus } from '../../runtime/events.ts'
+import type { AnyEventEnvelope, EventBus } from '../../runtime/events.ts'
 import { RECORD_OBJECT_TYPES } from '../../runtime/events.ts'
 import type { RecordObjectType } from '../../runtime/events.ts'
 
@@ -58,9 +58,14 @@ interface FormSubmittedData {
  * (`RECORD_OBJECT_TYPES`), because those are the only ones the wire catalog
  * offers. Everything else is skipped.
  */
-export function translateEnvelopeEvent(
-  event: KelpieEvent<string, unknown>,
-): WebhookEventPayload | undefined {
+export function translateEnvelopeEvent(event: AnyEventEnvelope): WebhookEventPayload | undefined {
+  // An account event belongs to no workspace, so there is no subscriber to
+  // deliver it to.
+  if (event.workspaceId === null) {
+    return undefined
+  }
+
+  const workspaceId = event.workspaceId
   const suffix = event.name.slice(event.name.lastIndexOf('.') + 1)
   const objectType = event.target.type
 
@@ -70,7 +75,7 @@ export function translateEnvelopeEvent(
     }
 
     return {
-      workspaceId: event.workspaceId,
+      workspaceId,
       event: suffix === 'created' ? 'record.created' : 'record.deleted',
       data: { object_type: objectType as RecordObjectType, record_id: event.target.id },
     }
@@ -83,7 +88,7 @@ export function translateEnvelopeEvent(
 
     const data = event.data as RecordUpdatedData
     return {
-      workspaceId: event.workspaceId,
+      workspaceId,
       event: 'record.updated',
       data: {
         object_type: objectType as RecordObjectType,
@@ -106,7 +111,7 @@ export function translateEnvelopeEvent(
     }
 
     return {
-      workspaceId: event.workspaceId,
+      workspaceId,
       event: 'form.submitted',
       data: {
         form_id: data.formId,

@@ -66,13 +66,43 @@ type EventMapWithFallback = keyof KelpieEventMap extends never
 
 export type EventName = string & keyof EventMapWithFallback
 
-/** Handlers are async and must be idempotent: the same event may arrive twice. */
-export type EventHandler<Name extends EventName> = (
-  event: KelpieEvent<Name, EventMapWithFallback[Name]>,
-) => Promise<void> | void
+/**
+ * The events that belong to an account rather than to a workspace.
+ *
+ * An account is global: it exists before it joins a workspace and may belong
+ * to several. Its events carry `workspaceId: null`. A module that declares
+ * one lists its name here as well as in `KelpieEventMap`, with the value
+ * `true`, and emits it with `emitAccountEvent`. Every name not listed is a
+ * workspace event and carries a `workspaceId`.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface KelpieAccountEvents {}
 
-/** Prefix subscribers see events they cannot name statically. */
-export type AnyEventHandler = (event: KelpieEvent<string, unknown>) => Promise<void> | void
+export type AccountEventName = string & keyof KelpieAccountEvents
+
+export type WorkspaceEventName = Exclude<EventName, AccountEventName>
+
+/** `null` for an account event, the tenant's id for every other. */
+export type EventWorkspace<Name extends string> = Name extends AccountEventName ? null : string
+
+/** The envelope a subscriber to `Name` receives. */
+export type EventEnvelope<Name extends EventName> = KelpieEvent<
+  Name,
+  EventMapWithFallback[Name],
+  EventWorkspace<Name>
+>
+
+/** Any envelope, account events included, as a prefix subscriber sees it. */
+export type AnyEventEnvelope = KelpieEvent<string, unknown, string | null>
+
+/** Handlers are async and must be idempotent: the same event may arrive twice. */
+export type EventHandler<Name extends EventName> = (event: EventEnvelope<Name>) => Promise<void> | void
+
+/**
+ * Prefix subscribers see events they cannot name statically, so they see
+ * account events too and must expect `workspaceId: null`.
+ */
+export type AnyEventHandler = (event: AnyEventEnvelope) => Promise<void> | void
 
 /**
  * What a module hands the runtime at registration: the module's id and the Zod
@@ -168,9 +198,7 @@ export interface EventBus {
    * Dispatches immediately. Services should not call this directly: they emit
    * through the transaction scope so nothing fires before the commit.
    */
-  publish<Name extends EventName>(
-    event: KelpieEvent<Name, EventMapWithFallback[Name]>,
-  ): Promise<void>
+  publish<Name extends EventName>(event: EventEnvelope<Name>): Promise<void>
   /**
    * Settles once every in-flight publication has finished, including any a
    * handler started. Used by tests, and by shutdown to flush before exit.
@@ -188,7 +216,7 @@ const DEFAULT_HANDLER_TIMEOUT_MS = 5000
 interface PrefixHandler {
   readonly prefix: string
   readonly label: string
-  readonly run: (event: KelpieEvent<string, unknown>) => Promise<void>
+  readonly run: (event: AnyEventEnvelope) => Promise<void>
 }
 
 /**
@@ -282,11 +310,11 @@ export function createEventBus(logger: Logger, options: EventBusOptions = {}): E
         label,
         timeoutMs,
         (event) => {
-          const envelope = event.data as KelpieEvent<string, unknown>
+          const envelope = event.data as AnyEventEnvelope
           return handler(envelope as never)
         },
         (event) => {
-          const envelope = event.data as KelpieEvent<string, unknown>
+          const envelope = event.data as AnyEventEnvelope
           return { event: envelope.name, eventId: envelope.id }
         },
       )
@@ -299,7 +327,7 @@ export function createEventBus(logger: Logger, options: EventBusOptions = {}): E
       prefixHandlers.push({
         prefix,
         label,
-        run: wrap<KelpieEvent<string, unknown>>(
+        run: wrap<AnyEventEnvelope>(
           label,
           timeoutMs,
           handler,
@@ -321,7 +349,7 @@ export function createEventBus(logger: Logger, options: EventBusOptions = {}): E
       ]
 
       const matching = prefixHandlers.filter((entry) => event.name.startsWith(entry.prefix))
-      const typedEvent = event as KelpieEvent<string, unknown>
+      const typedEvent = event as AnyEventEnvelope
 
       const settled = chainStorage.run(child, () =>
         Promise.allSettled([

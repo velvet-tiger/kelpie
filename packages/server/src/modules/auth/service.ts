@@ -13,7 +13,7 @@ import {
   verifyPassword,
 } from '../../lib/passwords.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
-import type { VerifiedIdentity } from '../../runtime/module.ts'
+import type { SignUpAttempt, SignUpVerdict, VerifiedIdentity } from '../../runtime/module.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import * as apiKeyRepository from '../api-keys/repository.ts'
 import * as oauthRepository from '../oauth/repository.ts'
@@ -63,6 +63,12 @@ export interface AuthDependencies {
    * unaffected either way — this only gates the account-creation step itself.
    */
   readonly signupsEnabled: boolean
+  /**
+   * Runs the modules' sign-up guards (`ModuleContext.checkSignUp`). Called
+   * once per new account, after this service's own checks and before the
+   * transaction that inserts it.
+   */
+  readonly checkSignUp: (attempt: SignUpAttempt) => Promise<SignUpVerdict>
   /** Injected only so tests can pin session tokens. Production uses the crypto default. */
   readonly newToken?: () => string
 }
@@ -396,15 +402,30 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       }
 
       const email = requireSingleAddress(normaliseEmail(input.email))
+
+      const verdict = await dependencies.checkSignUp({
+        email,
+        name: input.name,
+        method: 'password',
+        verifiedBy: null,
+      })
+
+      if (!verdict.allowed) {
+        throw new AppError('forbidden', verdict.message)
+      }
+
       const passwordHash = await hashPassword(input.password)
       const now = dependencies.now()
+      // Made before the transaction, because the new account is the actor
+      // on its own creation event.
+      const userId = dependencies.createId('user')
 
-      const issued = await dependencies.transaction(async ({ tx, jobs }) => {
+      const issued = await dependencies.transaction(async ({ tx, jobs, events }) => {
         let user: repository.UserRecord
 
         try {
           user = await repository.insertUser(tx, {
-            id: dependencies.createId('user'),
+            id: userId,
             email,
             name: input.name,
             passwordHash,
@@ -430,8 +451,16 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           requestedAt: now.toISOString(),
         })
 
+        events.emitAccountEvent('auth.user.created', { type: 'user', id: user.id }, {
+          userId: user.id,
+          email: user.email,
+          emailVerified: false,
+          method: 'password',
+          verifiedBy: null,
+        })
+
         return issueSession(tx, user, input.device, input.location)
-      })
+      }, { actor: { kind: 'user', id: userId } })
 
       await sweepExpiredSessions(now)
 
@@ -526,17 +555,34 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         throw new ExternalSignInError('unknown_identity')
       }
 
-      const provisioned = await dependencies.transaction(async ({ tx }) => {
+      const verdict = await dependencies.checkSignUp({
+        email,
+        name,
+        method: 'external',
+        verifiedBy: input.verifiedBy,
+      })
+
+      if (!verdict.allowed) {
+        throw new ExternalSignInError('signup_refused', verdict.message)
+      }
+
+      const userId = dependencies.createId('user')
+
+      const provisioned = await dependencies.transaction(async ({ tx, events }) => {
         let user: repository.UserRecord
 
         try {
-          user = await repository.insertUser(tx, {
-            id: dependencies.createId('user'),
-            email,
-            name,
-            passwordHash: null,
-            emailVerifiedAt: now,
-          })
+          // In a savepoint, because a unique violation aborts the transaction
+          // it happens in, and the race below must still read and link.
+          user = await tx.transaction((savepoint) =>
+            repository.insertUser(savepoint, {
+              id: userId,
+              email,
+              name,
+              passwordHash: null,
+              emailVerifiedAt: now,
+            }),
+          )
         } catch (error: unknown) {
           if (postgresErrorCode(error) !== UNIQUE_VIOLATION) {
             throw error
@@ -553,10 +599,18 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           return link(tx, raced)
         }
 
+        events.emitAccountEvent('auth.user.created', { type: 'user', id: user.id }, {
+          userId: user.id,
+          email: user.email,
+          emailVerified: true,
+          method: 'external',
+          verifiedBy: input.verifiedBy,
+        })
+
         const issued = await issueSession(tx, user, input.device, input.location, input.verifiedBy)
 
         return { ...issued, created: true }
-      })
+      }, { actor: { kind: 'user', id: userId } })
 
       await sweepExpiredSessions(now)
 
@@ -598,18 +652,12 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       const nextEmail =
         changes.email === undefined ? undefined : requireText(normaliseEmail(changes.email), 'email')
-      const emailChanging = nextEmail !== undefined && nextEmail !== user.email
+      const nextName = changes.name === undefined ? undefined : requireText(changes.name, 'name')
 
       // Only a real change is checked. The address already on file is not new
       // input, and an older account may hold one this check would refuse.
-      if (emailChanging) {
+      if (nextEmail !== undefined && nextEmail !== user.email) {
         requireSingleAddress(nextEmail)
-      }
-
-      const values = {
-        ...(changes.name === undefined ? {} : { name: requireText(changes.name, 'name') }),
-        ...(nextEmail === undefined ? {} : { email: nextEmail }),
-        ...(emailChanging ? { emailVerifiedAt: null } : {}),
       }
 
       // A passwordless account cannot prove itself this way. It sets a password
@@ -623,11 +671,37 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         throw AppError.unauthorized('Current password is incorrect')
       }
 
-      const previousEmail = user.email
       const now = dependencies.now()
 
       try {
-        const updated = await dependencies.transaction(async ({ tx, jobs }) => {
+        const updated = await dependencies.transaction(async ({ tx, jobs, events }) => {
+          // Read again under a row lock. The read above came before the
+          // password check, and another change may have committed since: the
+          // notice and the event must name the address this change replaced.
+          const current = await repository.findUserByIdForUpdate(tx, actor.userId)
+
+          if (current === undefined) {
+            throw AppError.unauthorized('This session no longer belongs to an account')
+          }
+
+          // The password verified above is no longer the account's.
+          if (changes.email !== undefined && current.passwordHash !== user.passwordHash) {
+            throw AppError.unauthorized('Current password is incorrect')
+          }
+
+          const previousEmail = current.email
+          const emailChanging = nextEmail !== undefined && nextEmail !== previousEmail
+
+          if (emailChanging) {
+            requireSingleAddress(nextEmail)
+          }
+
+          const values = {
+            ...(nextName === undefined ? {} : { name: nextName }),
+            ...(nextEmail === undefined ? {} : { email: nextEmail }),
+            ...(emailChanging ? { emailVerifiedAt: null } : {}),
+          }
+
           const saved = await repository.updateUserProfile(tx, actor.userId, values, now)
 
           if (saved === undefined) {
@@ -656,10 +730,17 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
               email: saved.email,
               requestedAt: now.toISOString(),
             })
+
+            events.emitAccountEvent('auth.user.email_changed', { type: 'user', id: saved.id }, {
+              userId: saved.id,
+              previousEmail,
+              email: saved.email,
+              emailVerified: false,
+            })
           }
 
           return { account: toAccountView(saved), rotated }
-        })
+        }, { actor: { kind: 'user', id: actor.userId } })
 
         return updated
       } catch (error: unknown) {

@@ -96,18 +96,20 @@ export class AppError extends Error {
  * A reason rather than a message, so a provider module can branch on it (to
  * redirect somewhere useful, say) without matching on English text.
  */
-export type ExternalSignInRefusal = 'email_unverified' | 'unknown_identity' | 'signups_closed'
+export type ExternalSignInRefusal = 'email_unverified' | 'unknown_identity' | 'signups_closed' | 'signup_refused'
 
 const EXTERNAL_SIGN_IN_CODE: Record<ExternalSignInRefusal, ErrorCode> = {
   email_unverified: 'unauthorized',
   unknown_identity: 'forbidden',
   signups_closed: 'forbidden',
+  signup_refused: 'forbidden',
 }
 
 const EXTERNAL_SIGN_IN_MESSAGE: Record<ExternalSignInRefusal, string> = {
   email_unverified: 'The identity provider did not verify this email address',
   unknown_identity: 'No account exists for this identity',
   signups_closed: 'Signups are closed on this instance',
+  signup_refused: 'This sign-up was refused',
 }
 
 /**
@@ -120,8 +122,12 @@ const EXTERNAL_SIGN_IN_MESSAGE: Record<ExternalSignInRefusal, string> = {
 export class ExternalSignInError extends AppError {
   readonly reason: ExternalSignInRefusal
 
-  constructor(reason: ExternalSignInRefusal) {
-    super(EXTERNAL_SIGN_IN_CODE[reason], EXTERNAL_SIGN_IN_MESSAGE[reason])
+  /**
+   * @param message Replaces the reason's standard message. A `signup_refused`
+   *   carries the sign-up guard's own message, which says what to do next.
+   */
+  constructor(reason: ExternalSignInRefusal, message?: string) {
+    super(EXTERNAL_SIGN_IN_CODE[reason], message ?? EXTERNAL_SIGN_IN_MESSAGE[reason])
     this.name = 'ExternalSignInError'
     this.reason = reason
   }

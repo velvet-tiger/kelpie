@@ -1,4 +1,4 @@
-import type { EventActor, EventTarget, KelpieEvent } from '@kelpie/schemas'
+import type { EventActor, EventTarget } from '@kelpie/schemas'
 
 import type { Database } from '../lib/database.ts'
 import type { IdFactory } from '../lib/ids.ts'
@@ -9,7 +9,14 @@ import type {
 } from '../lib/jobs.ts'
 import type { Logger } from '../lib/logger.ts'
 import { checkEventCycle, currentEventChain } from './events.ts'
-import type { EventBus, EventName, KelpieEventMap } from './events.ts'
+import type {
+  AccountEventName,
+  AnyEventEnvelope,
+  EventBus,
+  EventName,
+  KelpieEventMap,
+  WorkspaceEventName,
+} from './events.ts'
 
 /**
  * One service call, one transaction.
@@ -42,7 +49,16 @@ type EventMapFor<Name extends EventName> = keyof KelpieEventMap extends never
  * and the module-defined payload.
  */
 export interface BufferedEvents {
-  emit<Name extends EventName>(name: Name, target: EventTarget, data: EventMapFor<Name>): void
+  emit<Name extends WorkspaceEventName>(name: Name, target: EventTarget, data: EventMapFor<Name>): void
+  /**
+   * Emits an account event (`KelpieAccountEvents`). Its envelope carries
+   * `workspaceId: null`, so the scope needs no `workspaceId` for it.
+   */
+  emitAccountEvent<Name extends AccountEventName>(
+    name: Name,
+    target: EventTarget,
+    data: EventMapFor<Name>,
+  ): void
 }
 
 export interface TransactionContext {
@@ -76,7 +92,7 @@ export type TransactionScope = <Result>(
 
 interface BufferedEvent {
   readonly name: string
-  readonly envelope: KelpieEvent<string, unknown>
+  readonly envelope: AnyEventEnvelope
 }
 
 const SYSTEM_ACTOR: EventActor = { kind: 'system' }
@@ -127,6 +143,38 @@ export function createTransactionScope(dependencies: TransactionScopeDependencie
     const workspaceId = options?.workspaceId
     const buffered: BufferedEvent[] = []
 
+    function buffer(name: string, eventWorkspaceId: string | null, target: EventTarget, data: unknown): void {
+      const chain = currentEventChain()
+      const outcome = checkEventCycle(chain, name, target, maxDepth)
+
+      if (outcome.kind !== 'ok') {
+        dependencies.logger.error('event cycle guard dropped emit', {
+          event: name,
+          target,
+          reason: outcome.kind,
+          chain: chain.map((entry) => ({
+            id: entry.id,
+            name: entry.name,
+            target: { type: entry.targetType, id: entry.targetId },
+          })),
+        })
+        return
+      }
+
+      const envelope: AnyEventEnvelope = {
+        id: dependencies.createId('event'),
+        name,
+        workspaceId: eventWorkspaceId,
+        actor,
+        occurredAt: now().toISOString(),
+        target,
+        ...(chain.length > 0 ? { causedBy: chain[chain.length - 1]!.id } : {}),
+        data,
+      }
+
+      buffered.push({ name, envelope })
+    }
+
     const result = await dependencies.db.transaction((tx) =>
       work({
         tx,
@@ -143,35 +191,10 @@ export function createTransactionScope(dependencies: TransactionScopeDependencie
               )
             }
 
-            const chain = currentEventChain()
-            const outcome = checkEventCycle(chain, name, target, maxDepth)
-
-            if (outcome.kind !== 'ok') {
-              dependencies.logger.error('event cycle guard dropped emit', {
-                event: name,
-                target,
-                reason: outcome.kind,
-                chain: chain.map((entry) => ({
-                  id: entry.id,
-                  name: entry.name,
-                  target: { type: entry.targetType, id: entry.targetId },
-                })),
-              })
-              return
-            }
-
-            const envelope: KelpieEvent<string, unknown> = {
-              id: dependencies.createId('event'),
-              name,
-              workspaceId,
-              actor,
-              occurredAt: now().toISOString(),
-              target,
-              ...(chain.length > 0 ? { causedBy: chain[chain.length - 1]!.id } : {}),
-              data: data as unknown,
-            }
-
-            buffered.push({ name, envelope })
+            buffer(name, workspaceId, target, data)
+          },
+          emitAccountEvent(name, target, data) {
+            buffer(name, null, target, data)
           },
         },
       }),

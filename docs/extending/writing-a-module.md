@@ -102,6 +102,21 @@ Modules publish and subscribe on a typed, in-process event bus. Your module decl
 
 Naming an event with a `created`, `updated`, or `deleted` verb and a record target makes it **webhook-deliverable automatically**: the bridge translates it to the matching `record.*` wire event. The four wire kinds (`record.created`, `record.updated`, `record.deleted`, `form.submitted`) are the current ceiling; a module cannot add a fifth wire kind yet.
 
+Most events belong to a workspace, and the envelope carries its `workspaceId`. An account does not: it is global and may belong to several workspaces. Its events carry `workspaceId: null`. Core publishes two:
+
+- `auth.user.created`, with `{ userId, email, emailVerified, method, verifiedBy }`, when a sign-up commits a new account by password or by an external sign-in.
+- `auth.user.email_changed`, with `{ userId, previousEmail, email, emailVerified: false }`, when the sign-in address changes.
+
+`emailVerified` is `false` until somebody proves control of the address. A password sign-up and an email change start unverified, and no event reports the later confirmation. Treat an unverified address as provisional.
+
+```ts
+context.events.subscribe('auth.user.created', async (event) => {
+  // event.workspaceId is null; event.data.email is normalised
+})
+```
+
+To declare an account event of your own, list its name in `KelpieAccountEvents` as well as `KelpieEventMap`, and emit it with `events.emitAccountEvent(...)`. Webhooks never deliver an account event. A `subscribePrefix` handler sees every event, so its `workspaceId` is `string | null`.
+
 ## The UI half
 
 ```tsx
@@ -218,7 +233,7 @@ await context.completeExternalSignIn(honoContext, {
 })
 ```
 
-Core finds the account or provisions one, issues a session through the same code a password sign-in uses, and writes the cookie. It refuses an identity whose `emailVerified` is false, and throws `ExternalSignInError` (an `AppError`, so an uncaught one renders as the standard error body) with a `reason` of `email_unverified` or `unknown_identity`. Catch it if you would rather redirect somewhere useful than answer JSON.
+Core finds the account or provisions one, issues a session through the same code a password sign-in uses, and writes the cookie. It refuses an identity whose `emailVerified` is false, and throws `ExternalSignInError` (an `AppError`, so an uncaught one renders as the standard error body) with a `reason` of `email_unverified`, `unknown_identity`, `signups_closed` or `signup_refused`. Catch it if you would rather redirect somewhere useful than answer JSON.
 
 Mount the redirect and the callback with `context.appRoute`, not `context.routes`: they are reached by a stranger's browser, and `/v1` puts an actor, a rate limit, and a `module.<id>` gate in front of them. Two things follow from owning a surface outside `/v1`. Your assembly must name your prefix in `serveWebBundle`'s `apiPrefixes`, or the SPA fallback answers your callback with the page shell. And its dev proxy needs the same prefix, or the browser never reaches the API at all.
 
@@ -233,6 +248,29 @@ context.authMethod({
 ```
 
 `next` is the in-app path the reader was heading for, already checked against the open-redirect rule; carry it through your redirect so an invitee still lands on their invitation. Core draws nothing around what you return, so a module with buttons draws its own `AuthDivider`; both it and `AuthLinkButton` are exported from `@kelpie/ui`. Report a failed callback by redirecting to `/login?<your-param>=` and reading it in your own component: core has no vocabulary for your provider's errors.
+
+## Sign-up guards
+
+A module can refuse a new account before core creates it. Add a guard at register time:
+
+```ts
+context.guardSignUp(async (attempt) => {
+  // attempt: { email, name, method: 'password' | 'external', verifiedBy }
+  const recorded = await directory.claim(attempt.email)
+
+  return recorded
+    ? { allowed: true }
+    : { allowed: false, message: 'We could not create your account. Try again in a minute.' }
+})
+```
+
+Core runs every guard on a password sign-up and on an external sign-in that would provision an account. Signing in to an existing account runs none. Guards run in module registration order, and the first rejection wins. A guard never sees the password, and it runs only after core's own checks pass.
+
+A rejection answers `403` with your message on a password sign-up. On an external sign-in it throws `ExternalSignInError` with reason `signup_refused` and your message. The person reads the message, so say what to do next.
+
+A guard runs outside the transaction that creates the account. It can allow a sign-up that then fails, for example because the address is already registered. Make what it records safe to record twice. `auth.user.created` tells you the account was committed, and nothing tells you it was not, so reconcile a record that has no matching event after a while. A guard that throws fails the sign-up with a `500`, and its message is logged, so keep the address out of it. Return a rejection for a failure you expect.
+
+No guard runs when an account changes its address. You learn of that from `auth.user.email_changed`, after the change has committed.
 
 ## Developing against unreleased core
 

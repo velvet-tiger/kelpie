@@ -35,6 +35,9 @@ import type {
   ModuleContext,
   ModuleServices,
   SchemaContribution,
+  SignUpAttempt,
+  SignUpGuard,
+  SignUpVerdict,
   VerifiedIdentity,
 } from './module.ts'
 import { createModuleConfigProvider, moduleCapabilityName, validateModuleConfig } from './moduleConfig.ts'
@@ -686,6 +689,48 @@ class ExternalSignInProxy {
 }
 
 /**
+ * Every sign-up guard modules added, in registration order.
+ *
+ * Unlike external sign-in, any number of modules may add one: an assembly can
+ * have a directory claim and an allow-list side by side, and each is a veto.
+ */
+class SignUpGuardList {
+  private readonly guards: { readonly moduleId: string; readonly guard: SignUpGuard }[] = []
+
+  add(moduleId: string, guard: SignUpGuard): void {
+    this.guards.push({ moduleId, guard })
+  }
+
+  /**
+   * @throws Error naming the module when a guard throws, or answers a
+   *   rejection with no message to show.
+   */
+  async check(attempt: SignUpAttempt): Promise<SignUpVerdict> {
+    for (const { moduleId, guard } of this.guards) {
+      let verdict: SignUpVerdict
+
+      try {
+        verdict = await guard(attempt)
+      } catch (error: unknown) {
+        throw new Error(`sign-up guard of module "${moduleId}" failed: ${describeThrown(error)}`, {
+          cause: error,
+        })
+      }
+
+      if (!verdict.allowed) {
+        if (verdict.message.trim().length === 0) {
+          throw new Error(`sign-up guard of module "${moduleId}" rejected a sign-up without a message`)
+        }
+
+        return verdict
+      }
+    }
+
+    return { allowed: true }
+  }
+}
+
+/**
  * The name the runtime uses for its built-in log sender. Reserved: a module
  * that tries to register under this name fails boot.
  */
@@ -765,6 +810,7 @@ function createModuleContext(
   emailProxy: EmailSenderProxy,
   providers: Map<string, RegisteredProvider>,
   externalSignIn: ExternalSignInProxy,
+  signUpGuards: SignUpGuardList,
   captchaProxy: CaptchaProxy,
   captchaProviders: Map<string, RegisteredCaptcha>,
 ): ModuleContext {
@@ -792,6 +838,14 @@ function createModuleContext(
 
     completeExternalSignIn(context, identity) {
       return externalSignIn.complete(context, identity)
+    },
+
+    guardSignUp(guard) {
+      signUpGuards.add(module.id, guard)
+    },
+
+    checkSignUp(attempt) {
+      return signUpGuards.check(attempt)
     },
 
     provideMcpAuthorization(authorization) {
@@ -992,6 +1046,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   const emailProxy = new EmailSenderProxy()
   const emailProviders = new Map<string, RegisteredProvider>()
   const externalSignIn = new ExternalSignInProxy()
+  const signUpGuards = new SignUpGuardList()
   const captchaProxy = new CaptchaProxy()
   const captchaProviders = new Map<string, RegisteredCaptcha>()
 
@@ -1084,6 +1139,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
       emailProxy,
       emailProviders,
       externalSignIn,
+      signUpGuards,
       captchaProxy,
       captchaProviders,
     )

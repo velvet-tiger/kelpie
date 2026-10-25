@@ -8,7 +8,7 @@ import { AppError } from '../../lib/errors.ts'
 import type { Database } from '../../lib/database.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
-import type { EventName } from '../../runtime/events.ts'
+import type { WorkspaceEventName } from '../../runtime/events.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import {
   describeConversion,
@@ -64,7 +64,7 @@ export const PIPELINE_WRITE_SCOPES: Readonly<Record<PipelineKind, ApiKeyGranular
   partnership: 'partnerships:write',
 }
 
-function conversionEventName(sourceKind: PipelineKind): EventName {
+function conversionEventName(sourceKind: PipelineKind): WorkspaceEventName {
   switch (sourceKind) {
     case 'enquiry':
       return 'enquiries.enquiry.converted'
@@ -79,7 +79,7 @@ function conversionEventName(sourceKind: PipelineKind): EventName {
   }
 }
 
-function createdEventName(targetKind: PipelineKind): EventName {
+function createdEventName(targetKind: PipelineKind): WorkspaceEventName {
   switch (targetKind) {
     case 'enquiry':
       return 'enquiries.enquiry.created'
@@ -94,7 +94,7 @@ function createdEventName(targetKind: PipelineKind): EventName {
   }
 }
 
-function updatedEventName(sourceKind: PipelineKind): EventName {
+function updatedEventName(sourceKind: PipelineKind): WorkspaceEventName {
   switch (sourceKind) {
     case 'enquiry':
       return 'enquiries.enquiry.updated'
@@ -109,7 +109,7 @@ function updatedEventName(sourceKind: PipelineKind): EventName {
   }
 }
 
-function stageChangedEventName(sourceKind: PipelineKind): EventName {
+function stageChangedEventName(sourceKind: PipelineKind): WorkspaceEventName {
   switch (sourceKind) {
     case 'enquiry':
       return 'enquiries.enquiry.stage_changed'

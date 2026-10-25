@@ -45,7 +45,11 @@ export type EventTarget = z.infer<typeof eventTargetSchema>
 export const eventEnvelopeSchema = z.object({
   id: idSchema,
   name: z.string().min(1),
-  workspaceId: idSchema,
+  /**
+   * The tenant the event belongs to. Null only for an account event: an
+   * account is global and belongs to no one workspace (`auth.user.created`).
+   */
+  workspaceId: idSchema.nullable(),
   actor: eventActorSchema,
   occurredAt: z.iso.datetime(),
   target: eventTargetSchema,
@@ -57,11 +61,15 @@ export const eventEnvelopeSchema = z.object({
  * The strongly-typed event as it moves through the in-process bus. The wire
  * schema erases `data`; this generic keeps it typed for the module that owns
  * the event.
+ *
+ * `Workspace` is `string` for every workspace event, which is all of them but
+ * the account events. Those carry `null`, so a subscriber to one cannot read
+ * a tenant that is not there.
  */
-export interface KelpieEvent<Name extends string, Data> {
+export interface KelpieEvent<Name extends string, Data, Workspace extends string | null = string> {
   readonly id: string
   readonly name: Name
-  readonly workspaceId: string
+  readonly workspaceId: Workspace
   readonly actor: EventActor
   readonly occurredAt: string
   readonly target: EventTarget

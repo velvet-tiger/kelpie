@@ -24,9 +24,35 @@ While the major version is `0`, a minor bump may break the API.
   The types `AppRateLimitOptions` and `AppRateLimitContribution` are
   exported, and `ModuleContributions` has `appRateLimits`. An assembly
   whose modules declare no budget behaves as before. No migration.
+- **`@kelpie/server`** — **A module can refuse a new account.**
+  `context.guardSignUp(guard)` adds a sign-up guard. Core runs every guard
+  before it creates an account, on a password sign-up and on an external
+  sign-in that provisions one, after its own checks and outside the
+  transaction. Guards run in registration order and the first rejection
+  wins. A rejection answers `403` with the guard's message, or throws
+  `ExternalSignInError` with the new reason `signup_refused`. The types
+  `SignUpGuard`, `SignUpAttempt` and `SignUpVerdict` are exported. An
+  assembly with no guard behaves as before.
+- **`@kelpie/server`** — **Account events.** `auth` publishes
+  `auth.user.created` when a sign-up commits a new account and
+  `auth.user.email_changed` when the sign-in address changes. Each says
+  whether the address is verified (`emailVerified`). They are
+  account events: the envelope carries `workspaceId: null`, and webhooks
+  never deliver them. A module declares its own by listing the name in the
+  new `KelpieAccountEvents` interface and emitting it with
+  `events.emitAccountEvent(...)`. No migration.
 
 ### Changed
 
+- **`@kelpie/schemas`, `@kelpie/server`** — **`workspaceId` on an event
+  envelope can be `null`.** `eventEnvelopeSchema` allows it, and
+  `KelpieEvent` takes a third type parameter for it, defaulting to
+  `string`. A subscriber to a workspace event still sees a `string`. A
+  `subscribePrefix` handler now receives `AnyEventEnvelope`, whose
+  `workspaceId` is `string | null`, because it can see an account event.
+  `BufferedEvents.emit` accepts only workspace event names
+  (`WorkspaceEventName`). Code that passed an `EventName` to it narrows to
+  `WorkspaceEventName`.
 - **`@kelpie/server`** — **A password change, an email change and a
   verification link answer with a new session cookie.**
   `PATCH /v1/auth/password` gives the caller's session a new token and
@@ -44,6 +70,16 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **`@kelpie/server`** — **Two first external sign-ins for one address at
+  once no longer fail.** The loser's insert hit a unique violation that
+  aborted its transaction, so the read meant to link it to the winner's
+  account failed and the request answered `500`. The insert now runs in a
+  savepoint, and the loser is signed in to the account the winner created.
+- **`@kelpie/server`** — **An email change reads the account under a row
+  lock.** Two changes at once now run one after the other, so the notice
+  email and `auth.user.email_changed` name the address each change really
+  replaced. A change whose password stopped being the account's between the
+  check and the write is refused.
 - **`@kelpie/server`** — **Pruning keeps a module budget's live buckets.**
   The limiter deletes old buckets with a cutoff of its longest window. That
   cutoff now includes the windows modules declare, so a module budget

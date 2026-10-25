@@ -2,8 +2,6 @@ import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import type { KelpieEvent } from '@kelpie/schemas'
-
 import { createIdFactory } from '../lib/ids.ts'
 import { createLogger } from '../lib/logger.ts'
 import { people } from '../modules/people/schema.ts'
@@ -12,7 +10,7 @@ import type { TestDatabase } from '../testing/database.ts'
 import { insertWorkspaceFixture } from '../testing/fixtures.ts'
 import type { WorkspaceFixture } from '../testing/fixtures.ts'
 import { createEventBus } from './events.ts'
-import type { EventBus } from './events.ts'
+import type { AnyEventEnvelope, EventBus } from './events.ts'
 import { createTransactionScope } from './transaction.ts'
 import type { TransactionScope } from './transaction.ts'
 
@@ -32,7 +30,7 @@ describe.skipIf(connectionString === undefined)('createTransactionScope', () => 
   let fixture: WorkspaceFixture
   let bus: EventBus
   let runInTransaction: TransactionScope
-  let published: KelpieEvent<string, unknown>[]
+  let published: AnyEventEnvelope[]
 
   beforeAll(async () => {
     if (connectionString === undefined) {
@@ -57,7 +55,7 @@ describe.skipIf(connectionString === undefined)('createTransactionScope', () => 
       events: { [TEST_EVENT_NAME]: z.object({}).strict() },
     })
     bus.subscribe(TEST_EVENT_NAME as never, (event) => {
-      published.push(event as KelpieEvent<string, unknown>)
+      published.push(event as AnyEventEnvelope)
     })
 
     runInTransaction = createTransactionScope({
@@ -193,6 +191,56 @@ describe.skipIf(connectionString === undefined)('createTransactionScope', () => 
         )
       }),
     ).rejects.toThrow(/emitted without a workspaceId/)
+  })
+
+  it('publishes an account event with workspaceId null, needing no workspace', async () => {
+    await runInTransaction(
+      ({ events }) => {
+        events.emitAccountEvent(TEST_EVENT_NAME as never, { type: 'user', id: 'usr_1' }, {} as never)
+
+        return Promise.resolve()
+      },
+      { actor: { kind: 'user', id: 'usr_1' } },
+    )
+
+    await bus.drain()
+
+    expect(published).toEqual([
+      expect.objectContaining({
+        workspaceId: null,
+        actor: { kind: 'user', id: 'usr_1' },
+        target: { type: 'user', id: 'usr_1' },
+      }),
+    ])
+  })
+
+  it('publishes no account event when the transaction rolls back', async () => {
+    await expect(
+      runInTransaction(({ events }) => {
+        events.emitAccountEvent(TEST_EVENT_NAME as never, { type: 'user', id: 'usr_1' }, {} as never)
+
+        return Promise.reject(new Error('service decided against it'))
+      }),
+    ).rejects.toThrow('service decided against it')
+
+    await bus.drain()
+
+    expect(published).toEqual([])
+  })
+
+  it('stamps an account event null even inside a workspace scope', async () => {
+    await runInTransaction(
+      ({ events }) => {
+        events.emitAccountEvent(TEST_EVENT_NAME as never, { type: 'user', id: 'usr_1' }, {} as never)
+
+        return Promise.resolve()
+      },
+      { workspaceId: fixture.workspaceId },
+    )
+
+    await bus.drain()
+
+    expect(published.map((entry) => entry.workspaceId)).toEqual([null])
   })
 
   it('publishes several events in the order they were emitted', async () => {

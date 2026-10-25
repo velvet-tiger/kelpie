@@ -8,6 +8,7 @@ import {
   defineSendVerificationEmailJob,
 } from './emailJobs.ts'
 import type { AuthEmailDependencies } from './emailJobs.ts'
+import { authEvents } from './events.ts'
 import { mountAuthRoutes } from './routes.ts'
 import * as schema from './schema.ts'
 import { createAuthService } from './service.ts'
@@ -29,6 +30,7 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
   return {
     id: 'auth',
     structural: true,
+    events: authEvents,
 
     register(context) {
       const { NODE_ENV } = context.config(nodeEnvSchema)
@@ -58,6 +60,7 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
           emailChangeNotice: context.jobs.define(defineSendEmailChangeNoticeJob(emailDependencies)),
         },
         signupsEnabled: context.signupsEnabled ?? true,
+        checkSignUp: (attempt) => context.checkSignUp(attempt),
       })
 
       // `Secure` everywhere except development. A test host reaches the API

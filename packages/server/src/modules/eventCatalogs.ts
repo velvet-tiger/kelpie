@@ -18,6 +18,7 @@
  * `coreModules` in `core.ts` for readability; it has no runtime effect.
  */
 
+import './auth/events.ts'
 import './workspace/events.ts'
 import './people/events.ts'
 import './companies/events.ts'

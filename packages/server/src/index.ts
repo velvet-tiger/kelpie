@@ -135,6 +135,9 @@ export type {
   ModuleContext,
   RouteScopeDeclaration,
   SchemaContribution,
+  SignUpAttempt,
+  SignUpGuard,
+  SignUpVerdict,
   VerifiedIdentity,
 } from './runtime/module.ts'
 
@@ -159,17 +162,23 @@ export {
   currentEventChain,
 } from './runtime/events.ts'
 export type {
+  AccountEventName,
+  AnyEventEnvelope,
   AnyEventHandler,
   CycleGuardOutcome,
   EventBus,
   EventBusOptions,
   EventCatalog,
   EventChainEntry,
+  EventEnvelope,
   EventHandler,
   EventName,
+  EventWorkspace,
+  KelpieAccountEvents,
   KelpieEventMap,
   RecordObjectType,
   SubscribeOptions,
+  WorkspaceEventName,
 } from './runtime/events.ts'
 export type { ModuleEventCatalog } from './runtime/module.ts'
 
