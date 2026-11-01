@@ -10,6 +10,19 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Security
+
+- **`undici` is now `^8.12.2`.** CVE-2026-109829 is cache poisoning and
+  cross-user disclosure through cross-origin redirects when an originless
+  Agent composes `redirect()` then `cache()` on a shared store. The bug is
+  fixed in 8.12.2 (and 7.30.1 on 7.x). `@kelpie/server` depended on
+  `^8.11.2` and the lockfile resolved 8.11.2. No migration.
+- **The Node engines floor is now `>=24.22.1`.** CVE-2026-111497 is an
+  out-of-bounds write in Node's bundled Brotli decoder, fixed in 24.22.1
+  (and 22.23.4 / 26.12.1). The previous `>=24` / `>=24.0.0` engines
+  allowed unpatched 24.x. Prefer 24.22.2 or newer: 24.22.2 fixes a
+  regression in 24.22.1. No migration.
+
 ## [0.23.0] - 2026-10-16
 
 ### Added

@@ -4,7 +4,7 @@ From an empty directory to a signed-in workspace. You do not need to clone this 
 
 ## Requirements
 
-- Node.js 24 or newer.
+- Node.js 24.22.1 or newer.
 - Postgres. If you have Docker, the scaffolder writes a `docker-compose.yml` that runs one for you; if you already run Postgres, skip Docker and pass your connection string.
 
 ## Scaffold a project

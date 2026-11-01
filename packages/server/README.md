@@ -12,7 +12,7 @@ It is a library, not a program. Importing it starts nothing. You compose an **as
 npm install @kelpie/server @hono/node-server
 ```
 
-Needs Node 24 or newer and a Postgres it can reach through `DATABASE_URL`.
+Needs Node 24.22.1 or newer and a Postgres it can reach through `DATABASE_URL`.
 
 ## Use
 
