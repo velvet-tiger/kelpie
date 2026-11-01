@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-01
+
 ### Added
 
 - **`@kelpie/server`** — **A module can give its app-level routes a rate
