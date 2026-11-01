@@ -20,7 +20,7 @@
   "bugs": "https://github.com/velvet-tiger/kelpie/issues",
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.22.1"
   },
   "publishConfig": {
     "access": "public"
@@ -67,7 +67,7 @@
     "pg-boss": "^12.31.0",
     "postgres": "^3.4.9",
     "ulid": "^3.0.2",
-    "undici": "^8.11.2",
+    "undici": "^8.12.2",
     "winston": "^3.19.0",
     "winston-transport": "^4.9.0",
     "zod": "^4.4.3"
