@@ -719,6 +719,11 @@ async function serveBuiltBundle(project: string): Promise<void> {
       throw new PackagingError(`GET ${scriptPath} came back as ${assetType} rather than JavaScript.`)
     }
 
+    // An unread body keeps its connection open, and the service's graceful
+    // shutdown waits for that connection while this process waits for the
+    // service. Neither would ever exit.
+    await asset.body?.cancel()
+
     report(`  built assets serve with their own content type (${scriptPath})`)
 
     // The rule the fallback is easiest to get wrong on. A bare catch-all would
@@ -745,6 +750,8 @@ async function serveBuiltBundle(project: string): Promise<void> {
           'single-page fallback is swallowing unknown API paths and answering them with the app shell.',
       )
     }
+
+    await missing.body?.cancel()
 
     report(`  an unknown API path is still a JSON error (${missing.status}), not the app shell`)
   } finally {
