@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.22.1"
   },
   "scripts": {
     "dev": "concurrently --names api,web --prefix-colors blue,magenta \"npm run dev:api\" \"npm run dev:web\"",

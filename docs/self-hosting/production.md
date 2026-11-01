@@ -98,7 +98,7 @@ Logs are one JSON line per event on stdout; point your collector at the journal 
 
 ## Containers
 
-The compose files Kelpie ships run **Postgres only** — there is no application Dockerfile yet. If you containerise the app yourself, the pattern is the same as bare metal: `npm ci` and `npm run build` at image build time, `npm run migrate` as a release step, then the container runs the server with `WEB_BUNDLE_DIR` set and `--no-migrate`. The image needs no build tools at runtime, only Node 24.
+The compose files Kelpie ships run **Postgres only** — there is no application Dockerfile yet. If you containerise the app yourself, the pattern is the same as bare metal: `npm ci` and `npm run build` at image build time, `npm run migrate` as a release step, then the container runs the server with `WEB_BUNDLE_DIR` set and `--no-migrate`. The image needs no build tools at runtime, only Node 24.22.1 or newer.
 
 ## Backups and restore
 
