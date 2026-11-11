@@ -20,7 +20,7 @@
   "bugs": "https://github.com/velvet-tiger/kelpie/issues",
   "type": "module",
   "engines": {
-    "node": ">=24.22.1"
+    "node": ">=24.22.3"
   },
   "publishConfig": {
     "access": "public"
