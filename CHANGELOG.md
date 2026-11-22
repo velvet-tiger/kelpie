@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-23
+
 ### Added
 
 - **`@kelpie/server`** — **A module can add a record to a list without a
@@ -40,6 +42,18 @@ While the major version is `0`, a minor bump may break the API.
   can claim, so treat it as an unverified claim. The types `FindOrCreatePersonByEmailDependencies`,
   `FindOrCreatePersonByEmailInput`, `FindOrCreatePersonByEmailResult` and
   `PersonRecord` are exported. No migration.
+
+### Security
+
+- **The Node engines floor is now `>=24.22.3`.** Node 24.22.3 is the
+  November 2026 security release. It fixes HIGH CVEs, including a TLS heap
+  memory leak (CVE-2026-123864) and remote HTTP/2 crashes. The previous
+  `>=24.22.1` floor allowed the vulnerable versions. No migration.
+- **`vite` is now `^8.3.8`.** Vite 8.3.4 and rolldown 1.2.13 allow remote
+  code execution through the dev server (GHSA-p4f5-76q4-ffq7). The workspace
+  and the scaffolder template now resolve vite 8.3.8 and rolldown 1.2.19. A
+  project scaffolded by an earlier `create-kelpie` should raise its own
+  `vite` range. No migration.
 
 ## [0.24.0] - 2026-11-01
 
