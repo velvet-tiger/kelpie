@@ -8,8 +8,9 @@ import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
+import { AppError } from '../../lib/errors.ts'
 import { coreModules } from '../core.ts'
-import { removeListMemberByTarget } from './index.ts'
+import { addListMemberByTarget, removeListMemberByTarget } from './index.ts'
 import { listMembers } from './schema.ts'
 
 /** `/v1/lists` against real Postgres. A list holds records of one type only. */
@@ -444,6 +445,80 @@ describe.skipIf(connectionString === undefined)('lists', () => {
       )
 
       expect(removed).toBe(false)
+    })
+  })
+
+  describe('addListMemberByTarget (helper for integration modules)', () => {
+    function add(listId: string, targetId = personId, workspaceId = acme.workspaceId): Promise<boolean> {
+      return addListMemberByTarget(
+        {
+          db: harness.services.db,
+          transaction: harness.services.transaction,
+          createId: harness.services.createId,
+        },
+        { workspaceId, listId, targetType: 'person', targetId, actor: { kind: 'system' } },
+      )
+    }
+
+    function collectAdded(): string[] {
+      const added: string[] = []
+      harness.services.events.subscribe('lists.member.added', (event) => {
+        added.push(`${event.target.id}:${event.data.listId}:${event.actor.kind}`)
+      })
+
+      return added
+    }
+
+    it('adds the target, returns true and emits lists.member.added once', async () => {
+      const listId = await createListWith({ name: 'People', target_type: 'person' })
+      const added = collectAdded()
+
+      expect(await add(listId)).toBe(true)
+      await harness.services.events.drain()
+
+      expect(added).toEqual([`${personId}:${listId}:system`])
+      const members = readList(
+        await (
+          await client.send('GET', `/v1/lists/${listId}/members`, { cookie: acme.cookie })
+        ).json(),
+      )
+      expect(members.map((member) => member.target_id)).toEqual([personId])
+    })
+
+    it('is a no-op the second time: false, no second row, no second event', async () => {
+      const listId = await createListWith({ name: 'People', target_type: 'person' })
+      const added = collectAdded()
+
+      expect(await add(listId)).toBe(true)
+      expect(await add(listId)).toBe(false)
+      await harness.services.events.drain()
+
+      expect(added).toHaveLength(1)
+      const rows = await harness.services.db.select().from(listMembers)
+      expect(rows).toHaveLength(1)
+    })
+
+    it('refuses a list from another workspace as not found, and writes nothing', async () => {
+      const other = await client.owner('grace@example.com')
+      const listId = await createListWith({ name: 'People', target_type: 'person' })
+
+      await expect(add(listId, personId, other.workspaceId)).rejects.toMatchObject({
+        code: 'not_found',
+        message: 'List not found',
+      })
+      expect(await harness.services.db.select().from(listMembers)).toEqual([])
+    })
+
+    it('refuses a missing list, a missing target and a type mismatch', async () => {
+      const listId = await createListWith({ name: 'People', target_type: 'person' })
+      const companyListId = await createListWith({ name: 'Firms', target_type: 'company' })
+
+      await expect(add('list_01J00000000000000000000000')).rejects.toBeInstanceOf(AppError)
+      await expect(add(listId, 'person_01J00000000000000000000000')).rejects.toMatchObject({
+        message: 'Record not found',
+      })
+      await expect(add(companyListId)).rejects.toMatchObject({ code: 'validation_failed' })
+      expect(await harness.services.db.select().from(listMembers)).toEqual([])
     })
   })
 })

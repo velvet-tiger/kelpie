@@ -256,6 +256,29 @@ export async function insertListMember(
   return created
 }
 
+/**
+ * Inserts the membership unless the target is already on the list.
+ *
+ * `ON CONFLICT DO NOTHING` on `list_members_list_target_key` rather than
+ * catching the unique violation: a violation aborts the surrounding
+ * transaction, so a caller that wants "already a member" to be a quiet no-op
+ * cannot recover from one.
+ *
+ * @returns The inserted row, or undefined when the target was already a member.
+ */
+export async function insertListMemberIfAbsent(
+  db: Queryable,
+  values: ListMemberColumns,
+): Promise<ListMemberRecord | undefined> {
+  const [created] = await db
+    .insert(listMembers)
+    .values(values)
+    .onConflictDoNothing({ target: [listMembers.listId, listMembers.targetId] })
+    .returning()
+
+  return created
+}
+
 export async function deleteListMember(
   db: Queryable,
   workspaceId: string,

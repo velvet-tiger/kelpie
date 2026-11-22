@@ -9,11 +9,15 @@ import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
+import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
+import type { EntitlementRegistry } from '../../runtime/entitlements.ts'
 import { activities } from '../activities/schema.ts'
 import { coreModules } from '../core.ts'
 import { deals } from '../deals/schema.ts'
 import { notes } from '../notes/schema.ts'
 import { personLinks } from '../people/schema.ts'
+import { findOrCreatePersonByEmail } from './index.ts'
+import type { FindOrCreatePersonByEmailResult } from './index.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import { eq } from 'drizzle-orm'
 
@@ -987,6 +991,122 @@ describe.skipIf(connectionString === undefined)('people', () => {
         cookie: acme.cookie,
       })
       expect(personSchema.parse(readRecord(await patched.json())).summary).toBe('Updated')
+    })
+  })
+
+  describe('findOrCreatePersonByEmail (helper for integration modules)', () => {
+    let entitlements: EntitlementRegistry
+
+    beforeEach(async () => {
+      // The suite's harness has its own registry; this one is shared with the
+      // helper so a records limit provided here is the one both paths read.
+      entitlements = createEntitlementRegistry()
+      harness = await createTestApp({
+        modules: coreModules,
+        environment: TEST_ENVIRONMENT,
+        services: createTestServices({ db: database.db }),
+        entitlements,
+      })
+      client = createTestClient(harness.app, harness.services.db)
+    })
+
+    function findOrCreate(
+      email: string,
+      names: { firstName?: string; lastName?: string } = {},
+    ): Promise<FindOrCreatePersonByEmailResult> {
+      return findOrCreatePersonByEmail(
+        {
+          db: harness.services.db,
+          transaction: harness.services.transaction,
+          createId: harness.services.createId,
+          now: harness.services.now,
+          entitlements,
+        },
+        { workspaceId: acme.workspaceId, email, ...names, actor: { kind: 'system' }, source: 'Resend' },
+      )
+    }
+
+    function collectCreated(): string[] {
+      const created: string[] = []
+      harness.services.events.subscribe('people.person.created', (event) => {
+        created.push(`${event.target.id}:${event.actor.kind}`)
+      })
+
+      return created
+    }
+
+    it('returns an existing person unchanged, matched case-insensitively', async () => {
+      const existing = await createPerson({ name: 'Ada Lovelace', email: 'ada@analytical.example' })
+      const created = collectCreated()
+
+      const result = await findOrCreate(' ADA@Analytical.example ', { firstName: 'Someone', lastName: 'Else' })
+      await harness.services.events.drain()
+
+      expect(result.created).toBe(false)
+      expect(result.person.id).toBe(existing.id)
+      expect(result.person.name).toBe('Ada Lovelace')
+      expect(result.person.firstName).toBeNull()
+      expect(created).toEqual([])
+    })
+
+    it('creates a person named from the first and last name, and emits people.person.created', async () => {
+      const created = collectCreated()
+
+      const result = await findOrCreate('Grace@Navy.example', { firstName: 'Grace', lastName: 'Hopper' })
+      await harness.services.events.drain()
+
+      expect(result.created).toBe(true)
+      expect(result.person.id).toMatch(/^per_/u)
+      expect(result.person.name).toBe('Grace Hopper')
+      expect(result.person.firstName).toBe('Grace')
+      expect(result.person.lastName).toBe('Hopper')
+      expect(result.person.email).toBe('grace@navy.example')
+      expect(result.person.relationship).toBe('cold')
+      expect(created).toEqual([`${result.person.id}:system`])
+
+      const timeline = await database.db
+        .select()
+        .from(activities)
+        .where(eq(activities.targetId, result.person.id))
+      expect(timeline.map((row) => [row.kind, row.actorLabel])).toEqual([['created', 'Resend']])
+    })
+
+    it('falls back to the email for the name when no name parts are given', async () => {
+      const result = await findOrCreate('alan@bletchley.example')
+
+      expect(result.created).toBe(true)
+      expect(result.person.name).toBe('alan@bletchley.example')
+      expect(result.person.firstName).toBeNull()
+      expect(result.person.lastName).toBeNull()
+    })
+
+    it('finds the person it created on the second call instead of creating another', async () => {
+      const first = await findOrCreate('alan@bletchley.example')
+      const second = await findOrCreate('alan@bletchley.example', { firstName: 'Alan' })
+
+      expect(second).toEqual({ person: first.person, created: false })
+    })
+
+    it('makes the new person visible through the people API and its search', async () => {
+      const result = await findOrCreate('grace@navy.example', { firstName: 'Grace', lastName: 'Hopper' })
+
+      const fetched = await client.send('GET', `/v1/people/${result.person.id}`, { cookie: acme.cookie })
+      expect(fetched.status).toBe(200)
+      expect(personSchema.parse(readRecord(await fetched.json())).name).toBe('Grace Hopper')
+
+      const searched = await client.send('GET', `/v1/people?q=${encodeURIComponent('hopper')}`, {
+        cookie: acme.cookie,
+      })
+      expect(readList(await searched.json()).map((person) => person.id)).toEqual([result.person.id])
+    })
+
+    it('refuses a blank email and a workspace at its records limit', async () => {
+      await expect(findOrCreate('   ')).rejects.toMatchObject({ code: 'validation_failed' })
+
+      entitlements.provide(() => Promise.resolve({ kind: 'limit', limit: 0 }))
+      await expect(findOrCreate('new@example.com')).rejects.toMatchObject({
+        code: 'entitlement_required',
+      })
     })
   })
 })

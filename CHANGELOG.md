@@ -10,6 +10,31 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **`@kelpie/server`** — **A module can add a record to a list without a
+  signed-in user.** `addListMemberByTarget({ db, transaction, createId },
+  { workspaceId, listId, targetType, targetId, actor })` is the mirror of
+  `removeListMemberByTarget`. It inserts the member and emits
+  `lists.member.added` in one transaction, and returns `true`. A target
+  already on the list is a no-op that returns `false` and emits nothing, so a
+  sync can run twice. A list missing from the workspace, or a missing target,
+  throws `not_found`; a target whose type differs from the list's throws
+  `validation_failed`. The types `AddListMemberByTargetDependencies` and
+  `AddListMemberByTargetInput` are exported. No migration.
+- **`@kelpie/server`** — **A module can find or create a person by email.**
+  `findOrCreatePersonByEmail({ db, transaction, createId, now, entitlements },
+  { workspaceId, email, firstName?, lastName?, actor, source })` returns
+  `{ person, created }`. A person who already has the address is returned
+  unchanged. Otherwise the person is created as `POST /v1/people` creates
+  one: the records limit is checked, the name is composed from the first and
+  last name or falls back to the email, a `created` activity credited to
+  `source` is recorded, `people.person.created` is emitted, and the
+  email-domain auto-linker runs. The email is normalised as the people API
+  normalises it. The types `FindOrCreatePersonByEmailDependencies`,
+  `FindOrCreatePersonByEmailInput`, `FindOrCreatePersonByEmailResult` and
+  `PersonRecord` are exported. No migration.
+
 ## [0.24.0] - 2026-11-01
 
 ### Added

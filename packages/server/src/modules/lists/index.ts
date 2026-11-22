@@ -1,14 +1,17 @@
 import type { EventActor } from '@kelpie/schemas'
 
 import type { Database } from '../../lib/database.ts'
+import { AppError } from '../../lib/errors.ts'
+import type { IdFactory } from '../../lib/ids.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
+import { missingTargets } from '../recordTargets.ts'
 import type { RecordTargetType } from '../recordTargets.ts'
 import { listsEvents } from './events.ts'
 import * as repository from './repository.ts'
 import { mountListsRoutes } from './routes.ts'
 import * as schema from './schema.ts'
-import { createListsService } from './service.ts'
+import { createListsService, typeMismatch } from './service.ts'
 import { registerListsTools } from './tools.ts'
 
 /**
@@ -101,6 +104,95 @@ export async function removeListMemberByTarget(
 
       events.emit(
         'lists.member.removed',
+        { type: input.targetType, id: input.targetId },
+        { listId: input.listId },
+      )
+
+      return true
+    },
+    { workspaceId: input.workspaceId, actor: input.actor },
+  )
+}
+
+/** Dependencies a caller outside the lists module already holds. */
+export interface AddListMemberByTargetDependencies {
+  readonly db: Database
+  readonly transaction: TransactionScope
+  /** Mints the member row's id. A module passes its `context.createId`. */
+  readonly createId: IdFactory
+}
+
+export interface AddListMemberByTargetInput {
+  readonly workspaceId: string
+  readonly listId: string
+  readonly targetType: RecordTargetType
+  readonly targetId: string
+  /** The event actor to stamp on `lists.member.added`. Same rule as removal. */
+  readonly actor: EventActor
+}
+
+/**
+ * Adds a record to a list by target, from outside the lists module.
+ *
+ * The mirror of `removeListMemberByTarget`, for an integration that pulls
+ * membership in from an external system (a Resend segment synced into a list)
+ * with no signed-in user to hang a normal `addMember` call on. The caller's
+ * decision is trusted, but the data rules still hold, because breaking them
+ * would store a row no other path could have written:
+ *
+ * - the list must exist in `workspaceId`, or this throws `AppError.notFound`
+ *   (`List not found`) — the same answer the REST route gives, so a list id
+ *   from another workspace is indistinguishable from a missing one;
+ * - `targetType` must match the list's type, or this throws the route's own
+ *   422 (`typeMismatch`);
+ * - the target must exist in the workspace, or this throws
+ *   `AppError.notFound` (`Record not found`).
+ *
+ * Unlike the route, an existing membership is not a 409. It is a no-op, so a
+ * sync that runs again over the same segment is safe.
+ *
+ * @returns `true` if the row was inserted (emits `lists.member.added` with the
+ *   same payload as the route), `false` if the target was already a member
+ *   (no insert, no event).
+ */
+export async function addListMemberByTarget(
+  dependencies: AddListMemberByTargetDependencies,
+  input: AddListMemberByTargetInput,
+): Promise<boolean> {
+  return dependencies.transaction(
+    async ({ tx, events }) => {
+      const list = await repository.findList(tx, input.workspaceId, input.listId)
+
+      if (list === undefined) {
+        throw AppError.notFound('List not found')
+      }
+
+      if (list.targetType !== input.targetType) {
+        throw typeMismatch(list.targetType as RecordTargetType, input.targetType)
+      }
+
+      const missing = await missingTargets(tx, input.workspaceId, input.targetType, [
+        input.targetId,
+      ])
+
+      if (missing.length > 0) {
+        throw AppError.notFound('Record not found')
+      }
+
+      const created = await repository.insertListMemberIfAbsent(tx, {
+        id: dependencies.createId('listMember'),
+        workspaceId: input.workspaceId,
+        listId: input.listId,
+        targetType: input.targetType,
+        targetId: input.targetId,
+      })
+
+      if (created === undefined) {
+        return false
+      }
+
+      events.emit(
+        'lists.member.added',
         { type: input.targetType, id: input.targetId },
         { listId: input.listId },
       )

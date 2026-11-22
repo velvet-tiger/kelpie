@@ -139,7 +139,8 @@ function duplicateName(): AppError {
   ])
 }
 
-function typeMismatch(expected: RecordTargetType, got: RecordTargetType): AppError {
+/** The refusal for a record whose type differs from its list's. Shared with `addListMemberByTarget`. */
+export function typeMismatch(expected: RecordTargetType, got: RecordTargetType): AppError {
   return AppError.validationFailed(
     `That record cannot join a ${expected} list`,
     [
