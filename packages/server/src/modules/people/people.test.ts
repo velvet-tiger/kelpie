@@ -16,10 +16,14 @@ import { coreModules } from '../core.ts'
 import { deals } from '../deals/schema.ts'
 import { notes } from '../notes/schema.ts'
 import { personLinks } from '../people/schema.ts'
+import { positions } from '../positions/schema.ts'
 import { findOrCreatePersonByEmail } from './index.ts'
+import type { FindOrCreatePersonByEmailDependencies } from './index.ts'
+import { insertPerson } from './repository.ts'
+import { people } from './schema.ts'
 import type { FindOrCreatePersonByEmailResult } from './index.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 /** `/v1/people` against real Postgres. */
 
@@ -1010,20 +1014,28 @@ describe.skipIf(connectionString === undefined)('people', () => {
       client = createTestClient(harness.app, harness.services.db)
     })
 
+    function helperDependencies(): FindOrCreatePersonByEmailDependencies {
+      return {
+        db: harness.services.db,
+        transaction: harness.services.transaction,
+        createId: harness.services.createId,
+        now: harness.services.now,
+        entitlements,
+      }
+    }
+
     function findOrCreate(
       email: string,
       names: { firstName?: string; lastName?: string } = {},
+      dependencies: FindOrCreatePersonByEmailDependencies = helperDependencies(),
     ): Promise<FindOrCreatePersonByEmailResult> {
-      return findOrCreatePersonByEmail(
-        {
-          db: harness.services.db,
-          transaction: harness.services.transaction,
-          createId: harness.services.createId,
-          now: harness.services.now,
-          entitlements,
-        },
-        { workspaceId: acme.workspaceId, email, ...names, actor: { kind: 'system' }, source: 'Resend' },
-      )
+      return findOrCreatePersonByEmail(dependencies, {
+        workspaceId: acme.workspaceId,
+        email,
+        ...names,
+        actor: { kind: 'system' },
+        source: 'Resend',
+      })
     }
 
     function collectCreated(): string[] {
@@ -1107,6 +1119,114 @@ describe.skipIf(connectionString === undefined)('people', () => {
       await expect(findOrCreate('new@example.com')).rejects.toMatchObject({
         code: 'entitlement_required',
       })
+    })
+
+    it('applies the route length limits and names the field', async () => {
+      const long = 'x'.repeat(501)
+
+      await expect(findOrCreate(`${'x'.repeat(500)}@a.example`)).rejects.toMatchObject({
+        code: 'validation_failed',
+        details: [{ field: 'email' }],
+      })
+      await expect(findOrCreate('a@a.example', { firstName: long })).rejects.toMatchObject({
+        code: 'validation_failed',
+        details: [{ field: 'first_name' }],
+      })
+      await expect(findOrCreate('a@a.example', { lastName: long })).rejects.toMatchObject({
+        code: 'validation_failed',
+        details: [{ field: 'last_name' }],
+      })
+      expect(await database.db.select().from(people)).toEqual([])
+    })
+
+    it('stores a whitespace-only name part as null and composes without it', async () => {
+      const result = await findOrCreate('grace@navy.example', { firstName: '   ', lastName: ' Hopper ' })
+
+      expect(result.person.firstName).toBeNull()
+      expect(result.person.lastName).toBe('Hopper')
+      expect(result.person.name).toBe('Hopper')
+
+      const blank = await findOrCreate('alan@bletchley.example', { firstName: ' ', lastName: '\t' })
+      expect(blank.person.name).toBe('alan@bletchley.example')
+      expect(blank.person.lastName).toBeNull()
+    })
+
+    it('links a new person to the company whose domain matches the email', async () => {
+      const companyId = await createCompany('US Navy', { domain: 'navy.example' })
+
+      const result = await findOrCreate('grace@navy.example', { firstName: 'Grace' })
+
+      const linked = await database.db
+        .select()
+        .from(positions)
+        .where(eq(positions.personId, result.person.id))
+      expect(linked.map((position) => position.companyId)).toEqual([companyId])
+    })
+
+    it('returns the winner with created false when another writer inserts the address first', async () => {
+      const email = 'race@navy.example'
+      const rivalId = harness.services.createId('person')
+      let releaseRival: () => void = () => undefined
+      const rivalMayCommit = new Promise<void>((resolve) => {
+        releaseRival = resolve
+      })
+      let rivalInserted: () => void = () => undefined
+      const rivalHasInserted = new Promise<void>((resolve) => {
+        rivalInserted = resolve
+      })
+
+      // The rival inserts the address and holds its transaction open. The
+      // helper's lookup cannot see an uncommitted row, so it misses, and its
+      // insert then waits on the rival's unique-key lock. Committing the
+      // rival at that point makes the helper's insert fail with a unique
+      // violation, which is the branch under test.
+      const rival = database.db.transaction(async (tx) => {
+        await insertPerson(tx, {
+          id: rivalId,
+          workspaceId: acme.workspaceId,
+          name: 'Rival',
+          email,
+          preferredChannel: 'email',
+          influence: 'influencer',
+          relationship: 'cold',
+        })
+        rivalInserted()
+        await rivalMayCommit
+      })
+      // Racing the rival itself means a failed rival insert fails the test
+      // instead of leaving it waiting.
+      await Promise.race([rivalHasInserted, rival])
+
+      const helper = findOrCreate(email, { firstName: 'Loser' })
+
+      // Release the rival only once the helper is blocked on its lock.
+      let blocked = false
+      for (let attempt = 0; attempt < 500 && !blocked; attempt += 1) {
+        const waiting = await database.db.execute<{ waiting: number }>(
+          // pg_stat_activity, not pg_locks: a wait on another transaction's
+          // row has no database in pg_locks, and other test workers share the
+          // cluster.
+          sql`select count(*)::int as waiting from pg_stat_activity
+              where datname = current_database() and wait_event_type = 'Lock'`,
+        )
+        blocked = (waiting[0]?.waiting ?? 0) > 0
+        if (!blocked) {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+      }
+      releaseRival()
+      await rival
+
+      const result = await helper
+
+      // Blocked means the helper's lookup missed and its insert waited on the
+      // rival, so the result came from the unique-violation recovery.
+      expect(blocked).toBe(true)
+
+      expect(result.created).toBe(false)
+      expect(result.person.id).toBe(rivalId)
+      expect(result.person.name).toBe('Rival')
+      expect(await database.db.select().from(people).where(eq(people.email, email))).toHaveLength(1)
     })
   })
 })

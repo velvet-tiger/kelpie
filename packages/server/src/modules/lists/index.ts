@@ -127,7 +127,10 @@ export interface AddListMemberByTargetInput {
   readonly listId: string
   readonly targetType: RecordTargetType
   readonly targetId: string
-  /** The event actor to stamp on `lists.member.added`. Same rule as removal. */
+  /**
+   * The event actor to stamp on `lists.member.added`. The calling module's own
+   * identity, usually `{ kind: 'system' }`. Never a value read from external data.
+   */
   readonly actor: EventActor
 }
 
@@ -144,7 +147,7 @@ export interface AddListMemberByTargetInput {
  *   (`List not found`) — the same answer the REST route gives, so a list id
  *   from another workspace is indistinguishable from a missing one;
  * - `targetType` must match the list's type, or this throws the route's own
- *   422 (`typeMismatch`);
+ *   `validation_failed` error (422, built by `typeMismatch`);
  * - the target must exist in the workspace, or this throws
  *   `AppError.notFound` (`Record not found`).
  *

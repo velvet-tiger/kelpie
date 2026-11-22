@@ -20,18 +20,24 @@ While the major version is `0`, a minor bump may break the API.
   already on the list is a no-op that returns `false` and emits nothing, so a
   sync can run twice. A list missing from the workspace, or a missing target,
   throws `not_found`; a target whose type differs from the list's throws
-  `validation_failed`. The types `AddListMemberByTargetDependencies` and
+  `validation_failed` (422, built by `typeMismatch`). Pass the module's own
+  system identity as `actor`, never a value from external data. The types `AddListMemberByTargetDependencies` and
   `AddListMemberByTargetInput` are exported. No migration.
 - **`@kelpie/server`** — **A module can find or create a person by email.**
   `findOrCreatePersonByEmail({ db, transaction, createId, now, entitlements },
   { workspaceId, email, firstName?, lastName?, actor, source })` returns
   `{ person, created }`. A person who already has the address is returned
   unchanged. Otherwise the person is created as `POST /v1/people` creates
-  one: the records limit is checked, the name is composed from the first and
-  last name or falls back to the email, a `created` activity credited to
-  `source` is recorded, `people.person.created` is emitted, and the
-  email-domain auto-linker runs. The email is normalised as the people API
-  normalises it. The types `FindOrCreatePersonByEmailDependencies`,
+  one: the same 500-character limits on `email`, `first_name` and
+  `last_name` apply, the records limit is checked, the name is composed from
+  the trimmed first and last name or falls back to the email, a `created`
+  activity credited to `source` is recorded, `people.person.created` is
+  emitted, and the email-domain auto-linker runs, so a new person whose domain
+  matches a company gets a Position at it. The email is normalised as the
+  people API normalises it. Pass `context.entitlements`, or the plan's limit
+  is skipped. `actor` and `source` must be the module's own system identity,
+  never values from external data. A match rests on an email address anyone
+  can claim, so treat it as an unverified claim. The types `FindOrCreatePersonByEmailDependencies`,
   `FindOrCreatePersonByEmailInput`, `FindOrCreatePersonByEmailResult` and
   `PersonRecord` are exported. No migration.
 

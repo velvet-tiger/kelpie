@@ -8,7 +8,6 @@ import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
-import { AppError } from '../../lib/errors.ts'
 import { coreModules } from '../core.ts'
 import { addListMemberByTarget, removeListMemberByTarget } from './index.ts'
 import { listMembers } from './schema.ts'
@@ -513,11 +512,27 @@ describe.skipIf(connectionString === undefined)('lists', () => {
       const listId = await createListWith({ name: 'People', target_type: 'person' })
       const companyListId = await createListWith({ name: 'Firms', target_type: 'company' })
 
-      await expect(add('list_01J00000000000000000000000')).rejects.toBeInstanceOf(AppError)
-      await expect(add(listId, 'person_01J00000000000000000000000')).rejects.toMatchObject({
+      await expect(add('list_01J00000000000000000000000')).rejects.toMatchObject({
+        code: 'not_found',
+        message: 'List not found',
+      })
+      await expect(add(listId, 'per_01J00000000000000000000000')).rejects.toMatchObject({
+        code: 'not_found',
         message: 'Record not found',
       })
       await expect(add(companyListId)).rejects.toMatchObject({ code: 'validation_failed' })
+      expect(await harness.services.db.select().from(listMembers)).toEqual([])
+    })
+
+    it('refuses a person from another workspace as not found', async () => {
+      const other = await client.owner('grace@example.com')
+      const theirPersonId = await createPerson('Grace Hopper', other.cookie)
+      const listId = await createListWith({ name: 'People', target_type: 'person' })
+
+      await expect(add(listId, theirPersonId)).rejects.toMatchObject({
+        code: 'not_found',
+        message: 'Record not found',
+      })
       expect(await harness.services.db.select().from(listMembers)).toEqual([])
     })
   })
