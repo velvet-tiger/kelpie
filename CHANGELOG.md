@@ -10,6 +10,13 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **List stats.** A list's page shows three totals above its members: how
+  many members it has, how many joined in the last 30 days, and when the last
+  one joined. They come from `GET /v1/lists/:id/stats` and the `lists_stats`
+  MCP tool, which need `lists:read`. No migration.
+
 ## [0.25.1] - 2026-11-24
 
 ### Fixed

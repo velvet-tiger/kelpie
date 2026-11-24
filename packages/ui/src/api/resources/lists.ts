@@ -1,7 +1,10 @@
-import { createListBody, listBody, listSchema } from '@kelpie/schemas'
-import type { CreateListInput, List, ListInput, RecordTargetType } from '@kelpie/schemas'
+import { createListBody, listBody, listSchema, listStatsSchema } from '@kelpie/schemas'
+import type { CreateListInput, List, ListInput, ListStats, RecordTargetType } from '@kelpie/schemas'
+import { useQuery } from '@tanstack/react-query'
 
 import type { QueryParameters } from '../client.ts'
+import { useApiClient } from '../context.ts'
+import { toError } from '../errors.ts'
 import { createResourceHooks } from '../resource.ts'
 import type {
   ListOptions,
@@ -58,4 +61,35 @@ export function useUpdateList(): MutationResult<UpdateArguments<ListInput>, List
 
 export function useDeleteList(): MutationResult<string, void> {
   return lists.useRemove()
+}
+
+/**
+ * The cache key for one list's stats. Exported so the member mutations in
+ * `listMembers.ts` can refresh it when a record joins or leaves the list.
+ */
+export function listStatsKey(listId: string): readonly unknown[] {
+  return ['lists', 'stats', listId]
+}
+
+export interface ListStatsState {
+  readonly stats: ListStats | undefined
+  readonly isLoading: boolean
+  readonly error: Error | null
+}
+
+/** `GET /v1/lists/:id/stats`: totals over every member, not one page of them. */
+export function useListStats(listId: string | undefined): ListStatsState {
+  const client = useApiClient()
+  const enabled = listId !== undefined
+  const result = useQuery({
+    queryKey: listStatsKey(listId ?? ''),
+    queryFn: () => client.get(`/lists/${listId ?? ''}/stats`, listStatsSchema.parse),
+    enabled,
+  })
+
+  return {
+    stats: result.data,
+    isLoading: result.isPending && enabled,
+    error: toError(result.error),
+  }
 }

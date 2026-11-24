@@ -67,6 +67,17 @@ export interface ListMemberView {
   readonly addedAt: Date
 }
 
+/** A summary of one list, as `GET /v1/lists/:id/stats` returns it. */
+export interface ListStatsView {
+  readonly listId: string
+  readonly memberCount: number
+  readonly addedLast30Days: number
+  readonly lastAddedAt: Date | null
+}
+
+/** The window `addedLast30Days` counts over. Fixed, so every caller reads the same figure. */
+const RECENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+
 export interface CreateListInput {
   readonly name: string
   readonly targetType: RecordTargetType
@@ -87,6 +98,7 @@ export interface AddListMemberInput {
 export interface ListsService {
   list(actor: Actor, filters: ListFilters, query: ListQueryParameters): Promise<Page<ListView>>
   get(actor: Actor, id: string): Promise<ListView>
+  stats(actor: Actor, id: string): Promise<ListStatsView>
   create(actor: Actor, input: CreateListInput): Promise<ListView>
   update(actor: Actor, id: string, changes: UpdateListInput): Promise<ListView>
   remove(actor: Actor, id: string): Promise<void>
@@ -194,6 +206,20 @@ export function createListsService(dependencies: ListsDependencies): ListsServic
       const workspaceId = requireWorkspaceId(actor)
       const record = await require(workspaceId, id)
       return toView(record)
+    },
+
+    async stats(actor, id) {
+      const workspaceId = requireWorkspaceId(actor)
+      await require(workspaceId, id)
+      const since = new Date(dependencies.now().getTime() - RECENT_WINDOW_MS)
+      const stats = await repository.memberStats(dependencies.db, workspaceId, id, since)
+
+      return {
+        listId: id,
+        memberCount: stats.memberCount,
+        addedLast30Days: stats.addedSince,
+        lastAddedAt: stats.lastAddedAt,
+      }
     },
 
     async create(actor, input) {

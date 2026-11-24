@@ -772,6 +772,15 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       expect(
         await callTool('list_memberships_for', { target_type: 'person', target_id: readString(person, 'id') }, reader),
       ).toBeDefined()
+
+      const list = readRecord(await callTool('lists_create', { name: 'Priority', target_type: 'person' }))
+
+      expect(await callTool('lists_stats', { id: readString(list, 'id') }, reader)).toEqual({
+        list_id: readString(list, 'id'),
+        member_count: 0,
+        added_last_30_days: 0,
+        last_added_at: null,
+      })
     })
   })
 

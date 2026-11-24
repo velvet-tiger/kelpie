@@ -16,6 +16,7 @@ import {
   listMemberResponse,
   listMembershipResponse,
   listResponse,
+  listStatsResponse,
   toAddMemberInput,
   toCreateInput,
   toUpdateInput,
@@ -26,9 +27,9 @@ import type { ListsService } from './service.ts'
 /**
  * `lists_*`. Same schemas and mappers as `/v1/lists`, so the two cannot drift.
  *
- * The list-level five come from `registerCrudTools`; the three membership tools
- * are declared by hand because they hang off `/v1/lists/:id/members`, which does
- * not fit the by-id CRUD shape.
+ * The list-level five come from `registerCrudTools`. `lists_stats` and the
+ * membership tools are declared by hand because they hang off sub-paths of
+ * `/v1/lists/:id`, which do not fit the by-id CRUD shape.
  */
 
 const listArgs = z.strictObject({
@@ -42,6 +43,10 @@ const listArgs = z.strictObject({
     .enum(RECORD_TARGET_TYPES)
     .optional()
     .describe('Only lists that hold this kind of record.'),
+})
+
+const statsArgs = z.strictObject({
+  id: idArg.describe('The list to summarise.'),
 })
 
 const membersListArgs = z.strictObject({
@@ -78,6 +83,16 @@ export function registerListsTools(mcp: McpToolRegistry, service: ListsService):
     toCreateInput,
     updateArgs: updateBody.extend({ id: idArg }),
     toUpdateInput,
+  })
+
+  mcp.tool({
+    name: 'lists_stats',
+    description:
+      'Summarise one list: how many members it has, how many joined in the last ' +
+      '30 days, and when the last one joined. Mirrors GET /v1/lists/{id}/stats.',
+    scope: 'lists:read',
+    inputSchema: statsArgs,
+    invoke: async (args, actor) => listStatsResponse(await service.stats(actor, args.id)),
   })
 
   mcp.tool({

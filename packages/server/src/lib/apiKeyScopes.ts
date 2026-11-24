@@ -110,7 +110,7 @@ const ROUTE_SCOPE_RULES: readonly RouteScopeRule[] = [
   { methods: ['GET'], pattern: /^\/v1\/notes(?:\/[^/]+)?$/u, scope: 'notes:read' },
   { methods: ['POST', 'PATCH'], pattern: /^\/v1\/notes(?:\/[^/]+)?$/u, scope: 'notes:write' },
   { methods: ['DELETE'], pattern: /^\/v1\/notes(?:\/[^/]+)?$/u, scope: 'notes:delete' },
-  { methods: ['GET'], pattern: /^\/v1\/(?:lists(?:\/[^/]+(?:\/members(?:\/[^/]+)?)?)?|list-memberships)$/u, scope: 'lists:read' },
+  { methods: ['GET'], pattern: /^\/v1\/(?:lists(?:\/[^/]+(?:\/(?:members(?:\/[^/]+)?|stats))?)?|list-memberships)$/u, scope: 'lists:read' },
   { methods: ['POST', 'PATCH'], pattern: /^\/v1\/(?:lists(?:\/[^/]+(?:\/members(?:\/[^/]+)?)?)?|list-memberships)$/u, scope: 'lists:write' },
   // Taking a record off a list ends a membership. It deletes no record, so
   // it is a write to the list. This rule must stay above the next one.

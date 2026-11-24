@@ -20,6 +20,7 @@ import type { Page } from '../client.ts'
 import { useApiClient } from '../context.ts'
 import { toError } from '../errors.ts'
 import { usePagedList } from '../resource.ts'
+import { listStatsKey } from './lists.ts'
 import type { MutationResult, RecordListResult } from '../resource.ts'
 
 /**
@@ -108,6 +109,7 @@ export function useAddListMember(): MutationResult<AddMemberArguments, ListMembe
       void queryClient.invalidateQueries({ queryKey: membersKey(listId) })
       void queryClient.invalidateQueries({ queryKey: listsInvalidations() })
       void queryClient.invalidateQueries({ queryKey: ['lists', 'memberships'] })
+      void queryClient.invalidateQueries({ queryKey: listStatsKey(listId) })
     },
   })
 
@@ -159,6 +161,7 @@ export function useRemoveListMember(): MutationResult<RemoveMemberArguments, voi
       void queryClient.invalidateQueries({ queryKey: membersKey(listId) })
       void queryClient.invalidateQueries({ queryKey: listsInvalidations() })
       void queryClient.invalidateQueries({ queryKey: ['lists', 'memberships'] })
+      void queryClient.invalidateQueries({ queryKey: listStatsKey(listId) })
     },
   })
 

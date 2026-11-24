@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
@@ -247,6 +248,77 @@ describe.skipIf(connectionString === undefined)('lists', () => {
       )
 
       expect(list.member_count).toBe(0)
+    })
+  })
+
+  describe('stats', () => {
+    function readStats(listId: string, cookie = acme.cookie): Promise<Response> {
+      return client.send('GET', `/v1/lists/${listId}/stats`, { cookie })
+    }
+
+    it('reports zeros and no last addition for an empty list', async () => {
+      const listId = await createListWith({ name: 'Empty', target_type: 'person' })
+      const response = await readStats(listId)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        list_id: listId,
+        member_count: 0,
+        added_last_30_days: 0,
+        last_added_at: null,
+      })
+    })
+
+    it('counts every member, and only the recent ones as added in the last 30 days', async () => {
+      const listId = await createListWith({ name: 'People', target_type: 'person' })
+      const graceId = await createPerson('Grace Hopper')
+      const old = readRecord(
+        await (await addMember(listId, { target_type: 'person', target_id: personId })).json(),
+      )
+      const recent = readRecord(
+        await (await addMember(listId, { target_type: 'person', target_id: graceId })).json(),
+      )
+
+      await harness.services.db
+        .update(listMembers)
+        .set({ addedAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000) })
+        .where(eq(listMembers.id, readString(old, 'id')))
+
+      const stats = readRecord(await (await readStats(listId)).json())
+
+      expect(stats.member_count).toBe(2)
+      expect(stats.added_last_30_days).toBe(1)
+      expect(stats.last_added_at).toBe(recent.added_at)
+    })
+
+    it('leaves out a membership row that carries another workspace', async () => {
+      const other = await client.owner('grace@example.com')
+      const listId = await createListWith({ name: 'Priority', target_type: 'person' })
+
+      await addMember(listId, { target_type: 'person', target_id: personId })
+      await harness.services.db.insert(listMembers).values({
+        id: 'lm_other_workspace',
+        workspaceId: other.workspaceId,
+        listId,
+        targetType: 'person',
+        targetId: 'per_of_other_workspace',
+      })
+
+      const stats = readRecord(await (await readStats(listId)).json())
+
+      expect(stats.member_count).toBe(1)
+      expect(stats.added_last_30_days).toBe(1)
+    })
+
+    it('answers 404 for a list in another workspace', async () => {
+      const other = await client.owner('grace@example.com')
+      const listId = await createListWith({ name: 'Ours', target_type: 'person' })
+
+      expect((await readStats(listId, other.cookie)).status).toBe(404)
+    })
+
+    it('answers 404 for a list that does not exist', async () => {
+      expect((await readStats('lst_missing')).status).toBe(404)
     })
   })
 

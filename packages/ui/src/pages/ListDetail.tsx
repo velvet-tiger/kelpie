@@ -7,7 +7,8 @@ import { usePatch } from '../api/resource.ts'
 import type { PatchResult } from '../api/resource.ts'
 import { useCompanies } from '../api/resources/companies.ts'
 import { useDeals } from '../api/resources/deals.ts'
-import { useDeleteList, useList, useUpdateList } from '../api/resources/lists.ts'
+import { useTimezone } from '../api/resources/account.ts'
+import { useDeleteList, useList, useListStats, useUpdateList } from '../api/resources/lists.ts'
 import {
   useAddListMember,
   useListMembers,
@@ -27,6 +28,7 @@ import { InlineEdit } from '../components/InlineEdit.tsx'
 import { Paginator } from '../components/Paginator.tsx'
 import { ErrorPanel, LoadingPanel, NotFoundPanel } from '../components/QueryState.tsx'
 import { SectionHeader } from '../components/SectionHeader.tsx'
+import { formatRelativeTime } from '../lib/dates.ts'
 import type { List, ListInput } from '@kelpie/schemas'
 
 /**
@@ -88,6 +90,8 @@ export function ListDetail(): React.JSX.Element {
 
       <ListDescription list={record} />
 
+      <ListStatsRow listId={record.id} />
+
       <ListMembers listId={record.id} targetType={record.targetType} />
     </div>
   )
@@ -138,6 +142,53 @@ function ListDescription({ list }: { readonly list: List }): React.JSX.Element {
         emptyLabel="Add a description"
         multiline
       />
+    </div>
+  )
+}
+
+/**
+ * Totals for the whole list, above the paged members. A failed read shows the
+ * error in place of the tiles; the members below still load on their own.
+ */
+function ListStatsRow({ listId }: { readonly listId: string }): React.JSX.Element | null {
+  const { stats, isLoading, error } = useListStats(listId)
+  const timezone = useTimezone()
+
+  if (error !== null) {
+    return (
+      <div className="mb-6">
+        <ErrorPanel error={error} />
+      </div>
+    )
+  }
+
+  if (isLoading || stats === undefined) {
+    return null
+  }
+
+  return (
+    <dl className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <StatTile label="Members" value={String(stats.memberCount)} />
+      <StatTile label="Added in the last 30 days" value={String(stats.addedLast30Days)} />
+      <StatTile
+        label="Last added"
+        value={stats.lastAddedAt === null ? 'Never' : formatRelativeTime(stats.lastAddedAt, timezone)}
+      />
+    </dl>
+  )
+}
+
+function StatTile({
+  label,
+  value,
+}: {
+  readonly label: string
+  readonly value: string
+}): React.JSX.Element {
+  return (
+    <div className="rounded-md border border-border bg-surface-raised px-4 py-3">
+      <dt className="text-[11px] font-medium text-ink-faint">{label}</dt>
+      <dd className="mt-1 text-[20px] font-semibold tracking-tight text-ink">{value}</dd>
     </div>
   )
 }

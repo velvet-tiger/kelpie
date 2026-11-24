@@ -19,6 +19,7 @@ import type {
   CreateListInput,
   ListMemberView,
   ListMembershipView,
+  ListStatsView,
   ListView,
   ListsService,
   UpdateListInput,
@@ -85,6 +86,15 @@ export function listResponse(list: ListView): Record<string, unknown> {
     member_count: list.memberCount,
     created_at: list.createdAt.toISOString(),
     updated_at: list.updatedAt.toISOString(),
+  }
+}
+
+export function listStatsResponse(stats: ListStatsView): Record<string, unknown> {
+  return {
+    list_id: stats.listId,
+    member_count: stats.memberCount,
+    added_last_30_days: stats.addedLast30Days,
+    last_added_at: stats.lastAddedAt?.toISOString() ?? null,
   }
 }
 
@@ -217,6 +227,12 @@ export function mountListsRoutes(router: Hono, dependencies: ListsRoutesDependen
     await dependencies.service.remove(await requireActor(context), context.req.param('id'))
 
     return context.body(null, 204)
+  })
+
+  router.get('/lists/:id/stats', async (context) => {
+    const stats = await dependencies.service.stats(await requireActor(context), context.req.param('id'))
+
+    return context.json(listStatsResponse(stats))
   })
 
   router.get('/lists/:id/members', async (context) => {

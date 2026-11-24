@@ -213,6 +213,10 @@ describe('resolveRestScope', () => {
     expect(resolveRestScope('POST', '/v1/deals/deal_1/convert')).toBe('deals:write')
   })
 
+  it('reads list stats under lists read', () => {
+    expect(resolveRestScope('GET', '/v1/lists/lst_1/stats')).toBe('lists:read')
+  })
+
   it('keeps taking a record off a list under lists write', () => {
     expect(resolveRestScope('DELETE', '/v1/lists/lst_1/members/lmb_1')).toBe('lists:write')
     expect(resolveRestScope('POST', '/v1/lists/lst_1/members')).toBe('lists:write')

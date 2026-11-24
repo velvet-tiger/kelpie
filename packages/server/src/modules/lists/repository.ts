@@ -148,6 +148,40 @@ async function countMembers(db: Queryable, workspaceId: string, listId: string):
   return Number(row?.count ?? 0)
 }
 
+/** The aggregate behind `GET /v1/lists/:id/stats`. */
+export interface ListMemberStats {
+  readonly memberCount: number
+  readonly addedSince: number
+  readonly lastAddedAt: Date | null
+}
+
+/**
+ * Counts one list's members in a single pass: all of them, those added at or
+ * after `since`, and the newest `added_at`. The caller has already checked the
+ * list exists in this workspace.
+ */
+export async function memberStats(
+  db: Queryable,
+  workspaceId: string,
+  listId: string,
+  since: Date,
+): Promise<ListMemberStats> {
+  const [row] = await db
+    .select({
+      memberCount: sql<number>`count(*)::int`,
+      addedSince: sql<number>`count(*) filter (where ${listMembers.addedAt} >= ${since.toISOString()})::int`,
+      lastAddedAt: sql<string | null>`max(${listMembers.addedAt})`,
+    })
+    .from(listMembers)
+    .where(and(eq(listMembers.workspaceId, workspaceId), eq(listMembers.listId, listId)))
+
+  return {
+    memberCount: Number(row?.memberCount ?? 0),
+    addedSince: Number(row?.addedSince ?? 0),
+    lastAddedAt: row?.lastAddedAt == null ? null : new Date(row.lastAddedAt),
+  }
+}
+
 export async function insertList(db: Queryable, values: ListColumns): Promise<ListRecord> {
   const [created] = await db.insert(lists).values(values).returning()
 

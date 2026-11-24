@@ -317,6 +317,9 @@ export type { AddListMemberInput, ListMember } from './listMember.ts'
 export { listMembershipSchema } from './listMembership.ts'
 export type { ListMembership } from './listMembership.ts'
 
+export { listStatsSchema } from './listStats.ts'
+export type { ListStats } from './listStats.ts'
+
 export { createPlanItemBody, planItemBody, planItemSchema } from './planItem.ts'
 export type { CreatePlanItemInput, PlanItem, PlanItemInput } from './planItem.ts'
 
