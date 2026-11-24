@@ -10,6 +10,19 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-11-24
+
+### Fixed
+
+- **0.25.0 shipped without its compiled files.** Every package went to npm
+  without `dist`, so `@kelpie/schemas`, `@kelpie/server` and `@kelpie/ui`
+  could not be imported and `npm create kelpie` had no command to run. 0.25.0
+  is deprecated. 0.25.1 has the same code as 0.25.0, built. Use it in place
+  of 0.25.0. No migration.
+- **`make publish` builds before it publishes.** It runs each package's
+  build, then refuses to publish when the tarball would lack a file the
+  package's `bin` or `exports` names. Nothing is published in that case.
+
 ## [0.25.0] - 2026-11-23
 
 ### Added
