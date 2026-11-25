@@ -17,6 +17,16 @@ While the major version is `0`, a minor bump may break the API.
   one joined. They come from `GET /v1/lists/:id/stats` and the `lists_stats`
   MCP tool, which need `lists:read`. No migration.
 
+### Security
+
+- **Dependency floors raised past known advisories.** `@kelpie/server` now
+  needs `hono` 4.13.16, `@hono/node-server` 2.1.6, `nodemailer` 10.1.4 and
+  `zod` 4.6.6. `@kelpie/schemas` needs `zod` 4.6.6, and `@kelpie/ui` needs
+  `react-router` 8.5.1. The hono releases fix middleware that a mounted or
+  unusual path could skip. The nodemailer release fixes address parsing that
+  could add a recipient. Kelpie already refuses those characters in form
+  addresses. Run `npm update` in an assembly to pick the versions up.
+
 ## [0.25.1] - 2026-11-24
 
 ### Fixed
