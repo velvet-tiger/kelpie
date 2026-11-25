@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-25
+
 ### Added
 
 - **List stats.** A list's page shows three totals above its members: how
