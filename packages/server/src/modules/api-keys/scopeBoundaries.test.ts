@@ -74,8 +74,8 @@ const DELETE_ROUTE_SCOPES: Readonly<Record<string, string | null>> = {
   'DELETE /v1/agents/:id': 'agents:write',
   'DELETE /v1/import/jobs/:id': 'import_export:write',
   'DELETE /v1/workspaces/:id': 'workspace:write',
-  'DELETE /v1/workspaces/:id/members/:memberId': 'workspace:write',
-  'DELETE /v1/workspaces/:id/invites/:inviteId': 'workspace:write',
+  'DELETE /v1/workspaces/:id/members/:memberId': 'members:write',
+  'DELETE /v1/workspaces/:id/invites/:inviteId': 'members:write',
   'DELETE /v1/ai/settings': 'ai:write',
   // The route rule. With `replace: true` it deletes every page first, and the
   // service then asks for `handbook:delete` as well; a test below covers that.
@@ -112,8 +112,8 @@ const REMOVING_TOOL_SCOPES: Readonly<Record<string, string>> = {
   pipeline_stages_delete: 'pipeline_stages:write',
   consent_purposes_delete: 'consent_purposes:write',
   webhooks_delete: 'webhooks:write',
-  workspace_members_remove: 'workspace:write',
-  workspace_invites_revoke: 'workspace:write',
+  workspace_members_remove: 'members:write',
+  workspace_invites_revoke: 'members:write',
 }
 
 describe.skipIf(connectionString === undefined)('delete and handbook scopes', () => {
@@ -535,6 +535,46 @@ describe.skipIf(connectionString === undefined)('delete and handbook scopes', ()
       expect(
         (await client.send('POST', '/v1/handbook_pages', { body: { title: 'No', body: 'Text' }, bearer: old })).status,
       ).toBe(403)
+    })
+  })
+
+  describe('members and invitations have their own scopes', () => {
+    it('reads the workspace record under workspace read, and the members and invitations only under members read', async () => {
+      const workspaceOnly = await key(['workspace:read'])
+      const members = await key(['members:read'])
+      const base = `/v1/workspaces/${acme.workspaceId}`
+
+      expect((await client.send('GET', base, { bearer: workspaceOnly })).status).toBe(200)
+      expect((await client.send('GET', `${base}/members`, { bearer: workspaceOnly })).status).toBe(403)
+      expect((await client.send('GET', `${base}/invites`, { bearer: workspaceOnly })).status).toBe(403)
+      expect((await client.send('GET', `${base}/members`, { bearer: members })).status).toBe(200)
+      expect((await client.send('GET', `${base}/invites`, { bearer: members })).status).toBe(200)
+    })
+
+    it('needs members write to change or remove a member, and to invite or revoke', async () => {
+      const reader = await key(['members:read'])
+      const writer = await key(['members:write'])
+      const base = `/v1/workspaces/${acme.workspaceId}`
+
+      expect((await client.send('PATCH', `${base}/members/mem_none`, { body: { role: 'member' }, bearer: reader })).status).toBe(403)
+      expect((await client.send('DELETE', `${base}/members/mem_none`, { bearer: reader })).status).toBe(403)
+      expect(
+        (await client.send('POST', `${base}/invites`, { body: { email: 'grace@example.com', role: 'member' }, bearer: reader })).status,
+      ).toBe(403)
+      expect(
+        (await client.send('POST', `${base}/invites`, { body: { email: 'grace@example.com', role: 'member' }, bearer: writer })).status,
+      ).toBe(201)
+    })
+
+    it('keeps member access for a key that holds write:all or write:admin', async () => {
+      const all = await key(['write:all'])
+      const admin = await key(['write:admin'])
+      const base = `/v1/workspaces/${acme.workspaceId}`
+
+      expect((await client.send('GET', `${base}/members`, { bearer: all })).status).toBe(200)
+      expect((await client.send('GET', `${base}/invites`, { bearer: all })).status).toBe(200)
+      expect((await client.send('GET', `${base}/members`, { bearer: admin })).status).toBe(200)
+      expect((await client.send('GET', `${base}/invites`, { bearer: admin })).status).toBe(200)
     })
   })
 })

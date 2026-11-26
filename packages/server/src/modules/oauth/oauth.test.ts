@@ -1407,7 +1407,7 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       expect((await callTool(accessToken, 'people_get', { id: readString(person, 'id') })).status).toBe(200)
     })
 
-    it('gives a default sign-in the stages and the workspace, and still no delete', async () => {
+    it('gives a default sign-in the stages and the workspace record, and still no members or delete', async () => {
       const { cookie, workspaceId } = await owner()
       const clientId = await registerPublicClient()
       const granted = ['read:objects', 'write:objects', 'pipeline_stages:read', 'workspace:read']
@@ -1417,7 +1417,9 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
 
       expect((await callTool(accessToken, 'pipeline_stages_list')).status).toBe(200)
-      expect((await callTool(accessToken, 'workspace_members_list')).status).toBe(200)
+      expect((await callTool(accessToken, 'workspace_get')).status).toBe(200)
+      expect((await callTool(accessToken, 'workspace_members_list')).status).toBe(403)
+      expect((await callTool(accessToken, 'workspace_invites_list')).status).toBe(403)
 
       const deleted = await callTool(accessToken, 'people_delete', { id: readString(person, 'id') })
 

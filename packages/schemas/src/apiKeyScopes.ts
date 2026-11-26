@@ -69,6 +69,9 @@ export const API_KEY_OBJECT_CONFIG_RESOURCES = [
 /** Workspace administration surfaces. */
 export const API_KEY_ADMIN_RESOURCES = [
   'workspace',
+  // Its own scope, not `workspace`: an invitation holds the invitee's email, so
+  // reading the members and invitations is not part of reading the workspace.
+  'members',
   'import_export',
   'webhooks',
   'api_keys',
@@ -250,6 +253,8 @@ export const API_KEY_SCOPE_LABELS: Readonly<Record<ApiKeyScope, string>> = {
   'consent_purposes:write': 'Consent purposes (write)',
   'workspace:read': 'Workspace (read)',
   'workspace:write': 'Workspace (write)',
+  'members:read': 'Members and invitations (read)',
+  'members:write': 'Members and invitations (write)',
   'import_export:read': 'Import / export (read)',
   'import_export:write': 'Import / export (write)',
   'webhooks:read': 'Webhooks (read)',

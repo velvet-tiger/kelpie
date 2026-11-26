@@ -12,13 +12,15 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
-- **Default MCP sign-in reads stages and the workspace.** A new sign-in over
+- **Default MCP sign-in reads stages and the workspace record.** A new sign-in over
   MCP now grants `pipeline_stages:read` and `workspace:read` with
-  `read:objects` and `write:objects`. `pipeline_stages_list`, `workspace_get`,
-  `workspace_members_list` and `workspace_invites_list` work without a second
-  consent, and the consent page shows both scopes. Existing connections keep
-  the scopes they were approved with, so they reconnect to get the new
-  default. No migration.
+  `read:objects` and `write:objects`. `pipeline_stages_list` and `workspace_get`
+  work without a second consent, and the consent page shows both scopes.
+  Members and invitations have their own scopes: `members:read` reads them and
+  `members:write` changes them. The default does not include either.
+  Migration 0068 keeps existing access. Each stored API key, grant and token
+  that holds `workspace:read` gets `members:read`, and each that holds
+  `workspace:write` gets `members:write`.
 
 ## [0.26.0] - 2026-11-25
 

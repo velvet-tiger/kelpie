@@ -477,6 +477,13 @@
       "when": 1791004800000,
       "tag": "0067_sessions_expires_index",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1791091200000,
+      "tag": "0068_members_scopes",
+      "breakpoints": true
     }
   ]
 }

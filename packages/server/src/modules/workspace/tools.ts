@@ -49,7 +49,7 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
     description:
       'Everyone on this workspace, with their role. Use a member id here as the owner_id on a ' +
       'deal or a plan item. Mirrors GET /v1/workspaces/{id}/members.',
-    scope: 'workspace:read',
+    scope: 'members:read',
     inputSchema: noArgs,
     invoke: async (_args, actor) => ({
       data: (await service.listMembers(actor, requireWorkspaceId(actor))).map(memberResponse),
@@ -62,7 +62,7 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
     description:
       'Change a member\'s role. Setting owner transfers ownership, which is a single seat. ' +
       'Admin only. Mirrors PATCH /v1/workspaces/{id}/members/{memberId}.',
-    scope: 'workspace:write',
+    scope: 'members:write',
     inputSchema: memberRoleBody.extend({ member_id: idArg }),
     invoke: async (args, actor) =>
       memberResponse(
@@ -75,7 +75,7 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
     description:
       'Remove somebody from this workspace. Admin only. ' +
       'Mirrors DELETE /v1/workspaces/{id}/members/{memberId}.',
-    scope: 'workspace:write',
+    scope: 'members:write',
     inputSchema: z.strictObject({ member_id: idArg }),
     invoke: async ({ member_id: memberId }, actor) => {
       await service.removeMember(actor, requireWorkspaceId(actor), memberId)
@@ -89,7 +89,7 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
     description:
       'Invite somebody by email and send them the invitation. The link is built from the ' +
       'deployment\'s own base URL. Admin only. Mirrors POST /v1/workspaces/{id}/invites.',
-    scope: 'workspace:write',
+    scope: 'members:write',
     inputSchema: inviteBody,
     invoke: async (body, actor) =>
       inviteResponse(
@@ -102,7 +102,7 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
     description:
       'Outstanding and spent invitations. email_failed_at and email_failure are set when the ' +
       'invitation email was not delivered. Mirrors GET /v1/workspaces/{id}/invites.',
-    scope: 'workspace:read',
+    scope: 'members:read',
     inputSchema: noArgs,
     invoke: async (_args, actor) => ({
       data: (await service.listInvites(actor, requireWorkspaceId(actor))).map(inviteResponse),
@@ -115,7 +115,7 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
     description:
       'Issue a fresh token and expiry for an invitation and email it again. Admin only. ' +
       'Mirrors POST /v1/workspaces/{id}/invites/{inviteId}/resend.',
-    scope: 'workspace:write',
+    scope: 'members:write',
     inputSchema: z.strictObject({ invite_id: idArg }),
     invoke: async ({ invite_id: inviteId }, actor) =>
       inviteResponse(await service.resendInvite(actor, requireWorkspaceId(actor), inviteId)),
@@ -126,7 +126,7 @@ export function registerWorkspaceTools(mcp: McpToolRegistry, service: WorkspaceS
     description:
       'Withdraw an invitation that has not been accepted. Admin only. ' +
       'Mirrors DELETE /v1/workspaces/{id}/invites/{inviteId}.',
-    scope: 'workspace:write',
+    scope: 'members:write',
     inputSchema: z.strictObject({ invite_id: idArg }),
     invoke: async ({ invite_id: inviteId }, actor) => {
       await service.revokeInvite(actor, requireWorkspaceId(actor), inviteId)

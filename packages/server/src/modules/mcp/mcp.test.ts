@@ -761,11 +761,13 @@ describe.skipIf(connectionString === undefined)('mcp', () => {
       expect(
         (await callToolError('workspace_members_set_role', { member_id: 'mem_none', role: 'member' }, reader)).code,
       ).toBe('forbidden')
+      // The workspace record is read under `workspace:read`; the members are not.
+      expect((await callToolError('workspace_members_list', {}, reader)).code).toBe('forbidden')
       expect((await callToolError('export_csv', { object: 'people' }, reader)).code).toBe('forbidden')
     })
 
     it('lets a key with the matching scope call a tool whose name is not resource_verb', async () => {
-      const reader = await mintKey(acme.cookie, ['workspace:read', 'lists:read'])
+      const reader = await mintKey(acme.cookie, ['members:read', 'lists:read'])
       const person = readRecord(await callTool('people_create', { name: 'Ada Lovelace' }))
 
       expect(readList(await callTool('workspace_members_list', {}, reader))).toHaveLength(1)

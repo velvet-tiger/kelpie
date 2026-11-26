@@ -25,8 +25,8 @@ const TARGET_READ_SCOPES: Readonly<Record<AgentTaskTargetType, ApiKeyGranularSco
   role: 'roles:read',
   handbook: 'handbook:read',
   // A workspace task sends the agent to the dashboard and lists record ids
-  // from it. `workspace:read` is for members and invitations, which a resolve
-  // does not answer.
+  // from it. Members and invitations need no scope here: a resolve does not
+  // answer them.
   workspace: 'dashboard:read',
 }
 

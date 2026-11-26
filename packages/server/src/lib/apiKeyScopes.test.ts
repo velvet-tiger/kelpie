@@ -229,9 +229,19 @@ describe('resolveRestScope', () => {
     expect(resolveRestScope('DELETE', '/v1/pipeline_stages/stg_1')).toBe('pipeline_stages:write')
     expect(resolveRestScope('DELETE', '/v1/consent_purposes/cp_1')).toBe('consent_purposes:write')
     expect(resolveRestScope('DELETE', '/v1/import/jobs/imp_1')).toBe('import_export:write')
-    expect(resolveRestScope('DELETE', '/v1/workspaces/ws_1/members/mem_1')).toBe('workspace:write')
-    expect(resolveRestScope('DELETE', '/v1/workspaces/ws_1/invites/inv_1')).toBe('workspace:write')
+    expect(resolveRestScope('DELETE', '/v1/workspaces/ws_1/members/mem_1')).toBe('members:write')
+    expect(resolveRestScope('DELETE', '/v1/workspaces/ws_1/invites/inv_1')).toBe('members:write')
     expect(resolveRestScope('DELETE', '/v1/workspaces/ws_1')).toBe('workspace:write')
+  })
+
+  it('gives members and invitations their own scopes, apart from the workspace record', () => {
+    expect(resolveRestScope('GET', '/v1/workspaces/ws_1')).toBe('workspace:read')
+    expect(resolveRestScope('PATCH', '/v1/workspaces/ws_1')).toBe('workspace:write')
+    expect(resolveRestScope('GET', '/v1/workspaces/ws_1/members')).toBe('members:read')
+    expect(resolveRestScope('GET', '/v1/workspaces/ws_1/invites')).toBe('members:read')
+    expect(resolveRestScope('PATCH', '/v1/workspaces/ws_1/members/mem_1')).toBe('members:write')
+    expect(resolveRestScope('POST', '/v1/workspaces/ws_1/invites')).toBe('members:write')
+    expect(resolveRestScope('POST', '/v1/workspaces/ws_1/invites/inv_1/resend')).toBe('members:write')
   })
 
   it('needs forms write to regenerate a slug or release a held submission', () => {
