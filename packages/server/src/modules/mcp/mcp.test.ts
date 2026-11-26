@@ -24,7 +24,7 @@ import { LATEST_LEGACY_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION } from './proto
 const connectionString = testDatabaseUrl(process.env)
 
 /** What core's `oauth` module puts on every `401`: where to sign in, and what to ask for. */
-const MCP_CHALLENGE = `Bearer resource_metadata="${TEST_APP_BASE_URL}/.well-known/oauth-protected-resource/mcp", scope="read:objects write:objects"`
+const MCP_CHALLENGE = `Bearer resource_metadata="${TEST_APP_BASE_URL}/.well-known/oauth-protected-resource/mcp", scope="read:objects write:objects pipeline_stages:read workspace:read"`
 
 interface JsonRpcEnvelope {
   readonly jsonrpc?: unknown

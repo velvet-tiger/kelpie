@@ -329,7 +329,7 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
         expect(body).toMatchObject({
           resource: RESOURCE,
           authorization_servers: [TEST_APP_BASE_URL],
-          scopes_supported: ['read:objects', 'write:objects'],
+          scopes_supported: ['read:objects', 'write:objects', 'pipeline_stages:read', 'workspace:read'],
         })
       }
     })
@@ -354,7 +354,7 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
       expect(response.status).toBe(401)
       expect(response.headers.get('WWW-Authenticate')).toBe(
-        `Bearer resource_metadata="${TEST_APP_BASE_URL}/.well-known/oauth-protected-resource/mcp", scope="read:objects write:objects"`,
+        `Bearer resource_metadata="${TEST_APP_BASE_URL}/.well-known/oauth-protected-resource/mcp", scope="read:objects write:objects pipeline_stages:read workspace:read"`,
       )
     })
 
@@ -379,11 +379,16 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       expect(view).toMatchObject({
         client_name: 'Test Agent',
         client_host: 'an app on this computer',
-        scopes: ['read:objects', 'write:objects'],
+        scopes: ['read:objects', 'write:objects', 'pipeline_stages:read', 'workspace:read'],
         workspaces: [{ id: workspaceId, name: 'Acme', role: 'owner' }],
       })
 
-      const redirect = await approve(cookie, requestId, workspaceId, ['read:objects', 'write:objects'])
+      const redirect = await approve(cookie, requestId, workspaceId, [
+        'read:objects',
+        'write:objects',
+        'pipeline_stages:read',
+        'workspace:read',
+      ])
 
       expect(`${redirect.origin}${redirect.pathname}`).toBe(REDIRECT)
       expect(redirect.searchParams.get('state')).toBe('xyz')
@@ -394,7 +399,11 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
       expect(response.status).toBe(200)
       expect(response.headers.get('Cache-Control')).toBe('no-store')
-      expect(tokens).toMatchObject({ token_type: 'Bearer', expires_in: 3600, scope: 'read:objects write:objects' })
+      expect(tokens).toMatchObject({
+        token_type: 'Bearer',
+        expires_in: 3600,
+        scope: 'read:objects write:objects pipeline_stages:read workspace:read',
+      })
       expect(readString(tokens, 'access_token')).toMatch(/^kp_oat_/u)
       expect(readString(tokens, 'refresh_token')).toMatch(/^kp_ort_/u)
 
@@ -1135,7 +1144,10 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
 
       const extras = ['decisions:commit', 'handbook:write', 'delete:objects']
 
-      expect(await plain.json()).toMatchObject({ scopes: DEFAULT, extra_scopes: extras })
+      expect(await plain.json()).toMatchObject({
+        scopes: [...DEFAULT, 'pipeline_stages:read', 'workspace:read'],
+        extra_scopes: extras,
+      })
       // Asked for by name, it is still offered as an extra, so the page starts it clear.
       expect(await named.json()).toMatchObject({ scopes: WITH_COMMIT, extra_scopes: extras })
     })
@@ -1393,6 +1405,26 @@ describe.skipIf(connectionString === undefined)('oauth', () => {
       // Reading the handbook and the person is still part of the default.
       expect((await callTool(accessToken, 'handbook_pages_list')).status).toBe(200)
       expect((await callTool(accessToken, 'people_get', { id: readString(person, 'id') })).status).toBe(200)
+    })
+
+    it('gives a default sign-in the stages and the workspace, and still no delete', async () => {
+      const { cookie, workspaceId } = await owner()
+      const clientId = await registerPublicClient()
+      const granted = ['read:objects', 'write:objects', 'pipeline_stages:read', 'workspace:read']
+      const redirect = await approve(cookie, await startRequest(clientId), workspaceId, granted)
+      const tokens: unknown = await (await exchange(clientId, redirect.searchParams.get('code') ?? '')).json()
+      const accessToken = readString(tokens, 'access_token')
+      const person = await toolPayload(await callTool(accessToken, 'people_create', { name: 'Grace Hopper' }))
+
+      expect((await callTool(accessToken, 'pipeline_stages_list')).status).toBe(200)
+      expect((await callTool(accessToken, 'workspace_members_list')).status).toBe(200)
+
+      const deleted = await callTool(accessToken, 'people_delete', { id: readString(person, 'id') })
+
+      expect(deleted.status).toBe(403)
+      expect(deleted.headers.get('WWW-Authenticate')).toContain(
+        'scope="read:objects write:objects pipeline_stages:read workspace:read people:delete"',
+      )
     })
 
     it('lets a connection delete and write the handbook when the person added those extras', async () => {

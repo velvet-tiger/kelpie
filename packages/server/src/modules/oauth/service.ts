@@ -59,11 +59,17 @@ import {
 
 /**
  * What a client gets when it names no scope: enough to read and write CRM
- * records. Nothing administrative, no delete, and no write to the handbook.
- * A tool that needs more answers `insufficient_scope` and the client asks the
- * user again.
+ * records, read the pipeline stages a record moves through, and read the
+ * workspace with its members and invitations. No change to the workspace, no
+ * delete, and no write to the handbook. A tool that needs more answers
+ * `insufficient_scope` and the client asks the user again.
  */
-export const DEFAULT_SCOPES: readonly ApiKeyScope[] = ['read:objects', 'write:objects']
+export const DEFAULT_SCOPES: readonly ApiKeyScope[] = [
+  'read:objects',
+  'write:objects',
+  'pipeline_stages:read',
+  'workspace:read',
+]
 
 /**
  * What the person on the consent page may add though the client did not ask
