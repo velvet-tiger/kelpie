@@ -9,7 +9,15 @@ import { createTestApp } from '../testing/app.ts'
 import { workspaceKeyActor } from '../testing/fixtures.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import type { Environment, RuntimeMode } from '../lib/config.ts'
-import type { AppRateLimitOptions, KelpieModule, SignUpAttempt, SignUpGuard, SignUpVerdict } from './module.ts'
+import type {
+  AccountDeletion,
+  AccountDeletionHandler,
+  AppRateLimitOptions,
+  KelpieModule,
+  SignUpAttempt,
+  SignUpGuard,
+  SignUpVerdict,
+} from './module.ts'
 import { ModuleBootError } from './order.ts'
 import { registerModules } from './registry.ts'
 
@@ -644,6 +652,110 @@ describe('sign-up guards', () => {
       message: 'sign-up guard of module "directory" failed: Error: directory unreachable',
       cause,
     })
+  })
+})
+
+describe('account-deletion handlers', () => {
+  /**
+   * The transaction parts are never touched by these handlers: the runner's
+   * order and error handling are what is under test. `accountDeletion.test.ts`
+   * runs real handlers on a real transaction.
+   */
+  const deletion: AccountDeletion = {
+    userId: 'usr_1',
+    tx: undefined as never,
+    events: undefined as never,
+    jobs: undefined as never,
+  }
+
+  function handlerModule(id: string, handler: AccountDeletionHandler): KelpieModule {
+    return {
+      id,
+      register(context) {
+        context.handleAccountDeletion(handler)
+
+        return Promise.resolve()
+      },
+    }
+  }
+
+  /** Boots `modules` after a consumer, and hands back the consumer's runner and the contributions' one. */
+  async function runnersFor(modules: readonly KelpieModule[]): Promise<{
+    readonly fromContext: (value: AccountDeletion) => Promise<void>
+    readonly fromContributions: (value: AccountDeletion) => Promise<void>
+  }> {
+    let fromContext: ((value: AccountDeletion) => Promise<void>) | undefined
+
+    const consumer: KelpieModule = {
+      id: 'consumer',
+      register(context) {
+        fromContext = (value) => context.runAccountDeletionHandlers(value)
+
+        return Promise.resolve()
+      },
+    }
+
+    const { contributions } = await createTestApp({
+      modules: [consumer, ...modules],
+      environment: {},
+      services: createTestServices(),
+    })
+
+    if (fromContext === undefined) {
+      throw new Error('the consumer module did not register')
+    }
+
+    return { fromContext, fromContributions: contributions.runAccountDeletionHandlers }
+  }
+
+  it('runs every handler in registration order, with the deletion it was given', async () => {
+    const calls: string[] = []
+    const record =
+      (id: string): AccountDeletionHandler =>
+      (value) => {
+        calls.push(`${id}:${value.userId}`)
+        return Promise.resolve()
+      }
+    const { fromContext, fromContributions } = await runnersFor([
+      handlerModule('first', record('first')),
+      handlerModule('second', record('second')),
+    ])
+
+    await fromContext(deletion)
+    await fromContributions(deletion)
+
+    expect(calls).toEqual(['first:usr_1', 'second:usr_1', 'first:usr_1', 'second:usr_1'])
+  })
+
+  it('passes a refusal on unchanged and runs no later handler', async () => {
+    const calls: string[] = []
+    const refusal = AppError.conflict('Owns a workspace')
+    const { fromContext } = await runnersFor([
+      handlerModule('refuses', () => Promise.reject(refusal)),
+      handlerModule('later', () => {
+        calls.push('later')
+        return Promise.resolve()
+      }),
+    ])
+
+    await expect(fromContext(deletion)).rejects.toBe(refusal)
+    expect(calls).toEqual([])
+  })
+
+  it('wraps a handler that fails with the module id and keeps the cause', async () => {
+    const cause = new Error('table missing')
+    const { fromContext } = await runnersFor([handlerModule('broken', () => Promise.reject(cause))])
+
+    await expect(fromContext(deletion)).rejects.toMatchObject({
+      message: 'account-deletion handler of module "broken" failed: Error: table missing',
+      cause,
+    })
+  })
+
+  it('resolves when no module added a handler', async () => {
+    const { fromContext } = await runnersFor([])
+
+    await expect(fromContext(deletion)).resolves.toBeUndefined()
   })
 })
 

@@ -24,6 +24,8 @@ import type { EntitlementRegistry } from './entitlements.ts'
 import { createEventBus } from './events.ts'
 import type { EventBus } from './events.ts'
 import type {
+  AccountDeletion,
+  AccountDeletionHandler,
   AgentDispatcher,
   AppRateLimitOptions,
   CompletedSignIn,
@@ -73,6 +75,13 @@ export interface ModuleContributions {
   readonly events: EventBus
   /** Everything the modules declared, and any provider they registered. */
   readonly entitlements: EntitlementRegistry
+  /**
+   * Runs every account-deletion handler the modules added, in registration
+   * order. The same runner `ModuleContext.runAccountDeletionHandlers` reaches,
+   * here for an entry point that deletes an account outside a request: the
+   * operator command.
+   */
+  readonly runAccountDeletionHandlers: (deletion: AccountDeletion) => Promise<void>
 }
 
 export interface ModuleRouter {
@@ -731,6 +740,42 @@ class SignUpGuardList {
 }
 
 /**
+ * Every account-deletion handler modules added, in registration order.
+ *
+ * Like the sign-up guards, any number of modules may add one, and each can
+ * refuse. Workspace membership is one; a cloud module holding rows about the
+ * account is another.
+ */
+class AccountDeletionHandlerList {
+  private readonly handlers: { readonly moduleId: string; readonly handler: AccountDeletionHandler }[] = []
+
+  add(moduleId: string, handler: AccountDeletionHandler): void {
+    this.handlers.push({ moduleId, handler })
+  }
+
+  /**
+   * @throws AppError unchanged when a handler refuses, so the caller answers
+   *   with the handler's own status and message.
+   * @throws Error naming the module when a handler throws anything else.
+   */
+  async run(deletion: AccountDeletion): Promise<void> {
+    for (const { moduleId, handler } of this.handlers) {
+      try {
+        await handler(deletion)
+      } catch (error: unknown) {
+        if (error instanceof AppError) {
+          throw error
+        }
+
+        throw new Error(`account-deletion handler of module "${moduleId}" failed: ${describeThrown(error)}`, {
+          cause: error,
+        })
+      }
+    }
+  }
+}
+
+/**
  * The name the runtime uses for its built-in log sender. Reserved: a module
  * that tries to register under this name fails boot.
  */
@@ -811,6 +856,7 @@ function createModuleContext(
   providers: Map<string, RegisteredProvider>,
   externalSignIn: ExternalSignInProxy,
   signUpGuards: SignUpGuardList,
+  accountDeletionHandlers: AccountDeletionHandlerList,
   captchaProxy: CaptchaProxy,
   captchaProviders: Map<string, RegisteredCaptcha>,
 ): ModuleContext {
@@ -846,6 +892,14 @@ function createModuleContext(
 
     checkSignUp(attempt) {
       return signUpGuards.check(attempt)
+    },
+
+    handleAccountDeletion(handler) {
+      accountDeletionHandlers.add(module.id, handler)
+    },
+
+    runAccountDeletionHandlers(deletion) {
+      return accountDeletionHandlers.run(deletion)
     },
 
     provideMcpAuthorization(authorization) {
@@ -1047,6 +1101,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   const emailProviders = new Map<string, RegisteredProvider>()
   const externalSignIn = new ExternalSignInProxy()
   const signUpGuards = new SignUpGuardList()
+  const accountDeletionHandlers = new AccountDeletionHandlerList()
   const captchaProxy = new CaptchaProxy()
   const captchaProviders = new Map<string, RegisteredCaptcha>()
 
@@ -1140,6 +1195,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
       emailProviders,
       externalSignIn,
       signUpGuards,
+      accountDeletionHandlers,
       captchaProxy,
       captchaProviders,
     )
@@ -1252,5 +1308,6 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     mcpAuthorization: accumulator.mcpAuthorization?.value,
     events,
     entitlements,
+    runAccountDeletionHandlers: (deletion) => accountDeletionHandlers.run(deletion),
   }
 }

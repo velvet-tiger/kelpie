@@ -12,7 +12,7 @@ import type { Logger } from '../lib/logger.ts'
 import type { SecretEncryptionConfig } from '../lib/secrets.ts'
 import type { EntitlementRegistry } from './entitlements.ts'
 import type { EventBus } from './events.ts'
-import type { TransactionScope } from './transaction.ts'
+import type { TransactionContext, TransactionScope } from './transaction.ts'
 
 /**
  * The module contract, described in `docs/extending/writing-a-module.md`. Core
@@ -224,6 +224,36 @@ export type SignUpVerdict =
 export type SignUpGuard = (attempt: SignUpAttempt) => Promise<SignUpVerdict>
 
 /**
+ * An account core is deleting, as a deletion handler sees it.
+ *
+ * `tx`, `events` and `jobs` belong to the deletion's one transaction. A write
+ * made through them commits with the deletion or not at all. The account row
+ * still exists while handlers run, and is locked, so nothing new can attach
+ * itself to it until the transaction ends.
+ *
+ * The scope carries no workspace, because an account belongs to none. A
+ * handler that emits a workspace event names the workspace on the call
+ * (`events.emit(name, target, data, { workspaceId })`).
+ */
+export interface AccountDeletion extends TransactionContext {
+  readonly userId: string
+}
+
+/**
+ * Runs inside the transaction that deletes an account, before the row goes.
+ *
+ * A handler does two jobs. It refuses a deletion its module cannot allow,
+ * by throwing an `AppError`: the transaction rolls back, nothing anywhere is
+ * deleted, and the caller gets that error as it was thrown. And it clears
+ * what its module holds that would otherwise stop the delete or outlive the
+ * account, such as a row that refers to the account with no cascade.
+ *
+ * Any other throw is a fault, not a refusal: the deletion fails with a `500`
+ * and the error is logged with the module id.
+ */
+export type AccountDeletionHandler = (deletion: AccountDeletion) => Promise<void>
+
+/**
  * How an MCP client learns to authenticate, installed by the module that runs
  * the authorization server (core's `oauth`).
  *
@@ -391,6 +421,29 @@ export interface ModuleContext extends ModuleServices {
    * calls this; other modules have no reason to.
    */
   checkSignUp(attempt: SignUpAttempt): Promise<SignUpVerdict>
+  /**
+   * Adds an account-deletion handler. Any number of modules may add one.
+   * Handlers run in module registration order, one after the other, inside
+   * the transaction that deletes the account. The first refusal wins; later
+   * handlers do not run, and nothing is deleted.
+   *
+   * Unlike a sign-up guard, a handler runs inside the transaction. It has to:
+   * its writes must commit with the deletion or not at all, and a check it
+   * makes must still hold when the row goes. The cost is that a handler holds
+   * the deletion's locks while it runs, so it makes no network call. Work
+   * outside the database belongs on `jobs`, or in a subscriber to
+   * `auth.user.deleted`, which publishes after commit.
+   *
+   * Both deletion paths run the handlers: the account deleting itself, and
+   * an operator deleting it by address.
+   */
+  handleAccountDeletion(handler: AccountDeletionHandler): void
+  /**
+   * Runs every account-deletion handler in registration order, on the
+   * deletion's transaction. Core's `auth` module calls this; other modules
+   * have no reason to.
+   */
+  runAccountDeletionHandlers(deletion: AccountDeletion): Promise<void>
   /**
    * Installs what the MCP endpoint's `401` tells a client about OAuth. Core's
    * `oauth` module calls this; a second caller fails boot.
