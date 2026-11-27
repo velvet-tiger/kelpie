@@ -161,6 +161,18 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
       expect(account.status).toBe(200)
     })
 
+    it('lets the blocked workspace member reach account deletion', async () => {
+      const response = await client.send('POST', '/v1/account/delete', {
+        cookie: blocked.cookie,
+        body: { current_password: 'correct horse battery staple' },
+      })
+
+      // The handler answered: the owner of a workspace is refused, and the
+      // gate would have said entitlement_required instead.
+      expect(response.status).toBe(409)
+      expect(readRecord(readRecord(await response.json()).error).code).toBe('conflict')
+    })
+
     it('still allows the blocked workspace member to sign out', async () => {
       const response = await client.send('POST', '/v1/auth/logout', { cookie: blocked.cookie })
 

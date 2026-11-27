@@ -46,6 +46,17 @@ function hashRequest(method: string, path: string, rawBody: string): string {
   return createHash('sha256').update(method).update('\n').update(path).update('\n').update(rawBody).digest('hex')
 }
 
+/**
+ * `POST` routes that never reserve or store a key.
+ *
+ * Deleting the account deletes the idempotency keys of its requests. A key
+ * this request reserved, then stored after the deletion committed, would put
+ * one back, holding a `204` that a replay could answer for an account that is
+ * gone. The deletion has nothing to repeat safely in any case: run twice, the
+ * second finds no session.
+ */
+const NEVER_STORED_ROUTES: ReadonlySet<string> = new Set(['/v1/account/delete'])
+
 function isPublicRoute(path: string): boolean {
   return path === PUBLIC_ROUTE_PREFIX || path.startsWith(`${PUBLIC_ROUTE_PREFIX}/`)
 }
@@ -148,7 +159,7 @@ async function acquireReservation(
 
 export function createIdempotencyMiddleware(dependencies: IdempotencyMiddlewareDependencies): MiddlewareHandler {
   return async (context: Context, next) => {
-    if (context.req.method !== 'POST' || isPublicRoute(context.req.path)) {
+    if (context.req.method !== 'POST' || isPublicRoute(context.req.path) || NEVER_STORED_ROUTES.has(context.req.path)) {
       await next()
       return
     }

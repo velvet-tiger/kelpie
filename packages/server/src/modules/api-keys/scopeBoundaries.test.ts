@@ -81,7 +81,7 @@ const DELETE_ROUTE_SCOPES: Readonly<Record<string, string | null>> = {
   // service then asks for `handbook:delete` as well; a test below covers that.
   'POST /v1/workspaces/:id/handbook/seed': 'handbook:write',
   // Session only: the service refuses every bearer credential.
-  'DELETE /v1/account': null,
+  'POST /v1/account/delete': null,
   'DELETE /v1/auth/sessions/:id': null,
   'DELETE /v1/oauth/grants/:id': null,
   'DELETE /v1/oauth/connections/:id': null,

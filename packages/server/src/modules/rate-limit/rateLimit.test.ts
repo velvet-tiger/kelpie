@@ -438,7 +438,7 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       const client = createTestClient(harness.app, harness.services.db)
       const owner = await client.owner()
 
-      const guessed = await client.send('DELETE', '/v1/account', {
+      const guessed = await client.send('POST', '/v1/account/delete', {
         body: { current_password: 'guess one' },
         cookie: owner.cookie,
       })
@@ -447,7 +447,7 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       expect((await changePassword(client, owner.cookie, 'guess two')).status).toBe(429)
       expect(
         (
-          await client.send('DELETE', '/v1/account', {
+          await client.send('POST', '/v1/account/delete', {
             body: { current_password: OWNER_PASSWORD },
             cookie: owner.cookie,
           })

@@ -11,7 +11,7 @@ import * as repository from './repository.ts'
 /**
  * Deleting an account: the part both paths share.
  *
- * The account deleting itself (`DELETE /v1/account`) and an operator deleting
+ * The account deleting itself (`POST /v1/account/delete`) and an operator deleting
  * it by address (`runAccountDeletion`) differ only in who is allowed to ask.
  * What happens next is the same, so it lives once, here.
  *

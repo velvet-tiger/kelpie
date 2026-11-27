@@ -70,7 +70,7 @@ const PASSWORD_RESET_PATH = '/v1/auth/password-reset'
 const CURRENT_PASSWORD_ROUTES: ReadonlySet<string> = new Set([
   'PATCH /v1/auth/password',
   'PATCH /v1/account',
-  'DELETE /v1/account',
+  'POST /v1/account/delete',
 ])
 
 /**

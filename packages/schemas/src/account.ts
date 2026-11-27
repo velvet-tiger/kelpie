@@ -113,7 +113,7 @@ export function changePasswordBody(input: ChangePasswordInput): Record<string, u
 }
 
 /**
- * The body of `DELETE /v1/account`. The current password is required: an
+ * The body of `POST /v1/account/delete`. The current password is required: an
  * account with none sets one through the reset flow before it can be deleted.
  */
 export interface DeleteAccountInput {

@@ -207,7 +207,7 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
     credentials: { readonly cookie?: string; readonly bearer?: string },
     password = PASSWORD,
   ): Promise<Response> {
-    return client.send('DELETE', '/v1/account', { body: { current_password: password }, ...credentials })
+    return client.send('POST', '/v1/account/delete', { body: { current_password: password }, ...credentials })
   }
 
   async function accountExists(userId: string): Promise<boolean> {
@@ -237,6 +237,51 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
   }
 
   describe('by the account itself', () => {
+    it('has no DELETE /v1/account route', async () => {
+      const cookie = await client.signUp('grace@example.com')
+      const userId = await accountIdOf(cookie)
+
+      const response = await client.send('DELETE', '/v1/account', { body: { current_password: PASSWORD }, cookie })
+
+      expect([404, 405]).toContain(response.status)
+      expect(await accountExists(userId)).toBe(true)
+    })
+
+    it('ignores an Idempotency-Key, and stores none for the account it deleted', async () => {
+      const grace = await graceInTwoWorkspaces()
+
+      // A key the store already holds for this person, for a different body.
+      // A route the middleware guards would answer 409 and not run.
+      await database.db.insert(idempotencyKeys).values({
+        id: harness.services.createId('idempotencyKey'),
+        workspaceId: grace.acme.workspaceId,
+        actorKey: `user:${grace.userId}`,
+        key: 'retry-1',
+        requestHash: 'another request',
+        response: { status: 201, body: { id: 'per_1' } },
+        expiresAt: new Date('2999-01-01T00:00:00.000Z'),
+      })
+
+      const send = (): Promise<Response> =>
+        Promise.resolve(
+          harness.app.request('/v1/account/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'retry-1', Cookie: grace.cookie },
+            body: JSON.stringify({ current_password: PASSWORD }),
+          }),
+        )
+
+      const first = await send()
+      const replay = await send()
+
+      expect(first.status).toBe(204)
+      expect(await accountExists(grace.userId)).toBe(false)
+      expect(await database.db.select().from(idempotencyKeys)).toEqual([])
+      // The session went with the account, so the same key and body now find no one.
+      expect(replay.status).toBe(401)
+      expect(await database.db.select().from(idempotencyKeys)).toEqual([])
+    })
+
     it('deletes the account and what hangs off it, and keeps the workspace records with nobody named', async () => {
       const grace = await graceInTwoWorkspaces()
       const acme = grace.acme
