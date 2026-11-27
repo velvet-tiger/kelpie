@@ -102,12 +102,13 @@ Modules publish and subscribe on a typed, in-process event bus. Your module decl
 
 Naming an event with a `created`, `updated`, or `deleted` verb and a record target makes it **webhook-deliverable automatically**: the bridge translates it to the matching `record.*` wire event. The four wire kinds (`record.created`, `record.updated`, `record.deleted`, `form.submitted`) are the current ceiling; a module cannot add a fifth wire kind yet.
 
-Most events belong to a workspace, and the envelope carries its `workspaceId`. An account does not: it is global and may belong to several workspaces. Its events carry `workspaceId: null`. Core publishes two:
+Most events belong to a workspace, and the envelope carries its `workspaceId`. An account does not: it is global and may belong to several workspaces. Its events carry `workspaceId: null`. Core publishes three:
 
 - `auth.user.created`, with `{ userId, email, emailVerified, method, verifiedBy }`, when a sign-up commits a new account by password or by an external sign-in.
 - `auth.user.email_changed`, with `{ userId, previousEmail, email, emailVerified: false }`, when the sign-in address changes.
+- `auth.user.email_verified`, with `{ userId, email }`, when the owner confirms the address, or an external sign-in confirms an account that was not verified. A repeat confirmation fires nothing.
 
-`emailVerified` is `false` until somebody proves control of the address. A password sign-up and an email change start unverified, and no event reports the later confirmation. Treat an unverified address as provisional.
+`emailVerified` is `false` until somebody proves control of the address. A password sign-up and an email change start unverified. `auth.user.email_verified` reports the later confirmation. Treat an unverified address as provisional until that event arrives.
 
 ```ts
 context.events.subscribe('auth.user.created', async (event) => {
@@ -270,7 +271,28 @@ A rejection answers `403` with your message on a password sign-up. On an externa
 
 A guard runs outside the transaction that creates the account. It can allow a sign-up that then fails, for example because the address is already registered. Make what it records safe to record twice. `auth.user.created` tells you the account was committed, and nothing tells you it was not, so reconcile a record that has no matching event after a while. A guard that throws fails the sign-up with a `500`, and its message is logged, so keep the address out of it. Return a rejection for a failure you expect.
 
-No guard runs when an account changes its address. You learn of that from `auth.user.email_changed`, after the change has committed.
+Address changes have their own guards. See [Email-change guards](#email-change-guards).
+
+## Email-change guards
+
+A module can refuse an address change on an existing account. The guard sees the account and both addresses. It never sees the password.
+
+```ts
+context.guardEmailChange(async (attempt) => {
+  // attempt: { userId, previousEmail, email }. Both addresses are normalised.
+  const free = await directory.change(attempt.previousEmail, attempt.email)
+
+  return free
+    ? { allowed: true }
+    : { allowed: false, message: 'That address is in use. Try another.' }
+})
+```
+
+Core runs every email-change guard after the caller passes the current-password check, and only when the address really changes. Renaming the account, or saving the address already on file, runs none. Guards run in registration order, and the first rejection wins. Sign-up guards never run for a change, and these never run for a sign-up.
+
+A rejection answers `403` with your message, and nothing changes. A guard that throws fails the change with a `500`, and its message is logged, so keep both addresses out of it.
+
+The guard runs outside the transaction that makes the change, as sign-up guards do. It can allow a change that then fails, for example on an address already registered. Make what it records safe to record twice. A change that commits while the guard is deciding answers `409`, and the caller retries. `auth.user.email_changed` reports a change that committed. Core sends no signal for one that then failed.
 
 ## Developing against unreleased core
 

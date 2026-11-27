@@ -374,21 +374,28 @@ export async function spendEmailVerificationToken(db: Queryable, id: string, now
 }
 
 /**
- * Sets `email_verified_at` if it is not already set.
+ * Sets `email_verified_at` if it is not already set. Returns the address now
+ * verified, or null when the account was already verified and nothing changed.
  *
  * Guarded in the `WHERE` clause rather than read-then-write, so accepting a
  * second invite or confirming a stale token after the account is already
  * verified is a no-op instead of overwriting the original verification time.
+ * The address comes back from the same write, so it is the one that was
+ * verified even if the account moved address since the caller last read it.
  */
-export async function markEmailVerified(db: Queryable, userId: string, now: Date): Promise<void> {
-  await db
+export async function markEmailVerified(db: Queryable, userId: string, now: Date): Promise<string | null> {
+  const [changed] = await db
     .update(users)
     .set({ emailVerifiedAt: now })
     .where(and(eq(users.id, userId), isNull(users.emailVerifiedAt)))
+    .returning({ email: users.email })
+
+  return changed?.email ?? null
 }
 
 /**
  * Sets `email_verified_at` for the address a verification link was sent to.
+ * Returns whether a row changed.
  *
  * The address is in the `WHERE` clause, so an account that moves to another
  * address between the caller's check and this write is left unverified.
@@ -398,11 +405,14 @@ export async function markEmailAddressVerified(
   userId: string,
   email: string,
   now: Date,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const changed = await db
     .update(users)
     .set({ emailVerifiedAt: now })
     .where(and(eq(users.id, userId), eq(users.email, email), isNull(users.emailVerifiedAt)))
+    .returning({ id: users.id })
+
+  return changed.length > 0
 }
 
 /** The membership a session's active workspace resolves to, if any. */

@@ -148,6 +148,17 @@ While the major version is `0`, a minor bump may break the API.
   never deliver them. A module declares its own by listing the name in the
   new `KelpieAccountEvents` interface and emitting it with
   `events.emitAccountEvent(...)`. No migration.
+- **`@kelpie/server`**: **An email-change guard.** `context.guardEmailChange(guard)`
+  adds a guard that runs before core commits an address change. It runs after the
+  current-password check, and only when the address really changes. A rejection
+  answers `403` with the guard's message and changes nothing. A change that commits
+  while the guard decides answers `409`. The types `EmailChangeAttempt`,
+  `EmailChangeGuard` and `EmailChangeVerdict` are exported. An assembly with no
+  guard behaves as before.
+- **`@kelpie/server`**: **`auth.user.email_verified`.** `auth` publishes it when an
+  address is verified: by a verification link, or by an external sign-in that
+  links an account whose address was never confirmed. It fires only when that
+  changes the account. The account event carries `{ userId, email }`. No migration.
 
 ### Changed
 

@@ -3,7 +3,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { ExternalSignInError } from '../../lib/errors.ts'
 import type { AnyEventEnvelope } from '../../runtime/events.ts'
-import type { KelpieModule, SignUpAttempt, SignUpVerdict, VerifiedIdentity } from '../../runtime/module.ts'
+import type {
+  EmailChangeAttempt,
+  KelpieModule,
+  SignUpAttempt,
+  SignUpVerdict,
+  VerifiedIdentity,
+} from '../../runtime/module.ts'
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
@@ -46,6 +52,12 @@ describe.skipIf(connectionString === undefined)('account lifecycle', () => {
   /** Every attempt each guard saw, tagged with the guard. */
   let seen: { readonly guard: string; readonly attempt: SignUpAttempt }[]
   let published: AnyEventEnvelope[]
+  /** What the email-change guard answers. */
+  let emailChangeVerdict: SignUpVerdict
+  /** Every address change the email-change guard saw. */
+  let emailChangeSeen: EmailChangeAttempt[]
+  /** When set, the email-change guard waits on it before answering for `ada.king@example.com`. */
+  let emailChangeHold: Promise<void> | undefined
 
   function guardModule(id: string, index: number): KelpieModule {
     return {
@@ -66,6 +78,26 @@ describe.skipIf(connectionString === undefined)('account lifecycle', () => {
         return Promise.resolve()
       },
     }
+  }
+
+  /** Registers the email-change guard, which answers from `emailChangeVerdict`. */
+  const emailChangeGuardModule: KelpieModule = {
+    id: 'email-change-guard',
+    structural: true,
+
+    register(context) {
+      context.guardEmailChange(async (attempt) => {
+        emailChangeSeen.push(attempt)
+
+        if (emailChangeHold !== undefined && attempt.email === 'ada.king@example.com') {
+          await emailChangeHold
+        }
+
+        return emailChangeVerdict
+      })
+
+      return Promise.resolve()
+    },
   }
 
   /** Stands in for a provider module, as in `externalSignIn.test.ts`. */
@@ -120,6 +152,9 @@ describe.skipIf(connectionString === undefined)('account lifecycle', () => {
     holdGuard = undefined
     seen = []
     published = []
+    emailChangeVerdict = { allowed: true }
+    emailChangeSeen = []
+    emailChangeHold = undefined
 
     const services = createTestServices({ db: database.db })
     services.events.subscribePrefix('auth.', (event) => {
@@ -127,7 +162,13 @@ describe.skipIf(connectionString === undefined)('account lifecycle', () => {
     })
 
     harness = await createTestApp({
-      modules: [...coreModules, guardModule('first-guard', 0), guardModule('second-guard', 1), identityModule],
+      modules: [
+        ...coreModules,
+        guardModule('first-guard', 0),
+        guardModule('second-guard', 1),
+        emailChangeGuardModule,
+        identityModule,
+      ],
       environment: TEST_ENVIRONMENT,
       services,
     })
@@ -165,6 +206,18 @@ describe.skipIf(connectionString === undefined)('account lifecycle', () => {
 
   async function userCount(): Promise<number> {
     return (await database.db.select({ id: users.id }).from(users)).length
+  }
+
+  /** The token in the most recent verification email. Run the queued jobs first. */
+  function verificationTokenFromEmail(): string {
+    const message = harness.services.sentEmails.at(-1)
+    const match = /token=([^\s]+)/u.exec(message?.body ?? '')
+
+    if (match?.[1] === undefined) {
+      throw new Error(`No token in the verification email: ${JSON.stringify(message)}`)
+    }
+
+    return match[1]
   }
 
   describe('sign-up guard', () => {
@@ -296,6 +349,117 @@ describe.skipIf(connectionString === undefined)('account lifecycle', () => {
       expect(external.status).toBe(500)
       expect(await userCount()).toBe(0)
       expect(harness.logLines.join('\n')).toContain('sign-up guard of module \\"broken-guard\\" failed')
+    })
+  })
+
+  describe('email-change guard', () => {
+    it('sees the account, the address on file and the new address, and never the password', async () => {
+      const cookie = sessionCookieFrom(await send('POST', '/v1/auth/signup', SIGNUP))
+      const [user] = await database.db.select().from(users)
+
+      const response = await send(
+        'PATCH',
+        '/v1/account',
+        { email: 'Ada.King@Example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+
+      expect(response.status).toBe(200)
+      expect(emailChangeSeen).toEqual([
+        { userId: user?.id, previousEmail: 'ada@example.com', email: 'ada.king@example.com' },
+      ])
+      expect(JSON.stringify(emailChangeSeen)).not.toContain(SIGNUP.password)
+    })
+
+    it('refuses a change with the guard message, and changes nothing', async () => {
+      const cookie = sessionCookieFrom(await send('POST', '/v1/auth/signup', SIGNUP))
+      await accountEvents()
+      published = []
+      emailChangeVerdict = { allowed: false, message: 'That address is held elsewhere' }
+      const queuedBefore = harness.services.queuedJobs.length
+
+      const response = await send(
+        'PATCH',
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({
+        error: { code: 'forbidden', message: 'That address is held elsewhere' },
+      })
+      expect(harness.services.queuedJobs).toHaveLength(queuedBefore)
+      expect(await accountEvents()).toEqual([])
+
+      const [stored] = await database.db.select().from(users)
+      expect(stored?.email).toBe('ada@example.com')
+    })
+
+    it('does not run for the address already on file, a name change, or a wrong password', async () => {
+      const cookie = sessionCookieFrom(await send('POST', '/v1/auth/signup', SIGNUP))
+
+      const sameAddress = await send(
+        'PATCH',
+        '/v1/account',
+        { email: 'ADA@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+      const rotatedCookie = sessionCookieFrom(sameAddress)
+      const wrongPassword = await send(
+        'PATCH',
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: 'not it' },
+        rotatedCookie,
+      )
+      const renamed = await send('PATCH', '/v1/account', { name: 'Ada King' }, rotatedCookie)
+
+      expect(sameAddress.status).toBe(200)
+      expect(wrongPassword.status).toBe(401)
+      expect(renamed.status).toBe(200)
+      expect(emailChangeSeen).toEqual([])
+    })
+
+    it('refuses a change when the address moved while the guard was deciding, and keeps the other change', async () => {
+      const cookie = sessionCookieFrom(await send('POST', '/v1/auth/signup', SIGNUP))
+      await accountEvents()
+      published = []
+
+      let release: () => void = () => undefined
+      emailChangeHold = new Promise<void>((resolve) => {
+        release = resolve
+      })
+
+      // The first change reads the address and waits in the guard. The second
+      // change lands first, so the first one would replace a different address.
+      const first = send(
+        'PATCH',
+        '/v1/account',
+        { email: 'ada.king@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+      await expect.poll(() => emailChangeSeen.length).toBe(1)
+      const second = await send(
+        'PATCH',
+        '/v1/account',
+        { email: 'ada.byron@example.com', current_password: SIGNUP.password },
+        cookie,
+      )
+      release()
+      const firstResponse = await first
+
+      expect(second.status).toBe(200)
+      expect(firstResponse.status).toBe(409)
+      expect(await firstResponse.json()).toMatchObject({ error: { code: 'conflict' } })
+
+      const [stored] = await database.db.select().from(users)
+      expect(stored?.email).toBe('ada.byron@example.com')
+      expect(await accountEvents()).toEqual([
+        expect.objectContaining({
+          name: 'auth.user.email_changed',
+          data: expect.objectContaining({ previousEmail: 'ada@example.com', email: 'ada.byron@example.com' }),
+        }),
+      ])
     })
   })
 
@@ -446,6 +610,76 @@ describe.skipIf(connectionString === undefined)('account lifecycle', () => {
 
       const [stored] = await database.db.select().from(users).where(eq(users.email, 'ada@example.com'))
       expect(stored).toBeDefined()
+    })
+
+    it('publishes auth.user.email_verified once, when the owner confirms the address', async () => {
+      await send('POST', '/v1/auth/signup', SIGNUP)
+      await harness.runQueuedJobs()
+      const [user] = await database.db.select().from(users)
+      const token = verificationTokenFromEmail()
+      await accountEvents()
+      published = []
+
+      const confirmed = await send('POST', '/v1/auth/verify-email/confirm', { token })
+      const replayed = await send('POST', '/v1/auth/verify-email/confirm', { token })
+
+      expect(confirmed.status).toBe(204)
+      expect(replayed.status).toBe(401)
+      expect(await accountEvents()).toEqual([
+        expect.objectContaining({
+          name: 'auth.user.email_verified',
+          workspaceId: null,
+          actor: { kind: 'user', id: user?.id },
+          target: { type: 'user', id: user?.id },
+          data: { userId: user?.id, email: 'ada@example.com' },
+        }),
+      ])
+    })
+
+    it('publishes nothing for a link sent to an address the account has left', async () => {
+      const cookie = sessionCookieFrom(await send('POST', '/v1/auth/signup', SIGNUP))
+      await harness.runQueuedJobs()
+      const token = verificationTokenFromEmail()
+      await send('PATCH', '/v1/account', { email: 'ada.king@example.com', current_password: SIGNUP.password }, cookie)
+      await accountEvents()
+      published = []
+
+      const response = await send('POST', '/v1/auth/verify-email/confirm', { token })
+
+      expect(response.status).toBe(401)
+      expect(await accountEvents()).toEqual([])
+    })
+
+    it('publishes auth.user.email_verified once when an external sign-in links an unverified account', async () => {
+      await send('POST', '/v1/auth/signup', { email: IDENTITY.email, name: 'Grace Hopper', password: SIGNUP.password })
+      await accountEvents()
+      published = []
+
+      const linked = await send('POST', '/test-identity/complete', IDENTITY)
+      const relinked = await send('POST', '/test-identity/complete', IDENTITY)
+      const [user] = await database.db.select().from(users)
+
+      expect(linked.status).toBe(200)
+      expect(relinked.status).toBe(200)
+      expect(await accountEvents()).toEqual([
+        expect.objectContaining({
+          name: 'auth.user.email_verified',
+          workspaceId: null,
+          actor: { kind: 'user', id: user?.id },
+          data: { userId: user?.id, email: 'grace@example.com' },
+        }),
+      ])
+    })
+
+    it('publishes nothing when an external sign-in links an account already verified', async () => {
+      await send('POST', '/test-identity/complete', IDENTITY)
+      await accountEvents()
+      published = []
+
+      const linked = await send('POST', '/test-identity/complete', IDENTITY)
+
+      expect(linked.status).toBe(200)
+      expect(await accountEvents()).toEqual([])
     })
   })
 })
