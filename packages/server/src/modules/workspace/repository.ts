@@ -1,4 +1,5 @@
 import { and, asc, count, eq, gt, isNull, sql } from 'drizzle-orm'
+import type { PgColumn, PgTable, PgUpdateSetSource } from 'drizzle-orm/pg-core'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -7,6 +8,7 @@ import { companies } from '../companies/schema.ts'
 import { consentPurposes } from '../consent-purposes/schema.ts'
 import { deals } from '../deals/schema.ts'
 import { decisions } from '../decisions/schema.ts'
+import { enquiries } from '../enquiries/schema.ts'
 import { events } from '../events/schema.ts'
 import { handbookPages } from '../handbook/schema.ts'
 import { notes } from '../notes/schema.ts'
@@ -121,50 +123,236 @@ export async function deleteMember(db: Queryable, id: string): Promise<void> {
 }
 
 /**
- * What a member is named on, counted per table.
+ * One column that names a member on a record, `ON DELETE RESTRICT` against
+ * `workspace_members`. The database refuses to delete a member a row still
+ * names, so every such column must be counted or cleared before a member row
+ * goes.
+ */
+interface MemberReference {
+  /** The record type a `409` names. */
+  readonly type: string
+  /** `table.column`. A test checks this list against the schema. */
+  readonly label: string
+  /**
+   * Whether an admin can move these to someone else through the API. An
+   * owner can be reassigned, so removing a member who still owns records is
+   * refused until somebody does. A note's author cannot be, so removing a
+   * member clears it instead of refusing for ever.
+   */
+  readonly reassignable: boolean
+  readonly count: (db: Queryable, workspaceId: string, memberId: string) => Promise<number>
+  readonly clear: (db: Queryable, workspaceId: string, memberId: string) => Promise<void>
+}
+
+/**
+ * Builds the two queries for one column.
  *
- * The `owner_id` and `author_id` columns are `ON DELETE RESTRICT`, so the
- * database would refuse the delete on its own. It would only name one table
- * while doing it, and the `409` details should name every referencing type,
- * so the counts are read first and the refusal is the service's.
+ * A member id is globally unique, so the workspace term is defence in depth
+ * rather than the thing that scopes the query. It keeps each query safe on its
+ * own instead of by that invariant.
+ */
+function memberReference<Table extends PgTable>(
+  reference: Pick<MemberReference, 'type' | 'label' | 'reassignable'>,
+  table: Table,
+  column: PgColumn,
+  workspaceColumn: PgColumn,
+  cleared: PgUpdateSetSource<Table>,
+): MemberReference {
+  // Drizzle's `from` cannot decide whether an unresolved generic table has a
+  // selection, so the count reads it as the plain table type it extends.
+  const counted: PgTable = table
+
+  return {
+    ...reference,
+    async count(db, workspaceId, memberId) {
+      const [row] = await db
+        .select({ total: count() })
+        .from(counted)
+        .where(and(eq(column, memberId), eq(workspaceColumn, workspaceId)))
+
+      return row?.total ?? 0
+    },
+    async clear(db, workspaceId, memberId) {
+      await db
+        .update(table)
+        .set(cleared)
+        .where(and(eq(column, memberId), eq(workspaceColumn, workspaceId)))
+    },
+  }
+}
+
+/**
+ * Every column that names a member on a record, in the order a `409` lists
+ * them.
  *
  * This is the one place the workspace module reads other modules' tables. The
  * alternative is each of them registering a "does this member matter to you"
  * hook, which is more machinery than one query list is worth today.
  *
- * @returns Only the types with at least one reference, in a fixed order.
+ * Clearing writes no `updated_at` and emits no record event. It is what an
+ * `ON DELETE SET NULL` would do: the record did not change, the person it
+ * named went.
+ */
+const MEMBER_REFERENCES: readonly MemberReference[] = [
+  memberReference(
+    { type: 'deal', label: 'deals.owner_id', reassignable: true },
+    deals,
+    deals.ownerId,
+    deals.workspaceId,
+    { ownerId: null },
+  ),
+  memberReference(
+    { type: 'enquiry', label: 'enquiries.owner_id', reassignable: true },
+    enquiries,
+    enquiries.ownerId,
+    enquiries.workspaceId,
+    { ownerId: null },
+  ),
+  memberReference(
+    { type: 'event', label: 'events.owner_id', reassignable: true },
+    events,
+    events.ownerId,
+    events.workspaceId,
+    { ownerId: null },
+  ),
+  memberReference(
+    { type: 'opportunity', label: 'opportunities.owner_id', reassignable: true },
+    opportunities,
+    opportunities.ownerId,
+    opportunities.workspaceId,
+    { ownerId: null },
+  ),
+  memberReference(
+    { type: 'partnership', label: 'partnerships.owner_id', reassignable: true },
+    partnerships,
+    partnerships.ownerId,
+    partnerships.workspaceId,
+    { ownerId: null },
+  ),
+  memberReference(
+    { type: 'raise', label: 'raises.owner_id', reassignable: true },
+    raises,
+    raises.ownerId,
+    raises.workspaceId,
+    { ownerId: null },
+  ),
+  memberReference(
+    { type: 'plan_item', label: 'plan_items.owner_id', reassignable: true },
+    planItems,
+    planItems.ownerId,
+    planItems.workspaceId,
+    { ownerId: null },
+  ),
+  memberReference(
+    { type: 'decision', label: 'decisions.owner_id', reassignable: true },
+    decisions,
+    decisions.ownerId,
+    decisions.workspaceId,
+    { ownerId: null },
+  ),
+  memberReference(
+    { type: 'note', label: 'notes.author_id', reassignable: false },
+    notes,
+    notes.authorId,
+    notes.workspaceId,
+    { authorId: null },
+  ),
+]
+
+/** The columns `MEMBER_REFERENCES` covers. Exported for the test that checks none is missing. */
+export const MEMBER_REFERENCE_COLUMNS: readonly string[] = MEMBER_REFERENCES.map((reference) => reference.label)
+
+/**
+ * What a member owns that an admin must reassign before removing them,
+ * counted per record type.
+ *
+ * The database would refuse the delete on its own. It would only name one
+ * table while doing it, and the `409` details should name every type, so the
+ * counts are read first and the refusal is the service's.
+ *
+ * @returns Only the types with at least one record, in a fixed order.
  */
 export async function countMemberReferences(
   db: Queryable,
   workspaceId: string,
   memberId: string,
 ): Promise<readonly { readonly type: string; readonly count: number }[]> {
-  const sources = [
-    { type: 'deal', table: deals, column: deals.ownerId, workspaceId: deals.workspaceId },
-    { type: 'event', table: events, column: events.ownerId, workspaceId: events.workspaceId },
-    { type: 'opportunity', table: opportunities, column: opportunities.ownerId, workspaceId: opportunities.workspaceId },
-    { type: 'partnership', table: partnerships, column: partnerships.ownerId, workspaceId: partnerships.workspaceId },
-    { type: 'raise', table: raises, column: raises.ownerId, workspaceId: raises.workspaceId },
-    { type: 'plan_item', table: planItems, column: planItems.ownerId, workspaceId: planItems.workspaceId },
-    { type: 'decision', table: decisions, column: decisions.ownerId, workspaceId: decisions.workspaceId },
-    { type: 'note', table: notes, column: notes.authorId, workspaceId: notes.workspaceId },
-  ] as const
-
   const counted = await Promise.all(
-    sources.map(async (source) => {
-      // A member id is globally unique, so the workspace term is defence in
-      // depth rather than the thing that scopes the count. It keeps the query
-      // safe on its own instead of by that invariant.
-      const [row] = await db
-        .select({ total: count() })
-        .from(source.table)
-        .where(and(eq(source.column, memberId), eq(source.workspaceId, workspaceId)))
-
-      return { type: source.type, count: row?.total ?? 0 }
-    }),
+    MEMBER_REFERENCES.filter((reference) => reference.reassignable).map(async (reference) => ({
+      type: reference.type,
+      count: await reference.count(db, workspaceId, memberId),
+    })),
   )
 
   return counted.filter((entry) => entry.count > 0)
+}
+
+/**
+ * Clears the author of every note this member wrote. The notes stay; they
+ * read as written by a former member. Removing a member runs this, because
+ * nothing else can relieve a member of a note they wrote.
+ */
+export async function clearNoteAuthorship(db: Queryable, workspaceId: string, memberId: string): Promise<void> {
+  for (const reference of MEMBER_REFERENCES) {
+    if (!reference.reassignable) {
+      await reference.clear(db, workspaceId, memberId)
+    }
+  }
+}
+
+/**
+ * Clears every column that names this member, owners and authors alike. The
+ * records stay, with nobody named. Deleting an account runs this for each of
+ * its memberships: the person is leaving, and the workspace's records are the
+ * workspace's to keep.
+ */
+export async function clearMemberReferences(db: Queryable, workspaceId: string, memberId: string): Promise<void> {
+  for (const reference of MEMBER_REFERENCES) {
+    await reference.clear(db, workspaceId, memberId)
+  }
+}
+
+/**
+ * Reads a member and holds the row until the transaction ends.
+ *
+ * Naming a member on a record takes a key-share lock on this row, so while it
+ * is held nobody can give the member anything new. That keeps what a removal
+ * clears complete until the row is deleted.
+ */
+export async function findMemberForUpdate(tx: Transaction, id: string): Promise<MemberRecord | undefined> {
+  const [found] = await tx.select().from(workspaceMembers).where(eq(workspaceMembers.id, id)).limit(1).for('update')
+
+  return found
+}
+
+/** One of an account's memberships, with the workspace's name for a refusal to show. */
+export interface AccountMembershipRecord {
+  readonly memberId: string
+  readonly workspaceId: string
+  readonly workspaceName: string
+}
+
+/**
+ * Every membership an account has, in workspace id order.
+ *
+ * The order is the lock order. Deleting an account locks each workspace in
+ * turn, and two deletions that share workspaces must take them in the same
+ * order, or each could hold one the other is waiting for.
+ */
+export async function listAccountMemberships(
+  db: Queryable,
+  userId: string,
+): Promise<readonly AccountMembershipRecord[]> {
+  return db
+    .select({
+      memberId: workspaceMembers.id,
+      workspaceId: workspaceMembers.workspaceId,
+      workspaceName: workspaces.name,
+    })
+    .from(workspaceMembers)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+    .where(eq(workspaceMembers.userId, userId))
+    .orderBy(asc(workspaceMembers.workspaceId))
 }
 
 /** A membership plus the identity behind it, which is what a member is to a reader. */
