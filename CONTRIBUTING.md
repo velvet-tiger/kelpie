@@ -12,11 +12,7 @@ agreement to them; there is no separate signature step.
 The AGPL-3.0 binds the people who run Kelpie. It does not transfer or
 license away the copyright of the people who wrote it. Kelpie Cloud, a
 separate paid product, adds proprietary modules on top of this open-source
-core. That product stays lawful only while one party, the Kelpie project,
-holds the copyright to the whole of the core. A contribution merged
-without the assignment would place copyright in the contributor's hands
-instead, and the two-product model this project depends on would stop
-being lawful the day that happens.
+core.
 
 ## Working on the code
 
