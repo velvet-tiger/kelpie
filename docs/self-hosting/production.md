@@ -140,6 +140,25 @@ The service runs while the reseal runs. A person can rotate a webhook secret, ch
 
 Because a failed run is not `0`, a script such as `npm run reseal && <remove the previous key>` stops when the reseal did not finish.
 
+## Deleting an account for someone
+
+A person deletes their own account with `DELETE /v1/account` and their current password. When they cannot sign in, an operator deletes it by address:
+
+```bash
+npm run delete-account -- person@example.com
+```
+
+It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. Run it where the service runs, with the same environment, after migrations.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | The account is gone. |
+| `1` | No address was given, or the configuration or module list is wrong. |
+| `2` | No account has that address. Nothing changed. |
+| `3` | The deletion was refused, for the reason printed on the error output. Nothing changed. |
+
+Backups still hold the account. The deletion does not reach them.
+
 ## Background work
 
 Kelpie runs background jobs over Postgres, using [pg-boss](https://pgboss.io). It is not optional: every assembly boots a job runtime against the same `DATABASE_URL`, and pg-boss keeps its schema under `pgboss`.

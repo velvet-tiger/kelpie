@@ -12,6 +12,21 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
+- **Account deletion.** `DELETE /v1/account` deletes the signed-in account. It needs
+  a session and the current password; an API key and an OAuth token are refused.
+  An account that owns a workspace is refused with `409`, naming each workspace.
+  Records the account owned or wrote stay, with nobody named. After commit the bus
+  publishes `workspace.member.removed` for each membership and the account event
+  `auth.user.deleted` with `{ userId, email }`. An operator deletes by address with
+  `npm run delete-account -- <email>` (`runAccountDeletion` in `@kelpie/server`);
+  scaffolded projects get the same script. No migration.
+
+- **An account-deletion hook for modules.** `context.handleAccountDeletion(handler)`
+  runs inside the deletion transaction, in registration order. A handler refuses by
+  throwing an `AppError`, which rolls everything back. `events.emit` takes an
+  optional `{ workspaceId }`, so one transaction can emit for several workspaces.
+  `AssemblyBoot` now carries the `transaction` scope its modules use.
+
 - **Person intake runs over MCP.** Four tools, `person_intake_identify`,
   `person_intake_research`, `person_intake_run_get` and `person_intake_apply`, take
   the bodies and answer the bodies of `/v1/ai/person-intake/*`. Each needs `ai:write`.
@@ -19,6 +34,15 @@ While the major version is `0`, a minor bump may break the API.
   exist when the `ai` module is listed. Each start still counts one AI run.
 
 ### Fixed
+
+- **A member who wrote a note can be removed.** Removing a member was refused
+  while they had written any note, and a note's author cannot be changed, so
+  the only way out was to delete the notes. The notes now stay, with
+  `author_id` set to `null`, and the UI names their author "Former member".
+
+- **Owning an enquiry now blocks removing a member, by name.** The check before
+  a removal missed enquiries, so the database refused the delete instead, with
+  a `409` that named no record type.
 
 - **Projects in same-named directories no longer share a Postgres volume.** The
   scaffolded `docker-compose.yml` now sets a Compose project name: the package name

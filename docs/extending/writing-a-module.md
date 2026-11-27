@@ -102,10 +102,11 @@ Modules publish and subscribe on a typed, in-process event bus. Your module decl
 
 Naming an event with a `created`, `updated`, or `deleted` verb and a record target makes it **webhook-deliverable automatically**: the bridge translates it to the matching `record.*` wire event. The four wire kinds (`record.created`, `record.updated`, `record.deleted`, `form.submitted`) are the current ceiling; a module cannot add a fifth wire kind yet.
 
-Most events belong to a workspace, and the envelope carries its `workspaceId`. An account does not: it is global and may belong to several workspaces. Its events carry `workspaceId: null`. Core publishes two:
+Most events belong to a workspace, and the envelope carries its `workspaceId`. An account does not: it is global and may belong to several workspaces. Its events carry `workspaceId: null`. Core publishes three:
 
 - `auth.user.created`, with `{ userId, email, emailVerified, method, verifiedBy }`, when a sign-up commits a new account by password or by an external sign-in.
 - `auth.user.email_changed`, with `{ userId, previousEmail, email, emailVerified: false }`, when the sign-in address changes.
+- `auth.user.deleted`, with `{ userId, email }`, when an account is deleted. The actor is the account itself, or `system` when an operator deleted it. The row is gone by then, so this is the last place the address can be read.
 
 `emailVerified` is `false` until somebody proves control of the address. A password sign-up and an email change start unverified, and no event reports the later confirmation. Treat an unverified address as provisional.
 
@@ -271,6 +272,28 @@ A rejection answers `403` with your message on a password sign-up. On an externa
 A guard runs outside the transaction that creates the account. It can allow a sign-up that then fails, for example because the address is already registered. Make what it records safe to record twice. `auth.user.created` tells you the account was committed, and nothing tells you it was not, so reconcile a record that has no matching event after a while. A guard that throws fails the sign-up with a `500`, and its message is logged, so keep the address out of it. Return a rejection for a failure you expect.
 
 No guard runs when an account changes its address. You learn of that from `auth.user.email_changed`, after the change has committed.
+
+## Account deletion
+
+A module that holds rows about an account, or about a member, takes part in deleting one. Add a handler at register time:
+
+```ts
+context.handleAccountDeletion(async ({ tx, userId }) => {
+  if (await subscriptions.hasOpenInvoice(tx, userId)) {
+    throw AppError.conflict('Settle the open invoice before deleting the account')
+  }
+
+  await subscriptions.forget(tx, userId)
+})
+```
+
+The handler runs inside the transaction that deletes the account, before the row goes, and its writes commit with the deletion or not at all. Handlers run in module registration order. Throw an `AppError` to refuse: everything rolls back, later handlers do not run, and the caller gets your error with its status and message. Anything else a handler throws fails the deletion with a `500`, and the error is logged with your module id.
+
+The account row is locked while handlers run, so nothing new can attach itself to it. The handler holds the deletion's locks for as long as it runs, so make no network call in it. Queue that work on `jobs`, or subscribe to `auth.user.deleted`, which publishes after commit.
+
+The scope has no workspace. To emit a workspace event, name the workspace on the call: `events.emit(name, target, data, { workspaceId })`. Core's workspace handler does that for each membership it removes, so a module that cleans up after `workspace.member.removed` needs no handler of its own for that.
+
+Both ways of deleting run the handlers: the account deleting itself with `DELETE /v1/account`, and an operator running `runAccountDeletion` (`npm run delete-account -- <email>` in an assembly).
 
 ## Developing against unreleased core
 
