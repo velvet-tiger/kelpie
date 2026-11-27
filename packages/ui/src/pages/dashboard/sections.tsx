@@ -15,6 +15,7 @@ import { DecisionProvenance } from '../../components/DecisionProvenance.tsx'
 import { MarkdownView } from '../../components/MarkdownView.tsx'
 import { OriginLabel } from '../../components/OriginLabel.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
+import { FORMER_MEMBER_LABEL, activityActorName } from '../../lib/attribution.ts'
 import { formatDate, formatRelativeTime } from '../../lib/dates.ts'
 import { targetHref } from '../../lib/recordLinks.ts'
 import { targetTypeLabel } from './attention.ts'
@@ -173,7 +174,7 @@ export function ActivityFeed({
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-3">
                   <p className="min-w-0 text-[12px] leading-snug text-ink">
-                    <span className="font-semibold">{actorNameFor(activity, nameById)}</span>{' '}
+                    <span className="font-semibold">{activityActorName(activity, nameById)}</span>{' '}
                     <ActivityAction action={activity.action} subject={activity.subject} />
                   </p>
                   <time
@@ -203,18 +204,15 @@ export function ActivityFeed({
 }
 
 /**
- * Exactly one of the two actor columns is set. `actorLabel` carries the display
- * name when nothing on the team did this: "Form", "Gmail", "API key".
+ * A null author is a note no member wrote, except on a note whose origin says
+ * a member did: that member has since gone.
  */
-function actorNameFor(
-  activity: DashboardActivity,
-  nameById: ReadonlyMap<string, string>,
-): string {
-  if (activity.actorMemberId === null) {
-    return activity.actorLabel ?? 'System'
+function noteAuthorName(note: DashboardNote, nameById: ReadonlyMap<string, string>): string {
+  if (note.authorId === null) {
+    return note.origin === 'member' ? FORMER_MEMBER_LABEL : 'System'
   }
 
-  return nameById.get(activity.actorMemberId) ?? 'Unknown'
+  return nameById.get(note.authorId) ?? 'Unknown'
 }
 
 export function NotesList({
@@ -250,7 +248,7 @@ export function NotesList({
                 <span>·</span>
                 <span>{targetTypeLabel(note.targetType)}</span>
                 <span>·</span>
-                <span>{note.authorId === null ? 'System' : (nameById.get(note.authorId) ?? 'Unknown')}</span>
+                <span>{noteAuthorName(note, nameById)}</span>
                 <span>·</span>
                 <span>{formatRelativeTime(note.createdAt, timezone, now)}</span>
                 <OriginLabel origin={note.origin} />

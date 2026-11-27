@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 import { useTimezone } from '../api/resources/account.ts'
 import { useActivities } from '../api/resources/activities.ts'
 import { useMembers } from '../api/resources/members.ts'
+import { activityActorName } from '../lib/attribution.ts'
 import { formatRelativeTime, monthLabel } from '../lib/dates.ts'
 import { targetHref } from '../lib/recordLinks.ts'
 import { ActivityAction } from './ActivityAction.tsx'
@@ -120,7 +121,7 @@ export function ActivitiesPanel({
                 <ActivityEvent
                   key={activity.id}
                   activity={activity}
-                  actorName={actorNameFor(activity, members.nameById)}
+                  actorName={activityActorName(activity, members.nameById)}
                   contextType={targetType}
                   contextId={targetId}
                   isLast={index === group.items.length - 1}
@@ -169,7 +170,7 @@ export function LatestActivity({
             <ActivityEvent
               key={activity.id}
               activity={activity}
-              actorName={actorNameFor(activity, members.nameById)}
+              actorName={activityActorName(activity, members.nameById)}
               contextType={targetType}
               contextId={targetId}
               isLast={index === latest.length - 1}
@@ -180,18 +181,6 @@ export function LatestActivity({
       )}
     </section>
   )
-}
-
-/**
- * Exactly one of the two actor columns is set. `actorLabel` carries the display
- * name when nothing on the team did this: "Form", "Gmail", "API key".
- */
-function actorNameFor(activity: Activity, nameById: ReadonlyMap<string, string>): string {
-  if (activity.actorMemberId === null) {
-    return activity.actorLabel ?? 'System'
-  }
-
-  return nameById.get(activity.actorMemberId) ?? 'Unknown'
 }
 
 function ActivityEvent({
