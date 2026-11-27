@@ -10,6 +10,7 @@ import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
+import type { KelpieModule } from '../../runtime/module.ts'
 import { coreModules } from '../core.ts'
 import { WORKSPACE_ACCESS } from './capabilities.ts'
 
@@ -23,6 +24,22 @@ import { WORKSPACE_ACCESS } from './capabilities.ts'
  */
 
 const connectionString = testDatabaseUrl(process.env)
+
+/**
+ * A route whose path starts with `/v1/account` and is not the account. The
+ * gate exempts the account itself and nothing that merely shares its prefix.
+ */
+const accountingModule: KelpieModule = {
+  id: 'accounting-fixture',
+  structural: true,
+  register(context) {
+    context.routes((router) => {
+      router.get('/accounting', (requestContext) => requestContext.json({ reached: true }))
+    })
+
+    return Promise.resolve()
+  },
+}
 
 describe.skipIf(connectionString === undefined)('workspace access gate', () => {
   let database: TestDatabase
@@ -65,7 +82,7 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
       )
 
       harness = await createTestApp({
-        modules: coreModules,
+        modules: [...coreModules, accountingModule],
         environment: TEST_ENVIRONMENT,
         services: createTestServices({ db: database.db }),
         entitlements,
@@ -120,6 +137,16 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
       expect(response.status).toBe(403)
     })
 
+    it('blocks a path that only shares the account prefix, and still lets the account through', async () => {
+      const accounting = await client.send('GET', '/v1/accounting', { cookie: blocked.cookie })
+      const preferences = await client.send('GET', '/v1/account/preferences', { cookie: blocked.cookie })
+
+      expect(accounting.status).toBe(403)
+      expect(readRecord(readRecord(await accounting.json()).error).code).toBe('entitlement_required')
+      expect(preferences.status).toBe(200)
+      expect((await client.send('GET', '/v1/accounting', { cookie: open.cookie })).status).toBe(200)
+    })
+
     it('does not block a workspace the provider has no opinion on', async () => {
       const response = await client.send('GET', '/v1/people', { cookie: open.cookie })
 
@@ -132,6 +159,18 @@ describe.skipIf(connectionString === undefined)('workspace access gate', () => {
 
       expect(me.status).toBe(200)
       expect(account.status).toBe(200)
+    })
+
+    it('lets the blocked workspace member reach account deletion', async () => {
+      const response = await client.send('POST', '/v1/account/delete', {
+        cookie: blocked.cookie,
+        body: { current_password: 'correct horse battery staple' },
+      })
+
+      // The handler answered: the owner of a workspace is refused, and the
+      // gate would have said entitlement_required instead.
+      expect(response.status).toBe(409)
+      expect(readRecord(readRecord(await response.json()).error).code).toBe('conflict')
     })
 
     it('still allows the blocked workspace member to sign out', async () => {

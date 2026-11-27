@@ -4,7 +4,7 @@ import type { Context, MiddlewareHandler } from 'hono'
 import type { Database } from '../../lib/database.ts'
 import { AppError, describeThrown } from '../../lib/errors.ts'
 import { bearerCredentialId, isBearerActor } from '../../lib/actor.ts'
-import type { Actor } from '../../lib/actor.ts'
+import type { Actor, BearerActor } from '../../lib/actor.ts'
 import { PUBLIC_ROUTE_PREFIX, isWithheldFromReplay } from '../../lib/http.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
@@ -46,6 +46,17 @@ function hashRequest(method: string, path: string, rawBody: string): string {
   return createHash('sha256').update(method).update('\n').update(path).update('\n').update(rawBody).digest('hex')
 }
 
+/**
+ * `POST` routes that never reserve or store a key.
+ *
+ * Deleting the account deletes the idempotency keys of its requests. A key
+ * this request reserved, then stored after the deletion committed, would put
+ * one back, holding a `204` that a replay could answer for an account that is
+ * gone. The deletion has nothing to repeat safely in any case: run twice, the
+ * second finds no session.
+ */
+const NEVER_STORED_ROUTES: ReadonlySet<string> = new Set(['/v1/account/delete'])
+
 function isPublicRoute(path: string): boolean {
   return path === PUBLIC_ROUTE_PREFIX || path.startsWith(`${PUBLIC_ROUTE_PREFIX}/`)
 }
@@ -72,7 +83,34 @@ function replayResponse(stored: StoredIdempotentResponse): Response {
  * member's response.
  */
 function actorKeyOf(actor: Actor): string {
-  return isBearerActor(actor) ? `${actor.kind}:${bearerCredentialId(actor)}` : `user:${actor.userId}`
+  return isBearerActor(actor) ? bearerActorKey(actor.kind, bearerCredentialId(actor)) : userActorKey(actor.userId)
+}
+
+/** The actor key of a signed-in person's requests. */
+export function userActorKey(userId: string): string {
+  return `user:${userId}`
+}
+
+/** The actor key of a bearer credential's requests: an API key by its id, an OAuth caller by its connection. */
+export function bearerActorKey(kind: BearerActor['kind'], credentialId: string): string {
+  return `${kind}:${credentialId}`
+}
+
+/**
+ * Every actor key one person's requests can have carried: their session's,
+ * each of their personal API keys', and each of their OAuth connections',
+ * under both OAuth actor kinds (one grant, or a connection with several).
+ * Deleting the account deletes the rows of all of them.
+ */
+export function personActorKeys(
+  userId: string,
+  credentials: { readonly apiKeyIds: readonly string[]; readonly connectionIds: readonly string[] },
+): string[] {
+  return [
+    userActorKey(userId),
+    ...credentials.apiKeyIds.map((id) => bearerActorKey('api_key', id)),
+    ...credentials.connectionIds.flatMap((id) => [bearerActorKey('oauth', id), bearerActorKey('oauth_connection', id)]),
+  ]
 }
 
 function conflict(message: string): AppError {
@@ -143,7 +181,7 @@ async function acquireReservation(
 
 export function createIdempotencyMiddleware(dependencies: IdempotencyMiddlewareDependencies): MiddlewareHandler {
   return async (context: Context, next) => {
-    if (context.req.method !== 'POST' || isPublicRoute(context.req.path)) {
+    if (context.req.method !== 'POST' || isPublicRoute(context.req.path) || NEVER_STORED_ROUTES.has(context.req.path)) {
       await next()
       return
     }

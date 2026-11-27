@@ -13,13 +13,21 @@ import {
   verifyPassword,
 } from '../../lib/passwords.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
-import type { SignUpAttempt, SignUpVerdict, VerifiedIdentity } from '../../runtime/module.ts'
-import type { TransactionScope } from '../../runtime/transaction.ts'
+import type {
+  AccountDeletion,
+  EmailChangeAttempt,
+  EmailChangeVerdict,
+  SignUpAttempt,
+  SignUpVerdict,
+  VerifiedIdentity,
+} from '../../runtime/module.ts'
+import type { BufferedEvents, Transaction, TransactionScope } from '../../runtime/transaction.ts'
 import * as apiKeyRepository from '../api-keys/repository.ts'
 import * as oauthRepository from '../oauth/repository.ts'
 import type { MemberRole } from '../workspace/roles.ts'
 import { parseMemberRole } from '../workspace/roles.ts'
 import type { SessionActor } from './actor.ts'
+import { deleteAccountRecord } from './deletion.ts'
 import type { AuthEmailJobs } from './emailJobs.ts'
 import { DEFAULT_PREFERENCES, applyPreferenceChanges } from './preferences.ts'
 import type { PreferenceChanges, PreferenceValues } from './preferences.ts'
@@ -69,6 +77,18 @@ export interface AuthDependencies {
    * transaction that inserts it.
    */
   readonly checkSignUp: (attempt: SignUpAttempt) => Promise<SignUpVerdict>
+  /**
+   * Runs the modules' email-change guards (`ModuleContext.checkEmailChange`).
+   * Called once per real address change, after the current-password check and
+   * before the transaction that makes it.
+   */
+  readonly checkEmailChange: (attempt: EmailChangeAttempt) => Promise<EmailChangeVerdict>
+  /**
+   * Runs the modules' account-deletion handlers
+   * (`ModuleContext.runAccountDeletionHandlers`), inside the transaction that
+   * deletes the account.
+   */
+  readonly runAccountDeletionHandlers: (deletion: AccountDeletion) => Promise<void>
   /** Injected only so tests can pin session tokens. Production uses the crypto default. */
   readonly newToken?: () => string
 }
@@ -248,6 +268,8 @@ export interface AuthService {
    * a new one whenever `email` is part of the change.
    */
   updateAccount(actor: SessionActor, sessionToken: string, changes: UpdateAccountChanges): Promise<UpdatedAccount>
+  /** Deletes the caller's account, every session with it. Needs the current password. */
+  deleteAccount(actor: SessionActor, currentPassword: string): Promise<void>
   /** Answers documented defaults for an account that has never saved any. */
   getPreferences(actor: SessionActor): Promise<PreferenceValues>
   updatePreferences(actor: SessionActor, changes: PreferenceChanges): Promise<PreferenceValues>
@@ -506,10 +528,23 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       const name = requireText(input.name ?? localPartOf(email), 'name')
       const now = dependencies.now()
 
+      // Runs in the caller's transaction, which must carry the account as its
+      // actor: the verification event it may publish names that account.
+      //
+      // The caller found the account by address before this transaction, so the
+      // account is read again here under a row lock. Its address may have moved
+      // since, and the provider proved only `email`.
       const link = async (
-        tx: repository.Queryable,
-        user: repository.UserRecord,
+        tx: Transaction,
+        events: BufferedEvents,
+        accountId: string,
       ): Promise<ExternalIssuedSession> => {
+        const user = await repository.findUserByIdForUpdate(tx, accountId)
+
+        if (user === undefined || user.email !== email) {
+          throw AppError.conflict('The address changed while this sign-in was running. Try again.')
+        }
+
         // Signing in through a provider on an account whose address was never
         // confirmed is the pre-registration takeover case: somebody registered
         // this address with a password and never proved they own it. The
@@ -521,8 +556,14 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         }
 
         // The provider proved control of the address, which is the same thing
-        // accepting an invite proves.
-        await repository.markEmailVerified(tx, user.id, now)
+        // accepting an invite proves. Publishes only when the account was not
+        // verified already.
+        if (await repository.markEmailAddressVerified(tx, user.id, email, now)) {
+          events.emitAccountEvent('auth.user.email_verified', { type: 'user', id: user.id }, {
+            userId: user.id,
+            email,
+          })
+        }
 
         const issued = await issueSession(
           tx,
@@ -538,7 +579,9 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       const existing = await repository.findUserByEmail(dependencies.db, email)
 
       if (existing !== undefined) {
-        const linked = await dependencies.transaction(({ tx }) => link(tx, existing))
+        const linked = await dependencies.transaction(({ tx, events }) => link(tx, events, existing.id), {
+          actor: { kind: 'user', id: existing.id },
+        })
 
         await sweepExpiredSessions(now)
 
@@ -568,12 +611,15 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       const userId = dependencies.createId('user')
 
+      // `null` when another sign-in created the account first. The new id then
+      // never exists, so the link runs below, in a transaction that names the
+      // account it links as the actor.
       const provisioned = await dependencies.transaction(async ({ tx, events }) => {
         let user: repository.UserRecord
 
         try {
           // In a savepoint, because a unique violation aborts the transaction
-          // it happens in, and the race below must still read and link.
+          // it happens in.
           user = await tx.transaction((savepoint) =>
             repository.insertUser(savepoint, {
               id: userId,
@@ -588,15 +634,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
             throw error
           }
 
-          // Two first sign-ins for the same address at once. The other one won;
-          // this is now an ordinary link.
-          const raced = await repository.findUserByEmail(tx, email)
-
-          if (raced === undefined) {
-            throw error
-          }
-
-          return link(tx, raced)
+          return null
         }
 
         events.emitAccountEvent('auth.user.created', { type: 'user', id: user.id }, {
@@ -612,9 +650,27 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         return { ...issued, created: true }
       }, { actor: { kind: 'user', id: userId } })
 
+      if (provisioned !== null) {
+        await sweepExpiredSessions(now)
+
+        return provisioned
+      }
+
+      // Two first sign-ins for the same address at once. The other one won, and
+      // the unique violation means its insert has committed, so this read sees it.
+      const raced = await repository.findUserByEmail(dependencies.db, email)
+
+      if (raced === undefined) {
+        throw new Error('A provisioning sign-in hit a unique violation, but no account holds the address')
+      }
+
+      const linked = await dependencies.transaction(({ tx, events }) => link(tx, events, raced.id), {
+        actor: { kind: 'user', id: raced.id },
+      })
+
       await sweepExpiredSessions(now)
 
-      return provisioned
+      return linked
     },
 
     async logOut(actor: SessionActor): Promise<void> {
@@ -671,6 +727,21 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         throw AppError.unauthorized('Current password is incorrect')
       }
 
+      // Only a real change reaches the guards, and only once the caller has
+      // proved the password. The guards run outside the transaction, as sign-up
+      // guards do.
+      if (nextEmail !== undefined && nextEmail !== user.email) {
+        const verdict = await dependencies.checkEmailChange({
+          userId: user.id,
+          previousEmail: user.email,
+          email: nextEmail,
+        })
+
+        if (!verdict.allowed) {
+          throw new AppError('forbidden', verdict.message)
+        }
+      }
+
       const now = dependencies.now()
 
       try {
@@ -687,6 +758,13 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           // The password verified above is no longer the account's.
           if (changes.email !== undefined && current.passwordHash !== user.passwordHash) {
             throw AppError.unauthorized('Current password is incorrect')
+          }
+
+          // The guards judged a change away from the address read above. If
+          // another change committed since, this one would replace a different
+          // address, which no guard judged. The caller retries and the guards run again.
+          if (current.email !== user.email && nextEmail !== current.email && nextEmail !== undefined) {
+            throw AppError.conflict('The address changed while this change was running. Try again.')
           }
 
           const previousEmail = current.email
@@ -753,6 +831,45 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         }
 
         throw error
+      }
+    },
+
+    /**
+     * Deletes the caller's account, for good.
+     *
+     * The bar is the one an email change sets, for the same reason: a session
+     * is not proof of the person. The current password must verify, and a
+     * passwordless account sets one through the reset flow first. Without
+     * this, a leaked cookie could end an account its owner still wants.
+     *
+     * The modules decide the rest through their deletion handlers, in the
+     * same transaction. Workspace membership refuses an owner and clears what
+     * the account owned. Everything else that hangs off the row goes by
+     * cascade, the caller's own session included.
+     */
+    async deleteAccount(actor: SessionActor, currentPassword: string): Promise<void> {
+      const user = await requireUser(actor.userId)
+
+      if (user.passwordHash === null || !(await verifyPassword(user.passwordHash, currentPassword))) {
+        throw AppError.unauthorized('Current password is incorrect')
+      }
+
+      const deleted = await deleteAccountRecord(
+        { transaction: dependencies.transaction, runDeletionHandlers: dependencies.runAccountDeletionHandlers },
+        actor.userId,
+        {
+          actor: { kind: 'user', id: actor.userId },
+          checkLocked: (current) => {
+            // The password verified above is no longer the account's.
+            if (current.passwordHash !== user.passwordHash) {
+              throw AppError.unauthorized('Current password is incorrect')
+            }
+          },
+        },
+      )
+
+      if (deleted === undefined) {
+        throw AppError.unauthorized('This session no longer belongs to an account')
       }
     },
 
@@ -1019,7 +1136,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       const { email } = record
 
-      return dependencies.transaction(async ({ tx }) => {
+      return dependencies.transaction(async ({ tx, events }) => {
         // The token verifies the address it was sent to and no other. An
         // account that has changed address since needs the link sent to the
         // new one. The same answer as an unknown token.
@@ -1035,7 +1152,14 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
           throw AppError.unauthorized('That verification link is invalid or has expired')
         }
 
-        await repository.markEmailAddressVerified(tx, record.userId, email, now)
+        // Publishes only when this link is the one that verified the account.
+        // A confirmation after the account was verified already changes nothing.
+        if (await repository.markEmailAddressVerified(tx, record.userId, email, now)) {
+          events.emitAccountEvent('auth.user.email_verified', { type: 'user', id: record.userId }, {
+            userId: record.userId,
+            email,
+          })
+        }
 
         if (sessionToken === undefined || sessionToken.length === 0) {
           return null
@@ -1061,7 +1185,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         )
 
         return expiresAt === undefined ? null : { sessionToken: rotated, expiresAt }
-      })
+      }, { actor: { kind: 'user', id: record.userId } })
     },
   }
 }

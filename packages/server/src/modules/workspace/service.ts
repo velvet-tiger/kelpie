@@ -660,9 +660,11 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         throw AppError.conflict(OWNER_NOT_REMOVABLE)
       }
 
-      // Removing a member is restricted while they own records.
-      // Reported before the delete so every referencing type can be named, which
-      // is what the caller needs to know what to reassign.
+      // Removing a member is restricted while they own records someone can
+      // reassign. Reported before the delete so every referencing type can be
+      // named, which is what the caller needs to know what to reassign. Notes
+      // they wrote are not counted: nobody can change a note's author, so
+      // they are cleared below instead.
       const references = await repository.countMemberReferences(dependencies.db, workspaceId, target.id)
 
       if (references.length > 0) {
@@ -690,6 +692,10 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
             throw AppError.conflict(OWNER_NOT_REMOVABLE)
           }
 
+          // Locked first, so nobody can name them on a new note between the
+          // clear and the delete. The notes stay, written by a former member.
+          await repository.findMemberForUpdate(tx, current.id)
+          await repository.clearNoteAuthorship(tx, workspaceId, current.id)
           await repository.deleteMember(tx, current.id)
 
           events.emit(
@@ -916,8 +922,13 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         // link gives. It is proof of no other address. The address is part of
         // the statement, so an account that has moved to a different address
         // since the comparison above stays unverified. A no-op if the account
-        // was already verified.
-        await authRepository.markEmailAddressVerified(tx, actor.userId, invite.email, now)
+        // was already verified, and then nothing is published.
+        if (await authRepository.markEmailAddressVerified(tx, actor.userId, invite.email, now)) {
+          events.emitAccountEvent('auth.user.email_verified', { type: 'user', id: actor.userId }, {
+            userId: actor.userId,
+            email: invite.email,
+          })
+        }
 
         await authRepository.setActiveWorkspace(tx, actor.sessionId, invite.workspaceId)
 

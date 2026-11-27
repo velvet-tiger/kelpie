@@ -14,11 +14,13 @@ import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import { createLogger } from '../../lib/logger.ts'
 import { hashToken } from '../../lib/tokens.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
+import type { AnyEventEnvelope } from '../../runtime/events.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import { users } from '../auth/schema.ts'
 import { coreModules } from '../core.ts'
 import { handbookPages } from '../handbook/schema.ts'
+import { notes } from '../notes/schema.ts'
 import { pipelineStages } from '../pipelines/schema.ts'
 import {
   DEAD_INVITE_EMAIL_FAILURE,
@@ -1073,6 +1075,60 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       expect(readErrorFields(await response.json())).toEqual(['opportunity'])
     })
 
+    it('refuses while they own an enquiry, and names it', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      const created = await send(
+        'POST',
+        '/v1/enquiries',
+        { name: 'Website demo request', owner_id: grace.memberId },
+        owner,
+      )
+      expect(created.status).toBe(201)
+
+      const response = await send(
+        'DELETE',
+        `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+        undefined,
+        owner,
+      )
+
+      expect(response.status).toBe(409)
+      expect(readErrorFields(await response.json())).toEqual(['enquiry'])
+    })
+
+    it('removes a member who wrote notes, and keeps the notes with nobody named', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      const grace = await addMember(owner, workspaceId, 'grace@example.com', 'member')
+
+      const person = await send('POST', '/v1/people', { name: 'Linus Torvalds' }, grace.cookie)
+      expect(person.status).toBe(201)
+
+      const written = await send(
+        'POST',
+        '/v1/notes',
+        { target_type: 'person', target_id: readString(await person.json(), 'id'), body: 'Met at the meetup.' },
+        grace.cookie,
+      )
+      expect(written.status).toBe(201)
+      const noteId = readString(await written.json(), 'id')
+
+      const response = await send(
+        'DELETE',
+        `/v1/workspaces/${workspaceId}/members/${grace.memberId}`,
+        undefined,
+        owner,
+      )
+
+      expect(response.status).toBe(204)
+
+      const [stored] = await database.db.select().from(notes).where(eq(notes.id, noteId))
+      expect(stored).toMatchObject({ authorId: null, origin: 'member', body: 'Met at the meetup.' })
+    })
+
     it('refuses a member removing anybody', async () => {
       const owner = await signUp('ada@example.com')
       const workspaceId = await createWorkspace(owner)
@@ -1263,6 +1319,37 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       // Verified now means allowed through the same gate `rawSignUp` alone hits.
       const created = await send('POST', '/v1/workspaces', { ...WORKSPACE }, cookie)
       expect(created.status).toBe(201)
+    })
+
+    it('publishes auth.user.email_verified once when an invitation verifies the joining account', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member' },
+        owner,
+      )
+
+      const grace = await rawSignUp('grace@example.com')
+      const published: AnyEventEnvelope[] = []
+      harness.services.events.subscribePrefix('auth.', (event) => {
+        published.push(event)
+      })
+
+      const accepted = await send('POST', '/v1/invites/accept', { token: await lastInviteToken() }, grace.cookie)
+      await harness.services.events.drain()
+
+      expect(accepted.status).toBe(200)
+      expect(published).toEqual([
+        expect.objectContaining({
+          name: 'auth.user.email_verified',
+          workspaceId: null,
+          actor: { kind: 'user', id: grace.accountId },
+          target: { type: 'user', id: grace.accountId },
+          data: { userId: grace.accountId, email: 'grace@example.com' },
+        }),
+      ])
     })
 
     it('builds the invite link from services.appBaseUrl when set, ignoring APP_BASE_URL in the environment', async () => {

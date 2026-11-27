@@ -20,6 +20,12 @@ export const FOREIGN_KEY_VIOLATION = '23503'
 /** SQLSTATE for a unique violation, e.g. two people with one email in a workspace. */
 export const UNIQUE_VIOLATION = '23505'
 
+/** SQLSTATE raised when Postgres aborts one transaction to break a lock cycle. */
+export const DEADLOCK_DETECTED = '40P01'
+
+/** SQLSTATE raised when a transaction cannot be ordered against a concurrent one. */
+export const SERIALIZATION_FAILURE = '40001'
+
 /**
  * Reads a field off a driver error. Drizzle wraps driver errors in its own
  * `Failed query` error, so the useful fields live on the cause rather than the
@@ -92,6 +98,17 @@ export function isReferenceViolation(error: unknown): boolean {
   const code = postgresErrorCode(error)
 
   return code === RESTRICT_VIOLATION || code === FOREIGN_KEY_VIOLATION
+}
+
+/**
+ * True when Postgres aborted the transaction for a reason that running it again
+ * can cure: a deadlock it broke, or a serialization conflict. The rollback has
+ * already undone the writes, so a retry starts from nothing.
+ */
+export function isTransientTransactionFailure(error: unknown): boolean {
+  const code = postgresErrorCode(error)
+
+  return code === DEADLOCK_DETECTED || code === SERIALIZATION_FAILURE
 }
 
 /** Outcome of a connectivity check. Carries the reason instead of throwing. */

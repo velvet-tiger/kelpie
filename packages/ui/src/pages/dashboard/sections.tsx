@@ -15,6 +15,7 @@ import { DecisionProvenance } from '../../components/DecisionProvenance.tsx'
 import { MarkdownView } from '../../components/MarkdownView.tsx'
 import { OriginLabel } from '../../components/OriginLabel.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
+import { activityActorName, noteAuthorName } from '../../lib/attribution.ts'
 import { formatDate, formatRelativeTime } from '../../lib/dates.ts'
 import { targetHref } from '../../lib/recordLinks.ts'
 import { targetTypeLabel } from './attention.ts'
@@ -173,7 +174,7 @@ export function ActivityFeed({
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-3">
                   <p className="min-w-0 text-[12px] leading-snug text-ink">
-                    <span className="font-semibold">{actorNameFor(activity, nameById)}</span>{' '}
+                    <span className="font-semibold">{activityActorName(activity, nameById)}</span>{' '}
                     <ActivityAction action={activity.action} subject={activity.subject} />
                   </p>
                   <time
@@ -202,19 +203,18 @@ export function ActivityFeed({
   )
 }
 
-/**
- * Exactly one of the two actor columns is set. `actorLabel` carries the display
- * name when nothing on the team did this: "Form", "Gmail", "API key".
- */
-function actorNameFor(
-  activity: DashboardActivity,
-  nameById: ReadonlyMap<string, string>,
-): string {
-  if (activity.actorMemberId === null) {
-    return activity.actorLabel ?? 'System'
+/** The author and the separator after it, or nothing when the note shows no name. */
+function NoteAuthor({ name }: { readonly name: string | undefined }): React.JSX.Element | null {
+  if (name === undefined) {
+    return null
   }
 
-  return nameById.get(activity.actorMemberId) ?? 'Unknown'
+  return (
+    <>
+      <span>{name}</span>
+      <span>·</span>
+    </>
+  )
 }
 
 export function NotesList({
@@ -250,8 +250,7 @@ export function NotesList({
                 <span>·</span>
                 <span>{targetTypeLabel(note.targetType)}</span>
                 <span>·</span>
-                <span>{note.authorId === null ? 'System' : (nameById.get(note.authorId) ?? 'Unknown')}</span>
-                <span>·</span>
+                <NoteAuthor name={noteAuthorName(note, nameById)} />
                 <span>{formatRelativeTime(note.createdAt, timezone, now)}</span>
                 <OriginLabel origin={note.origin} />
               </div>

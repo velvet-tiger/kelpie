@@ -246,6 +246,19 @@ describe('ActivitiesPanel', () => {
     await screen.findByText('Form')
   })
 
+  it('reads a row with neither a member nor a label as a former member', async () => {
+    renderWithClient(
+      panelsClient({
+        activities: [activity({ actor_member_id: null, actor_label: null })],
+      }),
+      <ActivitiesPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Former member')
+
+    expect(screen.queryByText('System')).toBeNull()
+  })
+
   it('marks a rolled-up row as belonging to another record', async () => {
     renderWithClient(
       panelsClient({
@@ -521,13 +534,24 @@ describe('NotesPanel', () => {
     expect(other?.className).not.toContain('ring-2')
   })
 
-  it('reads a null author as the workspace key that wrote it', async () => {
+  it('reads a null author on a note from before origin was recorded as the workspace key', async () => {
     renderWithClient(
-      panelsClient({ notes: [note({ author_id: null })] }),
+      panelsClient({ notes: [note({ author_id: null, origin: 'unknown' })] }),
       <NotesPanel targetType="person" targetId="per_1" />,
     )
 
     await screen.findByText('API key')
+  })
+
+  it('reads a null author on a note a member wrote as a former member', async () => {
+    renderWithClient(
+      panelsClient({ notes: [note({ author_id: null, origin: 'member' })] }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Former member')
+
+    expect(screen.queryByText('API key')).toBeNull()
   })
 
   it('shows no origin label on a note a member wrote', async () => {
@@ -541,14 +565,25 @@ describe('NotesPanel', () => {
     expect(screen.queryByText(/^Written by/u)).toBeNull()
   })
 
-  it('labels a note an agent wrote', async () => {
+  it('shows no author name on a workspace key note, only its agent badge', async () => {
     renderWithClient(
       panelsClient({ notes: [note({ author_id: null, origin: 'agent' })] }),
       <NotesPanel targetType="person" targetId="per_1" />,
     )
 
     await screen.findByText('Written by an agent')
-    await screen.findByText('API key')
+
+    expect(screen.queryByText('API key')).toBeNull()
+  })
+
+  it('labels a note an agent wrote through a member\'s key, and names the member', async () => {
+    renderWithClient(
+      panelsClient({ notes: [note({ origin: 'agent' })] }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Written by an agent')
+    await screen.findByText('Ada Lovelace')
   })
 
   it('labels a note the hosted AI wrote, and does not call its author an API key', async () => {

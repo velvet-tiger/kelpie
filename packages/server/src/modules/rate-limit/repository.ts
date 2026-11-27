@@ -1,4 +1,4 @@
-import { lt, sql } from 'drizzle-orm'
+import { and, eq, lt, sql } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -9,6 +9,22 @@ import { rateLimitBuckets } from './schema.ts'
 export type Queryable = Database | Transaction
 
 export type RateLimitBucketRecord = typeof rateLimitBuckets.$inferSelect
+
+/**
+ * Deletes the login counter keyed on this address, which counts guesses at
+ * one account's password and has no account left to protect.
+ *
+ * The other two budgets keyed on an address stay until their window ends:
+ * `verify-email-address` and `password-reset-account` protect the mailbox,
+ * not the account. Clearing them would let somebody sign up with a
+ * stranger's address, use up the mail budget, delete the account and sign up
+ * again, each round mailing the stranger afresh.
+ */
+export async function deleteLoginBuckets(db: Queryable, email: string): Promise<void> {
+  await db
+    .delete(rateLimitBuckets)
+    .where(and(eq(rateLimitBuckets.scope, 'login-account'), eq(rateLimitBuckets.key, email)))
+}
 
 /**
  * Increments the counter for `(scope, key, windowStart)`, creating the row on

@@ -6,7 +6,7 @@
  * what this produces, which is what makes it testable.
  */
 
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomInt } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
@@ -92,6 +92,42 @@ export function toPackageName(directoryName: string): string {
     .replace(/-+$/, '')
 
   return cleaned.length > 0 ? cleaned : DEFAULT_DIRECTORY
+}
+
+/** Lowercase letters and digits: the characters a Compose project name may use. */
+const COMPOSE_NAME_CHARACTERS = 'abcdefghijklmnopqrstuvwxyz0123456789'
+
+/** Six characters from 36 gives about two billion suffixes, so collisions are rare. */
+const COMPOSE_SUFFIX_LENGTH = 6
+
+/**
+ * Compose accepts only lowercase letters, digits, `-` and `_` in a project
+ * name, and the name must start with a letter or digit. A `--name` such as
+ * `@acme/crm` has to be reduced to that set. Anything that cannot be salvaged
+ * falls back, as `toPackageName` does.
+ */
+export function toComposeProjectName(projectName: string): string {
+  const cleaned = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^[^a-z0-9]+/, '')
+    .replace(/-+$/, '')
+
+  return cleaned.length > 0 ? cleaned : DEFAULT_DIRECTORY
+}
+
+/**
+ * The Compose project name for one scaffold: the readable name, then a random
+ * suffix. The suffix keeps two projects with the same directory name on
+ * separate volumes. `scaffold` writes the name into docker-compose.yml, so it
+ * stays the same when the directory moves.
+ */
+export function generateComposeProjectName(projectName: string): string {
+  const suffix = Array.from({ length: COMPOSE_SUFFIX_LENGTH }, () =>
+    COMPOSE_NAME_CHARACTERS.charAt(randomInt(COMPOSE_NAME_CHARACTERS.length)),
+  ).join('')
+
+  return `${toComposeProjectName(projectName)}-${suffix}`
 }
 
 export function parseArguments(argv: readonly string[]): ParsedArguments {
@@ -269,6 +305,7 @@ export async function resolveOptions(parsed: ParsedArguments, interactive: boole
     return {
       directory,
       projectName,
+      composeProjectName: generateComposeProjectName(projectName),
       databaseUrl,
       emailFrom,
       port: parsed.port,

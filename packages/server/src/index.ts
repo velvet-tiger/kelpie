@@ -119,6 +119,8 @@ export {
 export type { CreateLoggerOptions, LogFields, Logger, LoggingDestination } from './lib/logger.ts'
 
 export type {
+  AccountDeletion,
+  AccountDeletionHandler,
   AgentDispatchOutcome,
   AgentDispatchRegistry,
   AgentDispatcher,
@@ -132,6 +134,9 @@ export type {
   McpToolDefinition,
   McpToolRegistry,
   ModuleCatalogEntry,
+  EmailChangeAttempt,
+  EmailChangeGuard,
+  EmailChangeVerdict,
   ModuleContext,
   RouteScopeDeclaration,
   SchemaContribution,
@@ -185,6 +190,7 @@ export type { ModuleEventCatalog } from './runtime/module.ts'
 export { createTransactionScope } from './runtime/transaction.ts'
 export type {
   BufferedEvents,
+  EmitOptions,
   EnqueueOnTransaction,
   Transaction,
   TransactionContext,
@@ -216,6 +222,23 @@ export type {
 
 export { resealStoredSecrets, runReseal } from './modules/reseal.ts'
 export type { ResealColumnOutcome, ResealOutcome, ResealPass, RunResealOptions } from './modules/reseal.ts'
+
+export {
+  ACCOUNT_DELETION_EXIT_DELETED,
+  ACCOUNT_DELETION_EXIT_FAULT,
+  ACCOUNT_DELETION_EXIT_REFUSED,
+  ACCOUNT_DELETION_EXIT_UNKNOWN,
+  ACCOUNT_DELETION_EXIT_USAGE,
+  operatorAssemblyFrom,
+  runAccountDeletion,
+  runDeleteAccountCommand,
+} from './modules/auth/operatorDeletion.ts'
+export type {
+  DeleteAccountCommandOptions,
+  OperatorAssembly,
+  OperatorOutput,
+  RunAccountDeletionOptions,
+} from './modules/auth/operatorDeletion.ts'
 
 export { KEY_KINDS, kindOfSecret, mintKey, parseKeyKind, readBearerToken } from './modules/api-keys/keys.ts'
 export type { KeyKind, MintedKey } from './modules/api-keys/keys.ts'

@@ -18,6 +18,7 @@ import type { AiPortResolution } from './executor.ts'
 import { createAiRunIdFactory } from './ids.ts'
 import { createPersonIntake } from './intake.ts'
 import { mountPersonIntakeRoutes } from './intakeRoutes.ts'
+import { registerPersonIntakeTools } from './intakeTools.ts'
 import type { IdFactory } from './ids.ts'
 import { createOpenAiPort } from './openai.ts'
 import type { AiProviderPort } from './provider.ts'
@@ -268,6 +269,10 @@ export function createAiModule(options: AiModuleOptions = {}): KelpieModule {
         exposeProviderErrors: keyMode === 'workspace',
         log: context.log,
       })
+
+      // Tools of the same service the routes call. An OAuth grant with
+      // `ai:write` may start a run, as an API key with that scope may.
+      registerPersonIntakeTools(context.mcp, intake)
 
       context.schema(schema, aiMigrationsDirectory)
       context.entitlements.declare(AI_RUNS_LIMIT)

@@ -5,6 +5,12 @@
 # below is published on 127.0.0.1 only: no other machine can connect. Do not
 # remove the address. For anything other than local use, point DATABASE_URL
 # at a real database and delete this file.
+#
+# Compose names the project after its directory by default. Two directories
+# with the same name then share one volume, and the second project boots with
+# the first one's credentials. This name is generated for each project.
+name: "__COMPOSE_PROJECT_NAME__"
+
 services:
   db:
     image: postgres:18-alpine

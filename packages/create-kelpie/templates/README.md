@@ -122,6 +122,27 @@ unreadable, so rotate rather than replace:
 More detail, including backups and what is sealed under the key:
 [docs/self-hosting/production.md](https://github.com/velvet-tiger/kelpie/blob/main/docs/self-hosting/production.md).
 
+### Deleting an account for someone
+
+A person deletes their own account with `POST /v1/account/delete` and their current password. When they cannot sign in, an operator deletes it by address. The first run prints what it would delete and deletes nothing; the same command with `--yes` deletes:
+
+```bash
+npm run delete-account -- person@example.com
+npm run delete-account -- person@example.com --yes
+```
+
+Both runs print the target first: the database host and name, the account id and address, and each workspace it belongs to with its role. Never the database user or password. Text that came from a person, such as a workspace name, is printed with control characters escaped.
+
+It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. The address gets an email saying the account was deleted, if its current address is verified. Run it where the service runs, with the same `.env`, after migrations.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | The account is gone. |
+| `1` | No address or a bad argument, a configuration that will not boot, or no `--yes`. Nothing changed. |
+| `2` | No account has that address, or the account moved off it while the command ran. Nothing changed. |
+| `3` | The deletion was refused, for the reason printed on the error output. Nothing changed. |
+| `4` | Something failed that is not a refusal: the database, a migration, a module, or every run of the deletion colliding with other work (run it again). One line on the error output says what. Nothing changed. |
+
 ## Deploying
 
 `npm run dev` runs two processes. Vite builds the pages as you edit them and

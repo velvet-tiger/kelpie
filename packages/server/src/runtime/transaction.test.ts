@@ -193,6 +193,74 @@ describe.skipIf(connectionString === undefined)('createTransactionScope', () => 
     ).rejects.toThrow(/emitted without a workspaceId/)
   })
 
+  it('stamps the workspace an emit call names, with no workspace on the scope', async () => {
+    await runInTransaction(({ events }) => {
+      events.emit(TEST_EVENT_NAME as never, { type: 'member', id: 'mem_a' }, {} as never, {
+        workspaceId: 'wsp_a',
+      })
+      events.emit(TEST_EVENT_NAME as never, { type: 'member', id: 'mem_b' }, {} as never, {
+        workspaceId: 'wsp_b',
+      })
+
+      return Promise.resolve()
+    })
+
+    await bus.drain()
+
+    expect(published.map((entry) => [entry.target.id, entry.workspaceId])).toEqual([
+      ['mem_a', 'wsp_a'],
+      ['mem_b', 'wsp_b'],
+    ])
+  })
+
+  it('refuses an emit call that names another workspace inside a workspace scope', async () => {
+    await expect(
+      runInTransaction(
+        ({ events }) => {
+          events.emit(TEST_EVENT_NAME as never, { type: 'member', id: 'mem_a' }, {} as never, {
+            workspaceId: 'wsp_other',
+          })
+
+          return Promise.resolve()
+        },
+        { workspaceId: fixture.workspaceId },
+      ),
+    ).rejects.toThrow(`names workspace wsp_other inside a scope for workspace ${fixture.workspaceId}`)
+
+    await bus.drain()
+
+    expect(published).toEqual([])
+  })
+
+  it('accepts an emit call that names the scope workspace again', async () => {
+    await runInTransaction(
+      ({ events }) => {
+        events.emit(TEST_EVENT_NAME as never, { type: 'member', id: 'mem_a' }, {} as never, {
+          workspaceId: fixture.workspaceId,
+        })
+
+        return Promise.resolve()
+      },
+      { workspaceId: fixture.workspaceId },
+    )
+
+    await bus.drain()
+
+    expect(published.map((entry) => entry.workspaceId)).toEqual([fixture.workspaceId])
+  })
+
+  it('throws when an emit call names an empty workspace and the scope has none', async () => {
+    await expect(
+      runInTransaction(({ events }) => {
+        events.emit(TEST_EVENT_NAME as never, { type: 'member', id: 'mem_a' }, {} as never, {
+          workspaceId: '',
+        })
+
+        return Promise.resolve()
+      }),
+    ).rejects.toThrow(/emitted without a workspaceId/)
+  })
+
   it('publishes an account event with workspaceId null, needing no workspace', async () => {
     await runInTransaction(
       ({ events }) => {

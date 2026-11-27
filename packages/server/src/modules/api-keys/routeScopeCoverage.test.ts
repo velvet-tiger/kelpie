@@ -54,6 +54,7 @@ const EXEMPT_ROUTES: Readonly<Record<string, string>> = {
   'POST /v1/auth/verify-email/confirm': 'auth',
   'GET /v1/account': 'account',
   'PATCH /v1/account': 'account',
+  'POST /v1/account/delete': 'account',
   'GET /v1/account/preferences': 'account',
   'PATCH /v1/account/preferences': 'account',
   // A key is bound to one workspace and cannot make or join another.

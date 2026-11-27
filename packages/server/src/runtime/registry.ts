@@ -16,6 +16,7 @@ import {
   logEmailWritesBody,
 } from '../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
+import { isTransientTransactionFailure } from '../lib/database.ts'
 import { AppError, describeThrown, describeValidationIssue, toErrorDetails } from '../lib/errors.ts'
 import type { JobRegistry } from '../lib/jobs.ts'
 import type { Logger } from '../lib/logger.ts'
@@ -24,9 +25,12 @@ import type { EntitlementRegistry } from './entitlements.ts'
 import { createEventBus } from './events.ts'
 import type { EventBus } from './events.ts'
 import type {
+  AccountDeletion,
+  AccountDeletionHandler,
   AgentDispatcher,
   AppRateLimitOptions,
   CompletedSignIn,
+  EmailChangeAttempt,
   ExternalSignInHandler,
   KelpieModule,
   McpAuthorization,
@@ -36,7 +40,6 @@ import type {
   ModuleServices,
   SchemaContribution,
   SignUpAttempt,
-  SignUpGuard,
   SignUpVerdict,
   VerifiedIdentity,
 } from './module.ts'
@@ -73,6 +76,13 @@ export interface ModuleContributions {
   readonly events: EventBus
   /** Everything the modules declared, and any provider they registered. */
   readonly entitlements: EntitlementRegistry
+  /**
+   * Runs every account-deletion handler the modules added, in registration
+   * order. The same runner `ModuleContext.runAccountDeletionHandlers` reaches,
+   * here for an entry point that deletes an account outside a request: the
+   * operator command.
+   */
+  readonly runAccountDeletionHandlers: (deletion: AccountDeletion) => Promise<void>
 }
 
 export interface ModuleRouter {
@@ -688,16 +698,30 @@ class ExternalSignInProxy {
   }
 }
 
+interface RegisteredGuard<Attempt> {
+  readonly moduleId: string
+  readonly guard: (attempt: Attempt) => Promise<SignUpVerdict>
+}
+
 /**
- * Every sign-up guard modules added, in registration order.
+ * Every guard of one kind modules added, in registration order. `label` names
+ * the kind in errors ("sign-up guard"). `subject` names what it decides in the
+ * empty-message error ("sign-up").
  *
  * Unlike external sign-in, any number of modules may add one: an assembly can
  * have a directory claim and an allow-list side by side, and each is a veto.
  */
-class SignUpGuardList {
-  private readonly guards: { readonly moduleId: string; readonly guard: SignUpGuard }[] = []
+class GuardList<Attempt> {
+  private readonly guards: RegisteredGuard<Attempt>[] = []
+  private readonly label: string
+  private readonly subject: string
 
-  add(moduleId: string, guard: SignUpGuard): void {
+  constructor(label: string, subject: string) {
+    this.label = label
+    this.subject = subject
+  }
+
+  add(moduleId: string, guard: (attempt: Attempt) => Promise<SignUpVerdict>): void {
     this.guards.push({ moduleId, guard })
   }
 
@@ -705,21 +729,21 @@ class SignUpGuardList {
    * @throws Error naming the module when a guard throws, or answers a
    *   rejection with no message to show.
    */
-  async check(attempt: SignUpAttempt): Promise<SignUpVerdict> {
+  async check(attempt: Attempt): Promise<SignUpVerdict> {
     for (const { moduleId, guard } of this.guards) {
       let verdict: SignUpVerdict
 
       try {
         verdict = await guard(attempt)
       } catch (error: unknown) {
-        throw new Error(`sign-up guard of module "${moduleId}" failed: ${describeThrown(error)}`, {
+        throw new Error(`${this.label} of module "${moduleId}" failed: ${describeThrown(error)}`, {
           cause: error,
         })
       }
 
       if (!verdict.allowed) {
         if (verdict.message.trim().length === 0) {
-          throw new Error(`sign-up guard of module "${moduleId}" rejected a sign-up without a message`)
+          throw new Error(`${this.label} of module "${moduleId}" rejected a ${this.subject} without a message`)
         }
 
         return verdict
@@ -727,6 +751,45 @@ class SignUpGuardList {
     }
 
     return { allowed: true }
+  }
+}
+
+/**
+ * Every account-deletion handler modules added, in registration order.
+ *
+ * Like the sign-up guards, any number of modules may add one, and each can
+ * refuse. Workspace membership is one; a cloud module holding rows about the
+ * account is another.
+ */
+class AccountDeletionHandlerList {
+  private readonly handlers: { readonly moduleId: string; readonly handler: AccountDeletionHandler }[] = []
+
+  add(moduleId: string, handler: AccountDeletionHandler): void {
+    this.handlers.push({ moduleId, handler })
+  }
+
+  /**
+   * @throws AppError unchanged when a handler refuses, so the caller answers
+   *   with the handler's own status and message.
+   * @throws The database's own error, unchanged, when Postgres aborted the
+   *   transaction to break a deadlock or a serialization conflict. That is no
+   *   module's fault, and the caller runs the deletion again.
+   * @throws Error naming the module when a handler throws anything else.
+   */
+  async run(deletion: AccountDeletion): Promise<void> {
+    for (const { moduleId, handler } of this.handlers) {
+      try {
+        await handler(deletion)
+      } catch (error: unknown) {
+        if (error instanceof AppError || isTransientTransactionFailure(error)) {
+          throw error
+        }
+
+        throw new Error(`account-deletion handler of module "${moduleId}" failed: ${describeThrown(error)}`, {
+          cause: error,
+        })
+      }
+    }
   }
 }
 
@@ -810,7 +873,9 @@ function createModuleContext(
   emailProxy: EmailSenderProxy,
   providers: Map<string, RegisteredProvider>,
   externalSignIn: ExternalSignInProxy,
-  signUpGuards: SignUpGuardList,
+  signUpGuards: GuardList<SignUpAttempt>,
+  emailChangeGuards: GuardList<EmailChangeAttempt>,
+  accountDeletionHandlers: AccountDeletionHandlerList,
   captchaProxy: CaptchaProxy,
   captchaProviders: Map<string, RegisteredCaptcha>,
 ): ModuleContext {
@@ -846,6 +911,22 @@ function createModuleContext(
 
     checkSignUp(attempt) {
       return signUpGuards.check(attempt)
+    },
+
+    guardEmailChange(guard) {
+      emailChangeGuards.add(module.id, guard)
+    },
+
+    checkEmailChange(attempt) {
+      return emailChangeGuards.check(attempt)
+    },
+
+    handleAccountDeletion(handler) {
+      accountDeletionHandlers.add(module.id, handler)
+    },
+
+    runAccountDeletionHandlers(deletion) {
+      return accountDeletionHandlers.run(deletion)
     },
 
     provideMcpAuthorization(authorization) {
@@ -1046,7 +1127,9 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   const emailProxy = new EmailSenderProxy()
   const emailProviders = new Map<string, RegisteredProvider>()
   const externalSignIn = new ExternalSignInProxy()
-  const signUpGuards = new SignUpGuardList()
+  const signUpGuards = new GuardList<SignUpAttempt>('sign-up guard', 'sign-up')
+  const emailChangeGuards = new GuardList<EmailChangeAttempt>('email-change guard', 'change')
+  const accountDeletionHandlers = new AccountDeletionHandlerList()
   const captchaProxy = new CaptchaProxy()
   const captchaProviders = new Map<string, RegisteredCaptcha>()
 
@@ -1140,6 +1223,8 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
       emailProviders,
       externalSignIn,
       signUpGuards,
+      emailChangeGuards,
+      accountDeletionHandlers,
       captchaProxy,
       captchaProviders,
     )
@@ -1252,5 +1337,6 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
     mcpAuthorization: accumulator.mcpAuthorization?.value,
     events,
     entitlements,
+    runAccountDeletionHandlers: (deletion) => accountDeletionHandlers.run(deletion),
   }
 }

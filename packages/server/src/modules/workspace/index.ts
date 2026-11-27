@@ -1,6 +1,7 @@
 import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import { parseModuleCapability } from '../../runtime/moduleConfig.ts'
+import { handleAccountDeletion } from './accountDeletion.ts'
 import { RECORDS_LIMIT, SEATS_LIMIT, WORKSPACE_ACCESS } from './capabilities.ts'
 import { workspaceEvents } from './events.ts'
 import { defineSendInviteEmailJob } from './inviteEmailJob.ts'
@@ -74,6 +75,10 @@ export function createWorkspaceModule(migrationsDirectory: string): KelpieModule
       })
 
       registerWorkspaceTools(context.mcp, service)
+
+      // An owner cannot delete their account; anyone else's memberships go
+      // with it, and what they owned stays, owned by nobody.
+      context.handleAccountDeletion(handleAccountDeletion)
 
       return Promise.resolve()
     },

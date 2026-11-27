@@ -41,15 +41,36 @@ type EventMapFor<Name extends EventName> = keyof KelpieEventMap extends never
     ? KelpieEventMap[Name]
     : unknown
 
+/** What one `emit` call may say about its own event. */
+export interface EmitOptions {
+  /**
+   * The tenant this event belongs to, in place of the scope's. For work that
+   * touches several workspaces in one transaction: deleting an account
+   * removes its membership of each workspace it belongs to, and each removal
+   * is an event of that workspace.
+   *
+   * Only a scope with no workspace of its own may name one. A scope that has
+   * one is one tenant's work, and an event it stamps with another tenant's id
+   * would reach that tenant's subscribers and webhooks.
+   */
+  readonly workspaceId?: string
+}
+
 /**
  * Collects events during the transaction. Nothing leaves until commit.
  *
  * `emit` stamps the envelope (id, workspaceId, actor, occurredAt, causedBy) so
  * services pass only what they know: the name, the target the event refers to,
- * and the module-defined payload.
+ * and the module-defined payload. The workspace comes from the scope unless
+ * the call names its own.
  */
 export interface BufferedEvents {
-  emit<Name extends WorkspaceEventName>(name: Name, target: EventTarget, data: EventMapFor<Name>): void
+  emit<Name extends WorkspaceEventName>(
+    name: Name,
+    target: EventTarget,
+    data: EventMapFor<Name>,
+    options?: EmitOptions,
+  ): void
   /**
    * Emits an account event (`KelpieAccountEvents`). Its envelope carries
    * `workspaceId: null`, so the scope needs no `workspaceId` for it.
@@ -184,14 +205,26 @@ export function createTransactionScope(dependencies: TransactionScopeDependencie
           },
         },
         events: {
-          emit(name, target, data) {
-            if (workspaceId === undefined || workspaceId.length === 0) {
+          emit(name, target, data, emitOptions) {
+            if (
+              emitOptions?.workspaceId !== undefined &&
+              workspaceId !== undefined &&
+              emitOptions.workspaceId !== workspaceId
+            ) {
               throw new Error(
-                `event "${name}" was emitted without a workspaceId: pass it via TransactionOptions`,
+                `event "${name}" names workspace ${emitOptions.workspaceId} inside a scope for workspace ${workspaceId}`,
               )
             }
 
-            buffer(name, workspaceId, target, data)
+            const eventWorkspaceId = emitOptions?.workspaceId ?? workspaceId
+
+            if (eventWorkspaceId === undefined || eventWorkspaceId.length === 0) {
+              throw new Error(
+                `event "${name}" was emitted without a workspaceId: pass it via TransactionOptions or the emit call`,
+              )
+            }
+
+            buffer(name, eventWorkspaceId, target, data)
           },
           emitAccountEvent(name, target, data) {
             buffer(name, null, target, data)

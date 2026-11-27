@@ -73,6 +73,10 @@ const updateAccountBody = z
     path: ['current_password'],
   })
 
+const deleteAccountBodySchema = z.strictObject({
+  current_password: z.string().min(1).max(MAX_PASSWORD_LENGTH),
+})
+
 const listViewBody: z.ZodType<ListViewPreference, unknown> = z
   .strictObject({
     columns: z.array(z.string().max(MAX_SHORT_TEXT_LENGTH)).max(MAX_LIST_ITEMS).optional(),
@@ -290,6 +294,26 @@ export function mountAuthRoutes(router: Hono, dependencies: AuthRoutesDependenci
     }
 
     return context.json(accountBody(updated.account))
+  })
+
+  /**
+   * A `POST` with the current password in its body, not a `DELETE`: a client
+   * or a proxy may drop a `DELETE` body, and the password must not go in the
+   * URL, where logs keep it.
+   *
+   * Session only, like every route here. The actor is resolved before the
+   * body is read, so an API key or an OAuth token gets its `403` whatever it
+   * sent. The cookie is cleared because the session behind it went with the
+   * account. The idempotency middleware leaves this route alone
+   * (`idempotencyMiddleware.ts`).
+   */
+  router.post('/account/delete', async (context) => {
+    const actor = await requireActor(context)
+    const body = await readBody(context, deleteAccountBodySchema)
+    await dependencies.service.deleteAccount(actor, body.current_password)
+    clearSessionCookie(context, dependencies.cookie)
+
+    return context.body(null, 204)
   })
 
   router.get('/account/preferences', async (context) =>

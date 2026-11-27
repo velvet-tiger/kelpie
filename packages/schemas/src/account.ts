@@ -113,6 +113,18 @@ export function changePasswordBody(input: ChangePasswordInput): Record<string, u
 }
 
 /**
+ * The body of `POST /v1/account/delete`. The current password is required: an
+ * account with none sets one through the reset flow before it can be deleted.
+ */
+export interface DeleteAccountInput {
+  readonly currentPassword: string
+}
+
+export function deleteAccountBody(input: DeleteAccountInput): Record<string, unknown> {
+  return { current_password: input.currentPassword }
+}
+
+/**
  * A saved view state for one list page, keyed on a stable view id (`people`,
  * `companies`, `deals`, …).
  *

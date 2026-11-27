@@ -38,6 +38,7 @@ import * as repository from './repository.ts'
 export const SEND_VERIFICATION_EMAIL_JOB = 'auth.send-verification-email'
 export const SEND_PASSWORD_RESET_EMAIL_JOB = 'auth.send-password-reset-email'
 export const SEND_EMAIL_CHANGE_NOTICE_JOB = 'auth.send-email-change-notice'
+export const SEND_ACCOUNT_DELETED_NOTICE_JOB = 'auth.send-account-deleted-notice'
 
 export const RESET_TOKEN_LIFETIME_MS = 60 * 60 * 1000
 /** Longer than a reset token: there is no stolen-account urgency, and an inbox is checked on its own time. */
@@ -76,15 +77,35 @@ export const sendEmailChangeNoticeDataSchema = z.object({
   newEmail: z.string().min(1),
 })
 
+/**
+ * The address a deleted account had. The row is gone by the time the job
+ * runs, so the payload is the only place the address is, until the queue
+ * drops the finished job.
+ */
+export const sendAccountDeletedNoticeDataSchema = z.object({
+  email: z.string().min(1),
+})
+
 export type SendVerificationEmailData = z.infer<typeof sendVerificationEmailDataSchema>
 export type SendPasswordResetEmailData = z.infer<typeof sendPasswordResetEmailDataSchema>
 export type SendEmailChangeNoticeData = z.infer<typeof sendEmailChangeNoticeDataSchema>
+export type SendAccountDeletedNoticeData = z.infer<typeof sendAccountDeletedNoticeDataSchema>
 
 /** The handles the auth service enqueues against. */
 export interface AuthEmailJobs {
   readonly verification: JobHandle<SendVerificationEmailData>
   readonly passwordReset: JobHandle<SendPasswordResetEmailData>
   readonly emailChangeNotice: JobHandle<SendEmailChangeNoticeData>
+}
+
+/**
+ * The handle for the deletion notice, by name. The auth module defines the
+ * job at register time; the deletion enqueues against this, because the
+ * operator path deletes from outside the auth module's closure. Auth is
+ * structural, so the job is always defined.
+ */
+export const ACCOUNT_DELETED_NOTICE: JobHandle<SendAccountDeletedNoticeData> = {
+  name: SEND_ACCOUNT_DELETED_NOTICE_JOB,
 }
 
 export interface AuthEmailDependencies {
@@ -250,6 +271,34 @@ export async function sendEmailChangeNotice(
   })
 }
 
+/**
+ * Tells an address that its account was deleted. It reads nothing: the
+ * account is gone, and the address is in the payload alone.
+ *
+ * @throws The sender's error. The job's handler lets the queue retry it,
+ *   unless it is a permanent failure.
+ */
+export async function sendAccountDeletedNotice(
+  dependencies: AuthEmailDependencies,
+  data: SendAccountDeletedNoticeData,
+): Promise<void> {
+  // The address is text somebody typed, so the HTML part escapes it.
+  const { text, html } = renderTextEmail(
+    {
+      intro: `Your Kelpie account for ${data.email} was deleted, with its sessions and keys. The workspaces you belonged to keep the records you worked on. If you did not ask for this, contact whoever runs your Kelpie.`,
+    },
+    dependencies.appBaseUrl,
+  )
+
+  await dependencies.email.send({
+    to: data.email,
+    subject: 'Your Kelpie account was deleted',
+    body: text,
+    html,
+    headers: AUTO_GENERATED_EMAIL_HEADERS,
+  })
+}
+
 export function defineSendVerificationEmailJob(
   dependencies: AuthEmailDependencies,
 ): JobDefinition<SendVerificationEmailData> {
@@ -285,6 +334,19 @@ export function defineSendEmailChangeNoticeJob(
     defaults: EMAIL_JOB_DEFAULTS,
     handler: async ({ data, log }) => {
       await completeOnPermanentEmailFailure(log, () => sendEmailChangeNotice(dependencies, data))
+    },
+  }
+}
+
+export function defineSendAccountDeletedNoticeJob(
+  dependencies: AuthEmailDependencies,
+): JobDefinition<SendAccountDeletedNoticeData> {
+  return {
+    name: SEND_ACCOUNT_DELETED_NOTICE_JOB,
+    schema: sendAccountDeletedNoticeDataSchema,
+    defaults: EMAIL_JOB_DEFAULTS,
+    handler: async ({ data, log }) => {
+      await completeOnPermanentEmailFailure(log, () => sendAccountDeletedNotice(dependencies, data))
     },
   }
 }

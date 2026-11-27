@@ -192,6 +192,7 @@ the database is already running.
 | `npm run db:generate` | Writes a new migration from the schema barrel. See [Database](#database) |
 | `npm run db:generate:ai --workspace packages/server` | Writes a new migration for the optional `ai` module into `packages/server/module-migrations/ai` |
 | `npm run db:migrate` | Applies pending migrations once, then exits. The release step for multi-instance deploys started with `--no-migrate` |
+| `npm run delete-account -- <email> [--yes]` | Deletes one account by address, for an operator. Without `--yes` it prints the target (database host and name, account, workspaces) and deletes nothing. The same rules as `POST /v1/account/delete` without the password: an owner of a workspace is refused. Exits 0 when deleted, 1 on a usage or configuration error or no `--yes`, 2 when no account has the address, 3 when refused, and 4 on a fault, including a deletion that kept colliding with other work |
 | `npm run reseal` | Rewrites every sealed secret under the current `SECRET_ENCRYPTION_KEY`. The step after a key rotation; idempotent. It never writes over a secret that changed during the run, and it reads every value again until a round finds each one under the current key. Exits 0 when that round is reached, 1 on a row it cannot open, 2 when secrets were still changing after 5 rounds, and 3 when a pass reports totals that do not agree with its columns |
 
 ### Environment file precedence

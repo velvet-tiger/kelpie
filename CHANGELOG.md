@@ -10,7 +10,89 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **An email-change guard.** `context.guardEmailChange(guard)`
+  adds a guard that runs before core commits an address change. It runs after the
+  current-password check, and only when the address really changes. A rejection
+  answers `403` with the guard's message and changes nothing. A change that commits
+  while the guard decides answers `409`. The types `EmailChangeAttempt`,
+  `EmailChangeGuard` and `EmailChangeVerdict` are exported. An assembly with no
+  guard behaves as before.
+
+- **`auth.user.email_verified`.** `auth` publishes it when an
+  address is verified: by a verification link, by accepting a workspace invitation,
+  or by an external sign-in that links an account whose address was never confirmed.
+  It fires only when that changes the account. An external sign-in answers `409` and
+  changes nothing if the account's address moves while it runs. The account event
+  carries `{ userId, email }`. No migration.
+
+- **Account deletion.** `POST /v1/account/delete` deletes the signed-in account. It needs
+  a session and the current password; an API key and an OAuth token are refused. It
+  ignores `Idempotency-Key`: a stored response would outlive the account.
+  An account that owns a workspace is refused with `409`, naming each workspace.
+  Records the account owned or wrote stay, with nobody named. After commit the bus
+  publishes `workspace.member.removed` for each membership and the account event
+  `auth.user.deleted` with `{ userId, email }`. An operator deletes by address with
+  `npm run delete-account -- <email> --yes` (`runDeleteAccountCommand` in
+  `@kelpie/server`); without `--yes` it prints the target and stops. Scaffolded
+  projects get the same script. A deletion that Postgres aborts as a deadlock runs
+  again, twice at most, then answers `409`. The login counter for the address goes
+  with the account; the mail counters for the address stay until their window ends.
+  The idempotency keys of the person's requests go too: through their session, their
+  personal API keys and their OAuth connections.
+  No migration.
+
+- **An account-deletion hook for modules.** `context.handleAccountDeletion(handler)`
+  runs inside the deletion transaction, in registration order. A handler refuses by
+  throwing an `AppError`, which rolls everything back. `events.emit` takes an
+  optional `{ workspaceId }`, so one transaction can emit for several workspaces;
+  a scope with a workspace of its own refuses a call that names another. A handler
+  gets the account's `userId` and `email`.
+  `AssemblyBoot` now carries the `transaction` scope its modules use.
+  `ModuleContext` gains `handleAccountDeletion` and `runAccountDeletionHandlers`, and
+  `ModuleContributions` gains `runAccountDeletionHandlers`. Both are required members,
+  so a hand-written fake of either in another repository fails typecheck until it
+  adds them.
+
+- **A notice when an account is deleted.** A verified address gets a short email
+  saying the account was deleted, from both deletion paths. An unverified one gets
+  none. It is queued in the deletion
+  transaction, so a refused or rolled-back deletion sends nothing.
+
+- **Person intake runs over MCP.** Four tools, `person_intake_identify`,
+  `person_intake_research`, `person_intake_run_get` and `person_intake_apply`, take
+  the bodies and answer the bodies of `/v1/ai/person-intake/*`. Each needs `ai:write`.
+  An OAuth grant that holds `ai:write` may start a run, as an API key may. The tools
+  exist when the `ai` module is listed. Each start still counts one AI run.
+
 ### Fixed
+
+- **A member who wrote a note can be removed.** Removing a member was refused
+  while they had written any note, and a note's author cannot be changed, so
+  the only way out was to delete the notes. The notes now stay, with
+  `author_id` set to `null`, and the UI names their author "Former member". A note
+  an agent or a workspace key wrote, with no member behind it, shows no author
+  name, only its origin label. The notes panel and the dashboard now name note
+  authors by one rule; the dashboard used to say "System" where the panel said
+  "API key".
+
+- **`/v1/accounting` and its like are no longer exempt from the workspace access
+  check.** The exemption matched any path starting with `/v1/account`; it now
+  matches `/v1/account` and the paths under it.
+
+- **Owning an enquiry now blocks removing a member, by name.** The check before
+  a removal missed enquiries, so the database refused the delete instead, with
+  a `409` that named no record type.
+
+- **Projects in same-named directories no longer share a Postgres volume.** The
+  scaffolded `docker-compose.yml` now sets a Compose project name: the package name
+  plus a random suffix, written once at scaffold time. Two projects whose directories
+  share a name get separate volumes, so a second project no longer boots with the
+  first one's credentials. Existing projects keep their current file. To keep an
+  existing project's data, give its `docker-compose.yml` a top-level `name:` that
+  matches the prefix of its current `*_kelpie_db_data` volume, shown by
+  `docker volume ls`. No migration.
 
 - **A later title fills the blank Position a domain match left.** The email-domain
   match links a new Person to a Company with an empty title. `positions_create` and

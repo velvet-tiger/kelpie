@@ -1,17 +1,31 @@
 import { Hono } from 'hono'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { AppError } from '../lib/errors.ts'
 import { createCaptureTransport, createLogger } from '../lib/logger.ts'
 import { TEST_EMAIL_FROM, TEST_EMAIL_PROVIDER, createTestServices } from '../testing/services.ts'
 import { createTestApp } from '../testing/app.ts'
+import { connectTestDatabase, testDatabaseUrl } from '../testing/database.ts'
+import type { TestDatabase } from '../testing/database.ts'
 import { workspaceKeyActor } from '../testing/fixtures.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import type { Environment, RuntimeMode } from '../lib/config.ts'
-import type { AppRateLimitOptions, KelpieModule, SignUpAttempt, SignUpGuard, SignUpVerdict } from './module.ts'
+import type {
+  AccountDeletion,
+  AccountDeletionHandler,
+  AppRateLimitOptions,
+  EmailChangeAttempt,
+  EmailChangeGuard,
+  KelpieModule,
+  SignUpAttempt,
+  SignUpGuard,
+  SignUpVerdict,
+} from './module.ts'
 import { ModuleBootError } from './order.ts'
 import { registerModules } from './registry.ts'
+
+const connectionString = testDatabaseUrl(process.env)
 
 /**
  * The module under test contributes one of each kind of thing a module can
@@ -644,6 +658,232 @@ describe('sign-up guards', () => {
       message: 'sign-up guard of module "directory" failed: Error: directory unreachable',
       cause,
     })
+  })
+})
+
+describe('email-change guards', () => {
+  const change: EmailChangeAttempt = {
+    userId: 'user_1',
+    previousEmail: 'ada@example.com',
+    email: 'ada.king@example.com',
+  }
+
+  function guardModule(id: string, guard: EmailChangeGuard): KelpieModule {
+    return {
+      id,
+      register(context) {
+        context.guardEmailChange(guard)
+
+        return Promise.resolve()
+      },
+    }
+  }
+
+  /** Boots `modules` plus a consumer, and hands back the consumer's `checkEmailChange`. */
+  async function checkerFor(
+    modules: readonly KelpieModule[],
+  ): Promise<(attempt: EmailChangeAttempt) => Promise<SignUpVerdict>> {
+    let checker: ((attempt: EmailChangeAttempt) => Promise<SignUpVerdict>) | undefined
+
+    const consumer: KelpieModule = {
+      id: 'consumer',
+      register(context) {
+        checker = (value) => context.checkEmailChange(value)
+
+        return Promise.resolve()
+      },
+    }
+
+    await createTestApp({ modules: [consumer, ...modules], environment: {}, services: createTestServices() })
+
+    if (checker === undefined) {
+      throw new Error('the consumer module did not register')
+    }
+
+    return checker
+  }
+
+  it('allows a change when no module added a guard', async () => {
+    const check = await checkerFor([])
+
+    expect(await check(change)).toEqual({ allowed: true })
+  })
+
+  it('runs guards in registration order and returns the first rejection', async () => {
+    const calls: string[] = []
+    const check = await checkerFor([
+      guardModule('first', () => {
+        calls.push('first')
+        return Promise.resolve({ allowed: true })
+      }),
+      guardModule('second', () => {
+        calls.push('second')
+        return Promise.resolve({ allowed: false, message: 'Second says no' })
+      }),
+      guardModule('third', () => {
+        calls.push('third')
+        return Promise.resolve({ allowed: false, message: 'Third says no' })
+      }),
+    ])
+
+    expect(await check(change)).toEqual({ allowed: false, message: 'Second says no' })
+    expect(calls).toEqual(['first', 'second'])
+  })
+
+  it('does not run a sign-up guard for an address change', async () => {
+    const signUpRefuses: KelpieModule = {
+      id: 'sign-up-only',
+      register(context) {
+        context.guardSignUp(() => Promise.resolve({ allowed: false, message: 'No sign-ups' }))
+
+        return Promise.resolve()
+      },
+    }
+    const check = await checkerFor([signUpRefuses])
+
+    expect(await check(change)).toEqual({ allowed: true })
+  })
+
+  it('rejects, naming the module, when a guard refuses without a message', async () => {
+    const check = await checkerFor([guardModule('quiet', () => Promise.resolve({ allowed: false, message: '  ' }))])
+
+    await expect(check(change)).rejects.toThrow(
+      'email-change guard of module "quiet" rejected a change without a message',
+    )
+  })
+
+  it('wraps a guard that throws with the module id and keeps the cause', async () => {
+    const cause = new Error('directory unreachable')
+    const check = await checkerFor([guardModule('directory', () => Promise.reject(cause))])
+
+    await expect(check(change)).rejects.toMatchObject({
+      message: 'email-change guard of module "directory" failed: Error: directory unreachable',
+      cause,
+    })
+  })
+})
+
+describe.skipIf(connectionString === undefined)('account-deletion handlers', () => {
+  let database: TestDatabase
+
+  beforeAll(async () => {
+    if (connectionString === undefined) {
+      throw new Error('unreachable: the suite is skipped without a connection string')
+    }
+
+    database = await connectTestDatabase(connectionString)
+  })
+
+  afterAll(async () => {
+    await database.close()
+  })
+
+  function handlerModule(id: string, handler: AccountDeletionHandler): KelpieModule {
+    return {
+      id,
+      register(context) {
+        context.handleAccountDeletion(handler)
+
+        return Promise.resolve()
+      },
+    }
+  }
+
+  type Runner = (deletion: AccountDeletion) => Promise<void>
+
+  /** Boots `modules` after a consumer, and hands back the consumer's runner, the contributions' one, and a transaction scope. */
+  async function runnersFor(modules: readonly KelpieModule[]): Promise<{
+    readonly fromContext: Runner
+    readonly fromContributions: Runner
+    readonly inTransaction: (runner: Runner) => Promise<void>
+  }> {
+    let fromContext: Runner | undefined
+
+    const consumer: KelpieModule = {
+      id: 'consumer',
+      register(context) {
+        fromContext = (value) => context.runAccountDeletionHandlers(value)
+
+        return Promise.resolve()
+      },
+    }
+
+    const services = createTestServices({ db: database.db })
+    const { contributions } = await createTestApp({ modules: [consumer, ...modules], environment: {}, services })
+
+    if (fromContext === undefined) {
+      throw new Error('the consumer module did not register')
+    }
+
+    // A real transaction, so a handler gets the parts it would in a deletion.
+    const inTransaction = (runner: Runner): Promise<void> =>
+      services.transaction((context) => runner({ ...context, userId: 'usr_1', email: 'ada@example.com' }))
+
+    return { fromContext, fromContributions: contributions.runAccountDeletionHandlers, inTransaction }
+  }
+
+  it('runs every handler in registration order, with the deletion it was given', async () => {
+    const calls: string[] = []
+    const record =
+      (id: string): AccountDeletionHandler =>
+      (value) => {
+        calls.push(`${id}:${value.userId}:${value.email}`)
+        return Promise.resolve()
+      }
+    const { fromContext, fromContributions, inTransaction } = await runnersFor([
+      handlerModule('first', record('first')),
+      handlerModule('second', record('second')),
+    ])
+
+    await inTransaction(fromContext)
+    await inTransaction(fromContributions)
+
+    expect(calls).toEqual([
+      'first:usr_1:ada@example.com',
+      'second:usr_1:ada@example.com',
+      'first:usr_1:ada@example.com',
+      'second:usr_1:ada@example.com',
+    ])
+  })
+
+  it('passes a refusal on unchanged and runs no later handler', async () => {
+    const calls: string[] = []
+    const refusal = AppError.conflict('Owns a workspace')
+    const { fromContext, inTransaction } = await runnersFor([
+      handlerModule('refuses', () => Promise.reject(refusal)),
+      handlerModule('later', () => {
+        calls.push('later')
+        return Promise.resolve()
+      }),
+    ])
+
+    await expect(inTransaction(fromContext)).rejects.toBe(refusal)
+    expect(calls).toEqual([])
+  })
+
+  it('passes a deadlock or a serialization failure on unchanged, so the deletion can run again', async () => {
+    for (const code of ['40P01', '40001']) {
+      const transient = Object.assign(new Error('aborted by Postgres'), { code })
+      const { fromContext, inTransaction } = await runnersFor([handlerModule('contended', () => Promise.reject(transient))])
+
+      await expect(inTransaction(fromContext)).rejects.toBe(transient)
+    }
+  })
+
+  it('wraps a handler that fails with the module id and keeps the cause', async () => {
+    const cause = new Error('table missing')
+    const { fromContext, inTransaction } = await runnersFor([handlerModule('broken', () => Promise.reject(cause))])
+
+    await expect(inTransaction(fromContext)).rejects.toMatchObject({
+      message: 'account-deletion handler of module "broken" failed: Error: table missing',
+      cause,
+    })
+  })
+
+  it('resolves when no module added a handler', async () => {
+    const { fromContext, inTransaction } = await runnersFor([])
+
+    await expect(inTransaction(fromContext)).resolves.toBeUndefined()
   })
 })
 

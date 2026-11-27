@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import {
+  defineSendAccountDeletedNoticeJob,
   defineSendEmailChangeNoticeJob,
   defineSendPasswordResetEmailJob,
   defineSendVerificationEmailJob,
@@ -48,6 +49,11 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
         appBaseUrl,
       }
 
+      // Defined here, enqueued by the deletion itself (`deletion.ts`) through
+      // `ACCOUNT_DELETED_NOTICE`, the same name: the operator path never sees
+      // this closure.
+      context.jobs.define(defineSendAccountDeletedNoticeJob(emailDependencies))
+
       const service = createAuthService({
         db: context.db,
         transaction: context.transaction,
@@ -61,6 +67,8 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
         },
         signupsEnabled: context.signupsEnabled ?? true,
         checkSignUp: (attempt) => context.checkSignUp(attempt),
+        checkEmailChange: (attempt) => context.checkEmailChange(attempt),
+        runAccountDeletionHandlers: (deletion) => context.runAccountDeletionHandlers(deletion),
       })
 
       // `Secure` everywhere except development. A test host reaches the API

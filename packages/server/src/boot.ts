@@ -17,6 +17,7 @@ import type { JobsRuntime } from './runtime/jobs.ts'
 import { registerModules } from './runtime/registry.ts'
 import type { ModuleContributions } from './runtime/registry.ts'
 import { createTransactionScope } from './runtime/transaction.ts'
+import type { TransactionScope } from './runtime/transaction.ts'
 
 /**
  * A resolved assembly: config parsed, database connected, modules registered.
@@ -37,6 +38,13 @@ export interface AssemblyBoot {
   readonly createId: IdFactory
   readonly credentials: CredentialDependencies
   readonly contributions: ModuleContributions
+  /**
+   * The transaction scope the modules registered against: the same bus, id
+   * factory and job runtime. An entry point that writes outside a request (the
+   * operator's account deletion) uses this one, so what it emits reaches every
+   * subscriber.
+   */
+  readonly transaction: TransactionScope
   /**
    * The pg-boss-backed job runtime the modules registered against. The
    * entry point owns its lifecycle: call `jobs.migrate()` alongside
@@ -84,6 +92,13 @@ export async function bootAssembly(
   const createId = createIdFactory()
   const credentials: CredentialDependencies = { db: database.db, now: () => new Date() }
   const moduleConfig = readModuleConfigFile(config.moduleConfigPath)
+  const transaction = createTransactionScope({
+    db: database.db,
+    bus: events,
+    logger,
+    createId,
+    enqueueOnTx: jobs.enqueueOnTx,
+  })
   const contributions = await registerModules({
     modules: kelpieConfig.modules,
     environment: config.env,
@@ -94,13 +109,7 @@ export async function bootAssembly(
     resolveActor: (context) => resolveActorFrom(credentials, context),
     services: {
       db: database.db,
-      transaction: createTransactionScope({
-        db: database.db,
-        bus: events,
-        logger,
-        createId,
-        enqueueOnTx: jobs.enqueueOnTx,
-      }),
+      transaction,
       createId,
       now: () => new Date(),
       appBaseUrl: config.appBaseUrl,
@@ -120,5 +129,5 @@ export async function bootAssembly(
     },
   })
 
-  return { config, logger, database, createId, credentials, contributions, jobs }
+  return { config, logger, database, createId, credentials, contributions, transaction, jobs }
 }

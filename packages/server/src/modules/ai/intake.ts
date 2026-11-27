@@ -16,6 +16,7 @@ import { z } from 'zod'
 
 import type { Database } from '../../lib/database.ts'
 import { AppError, describeThrown } from '../../lib/errors.ts'
+import { MAX_ID_LENGTH } from '../../lib/fieldLimits.ts'
 import type { Logger } from '../../lib/logger.ts'
 import type { McpTool } from '../../runtime/module.ts'
 import { actorWorkspaceId, asAiAuthor } from '../auth/actor.ts'
@@ -754,6 +755,12 @@ export function createPersonIntake(dependencies: PersonIntakeDependencies): Pers
     },
 
     async readRun(actor, runId) {
+      // An id no run could have is a 404 like any other unknown id. Checked
+      // here, so the REST route and the MCP tool answer alike.
+      if (runId.length > MAX_ID_LENGTH) {
+        throw AppError.notFound(NOT_FOUND_MESSAGE)
+      }
+
       const workspaceId = requireWorkspace(actor)
       const run = await findRun(dependencies.db, workspaceId, runId)
 
