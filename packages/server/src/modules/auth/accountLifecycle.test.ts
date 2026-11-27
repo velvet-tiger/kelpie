@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { ExternalSignInError } from '../../lib/errors.ts'
@@ -206,6 +206,15 @@ describe.skipIf(connectionString === undefined)('account lifecycle', () => {
 
   async function userCount(): Promise<number> {
     return (await database.db.select({ id: users.id }).from(users)).length
+  }
+
+  /** Connections in this database that are waiting on a row lock. */
+  async function lockWaiters(): Promise<number> {
+    const rows = await database.db.execute<{ waiting: string }>(
+      sql`select count(*)::text as waiting from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()`,
+    )
+
+    return Number(rows[0]?.waiting ?? '0')
   }
 
   /** The token in the most recent verification email. Run the queued jobs first. */
@@ -679,6 +688,50 @@ describe.skipIf(connectionString === undefined)('account lifecycle', () => {
       const linked = await send('POST', '/test-identity/complete', IDENTITY)
 
       expect(linked.status).toBe(200)
+      expect(await accountEvents()).toEqual([])
+    })
+
+    it('refuses an external sign-in whose account moved address after the lookup, and publishes nothing', async () => {
+      await send('POST', '/v1/auth/signup', { email: IDENTITY.email, name: 'Grace Hopper', password: SIGNUP.password })
+      await accountEvents()
+      published = []
+
+      const [account] = await database.db.select().from(users)
+
+      if (account === undefined) {
+        throw new Error('Expected the sign-up to create an account')
+      }
+
+      // Another request moves the account to a new address, holding its row lock until released.
+      let markHeld: () => void = () => undefined
+      const held = new Promise<void>((resolve) => {
+        markHeld = resolve
+      })
+      let release: () => void = () => undefined
+      const heldUntilReleased = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const moving = database.db.transaction(async (tx) => {
+        await tx.update(users).set({ email: 'grace.hopper@example.com' }).where(eq(users.id, account.id))
+        markHeld()
+        await heldUntilReleased
+      })
+      await held
+
+      // The sign-in finds the account by its old address, then waits on the lock.
+      const signedIn = send('POST', '/test-identity/complete', IDENTITY)
+      await expect.poll(() => lockWaiters()).toBeGreaterThan(0)
+      release()
+      await moving
+      const response = await signedIn
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toMatchObject({ error: { code: 'conflict' } })
+
+      const [stored] = await database.db.select().from(users)
+      expect(stored?.email).toBe('grace.hopper@example.com')
+      expect(stored?.emailVerifiedAt).toBeNull()
+      expect(stored?.passwordHash).not.toBeNull()
       expect(await accountEvents()).toEqual([])
     })
   })

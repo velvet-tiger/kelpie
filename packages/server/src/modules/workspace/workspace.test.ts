@@ -14,6 +14,7 @@ import { UNIQUE_VIOLATION, postgresErrorCode } from '../../lib/database.ts'
 import { createLogger } from '../../lib/logger.ts'
 import { hashToken } from '../../lib/tokens.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
+import type { AnyEventEnvelope } from '../../runtime/events.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import { users } from '../auth/schema.ts'
@@ -1263,6 +1264,37 @@ describe.skipIf(connectionString === undefined)('workspaces', () => {
       // Verified now means allowed through the same gate `rawSignUp` alone hits.
       const created = await send('POST', '/v1/workspaces', { ...WORKSPACE }, cookie)
       expect(created.status).toBe(201)
+    })
+
+    it('publishes auth.user.email_verified once when an invitation verifies the joining account', async () => {
+      const owner = await signUp('ada@example.com')
+      const workspaceId = await createWorkspace(owner)
+      await send(
+        'POST',
+        `/v1/workspaces/${workspaceId}/invites`,
+        { email: 'grace@example.com', role: 'member' },
+        owner,
+      )
+
+      const grace = await rawSignUp('grace@example.com')
+      const published: AnyEventEnvelope[] = []
+      harness.services.events.subscribePrefix('auth.', (event) => {
+        published.push(event)
+      })
+
+      const accepted = await send('POST', '/v1/invites/accept', { token: await lastInviteToken() }, grace.cookie)
+      await harness.services.events.drain()
+
+      expect(accepted.status).toBe(200)
+      expect(published).toEqual([
+        expect.objectContaining({
+          name: 'auth.user.email_verified',
+          workspaceId: null,
+          actor: { kind: 'user', id: grace.accountId },
+          target: { type: 'user', id: grace.accountId },
+          data: { userId: grace.accountId, email: 'grace@example.com' },
+        }),
+      ])
     })
 
     it('builds the invite link from services.appBaseUrl when set, ignoring APP_BASE_URL in the environment', async () => {

@@ -20,7 +20,7 @@ import type {
   SignUpVerdict,
   VerifiedIdentity,
 } from '../../runtime/module.ts'
-import type { BufferedEvents, TransactionScope } from '../../runtime/transaction.ts'
+import type { BufferedEvents, Transaction, TransactionScope } from '../../runtime/transaction.ts'
 import * as apiKeyRepository from '../api-keys/repository.ts'
 import * as oauthRepository from '../oauth/repository.ts'
 import type { MemberRole } from '../workspace/roles.ts'
@@ -520,11 +520,21 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
 
       // Runs in the caller's transaction, which must carry the account as its
       // actor: the verification event it may publish names that account.
+      //
+      // The caller found the account by address before this transaction, so the
+      // account is read again here under a row lock. Its address may have moved
+      // since, and the provider proved only `email`.
       const link = async (
-        tx: repository.Queryable,
+        tx: Transaction,
         events: BufferedEvents,
-        user: repository.UserRecord,
+        accountId: string,
       ): Promise<ExternalIssuedSession> => {
+        const user = await repository.findUserByIdForUpdate(tx, accountId)
+
+        if (user === undefined || user.email !== email) {
+          throw AppError.conflict('The address changed while this sign-in was running. Try again.')
+        }
+
         // Signing in through a provider on an account whose address was never
         // confirmed is the pre-registration takeover case: somebody registered
         // this address with a password and never proved they own it. The
@@ -538,12 +548,10 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         // The provider proved control of the address, which is the same thing
         // accepting an invite proves. Publishes only when the account was not
         // verified already.
-        const verifiedEmail = await repository.markEmailVerified(tx, user.id, now)
-
-        if (verifiedEmail !== null) {
+        if (await repository.markEmailAddressVerified(tx, user.id, email, now)) {
           events.emitAccountEvent('auth.user.email_verified', { type: 'user', id: user.id }, {
             userId: user.id,
-            email: verifiedEmail,
+            email,
           })
         }
 
@@ -561,7 +569,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
       const existing = await repository.findUserByEmail(dependencies.db, email)
 
       if (existing !== undefined) {
-        const linked = await dependencies.transaction(({ tx, events }) => link(tx, events, existing), {
+        const linked = await dependencies.transaction(({ tx, events }) => link(tx, events, existing.id), {
           actor: { kind: 'user', id: existing.id },
         })
 
@@ -646,7 +654,7 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         throw new Error('A provisioning sign-in hit a unique violation, but no account holds the address')
       }
 
-      const linked = await dependencies.transaction(({ tx, events }) => link(tx, events, raced), {
+      const linked = await dependencies.transaction(({ tx, events }) => link(tx, events, raced.id), {
         actor: { kind: 'user', id: raced.id },
       })
 

@@ -156,9 +156,11 @@ While the major version is `0`, a minor bump may break the API.
   `EmailChangeGuard` and `EmailChangeVerdict` are exported. An assembly with no
   guard behaves as before.
 - **`@kelpie/server`**: **`auth.user.email_verified`.** `auth` publishes it when an
-  address is verified: by a verification link, or by an external sign-in that
-  links an account whose address was never confirmed. It fires only when that
-  changes the account. The account event carries `{ userId, email }`. No migration.
+  address is verified: by a verification link, by accepting a workspace invitation,
+  or by an external sign-in that links an account whose address was never confirmed.
+  It fires only when that changes the account. An external sign-in answers `409` and
+  changes nothing if the account's address moves while it runs. The account event
+  carries `{ userId, email }`. No migration.
 
 ### Changed
 

@@ -106,7 +106,7 @@ Most events belong to a workspace, and the envelope carries its `workspaceId`. A
 
 - `auth.user.created`, with `{ userId, email, emailVerified, method, verifiedBy }`, when a sign-up commits a new account by password or by an external sign-in.
 - `auth.user.email_changed`, with `{ userId, previousEmail, email, emailVerified: false }`, when the sign-in address changes.
-- `auth.user.email_verified`, with `{ userId, email }`, when the owner confirms the address, or an external sign-in confirms an account that was not verified. A repeat confirmation fires nothing.
+- `auth.user.email_verified`, with `{ userId, email }`, when the owner confirms the address, accepts a workspace invitation, or an external sign-in confirms an account that was not verified. A repeat confirmation fires nothing. An external sign-in answers `409` and changes nothing if the account's address moves while it runs.
 
 `emailVerified` is `false` until somebody proves control of the address. A password sign-up and an email change start unverified. `auth.user.email_verified` reports the later confirmation. Treat an unverified address as provisional until that event arrives.
 

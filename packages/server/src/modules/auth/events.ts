@@ -21,9 +21,9 @@ import type { ModuleEventCatalog } from '../../runtime/module.ts'
  * deliver them: an account event belongs to no workspace.
  *
  * `auth.user.email_verified` fires when the address is proved to belong to the
- * account: the owner follows a verification link, or an external sign-in links
- * an account whose address was never confirmed. It fires only when that changes
- * the account, so a repeat confirmation fires nothing.
+ * account: the owner follows a verification link, accepts a workspace invitation,
+ * or an external sign-in links an account whose address was never confirmed. It
+ * fires only when that changes the account, so a repeat confirmation fires nothing.
  *
  * `emailVerified` says whether anyone has proved control of that address yet.
  * A password sign-up and an email change carry `false`. The owner confirms
