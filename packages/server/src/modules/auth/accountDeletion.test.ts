@@ -1,6 +1,8 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { ConfigurationError } from '../../lib/config.ts'
+import { postgresErrorCode } from '../../lib/database.ts'
 import { AppError } from '../../lib/errors.ts'
 import { hashToken } from '../../lib/tokens.ts'
 import type { AnyEventEnvelope } from '../../runtime/events.ts'
@@ -12,20 +14,30 @@ import type { TestClient } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
 import { TEST_APP_BASE_URL, TEST_ENVIRONMENT } from '../../testing/environment.ts'
+import { countLockWaits } from '../../testing/lockWaits.ts'
 import { createTestServices } from '../../testing/services.ts'
+import { activities } from '../activities/schema.ts'
 import { apiKeys } from '../api-keys/schema.ts'
 import { coreModules } from '../core.ts'
 import { enquiries } from '../enquiries/schema.ts'
 import { notes } from '../notes/schema.ts'
 import { oauthClients, oauthConnections, oauthGrants, oauthTokens } from '../oauth/schema.ts'
 import { opportunities } from '../opportunities/schema.ts'
-import { workspaceMembers } from '../workspace/schema.ts'
+import { rateLimitBuckets } from '../rate-limit/schema.ts'
+import { lockMembershipChanges } from '../workspace/repository.ts'
+import { idempotencyKeys, workspaceMembers, workspaces } from '../workspace/schema.ts'
+import { DELETION_CONTENDED_MESSAGE } from './deletion.ts'
+import { SEND_ACCOUNT_DELETED_NOTICE_JOB } from './emailJobs.ts'
 import {
   ACCOUNT_DELETION_EXIT_DELETED,
+  ACCOUNT_DELETION_EXIT_FAULT,
   ACCOUNT_DELETION_EXIT_REFUSED,
   ACCOUNT_DELETION_EXIT_UNKNOWN,
+  ACCOUNT_DELETION_EXIT_USAGE,
   runAccountDeletion,
+  runDeleteAccountCommand,
 } from './operatorDeletion.ts'
+import type { OperatorAssembly } from './operatorDeletion.ts'
 import { sessions, userPreferences, users } from './schema.ts'
 
 /**
@@ -48,6 +60,10 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
   let refusal: AppError | undefined
   /** Every account the fixture handler saw being deleted. */
   let handled: string[]
+  /** How many more runs the fixture handler aborts as a Postgres deadlock. */
+  let transientFailures: number
+  /** When set, the fixture handler fails with it, as a fault rather than a refusal. */
+  let fault: Error | undefined
 
   /** Stands in for a module outside core that holds rows about an account. */
   const fixtureModule: KelpieModule = {
@@ -60,6 +76,16 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
     register(context) {
       context.handleAccountDeletion((deletion) => {
         handled.push(deletion.userId)
+
+        if (transientFailures > 0) {
+          transientFailures -= 1
+
+          return Promise.reject(Object.assign(new Error('deadlock detected'), { code: '40P01' }))
+        }
+
+        if (fault !== undefined) {
+          return Promise.reject(fault)
+        }
 
         return refusal === undefined ? Promise.resolve() : Promise.reject(refusal)
       })
@@ -85,6 +111,8 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
     published = []
     refusal = undefined
     handled = []
+    transientFailures = 0
+    fault = undefined
 
     const services = createTestServices({ db: database.db })
     services.events.subscribePrefix('auth.', (event) => {
@@ -101,6 +129,13 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
     })
     client = createTestClient(harness.app, database.db)
   })
+
+  /** Waits until the code under test is blocked on a row lock the test holds, or has finished. */
+  async function waitForLockWait(settled: () => boolean): Promise<void> {
+    await expect
+      .poll(async () => settled() || (await countLockWaits(database.db)) > 0, { timeout: 5000 })
+      .toBe(true)
+  }
 
   async function eventsSoFar(): Promise<readonly AnyEventEnvelope[]> {
     await harness.services.events.drain()
@@ -430,7 +465,9 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
         db: database.db,
         transaction: harness.services.transaction,
         runAccountDeletionHandlers: harness.contributions.runAccountDeletionHandlers,
+        databaseTarget: 'db.example:5432/kelpie_prod',
         email,
+        confirmed: true,
         report: (line) => lines.push(line),
         reportFatal: (line) => lines.push(line),
       })
@@ -447,7 +484,7 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
       const { code, lines } = await runFor('  GRACE@example.com ')
 
       expect(code).toBe(ACCOUNT_DELETION_EXIT_DELETED)
-      expect(lines).toEqual([`Deleted account ${grace.userId} (grace@example.com).`])
+      expect(lines.at(-1)).toBe(`Deleted account ${grace.userId} (grace@example.com).`)
       expect(await accountExists(grace.userId)).toBe(false)
 
       const events = await eventsSoFar()
@@ -466,7 +503,7 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
       const { code, lines } = await runFor('ada@example.com')
 
       expect(code).toBe(ACCOUNT_DELETION_EXIT_REFUSED)
-      expect(lines).toEqual([
+      expect(lines.slice(-2)).toEqual([
         'Refused: This account owns a workspace. Give ownership to another member, or delete the workspace, first. Nothing was deleted.',
         `  ${ada.workspaceId}: Acme`,
       ])
@@ -483,4 +520,551 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
       expect(await database.db.select().from(users)).toHaveLength(1)
     })
   })
+  describe('the notice to the address', () => {
+    async function notices(): Promise<readonly { readonly to: string; readonly body: string }[]> {
+      await harness.runQueuedJobs()
+
+      return harness.services.sentEmails
+        .filter((message) => message.subject === 'Your Kelpie account was deleted')
+        .map((message) => ({ to: message.to, body: message.body }))
+    }
+
+    it('sends one notice when the account deletes itself', async () => {
+      const grace = await graceInTwoWorkspaces()
+
+      expect((await deleteAccount({ cookie: grace.cookie })).status).toBe(204)
+      expect(harness.services.queuedJobs.filter((job) => job.name === SEND_ACCOUNT_DELETED_NOTICE_JOB)).toEqual([
+        expect.objectContaining({ data: { email: 'grace@example.com' } }),
+      ])
+
+      const sent = await notices()
+      expect(sent).toHaveLength(1)
+      expect(sent[0]?.to).toBe('grace@example.com')
+      expect(sent[0]?.body).toContain('Your Kelpie account for grace@example.com was deleted')
+    })
+
+    it('sends nothing when the deletion is refused', async () => {
+      const ada = await client.owner('ada@example.com')
+
+      expect((await deleteAccount({ cookie: ada.cookie })).status).toBe(409)
+      expect(await notices()).toEqual([])
+    })
+
+    it('sends nothing when a later module refuses and the deletion rolls back', async () => {
+      const grace = await graceInTwoWorkspaces()
+      refusal = AppError.conflict('This account has an open invoice')
+
+      expect((await deleteAccount({ cookie: grace.cookie })).status).toBe(409)
+      expect(await notices()).toEqual([])
+    })
+  })
+
+  describe('when Postgres aborts the deletion', () => {
+    it('runs it again after a deadlock, and deletes once', async () => {
+      const grace = await graceInTwoWorkspaces()
+      await eventsSoFar()
+      published = []
+      transientFailures = 1
+
+      const response = await deleteAccount({ cookie: grace.cookie })
+
+      expect(response.status).toBe(204)
+      expect(handled).toEqual([grace.userId, grace.userId])
+      expect(await accountExists(grace.userId)).toBe(false)
+      expect((await eventsSoFar()).filter((event) => event.name === 'auth.user.deleted')).toHaveLength(1)
+      expect(harness.services.queuedJobs.filter((job) => job.name === SEND_ACCOUNT_DELETED_NOTICE_JOB)).toHaveLength(1)
+    })
+
+    it('answers 409 to try again when every run is aborted, and deletes nothing', async () => {
+      const grace = await graceInTwoWorkspaces()
+      await eventsSoFar()
+      published = []
+      transientFailures = 3
+
+      const response = await deleteAccount({ cookie: grace.cookie })
+
+      expect(response.status).toBe(409)
+      expect(readRecord(await response.json()).error).toMatchObject({ message: DELETION_CONTENDED_MESSAGE })
+      expect(handled).toHaveLength(3)
+      expect(await accountExists(grace.userId)).toBe(true)
+      expect(await eventsSoFar()).toEqual([])
+    })
+
+    it('finishes when the member edits a record they own at the same moment', async () => {
+      const grace = await graceInTwoWorkspaces()
+      const opportunity = await client.send('POST', '/v1/opportunities', {
+        body: { name: 'Grant', owner_id: grace.acme.memberId },
+        cookie: grace.acme.cookie,
+      })
+      const opportunityId = readString(await opportunity.json(), 'id')
+      let settled = false
+      let deleting: Promise<Response> | undefined
+
+      // An edit locks the record, then names the member on its activity. The
+      // deletion holds the member row and waits for the record, so Postgres
+      // aborts one of the two. Either way the deletion ends deleted.
+      await database.db
+        .transaction(async (tx) => {
+          await tx.update(opportunities).set({ name: 'Grant (edited)' }).where(eq(opportunities.id, opportunityId))
+          deleting = deleteAccount({ cookie: grace.cookie }).finally(() => {
+            settled = true
+          })
+          await waitForLockWait(() => settled)
+          await tx.insert(activities).values({
+            id: harness.services.createId('activity'),
+            workspaceId: grace.acme.workspaceId,
+            targetType: 'opportunity',
+            targetId: opportunityId,
+            kind: 'updated',
+            actorMemberId: grace.acme.memberId,
+            action: 'updated Opportunity',
+          })
+        })
+        .catch((error: unknown) => {
+          // The edit was the transaction Postgres chose to abort.
+          expect(postgresErrorCode(error)).toBe('40P01')
+        })
+
+      expect((await (deleting ?? Promise.reject(new Error('never started')))).status).toBe(204)
+      expect(await accountExists(grace.userId)).toBe(false)
+    })
+  })
+
+  describe('with other work in flight', () => {
+    it('refuses when the password changes between the check and the row lock', async () => {
+      const grace = await graceInTwoWorkspaces()
+      let settled = false
+      let deleting: Promise<Response> | undefined
+
+      await database.db.transaction(async (tx) => {
+        await tx.select().from(users).where(eq(users.id, grace.userId)).for('update')
+        deleting = deleteAccount({ cookie: grace.cookie }).finally(() => {
+          settled = true
+        })
+        await waitForLockWait(() => settled)
+        await tx.update(users).set({ passwordHash: 'changed-elsewhere' }).where(eq(users.id, grace.userId))
+      })
+
+      const response = await (deleting ?? Promise.reject(new Error('never started')))
+      expect(response.status).toBe(401)
+      expect(await accountExists(grace.userId)).toBe(true)
+    })
+
+    it('answers 500 to a handler that fails, rolls back, and publishes nothing', async () => {
+      const grace = await graceInTwoWorkspaces()
+      const opportunity = await client.send('POST', '/v1/opportunities', {
+        body: { name: 'Grant', owner_id: grace.acme.memberId },
+        cookie: grace.acme.cookie,
+      })
+      const opportunityId = readString(await opportunity.json(), 'id')
+      await eventsSoFar()
+      published = []
+      fault = new Error('table missing')
+
+      const response = await deleteAccount({ cookie: grace.cookie })
+
+      expect(response.status).toBe(500)
+      expect(await accountExists(grace.userId)).toBe(true)
+      const [row] = await database.db.select().from(opportunities).where(eq(opportunities.id, opportunityId))
+      expect(row?.ownerId).toBe(grace.acme.memberId)
+      expect(await eventsSoFar()).toEqual([])
+      expect(harness.logLines.join('\n')).toContain('account-deletion handler of module \\"deletion-fixture\\" failed')
+    })
+
+    it('refuses when ownership moves to the account while it is deleted', async () => {
+      const grace = await graceInTwoWorkspaces()
+      let settled = false
+      let deleting: Promise<Response> | undefined
+
+      await database.db.transaction(async (tx) => {
+        await lockMembershipChanges(tx, grace.acme.workspaceId)
+        await tx
+          .update(workspaceMembers)
+          .set({ role: 'admin' })
+          .where(and(eq(workspaceMembers.workspaceId, grace.acme.workspaceId), eq(workspaceMembers.role, 'owner')))
+        await tx.update(workspaceMembers).set({ role: 'owner' }).where(eq(workspaceMembers.id, grace.acme.memberId))
+        deleting = deleteAccount({ cookie: grace.cookie }).finally(() => {
+          settled = true
+        })
+        await waitForLockWait(() => settled)
+      })
+
+      const response = await (deleting ?? Promise.reject(new Error('never started')))
+      expect(response.status).toBe(409)
+      expect(readRecord(await response.json()).error).toMatchObject({
+        details: [{ field: grace.acme.workspaceId, message: 'Acme' }],
+      })
+      expect(await accountExists(grace.userId)).toBe(true)
+    })
+
+    it('removes a membership that was being added, and publishes its removal', async () => {
+      const grace = await graceInTwoWorkspaces()
+      const carol = await client.owner('carol@example.com')
+      const memberId = harness.services.createId('teamMember')
+      await eventsSoFar()
+      published = []
+      let settled = false
+      let deleting: Promise<Response> | undefined
+
+      await database.db.transaction(async (tx) => {
+        await tx
+          .insert(workspaceMembers)
+          .values({ id: memberId, workspaceId: carol.workspaceId, userId: grace.userId, role: 'member' })
+        deleting = deleteAccount({ cookie: grace.cookie }).finally(() => {
+          settled = true
+        })
+        await waitForLockWait(() => settled)
+      })
+
+      expect((await (deleting ?? Promise.reject(new Error('never started')))).status).toBe(204)
+
+      const removed = (await eventsSoFar()).filter((event) => event.name === 'workspace.member.removed')
+      expect(removed.map((event) => event.workspaceId).toSorted()).toEqual(
+        [grace.acme.workspaceId, grace.globex.workspaceId, carol.workspaceId].toSorted(),
+      )
+    })
+
+    it('clears a record that was being given to the member, and publishes the removal', async () => {
+      const grace = await graceInTwoWorkspaces()
+      const opportunity = await client.send('POST', '/v1/opportunities', {
+        body: { name: 'Grant' },
+        cookie: grace.acme.cookie,
+      })
+      const opportunityId = readString(await opportunity.json(), 'id')
+      await eventsSoFar()
+      published = []
+      let settled = false
+      let deleting: Promise<Response> | undefined
+
+      await database.db.transaction(async (tx) => {
+        await tx.update(opportunities).set({ ownerId: grace.acme.memberId }).where(eq(opportunities.id, opportunityId))
+        deleting = deleteAccount({ cookie: grace.cookie }).finally(() => {
+          settled = true
+        })
+        await waitForLockWait(() => settled)
+      })
+
+      expect((await (deleting ?? Promise.reject(new Error('never started')))).status).toBe(204)
+
+      const [row] = await database.db.select().from(opportunities).where(eq(opportunities.id, opportunityId))
+      expect(row?.ownerId).toBeNull()
+      expect(
+        (await eventsSoFar())
+          .filter((event) => event.name === 'workspace.member.removed')
+          .map((event) => event.target.id),
+      ).toContain(grace.acme.memberId)
+    })
+
+    it('finishes the rest when an admin removes the member first', async () => {
+      const grace = await graceInTwoWorkspaces()
+      await eventsSoFar()
+      published = []
+      let settled = false
+      let deleting: Promise<Response> | undefined
+
+      await database.db.transaction(async (tx) => {
+        await lockMembershipChanges(tx, grace.acme.workspaceId)
+        await tx.delete(workspaceMembers).where(eq(workspaceMembers.id, grace.acme.memberId))
+        deleting = deleteAccount({ cookie: grace.cookie }).finally(() => {
+          settled = true
+        })
+        await waitForLockWait(() => settled)
+      })
+
+      expect((await (deleting ?? Promise.reject(new Error('never started')))).status).toBe(204)
+      expect(
+        (await eventsSoFar())
+          .filter((event) => event.name === 'workspace.member.removed')
+          .map((event) => event.workspaceId),
+      ).toEqual([grace.globex.workspaceId])
+    })
+
+    it('deletes two accounts that share two workspaces at the same moment', async () => {
+      const acme = await client.owner('ada@example.com')
+      const globex = await client.owner('bob@example.com')
+      const grace = await client.signUp('grace@example.com')
+      const linus = await client.signUp('linus@example.com')
+
+      for (const cookie of [grace, linus]) {
+        await join(cookie, globex.workspaceId)
+        await join(cookie, acme.workspaceId)
+      }
+
+      const [first, second] = await Promise.all([deleteAccount({ cookie: grace }), deleteAccount({ cookie: linus })])
+
+      expect([first?.status, second?.status]).toEqual([204, 204])
+      expect(await database.db.select().from(workspaceMembers)).toHaveLength(2)
+    })
+
+    it('names both workspaces of an account that owns two', async () => {
+      const ada = await client.owner('ada@example.com')
+      const second = await client.send('POST', '/v1/workspaces', {
+        body: { name: 'Globex', timezone: 'UTC' },
+        cookie: ada.cookie,
+      })
+      const secondId = readString(await second.json(), 'id')
+
+      const response = await deleteAccount({ cookie: ada.cookie })
+
+      expect(response.status).toBe(409)
+      expect(
+        (readRecord(readRecord(await response.json()).error).details as { field: string; message: string }[]).toSorted(
+          (left, right) => left.field.localeCompare(right.field),
+        ),
+      ).toEqual(
+        [
+          { field: ada.workspaceId, message: 'Acme' },
+          { field: secondId, message: 'Globex' },
+        ].toSorted((left, right) => left.field.localeCompare(right.field)),
+      )
+    })
+  })
+
+  describe('what else goes with the account', () => {
+    it('deletes the rate-limit counters keyed on its address, and its idempotency keys', async () => {
+      const grace = await graceInTwoWorkspaces()
+      // Now, so the prune a request runs does not take the rows first.
+      const windowStart = new Date()
+
+      await database.db.insert(rateLimitBuckets).values(
+        ['login-account', 'password-reset-account', 'verify-email-address', 'auth'].map((scope) => ({
+          id: harness.services.createId('rateLimitBucket'),
+          scope,
+          key: scope === 'auth' ? '203.0.113.9' : 'grace@example.com',
+          windowStart,
+        })),
+      )
+      await database.db.insert(rateLimitBuckets).values({
+        id: harness.services.createId('rateLimitBucket'),
+        scope: 'login-account',
+        key: 'ada@example.com',
+        windowStart,
+      })
+      await database.db.insert(idempotencyKeys).values([
+        {
+          id: harness.services.createId('idempotencyKey'),
+          workspaceId: grace.acme.workspaceId,
+          actorKey: `user:${grace.userId}`,
+          key: 'grace-key',
+          requestHash: 'hash',
+          expiresAt: new Date('2999-01-01T00:00:00.000Z'),
+        },
+        {
+          id: harness.services.createId('idempotencyKey'),
+          workspaceId: grace.acme.workspaceId,
+          actorKey: 'user:usr_someone_else',
+          key: 'other-key',
+          requestHash: 'hash',
+          expiresAt: new Date('2999-01-01T00:00:00.000Z'),
+        },
+      ])
+
+      expect((await deleteAccount({ cookie: grace.cookie })).status).toBe(204)
+
+      const buckets = await database.db
+        .select({ scope: rateLimitBuckets.scope, key: rateLimitBuckets.key })
+        .from(rateLimitBuckets)
+        .where(inArray(rateLimitBuckets.key, ['grace@example.com', 'ada@example.com', '203.0.113.9']))
+      expect(buckets.toSorted((left, right) => left.key.localeCompare(right.key))).toEqual([
+        { scope: 'auth', key: '203.0.113.9' },
+        { scope: 'login-account', key: 'ada@example.com' },
+      ])
+      expect((await database.db.select().from(idempotencyKeys)).map((row) => row.key)).toEqual(['other-key'])
+    })
+  })
+
+  describe('the operator command', () => {
+    const DATABASE_URL = 'postgres://kelpie:not-for-the-terminal@db.example:5432/kelpie_prod'
+
+    interface Run {
+      readonly code: number
+      readonly out: readonly string[]
+      readonly err: readonly string[]
+    }
+
+    async function command(
+      argv: readonly string[],
+      overrides: Partial<OperatorAssembly> = {},
+      boot?: () => Promise<OperatorAssembly>,
+    ): Promise<Run> {
+      const out: string[] = []
+      const err: string[] = []
+      const assembly: OperatorAssembly = {
+        db: database.db,
+        databaseUrl: DATABASE_URL,
+        transaction: harness.services.transaction,
+        runAccountDeletionHandlers: harness.contributions.runAccountDeletionHandlers,
+        startJobs: () => Promise.resolve(),
+        drainEvents: () => harness.services.events.drain(),
+        stopJobs: () => Promise.resolve(),
+        closeDatabase: () => Promise.resolve(),
+        ...overrides,
+      }
+      const code = await runDeleteAccountCommand({
+        argv,
+        boot: boot ?? (() => Promise.resolve(assembly)),
+        configurationHint: 'Fix the configuration.',
+        report: (line) => out.push(line),
+        reportFatal: (line) => err.push(line),
+      })
+
+      return { code, out, err }
+    }
+
+    it('prints the target and deletes nothing without --yes', async () => {
+      const grace = await graceInTwoWorkspaces()
+
+      const run = await command(['grace@example.com'])
+
+      expect(run.code).toBe(ACCOUNT_DELETION_EXIT_USAGE)
+      expect(run.out[0]).toBe('Database: db.example:5432/kelpie_prod')
+      expect(run.out[1]).toBe(`Account: ${grace.userId} grace@example.com`)
+      expect(run.out).toContain(`  ${grace.acme.workspaceId} Acme (member)`)
+      expect(run.out).toContain(`  ${grace.globex.workspaceId} Acme (member)`)
+      expect(run.out.at(-1)).toBe('Nothing was deleted. Run the same command with --yes to delete this account.')
+      expect([...run.out, ...run.err].join('\n')).not.toContain('not-for-the-terminal')
+      expect(await accountExists(grace.userId)).toBe(true)
+    })
+
+    it('prints the target and deletes with --yes', async () => {
+      const grace = await graceInTwoWorkspaces()
+
+      const run = await command(['--yes', 'Grace@Example.com'])
+
+      expect(run.code).toBe(ACCOUNT_DELETION_EXIT_DELETED)
+      expect(run.out[0]).toBe('Database: db.example:5432/kelpie_prod')
+      expect(run.out.at(-1)).toBe(`Deleted account ${grace.userId} (grace@example.com).`)
+      expect(await accountExists(grace.userId)).toBe(false)
+    })
+
+    it('treats an empty address, a second address and an unknown flag as usage errors', async () => {
+      const cookie = await client.signUp('grace@example.com')
+      const userId = await accountIdOf(cookie)
+
+      for (const argv of [[], ['   '], ['a@example.com', 'b@example.com'], ['grace@example.com', '--force']]) {
+        const run = await command(argv)
+
+        expect(run.code).toBe(ACCOUNT_DELETION_EXIT_USAGE)
+        expect(run.err).toEqual(['Usage: npm run delete-account -- <email> [--yes]'])
+      }
+
+      expect(await accountExists(userId)).toBe(true)
+    })
+
+    it('answers 4 with one line to a fault, and still cleans up', async () => {
+      const cookie = await client.signUp('grace@example.com')
+      const userId = await accountIdOf(cookie)
+      const steps: string[] = []
+
+      const run = await command(['grace@example.com', '--yes'], {
+        startJobs: () => Promise.reject(new Error('connect ECONNREFUSED 127.0.0.1:5432\n    at stack frame')),
+        drainEvents: () => {
+          steps.push('drain')
+          return Promise.resolve()
+        },
+        stopJobs: () => {
+          steps.push('stop')
+          return Promise.resolve()
+        },
+        closeDatabase: () => {
+          steps.push('close')
+          return Promise.resolve()
+        },
+      })
+
+      expect(run.code).toBe(ACCOUNT_DELETION_EXIT_FAULT)
+      expect(run.err).toEqual(['Failed: Error: connect ECONNREFUSED 127.0.0.1:5432. Nothing was deleted.'])
+      expect(steps).toEqual(['drain', 'stop', 'close'])
+      expect(await accountExists(userId)).toBe(true)
+    })
+
+    it('answers 4 to a handler that fails', async () => {
+      const grace = await graceInTwoWorkspaces()
+      fault = new Error('table missing')
+
+      const run = await command(['grace@example.com', '--yes'])
+
+      expect(run.code).toBe(ACCOUNT_DELETION_EXIT_FAULT)
+      expect(run.err).toEqual([
+        'Failed: Error: account-deletion handler of module "deletion-fixture" failed: Error: table missing. Nothing was deleted.',
+      ])
+      expect(await accountExists(grace.userId)).toBe(true)
+    })
+
+    it('reports a clean-up that fails and keeps the deletion result', async () => {
+      const grace = await graceInTwoWorkspaces()
+
+      const run = await command(['grace@example.com', '--yes'], {
+        stopJobs: () => Promise.reject(new Error('boss would not stop')),
+        closeDatabase: () => Promise.reject(new Error('pool already ended')),
+      })
+
+      expect(run.code).toBe(ACCOUNT_DELETION_EXIT_DELETED)
+      expect(run.err).toEqual([
+        'Clean-up failed while stopping the job runtime: Error: boss would not stop',
+        'Clean-up failed while closing the database: Error: pool already ended',
+      ])
+      expect(await accountExists(grace.userId)).toBe(false)
+    })
+
+    it('answers 1 with the problems and the hint when the configuration will not boot', async () => {
+      const run = await command(['grace@example.com', '--yes'], {}, () =>
+        Promise.reject(new ConfigurationError(['DATABASE_URL: Required'])),
+      )
+
+      expect(run.code).toBe(ACCOUNT_DELETION_EXIT_USAGE)
+      expect(run.err).toEqual(['Invalid environment configuration:', '  - DATABASE_URL: Required', 'Fix the configuration.'])
+    })
+
+    it('escapes terminal control characters in everything it prints', async () => {
+      const ada = await client.owner('ada@example.com')
+      await database.db
+        .update(workspaces)
+        .set({ name: 'Evil\u001b]0;owned\u0007\u001b[2J\u2028Co' })
+        .where(eq(workspaces.id, ada.workspaceId))
+
+      const run = await command(['ada@example.com', '--yes'])
+      const printed = [...run.out, ...run.err].join('\n')
+
+      expect(run.code).toBe(ACCOUNT_DELETION_EXIT_REFUSED)
+      expect(printed).toContain('Evil\\u001b]0;owned\\u0007\\u001b[2J\\u2028Co')
+      // eslint-disable-next-line no-control-regex -- the assertion is that none is left
+      expect(printed).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/u)
+      expect(run.err).toContain(`  ${ada.workspaceId}: Evil\\u001b]0;owned\\u0007\\u001b[2J\\u2028Co`)
+    })
+
+    it('refuses with 2 when the account moves off the address between the lookup and the lock', async () => {
+      const grace = await graceInTwoWorkspaces()
+      let settled = false
+      let running: Promise<Run> | undefined
+
+      await database.db.transaction(async (tx) => {
+        await tx.select().from(users).where(eq(users.id, grace.userId)).for('update')
+        running = command(['grace@example.com', '--yes']).finally(() => {
+          settled = true
+        })
+        await waitForLockWait(() => settled)
+        await tx.update(users).set({ email: 'grace.new@example.com' }).where(eq(users.id, grace.userId))
+      })
+
+      const run = await (running ?? Promise.reject(new Error('never started')))
+      expect(run.code).toBe(ACCOUNT_DELETION_EXIT_UNKNOWN)
+      expect(run.err.at(-1)).toBe(
+        `The account ${grace.userId} moved off the address grace@example.com while this ran. Nothing was deleted.`,
+      )
+      expect(await accountExists(grace.userId)).toBe(true)
+    })
+
+    it('sends the notice when an operator deletes the account', async () => {
+      await graceInTwoWorkspaces()
+
+      expect((await command(['grace@example.com', '--yes'])).code).toBe(ACCOUNT_DELETION_EXIT_DELETED)
+
+      await harness.runQueuedJobs()
+      expect(
+        harness.services.sentEmails.filter((message) => message.subject === 'Your Kelpie account was deleted'),
+      ).toHaveLength(1)
+    })
+  })
+
 })

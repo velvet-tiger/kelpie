@@ -222,11 +222,20 @@ export type { ResealColumnOutcome, ResealOutcome, ResealPass, RunResealOptions }
 
 export {
   ACCOUNT_DELETION_EXIT_DELETED,
+  ACCOUNT_DELETION_EXIT_FAULT,
   ACCOUNT_DELETION_EXIT_REFUSED,
   ACCOUNT_DELETION_EXIT_UNKNOWN,
+  ACCOUNT_DELETION_EXIT_USAGE,
+  operatorAssemblyFrom,
   runAccountDeletion,
+  runDeleteAccountCommand,
 } from './modules/auth/operatorDeletion.ts'
-export type { RunAccountDeletionOptions } from './modules/auth/operatorDeletion.ts'
+export type {
+  DeleteAccountCommandOptions,
+  OperatorAssembly,
+  OperatorOutput,
+  RunAccountDeletionOptions,
+} from './modules/auth/operatorDeletion.ts'
 
 export { KEY_KINDS, kindOfSecret, mintKey, parseKeyKind, readBearerToken } from './modules/api-keys/keys.ts'
 export type { KeyKind, MintedKey } from './modules/api-keys/keys.ts'
