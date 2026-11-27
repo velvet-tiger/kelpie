@@ -12,7 +12,7 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
-- **`@kelpie/server`**: **An email-change guard.** `context.guardEmailChange(guard)`
+- **An email-change guard.** `context.guardEmailChange(guard)`
   adds a guard that runs before core commits an address change. It runs after the
   current-password check, and only when the address really changes. A rejection
   answers `403` with the guard's message and changes nothing. A change that commits
@@ -20,7 +20,7 @@ While the major version is `0`, a minor bump may break the API.
   `EmailChangeGuard` and `EmailChangeVerdict` are exported. An assembly with no
   guard behaves as before.
 
-- **`@kelpie/server`**: **`auth.user.email_verified`.** `auth` publishes it when an
+- **`auth.user.email_verified`.** `auth` publishes it when an
   address is verified: by a verification link, by accepting a workspace invitation,
   or by an external sign-in that links an account whose address was never confirmed.
   It fires only when that changes the account. An external sign-in answers `409` and

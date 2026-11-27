@@ -7,7 +7,8 @@ import type { ModuleEventCatalog } from '../../runtime/module.ts'
  *
  * An account is global, so these are account events (`KelpieAccountEvents`):
  * the envelope carries `workspaceId: null` and the target is the account
- * (`user`). The actor is the account itself.
+ * (`user`). The actor is the account itself, except on an operator's
+ * deletion (below).
  *
  * `auth.user.created` fires when a sign-up commits a new account: a password
  * sign-up, or an external sign-in that provisioned one. Signing in to an
