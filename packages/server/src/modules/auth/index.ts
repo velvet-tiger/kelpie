@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { appUrlConfigSchema } from '../../lib/appUrl.ts'
 import type { KelpieModule } from '../../runtime/module.ts'
 import {
+  defineSendAccountDeletedNoticeJob,
   defineSendEmailChangeNoticeJob,
   defineSendPasswordResetEmailJob,
   defineSendVerificationEmailJob,
@@ -47,6 +48,11 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
         now: context.now,
         appBaseUrl,
       }
+
+      // Defined here, enqueued by the deletion itself (`deletion.ts`) through
+      // `ACCOUNT_DELETED_NOTICE`, the same name: the operator path never sees
+      // this closure.
+      context.jobs.define(defineSendAccountDeletedNoticeJob(emailDependencies))
 
       const service = createAuthService({
         db: context.db,

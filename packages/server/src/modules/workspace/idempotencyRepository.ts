@@ -97,6 +97,14 @@ export async function deleteIdempotencyKey(db: Queryable, id: string): Promise<v
 }
 
 /**
+ * Deletes every key one actor sent, in every workspace. A stored response can
+ * hold what the person wrote, so deleting the account deletes these.
+ */
+export async function deleteIdempotencyKeysOfActor(db: Queryable, actorKey: string): Promise<void> {
+  await db.delete(idempotencyKeys).where(eq(idempotencyKeys.actorKey, actorKey))
+}
+
+/**
  * Clears this workspace's other expired keys.
  *
  * Enforced here rather than by a schedule, the same call as

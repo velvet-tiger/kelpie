@@ -237,6 +237,8 @@ export type SignUpGuard = (attempt: SignUpAttempt) => Promise<SignUpVerdict>
  */
 export interface AccountDeletion extends TransactionContext {
   readonly userId: string
+  /** The address the account has, normalised. Read under the row lock. */
+  readonly email: string
 }
 
 /**

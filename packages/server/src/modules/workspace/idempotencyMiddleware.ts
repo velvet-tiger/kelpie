@@ -72,7 +72,12 @@ function replayResponse(stored: StoredIdempotentResponse): Response {
  * member's response.
  */
 function actorKeyOf(actor: Actor): string {
-  return isBearerActor(actor) ? `${actor.kind}:${bearerCredentialId(actor)}` : `user:${actor.userId}`
+  return isBearerActor(actor) ? `${actor.kind}:${bearerCredentialId(actor)}` : userActorKey(actor.userId)
+}
+
+/** The actor key of a signed-in person's requests. Deleting the account deletes its rows. */
+export function userActorKey(userId: string): string {
+  return `user:${userId}`
 }
 
 function conflict(message: string): AppError {

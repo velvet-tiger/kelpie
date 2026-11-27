@@ -1,11 +1,13 @@
 import { Hono } from 'hono'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { AppError } from '../lib/errors.ts'
 import { createCaptureTransport, createLogger } from '../lib/logger.ts'
 import { TEST_EMAIL_FROM, TEST_EMAIL_PROVIDER, createTestServices } from '../testing/services.ts'
 import { createTestApp } from '../testing/app.ts'
+import { connectTestDatabase, testDatabaseUrl } from '../testing/database.ts'
+import type { TestDatabase } from '../testing/database.ts'
 import { workspaceKeyActor } from '../testing/fixtures.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
 import type { Environment, RuntimeMode } from '../lib/config.ts'
@@ -20,6 +22,8 @@ import type {
 } from './module.ts'
 import { ModuleBootError } from './order.ts'
 import { registerModules } from './registry.ts'
+
+const connectionString = testDatabaseUrl(process.env)
 
 /**
  * The module under test contributes one of each kind of thing a module can
@@ -655,18 +659,20 @@ describe('sign-up guards', () => {
   })
 })
 
-describe('account-deletion handlers', () => {
-  /**
-   * The transaction parts are never touched by these handlers: the runner's
-   * order and error handling are what is under test. `accountDeletion.test.ts`
-   * runs real handlers on a real transaction.
-   */
-  const deletion: AccountDeletion = {
-    userId: 'usr_1',
-    tx: undefined as never,
-    events: undefined as never,
-    jobs: undefined as never,
-  }
+describe.skipIf(connectionString === undefined)('account-deletion handlers', () => {
+  let database: TestDatabase
+
+  beforeAll(async () => {
+    if (connectionString === undefined) {
+      throw new Error('unreachable: the suite is skipped without a connection string')
+    }
+
+    database = await connectTestDatabase(connectionString)
+  })
+
+  afterAll(async () => {
+    await database.close()
+  })
 
   function handlerModule(id: string, handler: AccountDeletionHandler): KelpieModule {
     return {
@@ -679,12 +685,15 @@ describe('account-deletion handlers', () => {
     }
   }
 
-  /** Boots `modules` after a consumer, and hands back the consumer's runner and the contributions' one. */
+  type Runner = (deletion: AccountDeletion) => Promise<void>
+
+  /** Boots `modules` after a consumer, and hands back the consumer's runner, the contributions' one, and a transaction scope. */
   async function runnersFor(modules: readonly KelpieModule[]): Promise<{
-    readonly fromContext: (value: AccountDeletion) => Promise<void>
-    readonly fromContributions: (value: AccountDeletion) => Promise<void>
+    readonly fromContext: Runner
+    readonly fromContributions: Runner
+    readonly inTransaction: (runner: Runner) => Promise<void>
   }> {
-    let fromContext: ((value: AccountDeletion) => Promise<void>) | undefined
+    let fromContext: Runner | undefined
 
     const consumer: KelpieModule = {
       id: 'consumer',
@@ -695,17 +704,18 @@ describe('account-deletion handlers', () => {
       },
     }
 
-    const { contributions } = await createTestApp({
-      modules: [consumer, ...modules],
-      environment: {},
-      services: createTestServices(),
-    })
+    const services = createTestServices({ db: database.db })
+    const { contributions } = await createTestApp({ modules: [consumer, ...modules], environment: {}, services })
 
     if (fromContext === undefined) {
       throw new Error('the consumer module did not register')
     }
 
-    return { fromContext, fromContributions: contributions.runAccountDeletionHandlers }
+    // A real transaction, so a handler gets the parts it would in a deletion.
+    const inTransaction = (runner: Runner): Promise<void> =>
+      services.transaction((context) => runner({ ...context, userId: 'usr_1', email: 'ada@example.com' }))
+
+    return { fromContext, fromContributions: contributions.runAccountDeletionHandlers, inTransaction }
   }
 
   it('runs every handler in registration order, with the deletion it was given', async () => {
@@ -713,24 +723,29 @@ describe('account-deletion handlers', () => {
     const record =
       (id: string): AccountDeletionHandler =>
       (value) => {
-        calls.push(`${id}:${value.userId}`)
+        calls.push(`${id}:${value.userId}:${value.email}`)
         return Promise.resolve()
       }
-    const { fromContext, fromContributions } = await runnersFor([
+    const { fromContext, fromContributions, inTransaction } = await runnersFor([
       handlerModule('first', record('first')),
       handlerModule('second', record('second')),
     ])
 
-    await fromContext(deletion)
-    await fromContributions(deletion)
+    await inTransaction(fromContext)
+    await inTransaction(fromContributions)
 
-    expect(calls).toEqual(['first:usr_1', 'second:usr_1', 'first:usr_1', 'second:usr_1'])
+    expect(calls).toEqual([
+      'first:usr_1:ada@example.com',
+      'second:usr_1:ada@example.com',
+      'first:usr_1:ada@example.com',
+      'second:usr_1:ada@example.com',
+    ])
   })
 
   it('passes a refusal on unchanged and runs no later handler', async () => {
     const calls: string[] = []
     const refusal = AppError.conflict('Owns a workspace')
-    const { fromContext } = await runnersFor([
+    const { fromContext, inTransaction } = await runnersFor([
       handlerModule('refuses', () => Promise.reject(refusal)),
       handlerModule('later', () => {
         calls.push('later')
@@ -738,24 +753,33 @@ describe('account-deletion handlers', () => {
       }),
     ])
 
-    await expect(fromContext(deletion)).rejects.toBe(refusal)
+    await expect(inTransaction(fromContext)).rejects.toBe(refusal)
     expect(calls).toEqual([])
+  })
+
+  it('passes a deadlock or a serialization failure on unchanged, so the deletion can run again', async () => {
+    for (const code of ['40P01', '40001']) {
+      const transient = Object.assign(new Error('aborted by Postgres'), { code })
+      const { fromContext, inTransaction } = await runnersFor([handlerModule('contended', () => Promise.reject(transient))])
+
+      await expect(inTransaction(fromContext)).rejects.toBe(transient)
+    }
   })
 
   it('wraps a handler that fails with the module id and keeps the cause', async () => {
     const cause = new Error('table missing')
-    const { fromContext } = await runnersFor([handlerModule('broken', () => Promise.reject(cause))])
+    const { fromContext, inTransaction } = await runnersFor([handlerModule('broken', () => Promise.reject(cause))])
 
-    await expect(fromContext(deletion)).rejects.toMatchObject({
+    await expect(inTransaction(fromContext)).rejects.toMatchObject({
       message: 'account-deletion handler of module "broken" failed: Error: table missing',
       cause,
     })
   })
 
   it('resolves when no module added a handler', async () => {
-    const { fromContext } = await runnersFor([])
+    const { fromContext, inTransaction } = await runnersFor([])
 
-    await expect(fromContext(deletion)).resolves.toBeUndefined()
+    await expect(inTransaction(fromContext)).resolves.toBeUndefined()
   })
 })
 
