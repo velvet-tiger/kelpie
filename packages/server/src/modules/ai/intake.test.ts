@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto'
+
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { MAX_ID_LENGTH } from '../../lib/fieldLimits.ts'
 import { createCaptureTransport, createLogger } from '../../lib/logger.ts'
 import { createEntitlementRegistry } from '../../runtime/entitlements.ts'
 import { runMigrations } from '../../runtime/migrate.ts'
@@ -12,7 +15,7 @@ import { createTestClient, readList, readRecord, readString } from '../../testin
 import type { TestClient } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
-import { TEST_ENVIRONMENT } from '../../testing/environment.ts'
+import { TEST_APP_BASE_URL, TEST_ENVIRONMENT } from '../../testing/environment.ts'
 import { createTestServices } from '../../testing/services.ts'
 import { coreModules } from '../core.ts'
 import type { AiRunSettledData } from './events.ts'
@@ -231,6 +234,14 @@ function researchReply(existingCompanyId: string | null): Record<string, unknown
 const FINDINGS_REPLY = {
   findings: 'Dana Reyes leads engineering at Brightline Health (https://brightline.health/team).',
   sources: [{ url: 'https://brightline.health/team', title: 'Team' }],
+}
+
+/** One MCP tool call's answer: the HTTP status, the challenge if the token was refused, and the JSON. */
+interface McpCall {
+  readonly status: number
+  readonly challenge: string | null
+  readonly isError: boolean
+  readonly payload: Record<string, unknown>
 }
 
 /** A Person and a Company whose text appears nowhere in the notes or the candidate. */
@@ -1484,6 +1495,278 @@ describe.skipIf(connectionString === undefined)('ai person intake', () => {
       expect(h.provider.requests).toHaveLength(1)
       const [row] = await runRows(h, owner.workspaceId)
       expect(row?.status).toBe('failed')
+    })
+  })
+
+  describe('over MCP', () => {
+    const OAUTH_REDIRECT = 'http://127.0.0.1:33418/callback'
+    const OAUTH_VERIFIER = 'a-verifier-that-is-long-enough-to-satisfy-rfc-7636-rules'
+    const OAUTH_CHALLENGE = createHash('sha256').update(OAUTH_VERIFIER, 'ascii').digest('base64url')
+    const OAUTH_RESOURCE = `${TEST_APP_BASE_URL}/mcp`
+
+    /** One tool call over `/mcp`: whether the tool refused, and the JSON it answered. */
+    async function callTool(
+      bearer: string,
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<McpCall> {
+      const response = await h.app.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      })
+      const answer = readRecord(await response.json())
+      const challenge = response.headers.get('WWW-Authenticate')
+
+      // A grant without the tool's scope is refused at the HTTP level, before
+      // the tool runs, with a challenge. Any other scope refusal is in-band.
+      if (answer.result === undefined) {
+        return { status: response.status, challenge, isError: true, payload: answer }
+      }
+
+      const result = readRecord(answer.result)
+      const [content] = result.content as { text: string }[]
+
+      return {
+        status: response.status,
+        challenge,
+        isError: result.isError === true,
+        payload: readRecord(JSON.parse(content?.text ?? 'null')),
+      }
+    }
+
+    async function personalKey(cookie: string, scopes: readonly string[]): Promise<string> {
+      const minted = await h.client.send('POST', '/v1/api-keys', {
+        cookie,
+        body: { name: 'intake', kind: 'personal', scopes },
+      })
+      expect(minted.status).toBe(201)
+
+      return readString(await minted.json(), 'secret')
+    }
+
+    /** Invites `email` as a member, accepts as a fresh account, and answers the cookie. */
+    async function addMember(owner: { readonly cookie: string; readonly workspaceId: string }, email: string): Promise<string> {
+      const invited = await h.client.send('POST', `/v1/workspaces/${owner.workspaceId}/invites`, {
+        cookie: owner.cookie,
+        body: { email, role: 'member' },
+      })
+      expect(invited.status).toBe(201)
+      await h.app.runQueuedJobs()
+
+      const body = h.app.services.sentEmails.at(-1)?.body ?? ''
+      const token = /token=(?<token>[\w-]+)/u.exec(body)?.groups?.token
+      if (token === undefined) throw new Error(`No invite token in the sent email: ${body}`)
+
+      const cookie = await h.client.signUp(email)
+      const accepted = await h.client.send('POST', '/v1/invites/accept', { cookie, body: { token } })
+      expect(accepted.status).toBe(200)
+
+      return cookie
+    }
+
+    /** A connected client's access token for `scopes`, from registration to the code exchange. */
+    async function oauthAccess(cookie: string, workspaceId: string, scopes: readonly string[]): Promise<string> {
+      const registered = await h.client.send('POST', '/oauth/register', {
+        body: { client_name: 'Intake agent', redirect_uris: [OAUTH_REDIRECT], token_endpoint_auth_method: 'none' },
+      })
+      expect(registered.status).toBe(201)
+      const clientId = readString(await registered.json(), 'client_id')
+
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: clientId,
+        redirect_uri: OAUTH_REDIRECT,
+        code_challenge: OAUTH_CHALLENGE,
+        code_challenge_method: 'S256',
+        state: 'xyz',
+        resource: OAUTH_RESOURCE,
+        scope: scopes.join(' '),
+      })
+      const authorize = await h.app.app.request(`/oauth/authorize?${params.toString()}`)
+      expect(authorize.status).toBe(302)
+      const requestId = /^\/consent\/(?<id>[^/?]+)$/u.exec(authorize.headers.get('Location') ?? '')?.groups?.id
+      if (requestId === undefined) throw new Error('Expected a consent redirect')
+
+      const approved = await h.client.send('POST', `/v1/oauth/requests/${requestId}/approve`, {
+        cookie,
+        body: { workspace_ids: [workspaceId], scopes },
+      })
+      expect(approved.status).toBe(200)
+      const code = new URL(readString(await approved.json(), 'redirect_url')).searchParams.get('code') ?? ''
+
+      const exchanged = await h.app.app.request('/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: OAUTH_REDIRECT,
+          client_id: clientId,
+          code_verifier: OAUTH_VERIFIER,
+          resource: OAUTH_RESOURCE,
+        }).toString(),
+      })
+      expect(exchanged.status).toBe(200)
+
+      return readString(await exchanged.json(), 'access_token')
+    }
+
+    it('registers four person_intake tools, each under ai:write', () => {
+      const tools = h.app.contributions.mcpTools.filter((tool) => tool.name.startsWith('person_intake_'))
+
+      expect(tools.map((tool) => tool.name).sort()).toEqual([
+        'person_intake_apply',
+        'person_intake_identify',
+        'person_intake_research',
+        'person_intake_run_get',
+      ])
+      expect(tools.map((tool) => tool.scope)).toEqual(tools.map(() => 'ai:write'))
+    })
+
+    it('starts identify with { run_id }, and reads the same run body as the route', async () => {
+      const owner = await enabledOwner(h, 'mcp-identify@example.com')
+      const key = await personalKey(owner.cookie, ['read:objects', 'ai:write'])
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+
+      const started = await callTool(key, 'person_intake_identify', { text: 'Dana Reyes, dana@brightline.health' })
+      expect(started.isError).toBe(false)
+      expect(Object.keys(started.payload)).toEqual(['run_id'])
+      const runId = readString(started.payload, 'run_id')
+
+      await h.app.runQueuedJobs()
+
+      const overMcp = await callTool(key, 'person_intake_run_get', { id: runId })
+      const overRest = await readIntakeRun(h, runId, { bearer: key })
+      expect(overRest.status).toBe(200)
+      expect(overMcp.isError).toBe(false)
+      expect(overMcp.payload).toEqual(readRecord(await overRest.json()))
+      expect(overMcp.payload).toMatchObject({ kind: 'identify', status: 'succeeded' })
+      expect(h.provider.requests).toHaveLength(1)
+    })
+
+    it('starts research with the route body, and maps existing_person_id to the existing Person', async () => {
+      const owner = await enabledOwner(h, 'mcp-research@example.com')
+      const { personId } = await seedCrmRecords(h, owner.cookie)
+      const key = await personalKey(owner.cookie, ['read:objects', 'ai:write'])
+      h.provider.queue(reply(FINDINGS_REPLY, SEARCHED))
+      h.provider.queue(reply(researchReply(null)))
+
+      const started = await callTool(key, 'person_intake_research', {
+        text: 'Dana Reyes, dana@brightline.health',
+        candidate: CANDIDATE,
+        existing_person_id: personId,
+      })
+      expect(started.isError).toBe(false)
+      expect(Object.keys(started.payload)).toEqual(['run_id'])
+
+      await h.app.runQueuedJobs()
+
+      const run = await callTool(key, 'person_intake_run_get', { id: readString(started.payload, 'run_id') })
+      expect(run.payload).toMatchObject({ kind: 'research', status: 'succeeded' })
+      // The record turn is the one that reads the CRM, so it holds the Person.
+      const [, record] = h.provider.requests
+      expect(record?.messages[0]?.text).toContain(personId)
+    })
+
+    it('refuses all four tools to a key without ai:write, and starts nothing', async () => {
+      const owner = await enabledOwner(h, 'mcp-refused@example.com')
+      const key = await personalKey(owner.cookie, ['read:objects', 'write:objects'])
+
+      const calls = [
+        await callTool(key, 'person_intake_identify', { text: 'Dana Reyes' }),
+        await callTool(key, 'person_intake_research', { text: 'Dana Reyes', candidate: CANDIDATE }),
+        await callTool(key, 'person_intake_run_get', { id: 'ai_missing' }),
+        await callTool(key, 'person_intake_apply', { items: [] }),
+      ]
+
+      for (const call of calls) {
+        expect(call.isError).toBe(true)
+        expect(readRecord(call.payload.error).code).toBe('forbidden')
+      }
+      expect(h.provider.requests).toHaveLength(0)
+      expect(await runRows(h, owner.workspaceId)).toHaveLength(0)
+    })
+
+    it('answers another member 404 for a run, and a long id 404 on both surfaces', async () => {
+      const owner = await enabledOwner(h, 'mcp-owner@example.com')
+      const memberCookie = await addMember(owner, 'mcp-member@example.com')
+      const ownerKey = await personalKey(owner.cookie, ['read:objects', 'ai:write'])
+      const memberKey = await personalKey(memberCookie, ['read:objects', 'ai:write'])
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+
+      const started = await callTool(ownerKey, 'person_intake_identify', { text: 'Dana Reyes' })
+      const runId = readString(started.payload, 'run_id')
+      await h.app.runQueuedJobs()
+
+      const byMember = await callTool(memberKey, 'person_intake_run_get', { id: runId })
+      expect(byMember.isError).toBe(true)
+      expect(readRecord(byMember.payload.error).code).toBe('not_found')
+
+      const long = 'r'.repeat(MAX_ID_LENGTH + 1)
+      const longOverMcp = await callTool(ownerKey, 'person_intake_run_get', { id: long })
+      const longOverRest = await readIntakeRun(h, long, { bearer: ownerKey })
+      expect(longOverMcp.isError).toBe(true)
+      expect(readRecord(longOverMcp.payload.error).code).toBe('not_found')
+      expect(longOverRest.status).toBe(404)
+    })
+
+    it('lets an OAuth grant with ai:write start a run, and refuses a grant without it', async () => {
+      const owner = await enabledOwner(h, 'mcp-oauth@example.com')
+      const withWrite = await oauthAccess(owner.cookie, owner.workspaceId, ['read:objects', 'ai:write'])
+      const readOnly = await oauthAccess(owner.cookie, owner.workspaceId, ['read:objects'])
+      h.provider.queue(reply(IDENTIFY_REPLY, SEARCHED))
+
+      const started = await callTool(withWrite, 'person_intake_identify', { text: 'Dana Reyes, dana@brightline.health' })
+      expect(started.isError).toBe(false)
+      await h.app.runQueuedJobs()
+
+      const run = await callTool(withWrite, 'person_intake_run_get', { id: readString(started.payload, 'run_id') })
+      expect(run.payload).toMatchObject({ kind: 'identify', status: 'succeeded' })
+
+      const refused = await callTool(readOnly, 'person_intake_identify', { text: 'Dana Reyes' })
+      expect(refused.status).toBe(403)
+      expect(refused.challenge).toContain('insufficient_scope')
+      expect(refused.challenge).toContain('ai:write')
+      expect(readRecord(refused.payload.error).code).toBe('forbidden')
+      expect(h.provider.requests).toHaveLength(1)
+    })
+
+    it('applies the items a key can write, and refuses the rest one by one', async () => {
+      const owner = await enabledOwner(h, 'mcp-apply@example.com')
+      const key = await personalKey(owner.cookie, ['read:objects', 'companies:write', 'ai:write'])
+
+      const applied = await callTool(key, 'person_intake_apply', {
+        items: [
+          {
+            key: 'person',
+            kind: 'person',
+            action: 'create',
+            existing_id: null,
+            fields: { name: 'Dana Reyes', email: 'dana@brightline.health' },
+          },
+          {
+            key: 'co1',
+            kind: 'company',
+            action: 'create',
+            existing_id: null,
+            fields: { name: 'Brightline Health', domain: 'brightline.health' },
+          },
+        ],
+      })
+
+      expect(applied.isError).toBe(false)
+      const results = applied.payload.results as Record<string, unknown>[]
+      // Company first, as over REST; the person needs people:write, which this key lacks.
+      expect(results.map((result) => [result.key, result.status])).toEqual([
+        ['co1', 'created'],
+        ['person', 'failed'],
+      ])
+      expect(typeof results[1]?.detail).toBe('string')
     })
   })
 })

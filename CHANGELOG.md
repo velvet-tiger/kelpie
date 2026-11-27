@@ -10,6 +10,14 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- **Person intake runs over MCP.** Four tools, `person_intake_identify`,
+  `person_intake_research`, `person_intake_run_get` and `person_intake_apply`, take
+  the bodies and answer the bodies of `/v1/ai/person-intake/*`. Each needs `ai:write`.
+  An OAuth grant that holds `ai:write` may start a run, as an API key may. The tools
+  exist when the `ai` module is listed. Each start still counts one AI run.
+
 ### Fixed
 
 - **A later title fills the blank Position a domain match left.** The email-domain

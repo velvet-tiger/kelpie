@@ -6,7 +6,6 @@ import {
 import type { Hono } from 'hono'
 import { z } from 'zod'
 
-import { AppError } from '../../lib/errors.ts'
 import { readJsonBody } from '../../lib/http.ts'
 import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
@@ -25,15 +24,15 @@ import { MAX_ID_LENGTH } from '../../lib/fieldLimits.ts'
 
 const notes = z.string().trim().min(1, 'Paste something about the person').max(PERSON_INTAKE_MAX_TEXT)
 
-const identifyBody = z.strictObject({ text: notes })
+export const identifyBody = z.strictObject({ text: notes })
 
-const researchBody = z.strictObject({
+export const researchBody = z.strictObject({
   text: notes,
   candidate: personIntakeCandidateWireSchema,
   existing_person_id: z.string().min(1).max(MAX_ID_LENGTH).nullable().default(null),
 })
 
-const applyBody = z.strictObject({
+export const applyBody = z.strictObject({
   items: z.array(personIntakeItemWireSchema).min(1, 'Choose at least one item').max(30),
 })
 
@@ -66,11 +65,6 @@ export function mountPersonIntakeRoutes(router: Hono, dependencies: PersonIntake
   router.get('/ai/person-intake/runs/:id', async (context) => {
     const actor = await resolveActorFrom(dependencies, context)
     const id = context.req.param('id')
-
-    // An id no run could have is a 404 like any other unknown id.
-    if (id.length > MAX_ID_LENGTH) {
-      throw AppError.notFound('No person-intake run has that id')
-    }
 
     return context.json(await dependencies.intake.readRun(actor, id))
   })
