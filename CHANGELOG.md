@@ -20,6 +20,15 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **Projects in same-named directories no longer share a Postgres volume.** The
+  scaffolded `docker-compose.yml` now sets a Compose project name: the package name
+  plus a random suffix, written once at scaffold time. Two projects whose directories
+  share a name get separate volumes, so a second project no longer boots with the
+  first one's credentials. Existing projects keep their current file. To keep an
+  existing project's data, give its `docker-compose.yml` a top-level `name:` that
+  matches the prefix of its current `*_kelpie_db_data` volume, shown by
+  `docker volume ls`. No migration.
+
 - **A later title fills the blank Position a domain match left.** The email-domain
   match links a new Person to a Company with an empty title. `positions_create` and
   `POST /v1/positions` with a title now fill that link. They no longer add a second

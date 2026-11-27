@@ -72,6 +72,10 @@ user and database name may use letters, digits and `_`. The password may use
 letters, digits and `. _ ~ -`. Any other URL is refused before a file is
 written: pass `--no-docker` to use a database you run yourself.
 
+The `docker-compose.yml` sets its own Compose project name: the package name
+plus a random suffix. Two projects in directories with the same name therefore
+get separate Postgres volumes. The name stays fixed when you move the project.
+
 ## Versions
 
 The generated manifest pins `@kelpie/server` and `@kelpie/ui` at this package's
