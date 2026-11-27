@@ -151,7 +151,7 @@ npm run delete-account -- person@example.com --yes
 
 Both runs print the target first: the database host and name, the account id and address, and each workspace it belongs to with its role. Never the database user or password. Text that came from a person, such as a workspace name, is printed with control characters escaped.
 
-It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. The address gets an email saying the account was deleted, if the address was ever verified. Run it where the service runs, with the same environment, after migrations.
+It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. The address gets an email saying the account was deleted, if its current address is verified. Run it where the service runs, with the same environment, after migrations.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -163,10 +163,11 @@ It runs the same rules as the account itself, without the password. An account t
 
 Backups still hold the account. The deletion does not reach them.
 
-Two things outlive the delete in the database, for a while:
+Three things outlive the delete in the database, for a while:
 
 - **Finished job rows.** pg-boss keeps a job row after it ends, until its retention removes it. The deletion notice and any earlier verification, reset or email-change job carry the address in their payload.
 - **`ai_runs.requested_by`.** A person-intake run keeps `user:<id>` to decide who may read it. The id names no one once the account is gone.
+- **Idempotency keys of a credential revoked earlier.** Revoking a personal API key or an OAuth connection deletes it, so the deletion has no id left to match its keys by. They expire within a day, as every idempotency key does.
 
 The deletion removes the login counter for the address (`login-account`). The two mail counters keyed on the address, `verify-email-address` and `password-reset-account`, stay until their window ends: they protect the mailbox, and a new account on the same address must not get a fresh budget.
 

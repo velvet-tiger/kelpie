@@ -133,7 +133,7 @@ npm run delete-account -- person@example.com --yes
 
 Both runs print the target first: the database host and name, the account id and address, and each workspace it belongs to with its role. Never the database user or password. Text that came from a person, such as a workspace name, is printed with control characters escaped.
 
-It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. The address gets an email saying the account was deleted, if the address was ever verified. Run it where the service runs, with the same `.env`, after migrations.
+It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. The address gets an email saying the account was deleted, if its current address is verified. Run it where the service runs, with the same `.env`, after migrations.
 
 | Exit code | Meaning |
 | --- | --- |
