@@ -184,7 +184,7 @@ the database is already running.
 | `npm run verify:packaging` | Scaffolds a project from the packed tarballs and runs it. Needs Postgres. See [Packaging](#packaging) |
 | `npm run release <version>` | Versions, verifies, commits and tags a release. See [Releasing](#releasing) |
 | `npm run eval:injection -- --dry-run` | Prints the prompts of the injection evaluation. A live run needs a provider key and costs money. See [Evaluating prompt injection](#evaluating-prompt-injection) |
-| `make publish` | Publishes the packages npm does not already have at the current version |
+| `make publish` | Publishes the packages npm does not already have at the current version. CI does this when a release tag is pushed; this is the fallback |
 | `npm run lint` | oxlint across the repository. Silent means clean |
 | `npm run typecheck` | `tsc` over every workspace |
 | `npm test` | Vitest unit tests |
@@ -484,16 +484,20 @@ match `0.2.0`, and bumping versions alone would send npm to the registry looking
 for a version that is not published yet.
 
 Publishing is separate, because it cannot be undone. npm allows unpublishing a
-new package for 72 hours and not at all after that.
+new package for 72 hours and not at all after that. Pushing the tag publishes:
 
 ```bash
-make publish
+git push --follow-tags
 ```
 
+The tag starts the Publish workflow in `.github/workflows/publish.yml`. It
+fails when the tag does not match the package version. It runs
+`verify:packaging` against a Postgres service, then `npm run publish:packages`.
 That asks the registry what it already has at the current version and publishes
 only the difference, so it is safe to re-run and can finish a release that went
 out partially. It reports what it skipped rather than implying it did more than
-it did.
+it did. To finish a failed or partial release, re-run the workflow from the
+Actions tab.
 
 Being able to re-run matters. `0.2.0` first went out as three packages because
 the command in use predated `create-kelpie`, and a plain
@@ -501,9 +505,20 @@ the command in use predated `create-kelpie`, and a plain
 once one package's version exists, so the way back was to publish the missing one
 by hand or burn a version.
 
-`npm run release 0.2.0 --publish` does both steps in one, once you trust it.
+The workflow logs in to npm through trusted publishing, so no token is stored in
+the repository or its secrets. Each of the four packages names
+`velvet-tiger/kelpie` and the workflow file `publish.yml` as its trusted
+publisher, under the package's settings on npmjs.com. A new published package
+needs the same setting before its first release through CI, and renaming the
+workflow file breaks publishing until every package is updated. Trusted
+publishing also attaches a provenance statement to each version.
 
-Credentials are local. `npm login` once, or set `NPM_TOKEN` with a granular
-access token scoped to the `@kelpie` scope. Nothing in this repository stores a
-token, and no CI publishes. With 2FA enabled on publish, npm prompts for a
-one-time code.
+To publish from your own machine instead, for example when GitHub is down:
+
+```bash
+make publish
+```
+
+`npm run release 0.2.0 --publish` tags and publishes locally in one step. Local
+publishing needs `npm login`, and with 2FA on publish npm prompts for a one-time
+code.

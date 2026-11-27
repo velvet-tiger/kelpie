@@ -11,12 +11,13 @@
  * private and never published. So versions and ranges move in one step.
  *
  *   npm run release 0.2.0            prepare, verify, commit, tag
- *   npm run release 0.2.0 --publish  the same, then publish to npm
+ *   npm run release 0.2.0 --publish  the same, then publish from this machine
  *
- * Without `--publish` it stops after tagging and prints the publish command.
- * Publishing is irreversible: npm allows unpublishing a new package for 72 hours
- * and not at all after that, so it is a deliberate second step rather than a
- * side effect of preparing one.
+ * Without `--publish` it stops after tagging. Pushing the tag publishes it:
+ * `.github/workflows/publish.yml` runs on every `v*` tag. Publishing is
+ * irreversible: npm allows unpublishing a new package for 72 hours and not at
+ * all after that, so it is a deliberate second step rather than a side effect
+ * of preparing one. `--publish` is the fallback for when CI cannot publish.
  *
  * The checks run against the manifests as they will ship, not as they were, so
  * the version write happens first. A failure then rolls the tree back. That is
@@ -211,11 +212,11 @@ function main(): void {
   report(`\ncommitted and tagged ${tag}`)
 
   if (!publishing) {
-    report('\nNothing has been published. To publish this tag:')
-    report(`  make publish        (or: npm run ${PUBLISH_SCRIPT})`)
+    report('\nNothing has been published. Pushing the tag publishes it, through the Publish workflow on GitHub:')
+    report('  git push --follow-tags')
     report('\nThat step is irreversible. npm allows unpublishing a new package for 72 hours and not at all after')
     report('that, and an unpublished version can never be published again under the same name.')
-    report(`\nThe tag is local until you push it:\n  git push --follow-tags`)
+    report(`\nIf the workflow cannot publish, publish from this machine instead:\n  make publish        (or: npm run ${PUBLISH_SCRIPT})`)
 
     return
   }

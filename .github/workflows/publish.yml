@@ -1,0 +1,92 @@
+# Publishes the npm packages when a release tag is pushed.
+#
+# `npm run release <version>` cuts the tag locally, after lint, typecheck, the
+# full suite and the packaging check have passed on that commit. Pushing the tag
+# with `git push --follow-tags` starts this workflow, which publishes it.
+#
+# It logs in to npm through trusted publishing (OIDC), so no token is stored
+# anywhere. Each published package names this repository and this file as its
+# trusted publisher on npmjs.com. Renaming the file breaks publishing until
+# those settings are changed to match.
+#
+# Publishing cannot be undone. `publish.ts` skips any version npm already has,
+# so re-running a failed run finishes a partial release rather than repeating
+# one.
+
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# Two tags pushed together must not publish at the same time. Neither run is
+# cancelled, because a publish stopped halfway leaves a partial release.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Trusted publishing exchanges this token for a short-lived npm credential.
+      # It also signs the provenance statement npm attaches to each package.
+      id-token: write
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: kelpie
+          POSTGRES_PASSWORD: kelpie
+          POSTGRES_DB: kelpie_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --username kelpie --dbname kelpie_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Only for the packaging check, which boots a scaffolded service. The
+      # credentials are the public development ones and the database lives only
+      # as long as this job.
+      TEST_DATABASE_URL: postgres://kelpie:kelpie@localhost:5432/kelpie_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: package.json
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later. The npm bundled with Node
+      # can be older.
+      - name: Install an npm that supports trusted publishing
+        run: npm install --global npm@^11.5.1
+
+      - name: Check the tag matches the package version
+        run: |
+          version="$(node --print "require('./packages/schemas/package.json').version")"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match the package version ${version}. Cut releases with npm run release <version>."
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # Builds, packs, scaffolds a project from the tarballs and runs it. This is
+      # the check on what is about to ship, built on this runner.
+      - run: npm run verify:packaging
+
+      # Asks the registry what it has, rebuilds, checks each tarball holds every
+      # file its bin and exports name, then publishes the rest.
+      - run: npm run publish:packages
