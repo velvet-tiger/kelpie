@@ -75,6 +75,7 @@ describe('scaffold', () => {
       'kelpie.config.ts',
       'kelpie.ui.config.ts',
       'package.json',
+      'src/deleteAccount.ts',
       'src/migrate.ts',
       'src/reseal.ts',
       'src/server.ts',

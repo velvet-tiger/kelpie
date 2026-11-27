@@ -73,6 +73,7 @@ const TEMPLATE_FILES: ReadonlyMap<string, string> = new Map([
   ['src/migrate.ts', 'src/migrate.ts'],
   ['src/worker.ts', 'src/worker.ts'],
   ['src/reseal.ts', 'src/reseal.ts'],
+  ['src/deleteAccount.ts', 'src/deleteAccount.ts'],
   ['web/index.html', 'web/index.html'],
   ['web/main.tsx', 'web/main.tsx'],
   ['vite.config.ts', 'vite.config.ts'],

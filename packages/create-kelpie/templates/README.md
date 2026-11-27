@@ -122,6 +122,22 @@ unreadable, so rotate rather than replace:
 More detail, including backups and what is sealed under the key:
 [docs/self-hosting/production.md](https://github.com/velvet-tiger/kelpie/blob/main/docs/self-hosting/production.md).
 
+### Deleting an account for someone
+
+A person deletes their own account with `DELETE /v1/account` and their current
+password. When they cannot sign in, delete it for them by address:
+
+```bash
+npm run delete-account -- person@example.com
+```
+
+It runs the same checks as `DELETE /v1/account`, except the password. An
+account that owns a workspace is refused until ownership moves to another
+member or the workspace is deleted. Records the person owned or wrote stay in
+each workspace, with nobody named. Exit code 0 means the account is gone, 1
+means no address was given or the configuration is wrong, 2 means no account
+has that address, and 3 means the deletion was refused for the reason printed.
+
 ## Deploying
 
 `npm run dev` runs two processes. Vite builds the pages as you edit them and
