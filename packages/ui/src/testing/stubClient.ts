@@ -40,6 +40,7 @@ export interface ClientStubs {
   readonly patch?: (path: string, body: unknown) => Promise<unknown> | unknown
   readonly patchEmpty?: (path: string, body: unknown) => Promise<void> | void
   readonly delete?: (path: string, query: QueryParameters | undefined) => Promise<void> | void
+  readonly deleteWithBody?: (path: string, body: unknown) => Promise<void> | void
 }
 
 function required<TStub>(stub: TStub | undefined, verb: string, path: string): TStub {
@@ -73,6 +74,9 @@ export function stubClient(stubs: ClientStubs): ApiClient {
     },
     delete: async (path, query) => {
       await required(stubs.delete, 'delete', path)(path, query)
+    },
+    deleteWithBody: async (path, body) => {
+      await required(stubs.deleteWithBody, 'deleteWithBody', path)(path, body)
     },
   }
 }

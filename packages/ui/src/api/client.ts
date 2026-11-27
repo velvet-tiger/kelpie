@@ -97,6 +97,13 @@ export interface ApiClient {
    * option, and HTTP lets a client drop one.
    */
   delete(path: string, query?: QueryParameters): Promise<void>
+  /**
+   * A `DELETE` that carries a JSON body. Deleting the account is the one case:
+   * it needs the current password, which must not go in a query string where
+   * logs keep it. A proxy that drops the body makes the server refuse the
+   * request for want of a password, so a lost body fails closed.
+   */
+  deleteWithBody(path: string, body: unknown): Promise<void>
 }
 
 function isErrorDetail(value: unknown): value is ErrorDetail {
@@ -281,6 +288,14 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       const response = await request('PATCH', buildUrl(options.baseUrl, path, undefined), body)
 
       if (!response.ok) {
+        throw await readEmptyError(response)
+      }
+    },
+
+    deleteWithBody: async (path, body) => {
+      const response = await request('DELETE', buildUrl(options.baseUrl, path, undefined), body)
+
+      if (response.status !== 204) {
         throw await readEmptyError(response)
       }
     },

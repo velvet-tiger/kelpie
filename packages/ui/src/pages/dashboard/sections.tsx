@@ -15,7 +15,7 @@ import { DecisionProvenance } from '../../components/DecisionProvenance.tsx'
 import { MarkdownView } from '../../components/MarkdownView.tsx'
 import { OriginLabel } from '../../components/OriginLabel.tsx'
 import { SectionHeader } from '../../components/SectionHeader.tsx'
-import { FORMER_MEMBER_LABEL, activityActorName } from '../../lib/attribution.ts'
+import { activityActorName, noteAuthorName } from '../../lib/attribution.ts'
 import { formatDate, formatRelativeTime } from '../../lib/dates.ts'
 import { targetHref } from '../../lib/recordLinks.ts'
 import { targetTypeLabel } from './attention.ts'
@@ -203,16 +203,18 @@ export function ActivityFeed({
   )
 }
 
-/**
- * A null author is a note no member wrote, except on a note whose origin says
- * a member did: that member has since gone.
- */
-function noteAuthorName(note: DashboardNote, nameById: ReadonlyMap<string, string>): string {
-  if (note.authorId === null) {
-    return note.origin === 'member' ? FORMER_MEMBER_LABEL : 'System'
+/** The author and the separator after it, or nothing when the note shows no name. */
+function NoteAuthor({ name }: { readonly name: string | undefined }): React.JSX.Element | null {
+  if (name === undefined) {
+    return null
   }
 
-  return nameById.get(note.authorId) ?? 'Unknown'
+  return (
+    <>
+      <span>{name}</span>
+      <span>·</span>
+    </>
+  )
 }
 
 export function NotesList({
@@ -248,8 +250,7 @@ export function NotesList({
                 <span>·</span>
                 <span>{targetTypeLabel(note.targetType)}</span>
                 <span>·</span>
-                <span>{noteAuthorName(note, nameById)}</span>
-                <span>·</span>
+                <NoteAuthor name={noteAuthorName(note, nameById)} />
                 <span>{formatRelativeTime(note.createdAt, timezone, now)}</span>
                 <OriginLabel origin={note.origin} />
               </div>

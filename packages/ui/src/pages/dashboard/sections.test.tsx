@@ -82,10 +82,18 @@ describe('NotesList', () => {
     expect(screen.queryByText('System')).toBeNull()
   })
 
-  it('keeps calling a null author on any other note the system', () => {
+  it('shows no author name on a note an agent wrote with no member behind it', () => {
     renderNotes([note({ authorId: null, origin: 'agent' })])
 
-    expect(screen.getByText('System')).toBeTruthy()
+    expect(screen.getByText('Written by an agent')).toBeTruthy()
+    expect(screen.queryByText('API key')).toBeNull()
+    expect(screen.queryByText('System')).toBeNull()
+  })
+
+  it('names a null author on a note from before origin was recorded as the workspace key, as the notes panel does', () => {
+    renderNotes([note({ authorId: null, origin: 'unknown' })])
+
+    expect(screen.getByText('API key')).toBeTruthy()
   })
 })
 

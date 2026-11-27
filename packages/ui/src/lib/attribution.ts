@@ -1,4 +1,4 @@
-import type { Activity } from '@kelpie/schemas'
+import type { Activity, Note } from '@kelpie/schemas'
 
 /**
  * Who a timeline row or a note is attributed to, when no member can be named.
@@ -10,6 +10,34 @@ import type { Activity } from '@kelpie/schemas'
  * only a member's activity lacks.
  */
 export const FORMER_MEMBER_LABEL = 'Former member'
+
+/**
+ * The name to show beside a note, or undefined for none.
+ *
+ * A note an agent or the hosted AI wrote with no member behind it shows no
+ * name: the origin label beside the date says what wrote it. One from before
+ * origin was recorded has no such label, so a null author there still reads
+ * as the workspace key it almost always was. A null author on a member's note
+ * is a member who has since gone.
+ */
+export function noteAuthorName(
+  note: Pick<Note, 'authorId' | 'origin'>,
+  nameById: ReadonlyMap<string, string>,
+): string | undefined {
+  if (note.authorId !== null) {
+    return nameById.get(note.authorId) ?? 'Unknown'
+  }
+
+  switch (note.origin) {
+    case 'member':
+      return FORMER_MEMBER_LABEL
+    case 'unknown':
+      return 'API key'
+    case 'agent':
+    case 'ai':
+      return undefined
+  }
+}
 
 /**
  * The name to show beside an activity.

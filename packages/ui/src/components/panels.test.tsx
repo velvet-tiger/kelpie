@@ -534,7 +534,7 @@ describe('NotesPanel', () => {
     expect(other?.className).not.toContain('ring-2')
   })
 
-  it('reads a null author as the workspace key that wrote it', async () => {
+  it('reads a null author on a note from before origin was recorded as the workspace key', async () => {
     renderWithClient(
       panelsClient({ notes: [note({ author_id: null, origin: 'unknown' })] }),
       <NotesPanel targetType="person" targetId="per_1" />,
@@ -565,14 +565,25 @@ describe('NotesPanel', () => {
     expect(screen.queryByText(/^Written by/u)).toBeNull()
   })
 
-  it('labels a note an agent wrote', async () => {
+  it('shows no author name on a workspace key note, only its agent badge', async () => {
     renderWithClient(
       panelsClient({ notes: [note({ author_id: null, origin: 'agent' })] }),
       <NotesPanel targetType="person" targetId="per_1" />,
     )
 
     await screen.findByText('Written by an agent')
-    await screen.findByText('API key')
+
+    expect(screen.queryByText('API key')).toBeNull()
+  })
+
+  it('labels a note an agent wrote through a member\'s key, and names the member', async () => {
+    renderWithClient(
+      panelsClient({ notes: [note({ origin: 'agent' })] }),
+      <NotesPanel targetType="person" targetId="per_1" />,
+    )
+
+    await screen.findByText('Written by an agent')
+    await screen.findByText('Ada Lovelace')
   })
 
   it('labels a note the hosted AI wrote, and does not call its author an API key', async () => {

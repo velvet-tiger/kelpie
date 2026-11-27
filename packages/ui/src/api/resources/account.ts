@@ -3,6 +3,7 @@ import {
   accountSchema,
   accountSessionSchema,
   changePasswordBody,
+  deleteAccountBody,
   updateAccountBody,
   updateAccountPreferencesBody,
 } from '@kelpie/schemas'
@@ -11,6 +12,7 @@ import type {
   AccountPreferences,
   AccountSession,
   ChangePasswordInput,
+  DeleteAccountInput,
   ThemePreference,
   UpdateAccountInput,
   UpdateAccountPreferencesInput,
@@ -161,6 +163,24 @@ export function useChangePassword(): MutationResult<ChangePasswordInput, void> {
       client.patchEmpty('/auth/password', changePasswordBody(input)),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: SESSIONS_KEY })
+    },
+  })
+
+  return asMutationResult(mutation)
+}
+
+/**
+ * Deletes the signed-in account. Its session goes with it, so every cached
+ * read is dropped, as signing out drops them. The caller sends the browser to
+ * the sign-in page.
+ */
+export function useDeleteAccount(): MutationResult<DeleteAccountInput, void> {
+  const client = useApiClient()
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (input: DeleteAccountInput) => client.deleteWithBody('/account', deleteAccountBody(input)),
+    onSuccess: () => {
+      queryClient.clear()
     },
   })
 

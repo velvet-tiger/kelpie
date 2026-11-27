@@ -5,7 +5,7 @@ import type { FormEvent } from 'react'
 import { useTimezone } from '../api/resources/account.ts'
 import { useMembers } from '../api/resources/members.ts'
 import { useCreateNote, useDeleteNote, useNotes, useUpdateNote } from '../api/resources/notes.ts'
-import { FORMER_MEMBER_LABEL } from '../lib/attribution.ts'
+import { noteAuthorName } from '../lib/attribution.ts'
 import { formatDateTime } from '../lib/dates.ts'
 import { FRAGMENT_HIGHLIGHT, useFragmentTarget } from '../lib/fragmentTarget.ts'
 import { MarkdownView } from './MarkdownView.tsx'
@@ -114,7 +114,7 @@ export function NotesPanel({ targetType, targetId }: NotesPanelProps): React.JSX
       ) : (
         <ul className="flex flex-col gap-3">
           {ordered.map((note) => (
-            <NoteItem key={note.id} note={note} authorName={authorNameFor(note, members.nameById)} />
+            <NoteItem key={note.id} note={note} authorName={noteAuthorName(note, members.nameById)} />
           ))}
         </ul>
       )}
@@ -122,30 +122,6 @@ export function NotesPanel({ targetType, targetId }: NotesPanelProps): React.JSX
       <Paginator list={notes} />
     </section>
   )
-}
-
-/**
- * A null author is a note written by a workspace API key, which belongs to the
- * workspace rather than to a person. An id with no matching member is one the
- * member list has not caught up with.
- *
- * A null author on a note whose origin is `member` is a member who has since
- * gone: removed from the workspace, or their account deleted. Their notes stay,
- * and nothing names them.
- *
- * A hosted AI run has no author and no key either, so it gets no name: the
- * origin label beside the date says what wrote the note.
- */
-function authorNameFor(note: Note, nameById: ReadonlyMap<string, string>): string | undefined {
-  if (note.authorId === null) {
-    if (note.origin === 'ai') {
-      return undefined
-    }
-
-    return note.origin === 'member' ? FORMER_MEMBER_LABEL : 'API key'
-  }
-
-  return nameById.get(note.authorId) ?? 'Unknown'
 }
 
 function NoteItem({
