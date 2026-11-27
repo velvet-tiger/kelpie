@@ -124,7 +124,7 @@ More detail, including backups and what is sealed under the key:
 
 ### Deleting an account for someone
 
-A person deletes their own account with `DELETE /v1/account` and their current password. When they cannot sign in, an operator deletes it by address. The first run prints what it would delete and deletes nothing; the same command with `--yes` deletes:
+A person deletes their own account with `POST /v1/account/delete` and their current password. When they cannot sign in, an operator deletes it by address. The first run prints what it would delete and deletes nothing; the same command with `--yes` deletes:
 
 ```bash
 npm run delete-account -- person@example.com

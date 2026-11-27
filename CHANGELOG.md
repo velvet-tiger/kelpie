@@ -12,8 +12,9 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Added
 
-- **Account deletion.** `DELETE /v1/account` deletes the signed-in account. It needs
-  a session and the current password; an API key and an OAuth token are refused.
+- **Account deletion.** `POST /v1/account/delete` deletes the signed-in account. It needs
+  a session and the current password; an API key and an OAuth token are refused. It
+  ignores `Idempotency-Key`: a stored response would outlive the account.
   An account that owns a workspace is refused with `409`, naming each workspace.
   Records the account owned or wrote stay, with nobody named. After commit the bus
   publishes `workspace.member.removed` for each membership and the account event
