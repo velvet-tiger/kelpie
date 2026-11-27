@@ -53,7 +53,11 @@ function isExempt(method: string, path: string): boolean {
   // pages in all but path, which a person must reach whatever the state of
   // their active workspace. A grant for a suspended workspace is refused at
   // `/mcp`, where the gate runs again.
-  return path.startsWith('/v1/auth/') || path.startsWith('/v1/account') || path.startsWith('/v1/oauth/') ||
+  // `/v1/account` ends at a segment boundary: a later `/v1/accounting` must
+  // stay gated.
+  const accountPath = path === '/v1/account' || path.startsWith('/v1/account/')
+
+  return path.startsWith('/v1/auth/') || accountPath || path.startsWith('/v1/oauth/') ||
     (method === 'DELETE' && WORKSPACE_DELETE_PATH.test(path))
 }
 
