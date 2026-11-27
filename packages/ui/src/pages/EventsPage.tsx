@@ -57,7 +57,11 @@ export function EventsPage(): React.JSX.Element {
   const [sort, setSort] = useState<string | undefined>(undefined)
   const navigate = useNavigate()
   const timezone = useTimezone()
-  const now = new Date()
+  // One clock reading, not one per render. The Upcoming and Past filters put
+  // `now` in the list's query key, so a fresh `new Date()` on every render
+  // gave every render a new key, a new fetch, and another render: a refetch
+  // loop at frame rate. Choosing a scope takes a fresh reading.
+  const [now, setNow] = useState(() => new Date())
   const [month, setMonth] = useState({ year: now.getFullYear(), month: now.getMonth() })
   const createEvent = useCreateEvent()
 
@@ -164,7 +168,10 @@ export function EventsPage(): React.JSX.Element {
             <SegmentedControl
               ariaLabel="Upcoming or past"
               value={scope}
-              onChange={setScope}
+              onChange={(next) => {
+                setNow(new Date())
+                setScope(next)
+              }}
               options={[
                 { id: 'upcoming', label: 'Upcoming' },
                 { id: 'past', label: 'Past' },

@@ -10,6 +10,16 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Events page no longer refetches in a loop.** `@kelpie/ui`. The Upcoming
+  and Past scopes filter on the current time, and the page read the clock on every
+  render. Each render built a new query, so the list sent `GET /v1/events` about
+  once a frame for as long as the page stayed open. The page now reads the clock
+  once, and again when you choose a scope. An event that starts while the page is
+  open stays under Upcoming until you reload or switch scope.
+  ([#1](https://github.com/velvet-tiger/kelpie/issues/1))
+
 ## [0.27.0] - 2026-11-28
 
 ### Added
