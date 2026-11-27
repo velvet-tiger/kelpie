@@ -491,7 +491,9 @@ git push --follow-tags
 ```
 
 The tag starts the Publish workflow in `.github/workflows/publish.yml`. It
-fails when the tag does not match the package version. It runs
+fails when the tag does not match the package version, or when the tagged commit
+is not on `main` on GitHub, so push `main` with the tag rather than the tag
+alone. It runs
 `verify:packaging` against a Postgres service, then `npm run publish:packages`.
 That asks the registry what it already has at the current version and publishes
 only the difference, so it is safe to re-run and can finish a release that went
