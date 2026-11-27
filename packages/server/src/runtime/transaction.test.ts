@@ -213,12 +213,30 @@ describe.skipIf(connectionString === undefined)('createTransactionScope', () => 
     ])
   })
 
-  it('lets an emit call name a workspace other than the scope one', async () => {
+  it('refuses an emit call that names another workspace inside a workspace scope', async () => {
+    await expect(
+      runInTransaction(
+        ({ events }) => {
+          events.emit(TEST_EVENT_NAME as never, { type: 'member', id: 'mem_a' }, {} as never, {
+            workspaceId: 'wsp_other',
+          })
+
+          return Promise.resolve()
+        },
+        { workspaceId: fixture.workspaceId },
+      ),
+    ).rejects.toThrow(`names workspace wsp_other inside a scope for workspace ${fixture.workspaceId}`)
+
+    await bus.drain()
+
+    expect(published).toEqual([])
+  })
+
+  it('accepts an emit call that names the scope workspace again', async () => {
     await runInTransaction(
       ({ events }) => {
-        events.emit(TEST_EVENT_NAME as never, { type: 'member', id: 'mem_a' }, {} as never)
-        events.emit(TEST_EVENT_NAME as never, { type: 'member', id: 'mem_b' }, {} as never, {
-          workspaceId: 'wsp_other',
+        events.emit(TEST_EVENT_NAME as never, { type: 'member', id: 'mem_a' }, {} as never, {
+          workspaceId: fixture.workspaceId,
         })
 
         return Promise.resolve()
@@ -228,7 +246,7 @@ describe.skipIf(connectionString === undefined)('createTransactionScope', () => 
 
     await bus.drain()
 
-    expect(published.map((entry) => entry.workspaceId)).toEqual([fixture.workspaceId, 'wsp_other'])
+    expect(published.map((entry) => entry.workspaceId)).toEqual([fixture.workspaceId])
   })
 
   it('throws when an emit call names an empty workspace and the scope has none', async () => {

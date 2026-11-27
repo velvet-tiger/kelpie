@@ -16,6 +16,7 @@ import {
   logEmailWritesBody,
 } from '../lib/email.ts'
 import type { EmailMessage, EmailSender } from '../lib/email.ts'
+import { isTransientTransactionFailure } from '../lib/database.ts'
 import { AppError, describeThrown, describeValidationIssue, toErrorDetails } from '../lib/errors.ts'
 import type { JobRegistry } from '../lib/jobs.ts'
 import type { Logger } from '../lib/logger.ts'
@@ -756,6 +757,9 @@ class AccountDeletionHandlerList {
   /**
    * @throws AppError unchanged when a handler refuses, so the caller answers
    *   with the handler's own status and message.
+   * @throws The database's own error, unchanged, when Postgres aborted the
+   *   transaction to break a deadlock or a serialization conflict. That is no
+   *   module's fault, and the caller runs the deletion again.
    * @throws Error naming the module when a handler throws anything else.
    */
   async run(deletion: AccountDeletion): Promise<void> {
@@ -763,7 +767,7 @@ class AccountDeletionHandlerList {
       try {
         await handler(deletion)
       } catch (error: unknown) {
-        if (error instanceof AppError) {
+        if (error instanceof AppError || isTransientTransactionFailure(error)) {
           throw error
         }
 

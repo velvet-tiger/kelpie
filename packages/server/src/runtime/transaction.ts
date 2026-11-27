@@ -48,6 +48,10 @@ export interface EmitOptions {
    * touches several workspaces in one transaction: deleting an account
    * removes its membership of each workspace it belongs to, and each removal
    * is an event of that workspace.
+   *
+   * Only a scope with no workspace of its own may name one. A scope that has
+   * one is one tenant's work, and an event it stamps with another tenant's id
+   * would reach that tenant's subscribers and webhooks.
    */
   readonly workspaceId?: string
 }
@@ -202,6 +206,16 @@ export function createTransactionScope(dependencies: TransactionScopeDependencie
         },
         events: {
           emit(name, target, data, emitOptions) {
+            if (
+              emitOptions?.workspaceId !== undefined &&
+              workspaceId !== undefined &&
+              emitOptions.workspaceId !== workspaceId
+            ) {
+              throw new Error(
+                `event "${name}" names workspace ${emitOptions.workspaceId} inside a scope for workspace ${workspaceId}`,
+              )
+            }
+
             const eventWorkspaceId = emitOptions?.workspaceId ?? workspaceId
 
             if (eventWorkspaceId === undefined || eventWorkspaceId.length === 0) {
