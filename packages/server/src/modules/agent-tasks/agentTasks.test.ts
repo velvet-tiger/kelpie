@@ -24,6 +24,7 @@ import type { KelpieModule } from '../../runtime/module.ts'
 import {
   ABANDONED_RUN_REASON,
   DISPATCH_AGENT_RUN_JOB,
+  DISPATCH_TIMEOUT_MS,
   TARGET_CONVERTED_REASON,
   TARGET_GONE_REASON,
   TASK_GONE_REASON,
@@ -1032,6 +1033,29 @@ describe.skipIf(connectionString === undefined)('agent tasks', () => {
       expect(await sending).toMatchObject({ delivered: false, status: null, reason: 'Error: the job expired' })
       expect(fetched).toBe(false)
     })
+
+    /**
+     * With no job signal, the accept timeout must end a hung DNS check. The
+     * check takes no signal, so the sender stops waiting for it at the timeout.
+     */
+    it('stops waiting on a DNS check that hangs at the accept timeout', async () => {
+      const hanging = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () => new Promise<never>(() => undefined))
+      let posted = false
+      const sender = createHttpSender(hanging, () => {
+        posted = true
+
+        return Promise.resolve(new Response(null, { status: 202 }))
+      })
+      const started = Date.now()
+      const outcome = await sender(request)
+      const elapsed = Date.now() - started
+
+      expect(outcome).toMatchObject({ delivered: false, status: null })
+      expect(outcome.reason).toContain('TimeoutError')
+      expect(elapsed).toBeGreaterThanOrEqual(DISPATCH_TIMEOUT_MS - 100)
+      expect(elapsed).toBeLessThan(DISPATCH_TIMEOUT_MS + 5_000)
+      expect(posted).toBe(false)
+    }, DISPATCH_TIMEOUT_MS + 5_000)
 
     it('gives the whole cause to the log detail and keeps it out of the reason', async () => {
       const cause = Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:443'), { code: 'ECONNREFUSED' })
