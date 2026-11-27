@@ -24,7 +24,8 @@ export function registerPeopleTools(mcp: McpToolRegistry, service: PeopleService
       'Someone the workspace knows. A job title belongs to a position, never to the person. ' +
       'name is the display name every list shows; first_name, last_name, salutation and suffix ' +
       'are optional parts beside it. A create with no name composes one from first_name and ' +
-      'last_name. Changing a part never rewrites name.',
+      'last_name. Changing a part never rewrites name. ' +
+      'An email is trimmed and lowercased on write, and matching ignores case.',
     service,
     render: personResponse,
     listArgs,

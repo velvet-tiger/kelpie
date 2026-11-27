@@ -87,6 +87,28 @@ describe.skipIf(connectionString === undefined)('companies', () => {
       expect(String(company.created_at)).toMatch(ISO_8601_UTC)
     })
 
+    it('takes the enterprise band when an enterprise is created without one', async () => {
+      const company = await createCompany({ name: 'Harbour Mutual', stage: 'enterprise' })
+
+      expect(company.size_band).toBe('201+')
+    })
+
+    it('keeps a band the caller names, even for an enterprise', async () => {
+      const company = await createCompany({
+        name: 'Harbour Mutual',
+        stage: 'enterprise',
+        size_band: '51-200',
+      })
+
+      expect(company.size_band).toBe('51-200')
+    })
+
+    it('keeps the smallest band for a growth company nobody sized', async () => {
+      const company = await createCompany({ name: 'Quarry Works', stage: 'growth' })
+
+      expect(company.size_band).toBe('1-10')
+    })
+
     it('reduces a pasted URL to its host', async () => {
       const company = await createCompany({
         name: 'Analytical Engines',

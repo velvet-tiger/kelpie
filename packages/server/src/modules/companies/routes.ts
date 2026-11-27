@@ -8,6 +8,7 @@ import { resolveActorFrom } from '../auth/credentials.ts'
 import type { CredentialDependencies } from '../auth/credentials.ts'
 import { renderCustomFieldsForWire } from '../custom-fields/wire.ts'
 import { ACCOUNT_TYPES, COMPANY_STAGES, ICP_FITS, SIZE_BANDS } from './schema.ts'
+import { defaultSizeBandFor } from './sizeBand.ts'
 import {
   MAX_LIST_ITEMS,
   MAX_LONG_TEXT_LENGTH,
@@ -45,7 +46,8 @@ const companyShape = {
 /**
  * Only `name` is required. The defaults are the ones the mockup's own Add company
  * button writes, so creating through the API and creating through the UI produce
- * the same record.
+ * the same record. `size_band` has no fixed default: it follows the stage when
+ * omitted (see `defaultSizeBandFor`).
  */
 export const createBody = z.strictObject({
   ...companyShape,
@@ -53,7 +55,7 @@ export const createBody = z.strictObject({
   industry: companyShape.industry.default(null),
   description: companyShape.description.default(''),
   stage: companyShape.stage.default('startup'),
-  size_band: companyShape.size_band.default('1-10'),
+  size_band: companyShape.size_band.optional(),
   addresses: companyShape.addresses.default([]),
   account_type: companyShape.account_type.default('prospect'),
   icp_fit: companyShape.icp_fit.default('unknown'),
@@ -77,7 +79,7 @@ export function toCreateInput(body: z.infer<typeof createBody>): CreateCompanyIn
     industry: body.industry,
     description: body.description,
     stage: body.stage,
-    sizeBand: body.size_band,
+    sizeBand: body.size_band ?? defaultSizeBandFor(body.stage),
     addresses: body.addresses,
     accountType: body.account_type,
     icpFit: body.icp_fit,

@@ -509,6 +509,17 @@ describe.skipIf(connectionString === undefined)('import and export', () => {
       })
     })
 
+    it('takes the enterprise band for an enterprise row the CSV leaves unsized', async () => {
+      await importCsv('name,domain,stage\nBig Co,big.test,enterprise')
+
+      const [row] = await database.db
+        .select()
+        .from(companies)
+        .where(eq(companies.domain, 'big.test'))
+
+      expect(row).toMatchObject({ stage: 'enterprise', sizeBand: '201+' })
+    })
+
     it('files one timeline entry per record, naming the file it came from', async () => {
       await importCsv(COMPANIES_CSV)
 

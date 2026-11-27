@@ -9,9 +9,16 @@ import {
   composeName,
 } from '@kelpie/schemas'
 
-import type { CompanyAddress, CustomFieldWireValue, PersonAddress } from '@kelpie/schemas'
+import type {
+  CompanyAddress,
+  CompanyStage,
+  CustomFieldWireValue,
+  PersonAddress,
+  SizeBand,
+} from '@kelpie/schemas'
 
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
+import { defaultSizeBandFor } from '../companies/sizeBand.ts'
 import { companyAddressesFromMapped, personAddressesFromMapped } from './addresses.ts'
 import { moneyToCents, splitList } from './mapping.ts'
 import { canonicalEnum } from './validation.ts'
@@ -36,8 +43,8 @@ export interface CompanyDraft {
   readonly domain?: string
   readonly industry?: string
   readonly description?: string
-  readonly stage?: string
-  readonly sizeBand?: string
+  readonly stage?: CompanyStage
+  readonly sizeBand?: SizeBand
   readonly addresses?: readonly CompanyAddress[]
   readonly accountType?: string
   readonly icpFit?: string
@@ -136,14 +143,24 @@ export interface CustomFieldDefinitionDraft {
  * filling in a web form is by definition an inbound prospect, and a row in a
  * migration file says nothing at all about the relationship. Guessing `prospect`
  * for ten thousand companies would put a claim in the data that nobody made.
- * `size_band` has no unknown, so it takes the smallest.
+ * `size_band` is not here: it follows the stage (see `newCompanySizeBand`).
  */
 export const NEW_COMPANY_DEFAULTS = {
   stage: 'other',
-  sizeBand: '1-10',
   accountType: 'other',
   icpFit: 'unknown',
 } as const
+
+/**
+ * The band a Company an import invents takes. A band the row gives wins. When
+ * the row gives none, the band follows the row's stage, so an enterprise that a
+ * CSV leaves unsized takes `201+`, not the smallest band.
+ *
+ * Only for a create. An update that leaves the band blank keeps the stored band.
+ */
+export function newCompanySizeBand(draft: CompanyDraft): SizeBand {
+  return draft.sizeBand ?? defaultSizeBandFor(draft.stage ?? NEW_COMPANY_DEFAULTS.stage)
+}
 
 /** Defaults for a Person an import invents. Matches what a form submit uses. */
 export const NEW_PERSON_DEFAULTS = {
@@ -173,12 +190,18 @@ function list(
   return splitList(mapped[column])
 }
 
-function enumeration(
+/**
+ * @returns The member of `values` the cell names, or undefined. Typed as the
+ * member, so a field that holds a wire enum keeps its literal type.
+ */
+function enumeration<Member extends string>(
   mapped: Readonly<Record<string, string>>,
   column: string,
-  values: readonly string[],
-): string | undefined {
-  return canonicalEnum(values, mapped[column]) ?? undefined
+  values: readonly Member[],
+): Member | undefined {
+  const canonical = canonicalEnum(values, mapped[column])
+
+  return values.find((member) => member === canonical)
 }
 
 /**
