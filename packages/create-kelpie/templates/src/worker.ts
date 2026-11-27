@@ -9,6 +9,12 @@ import {
 import kelpieConfig from '../kelpie.config.ts'
 
 /**
+ * Longest a shutdown may run before the process exits unfinished. Long enough
+ * for in-flight work to drain. A stalled step cannot hold the process open past it.
+ */
+const SHUTDOWN_DEADLINE_MS = 10_000
+
+/**
  * The worker entry point. Runs the pg-boss consumer without ever calling
  * `createApp`, so there is no HTTP surface here.
  *
@@ -29,15 +35,43 @@ async function main(): Promise<void> {
 
   await startWorker(boot)
 
+  let shuttingDown = false
+  let shutdownStep = 'stopping the job worker'
+
   const shutdown = (signal: string): void => {
+    // A repeat signal changes nothing: the deadline is the only forced exit.
+    if (shuttingDown) {
+      boot.logger.info('shutdown already in progress', { signal })
+      return
+    }
+
+    shuttingDown = true
     boot.logger.info('shutting down worker', { signal })
+
+    const deadline = setTimeout(() => {
+      boot.logger.error('shutdown deadline passed, exiting unfinished', {
+        step: shutdownStep,
+        deadlineMs: SHUTDOWN_DEADLINE_MS,
+      })
+      process.exit(1)
+    }, SHUTDOWN_DEADLINE_MS)
+
     void boot.jobs
       .stop()
-      .then(() => boot.contributions.events.drain())
-      .then(() => boot.database.close())
-      .then(() => process.exit(0))
+      .then(() => {
+        shutdownStep = 'draining the event bus'
+        return boot.contributions.events.drain()
+      })
+      .then(() => {
+        shutdownStep = 'closing the database'
+        return boot.database.close()
+      })
+      .then(() => {
+        clearTimeout(deadline)
+        process.exit(0)
+      })
       .catch((error: unknown) => {
-        boot.logger.error('worker shutdown failed', { error })
+        boot.logger.error('worker shutdown failed', { step: shutdownStep, error })
         process.exit(1)
       })
   }

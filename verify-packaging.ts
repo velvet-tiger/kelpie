@@ -52,7 +52,7 @@
  * scratch directory for inspection.
  */
 
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
@@ -387,6 +387,101 @@ async function fetchOrUndefined(url: string, init?: RequestInit): Promise<Respon
   }
 }
 
+/** How long a service gets after SIGTERM before the verifier sends SIGKILL. */
+const STOP_DEADLINE_MS = 15_000
+
+function errorCode(error: unknown): string | undefined {
+  if (typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string') {
+    return error.code
+  }
+
+  return undefined
+}
+
+/** Sends a signal to every process in a group. A group that is already gone is not an error. */
+function signalGroup(group: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-group, signal)
+  } catch (error: unknown) {
+    if (errorCode(error) !== 'ESRCH') {
+      throw error
+    }
+  }
+}
+
+/** Whether any process still belongs to a group. Signal 0 sends nothing and only probes. */
+function groupHasMembers(group: number): boolean {
+  try {
+    process.kill(-group, 0)
+    return true
+  } catch (error: unknown) {
+    if (errorCode(error) === 'ESRCH') {
+      return false
+    }
+
+    throw error
+  }
+}
+
+async function waitForGroupToExit(group: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+
+  while (groupHasMembers(group)) {
+    if (Date.now() >= deadline) {
+      return false
+    }
+
+    await delay(100)
+  }
+
+  return true
+}
+
+/**
+ * Stops a spawned service and every process in its group, and waits until none
+ * remain. A service that ignores SIGTERM gets SIGKILL after STOP_DEADLINE_MS, so
+ * this returns or throws. The throw names the service, so a stalled shutdown
+ * shows up as a failure rather than as a verifier that never exits.
+ */
+async function stopService(service: ChildProcess, name: string): Promise<void> {
+  const group = service.pid
+
+  if (group === undefined) {
+    // The spawn failed before a process existed, so there is nothing to stop.
+    return
+  }
+
+  signalGroup(group, 'SIGTERM')
+
+  if (await waitForGroupToExit(group, STOP_DEADLINE_MS)) {
+    return
+  }
+
+  signalGroup(group, 'SIGKILL')
+  await waitForGroupToExit(group, 5_000)
+
+  throw new PackagingError(
+    `${name} did not exit within ${STOP_DEADLINE_MS / 1000}s of SIGTERM, so the verifier killed it. ` +
+      'Its shutdown has stalled. Look for an unread response body or a step that never settles.',
+  )
+}
+
+/**
+ * Stops a service at the end of a check. When the check did not complete, a
+ * stalled shutdown goes to stderr instead, so it cannot replace the check's own error.
+ */
+async function stopServiceAfter(service: ChildProcess, name: string, checkCompleted: boolean): Promise<void> {
+  try {
+    await stopService(service, name)
+  } catch (error: unknown) {
+    if (checkCompleted) {
+      throw error
+    }
+
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+  }
+}
+
 /**
  * Boots the generated service and exercises it.
  *
@@ -414,6 +509,8 @@ async function bootAndSignUp(project: string): Promise<void> {
   service.stderr.on('data', (chunk: Buffer) => output.push(chunk.toString()))
 
   const origin = `http://localhost:${WEB_PORT}`
+
+  let completed = false
 
   try {
     const deadline = Date.now() + BOOT_TIMEOUT_MS
@@ -488,20 +585,13 @@ async function bootAndSignUp(project: string): Promise<void> {
       throw new PackagingError(`POST /v1/auth/signup returned ${signup.status}: ${await signup.text()}`)
     }
 
-    report(`  signup succeeds through the proxy, ${signup.status}`)
-  } finally {
-    // Negative pid: the whole group, so concurrently's two children go too.
-    const group = service.pid
+    // An unread body keeps its connection open, and graceful shutdown waits for it.
+    await signup.body?.cancel()
 
-    if (group === undefined) {
-      service.kill('SIGTERM')
-    } else {
-      try {
-        process.kill(-group, 'SIGTERM')
-      } catch {
-        // Already gone, which is the outcome we wanted.
-      }
-    }
+    report(`  signup succeeds through the proxy, ${signup.status}`)
+    completed = true
+  } finally {
+    await stopServiceAfter(service, 'The scaffolded dev server', completed)
   }
 }
 
@@ -659,6 +749,8 @@ async function serveBuiltBundle(project: string): Promise<void> {
 
   const origin = `http://localhost:${API_PORT}`
 
+  let completed = false
+
   try {
     const deadline = Date.now() + BOOT_TIMEOUT_MS
     let ready = false
@@ -754,18 +846,9 @@ async function serveBuiltBundle(project: string): Promise<void> {
     await missing.body?.cancel()
 
     report(`  an unknown API path is still a JSON error (${missing.status}), not the app shell`)
+    completed = true
   } finally {
-    const group = service.pid
-
-    if (group === undefined) {
-      service.kill('SIGTERM')
-    } else {
-      try {
-        process.kill(-group, 'SIGTERM')
-      } catch {
-        // Already gone, which is the outcome we wanted.
-      }
-    }
+    await stopServiceAfter(service, 'The scaffolded API', completed)
   }
 }
 

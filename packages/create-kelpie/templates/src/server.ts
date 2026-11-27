@@ -16,6 +16,12 @@ import {
 import kelpieConfig from '../kelpie.config.ts'
 
 /**
+ * Longest a shutdown may run before the process exits unfinished. Long enough
+ * for in-flight work to drain. A stalled step cannot hold the process open past it.
+ */
+const SHUTDOWN_DEADLINE_MS = 10_000
+
+/**
  * The entry point. It reads the environment, registers the configured modules,
  * applies migrations, wires the dependencies, and serves.
  *
@@ -94,18 +100,52 @@ async function start(): Promise<void> {
     logger.info('listening', { port: address.port, runtimeMode: config.runtimeMode })
   })
 
+  let shuttingDown = false
+  let shutdownStep = 'closing the HTTP server'
+
   const shutdown = (signal: string): void => {
+    // A repeat signal changes nothing: the deadline is the only forced exit.
+    // npm forwards SIGTERM to this process, and a group signal can reach it too.
+    if (shuttingDown) {
+      logger.info('shutdown already in progress', { signal })
+      return
+    }
+
+    shuttingDown = true
     logger.info('shutting down', { signal })
+
+    const deadline = setTimeout(() => {
+      logger.error('shutdown deadline passed, exiting unfinished', {
+        step: shutdownStep,
+        deadlineMs: SHUTDOWN_DEADLINE_MS,
+      })
+      process.exit(1)
+    }, SHUTDOWN_DEADLINE_MS)
+
     server.close(() => {
       // Drain before closing the pool: a handler mid-flight may still be writing.
       // Order: stop the job worker (waits for in-flight jobs), drain the event
       // bus (which may still be delivering post-commit handlers), then close
       // the database.
+      shutdownStep = 'stopping the job worker'
       void jobs
         .stop()
-        .then(() => contributions.events.drain())
-        .then(() => database.close())
-        .then(() => process.exit(0))
+        .then(() => {
+          shutdownStep = 'draining the event bus'
+          return contributions.events.drain()
+        })
+        .then(() => {
+          shutdownStep = 'closing the database'
+          return database.close()
+        })
+        .then(() => {
+          clearTimeout(deadline)
+          process.exit(0)
+        })
+        .catch((error: unknown) => {
+          logger.error('shutdown failed', { step: shutdownStep, error })
+          process.exit(1)
+        })
     })
   }
 
