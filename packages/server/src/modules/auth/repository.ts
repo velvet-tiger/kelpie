@@ -45,6 +45,18 @@ export async function findUserByIdForUpdate(tx: Transaction, userId: string): Pr
   return found
 }
 
+/**
+ * Deletes the account row. Sessions, tokens, preferences, OAuth connections
+ * and grants, personal API keys and memberships go with it by cascade.
+ *
+ * @returns How many rows went: 1, or 0 when there was no such account.
+ */
+export async function deleteUser(db: Queryable, userId: string): Promise<number> {
+  const deleted = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id })
+
+  return deleted.length
+}
+
 export async function insertUser(db: Queryable, values: typeof users.$inferInsert): Promise<UserRecord> {
   const [created] = await db.insert(users).values(values).returning()
 

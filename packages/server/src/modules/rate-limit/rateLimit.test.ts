@@ -430,6 +430,31 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       expect((await changePassword(client, other.cookie, 'guess one')).status).toBe(401)
     })
 
+    it('counts a guess made by deleting the account against the same budget', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 1, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const owner = await client.owner()
+
+      const guessed = await client.send('DELETE', '/v1/account', {
+        body: { current_password: 'guess one' },
+        cookie: owner.cookie,
+      })
+
+      expect(guessed.status).toBe(401)
+      expect((await changePassword(client, owner.cookie, 'guess two')).status).toBe(429)
+      expect(
+        (
+          await client.send('DELETE', '/v1/account', {
+            body: { current_password: OWNER_PASSWORD },
+            cookie: owner.cookie,
+          })
+        ).status,
+      ).toBe(429)
+    })
+
     it('follows the account across sessions', async () => {
       const harness = await harnessWithBudgets(
         rateLimitConfig({ loginAccount: { limit: 1, windowMs: 60_000 } }),

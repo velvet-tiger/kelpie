@@ -45,7 +45,7 @@ export interface RateLimitMiddlewareDependencies {
  * `/sessions` require a session already and carry no such risk, so they are
  * not here. The routes that check a current password, and the one that sends
  * the verification mail again, also require a session. They are counted per
- * account (`CURRENT_PASSWORD_PATHS`, `VERIFY_EMAIL_RESEND_PATH`).
+ * account (`CURRENT_PASSWORD_ROUTES`, `VERIFY_EMAIL_RESEND_PATH`).
  */
 const UNAUTHENTICATED_AUTH_PATHS: ReadonlySet<string> = new Set([
   '/v1/auth/signup',
@@ -62,12 +62,16 @@ const LOGIN_PATH = '/v1/auth/login'
 const PASSWORD_RESET_PATH = '/v1/auth/password-reset'
 
 /**
- * The `PATCH` routes that check the caller's current password. A session is
- * not proof of the password: somebody holding a stolen session cookie could
- * otherwise try values here without limit, and a correct guess lets them take
- * the account over.
+ * The routes that check the caller's current password, as `METHOD path`. A
+ * session is not proof of the password: somebody holding a stolen session
+ * cookie could otherwise try values here without limit, and a correct guess
+ * lets them take the account over, or delete it.
  */
-const CURRENT_PASSWORD_PATHS: ReadonlySet<string> = new Set(['/v1/auth/password', '/v1/account'])
+const CURRENT_PASSWORD_ROUTES: ReadonlySet<string> = new Set([
+  'PATCH /v1/auth/password',
+  'PATCH /v1/account',
+  'DELETE /v1/account',
+])
 
 /**
  * Sends the verification mail again. It needs a session, but anybody can get
@@ -471,7 +475,7 @@ export function createAuthAndApiRateLimitMiddleware(
       return
     }
 
-    if (context.req.method === 'PATCH' && CURRENT_PASSWORD_PATHS.has(path)) {
+    if (CURRENT_PASSWORD_ROUTES.has(`${context.req.method} ${path}`)) {
       await enforceCurrentPasswordBudget(dependencies, context)
     }
 

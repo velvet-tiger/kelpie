@@ -13,13 +13,14 @@ import {
   verifyPassword,
 } from '../../lib/passwords.ts'
 import { generateToken, hashToken } from '../../lib/tokens.ts'
-import type { SignUpAttempt, SignUpVerdict, VerifiedIdentity } from '../../runtime/module.ts'
+import type { AccountDeletion, SignUpAttempt, SignUpVerdict, VerifiedIdentity } from '../../runtime/module.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
 import * as apiKeyRepository from '../api-keys/repository.ts'
 import * as oauthRepository from '../oauth/repository.ts'
 import type { MemberRole } from '../workspace/roles.ts'
 import { parseMemberRole } from '../workspace/roles.ts'
 import type { SessionActor } from './actor.ts'
+import { deleteAccountRecord } from './deletion.ts'
 import type { AuthEmailJobs } from './emailJobs.ts'
 import { DEFAULT_PREFERENCES, applyPreferenceChanges } from './preferences.ts'
 import type { PreferenceChanges, PreferenceValues } from './preferences.ts'
@@ -69,6 +70,12 @@ export interface AuthDependencies {
    * transaction that inserts it.
    */
   readonly checkSignUp: (attempt: SignUpAttempt) => Promise<SignUpVerdict>
+  /**
+   * Runs the modules' account-deletion handlers
+   * (`ModuleContext.runAccountDeletionHandlers`), inside the transaction that
+   * deletes the account.
+   */
+  readonly runAccountDeletionHandlers: (deletion: AccountDeletion) => Promise<void>
   /** Injected only so tests can pin session tokens. Production uses the crypto default. */
   readonly newToken?: () => string
 }
@@ -248,6 +255,8 @@ export interface AuthService {
    * a new one whenever `email` is part of the change.
    */
   updateAccount(actor: SessionActor, sessionToken: string, changes: UpdateAccountChanges): Promise<UpdatedAccount>
+  /** Deletes the caller's account, every session with it. Needs the current password. */
+  deleteAccount(actor: SessionActor, currentPassword: string): Promise<void>
   /** Answers documented defaults for an account that has never saved any. */
   getPreferences(actor: SessionActor): Promise<PreferenceValues>
   updatePreferences(actor: SessionActor, changes: PreferenceChanges): Promise<PreferenceValues>
@@ -753,6 +762,45 @@ export function createAuthService(dependencies: AuthDependencies): AuthService {
         }
 
         throw error
+      }
+    },
+
+    /**
+     * Deletes the caller's account, for good.
+     *
+     * The bar is the one an email change sets, for the same reason: a session
+     * is not proof of the person. The current password must verify, and a
+     * passwordless account sets one through the reset flow first. Without
+     * this, a leaked cookie could end an account its owner still wants.
+     *
+     * The modules decide the rest through their deletion handlers, in the
+     * same transaction. Workspace membership refuses an owner and clears what
+     * the account owned. Everything else that hangs off the row goes by
+     * cascade, the caller's own session included.
+     */
+    async deleteAccount(actor: SessionActor, currentPassword: string): Promise<void> {
+      const user = await requireUser(actor.userId)
+
+      if (user.passwordHash === null || !(await verifyPassword(user.passwordHash, currentPassword))) {
+        throw AppError.unauthorized('Current password is incorrect')
+      }
+
+      const deleted = await deleteAccountRecord(
+        { transaction: dependencies.transaction, runDeletionHandlers: dependencies.runAccountDeletionHandlers },
+        actor.userId,
+        {
+          actor: { kind: 'user', id: actor.userId },
+          checkLocked: (current) => {
+            // The password verified above is no longer the account's.
+            if (current.passwordHash !== user.passwordHash) {
+              throw AppError.unauthorized('Current password is incorrect')
+            }
+          },
+        },
+      )
+
+      if (deleted === undefined) {
+        throw AppError.unauthorized('This session no longer belongs to an account')
       }
     },
 

@@ -16,7 +16,12 @@ import type { ModuleEventCatalog } from '../../runtime/module.ts'
  * `auth.user.email_changed` fires when the account's sign-in address changes.
  * Saving the address already on file is not a change and fires nothing.
  *
- * Both carry the address, because a subscriber that keeps a directory of
+ * `auth.user.deleted` fires when an account is deleted: by the account
+ * itself, or by an operator. The actor says which: the account for the first,
+ * `system` for the second. The row is gone by the time a subscriber hears of
+ * it, so the event is the last place the address can be read.
+ *
+ * All three carry the address, because a subscriber that keeps a directory of
  * accounts (the cloud's account router) keys it on the address. Webhooks never
  * deliver them: an account event belongs to no workspace.
  *
@@ -26,8 +31,6 @@ import type { ModuleEventCatalog } from '../../runtime/module.ts'
  * confirmation. An external sign-up carries `true`, because the provider
  * proved it. A subscriber that must not let an unproved address claim
  * anything treats a `false` entry as provisional.
- *
- * Core has no account deletion yet, so there is no deletion event.
  */
 
 export const authEvents = {
@@ -43,6 +46,10 @@ export const authEvents = {
     previousEmail: z.string(),
     email: z.string(),
     emailVerified: z.literal(false),
+  }),
+  'auth.user.deleted': z.object({
+    userId: z.string(),
+    email: z.string(),
   }),
 } satisfies ModuleEventCatalog
 
@@ -66,14 +73,22 @@ export interface UserEmailChangedData {
   readonly emailVerified: false
 }
 
+export interface UserDeletedData {
+  readonly userId: string
+  /** The address the account had when it was deleted, normalised. */
+  readonly email: string
+}
+
 declare module '../../runtime/events.ts' {
   interface KelpieEventMap {
     'auth.user.created': UserCreatedData
     'auth.user.email_changed': UserEmailChangedData
+    'auth.user.deleted': UserDeletedData
   }
 
   interface KelpieAccountEvents {
     'auth.user.created': true
     'auth.user.email_changed': true
+    'auth.user.deleted': true
   }
 }
