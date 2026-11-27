@@ -222,6 +222,29 @@ describe('createHttpSender', () => {
     expect(fetched).toBe(false)
   })
 
+  /**
+   * With no job signal, the attempt's own timeout must end a hung DNS check.
+   * The check takes no signal, so the sender stops waiting for it at the timeout.
+   */
+  it('stops waiting on a DNS check that hangs at the send timeout', async () => {
+    const hanging = createEgressGuard({ BLOCK_PRIVATE_EGRESS: true }, () => new Promise<never>(() => undefined))
+    let fetched = false
+    const send = createHttpSender(hanging, () => {
+      fetched = true
+
+      return Promise.resolve(new Response(null, { status: 200 }))
+    })
+    const started = Date.now()
+    const outcome = await send(request)
+    const elapsed = Date.now() - started
+
+    expect(outcome).toMatchObject({ delivered: false, status: null })
+    expect(outcome.reason).toContain('TimeoutError')
+    expect(elapsed).toBeGreaterThanOrEqual(DELIVERY_TIMEOUT_MS - 100)
+    expect(elapsed).toBeLessThan(DELIVERY_TIMEOUT_MS + 5_000)
+    expect(fetched).toBe(false)
+  }, DELIVERY_TIMEOUT_MS + 5_000)
+
   it('hands the job signal to fetch, so an expired job stops its request', async () => {
     let seen: AbortSignal | undefined
     const send = createHttpSender(allowAll, (_url, init) => {
