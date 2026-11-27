@@ -22,8 +22,10 @@ While the major version is `0`, a minor bump may break the API.
   `npm run delete-account -- <email> --yes` (`runDeleteAccountCommand` in
   `@kelpie/server`); without `--yes` it prints the target and stops. Scaffolded
   projects get the same script. A deletion that Postgres aborts as a deadlock runs
-  again, twice at most, then answers `409`. The rate-limit counters keyed on the
-  address and the idempotency keys of the person's requests go with the account.
+  again, twice at most, then answers `409`. The login counter for the address goes
+  with the account; the mail counters for the address stay until their window ends.
+  The idempotency keys of the person's requests go too: through their session, their
+  personal API keys and their OAuth connections.
   No migration.
 
 - **An account-deletion hook for modules.** `context.handleAccountDeletion(handler)`
@@ -38,8 +40,9 @@ While the major version is `0`, a minor bump may break the API.
   so a hand-written fake of either in another repository fails typecheck until it
   adds them.
 
-- **A notice when an account is deleted.** The address gets a short email saying
-  the account was deleted, from both deletion paths. It is queued in the deletion
+- **A notice when an account is deleted.** A verified address gets a short email
+  saying the account was deleted, from both deletion paths. An unverified one gets
+  none. It is queued in the deletion
   transaction, so a refused or rolled-back deletion sends nothing.
 
 - **Person intake runs over MCP.** Four tools, `person_intake_identify`,

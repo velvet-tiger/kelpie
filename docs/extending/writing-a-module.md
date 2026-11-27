@@ -295,7 +295,7 @@ The account row is locked while handlers run, so nothing new can attach itself t
 
 The scope has no workspace. To emit a workspace event, name the workspace on the call: `events.emit(name, target, data, { workspaceId })`. A scope that has a workspace of its own refuses a call that names a different one. Core's workspace handler does that for each membership it removes, so a module that cleans up after `workspace.member.removed` needs no handler of its own for that.
 
-Both ways of deleting run the handlers: the account deleting itself with `POST /v1/account/delete`, and an operator running `runAccountDeletion` (`npm run delete-account -- <email>` in an assembly).
+Both ways of deleting run the handlers: the account deleting itself with `POST /v1/account/delete`, and an operator running `runAccountDeletion` (`npm run delete-account -- <email> --yes` in an assembly).
 
 ## Developing against unreleased core
 

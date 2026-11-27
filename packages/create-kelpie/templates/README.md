@@ -133,7 +133,7 @@ npm run delete-account -- person@example.com --yes
 
 Both runs print the target first: the database host and name, the account id and address, and each workspace it belongs to with its role. Never the database user or password. Text that came from a person, such as a workspace name, is printed with control characters escaped.
 
-It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. The address gets an email saying the account was deleted. Run it where the service runs, with the same `.env`, after migrations.
+It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. The address gets an email saying the account was deleted, if the address was ever verified. Run it where the service runs, with the same `.env`, after migrations.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -141,7 +141,7 @@ It runs the same rules as the account itself, without the password. An account t
 | `1` | No address or a bad argument, a configuration that will not boot, or no `--yes`. Nothing changed. |
 | `2` | No account has that address, or the account moved off it while the command ran. Nothing changed. |
 | `3` | The deletion was refused, for the reason printed on the error output. Nothing changed. |
-| `4` | Something failed that is not a refusal: the database, a migration, a module. One line on the error output says what. Nothing changed. |
+| `4` | Something failed that is not a refusal: the database, a migration, a module, or every run of the deletion colliding with other work (run it again). One line on the error output says what. Nothing changed. |
 
 ## Deploying
 
