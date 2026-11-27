@@ -10,6 +10,8 @@ While the major version is `0`, a minor bump may break the API.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-28
+
 ### Added
 
 - **An email-change guard.** `context.guardEmailChange(guard)`
