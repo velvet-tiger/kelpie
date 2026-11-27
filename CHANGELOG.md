@@ -18,14 +18,28 @@ While the major version is `0`, a minor bump may break the API.
   Records the account owned or wrote stay, with nobody named. After commit the bus
   publishes `workspace.member.removed` for each membership and the account event
   `auth.user.deleted` with `{ userId, email }`. An operator deletes by address with
-  `npm run delete-account -- <email>` (`runAccountDeletion` in `@kelpie/server`);
-  scaffolded projects get the same script. No migration.
+  `npm run delete-account -- <email> --yes` (`runDeleteAccountCommand` in
+  `@kelpie/server`); without `--yes` it prints the target and stops. Scaffolded
+  projects get the same script. A deletion that Postgres aborts as a deadlock runs
+  again, twice at most, then answers `409`. The rate-limit counters keyed on the
+  address and the idempotency keys of the person's requests go with the account.
+  No migration.
 
 - **An account-deletion hook for modules.** `context.handleAccountDeletion(handler)`
   runs inside the deletion transaction, in registration order. A handler refuses by
   throwing an `AppError`, which rolls everything back. `events.emit` takes an
-  optional `{ workspaceId }`, so one transaction can emit for several workspaces.
+  optional `{ workspaceId }`, so one transaction can emit for several workspaces;
+  a scope with a workspace of its own refuses a call that names another. A handler
+  gets the account's `userId` and `email`.
   `AssemblyBoot` now carries the `transaction` scope its modules use.
+  `ModuleContext` gains `handleAccountDeletion` and `runAccountDeletionHandlers`, and
+  `ModuleContributions` gains `runAccountDeletionHandlers`. Both are required members,
+  so a hand-written fake of either in another repository fails typecheck until it
+  adds them.
+
+- **A notice when an account is deleted.** The address gets a short email saying
+  the account was deleted, from both deletion paths. It is queued in the deletion
+  transaction, so a refused or rolled-back deletion sends nothing.
 
 - **Person intake runs over MCP.** Four tools, `person_intake_identify`,
   `person_intake_research`, `person_intake_run_get` and `person_intake_apply`, take
@@ -38,7 +52,15 @@ While the major version is `0`, a minor bump may break the API.
 - **A member who wrote a note can be removed.** Removing a member was refused
   while they had written any note, and a note's author cannot be changed, so
   the only way out was to delete the notes. The notes now stay, with
-  `author_id` set to `null`, and the UI names their author "Former member".
+  `author_id` set to `null`, and the UI names their author "Former member". A note
+  an agent or a workspace key wrote, with no member behind it, shows no author
+  name, only its origin label. The notes panel and the dashboard now name note
+  authors by one rule; the dashboard used to say "System" where the panel said
+  "API key".
+
+- **`/v1/accounting` and its like are no longer exempt from the workspace access
+  check.** The exemption matched any path starting with `/v1/account`; it now
+  matches `/v1/account` and the paths under it.
 
 - **Owning an enquiry now blocks removing a member, by name.** The check before
   a removal missed enquiries, so the database refused the delete instead, with

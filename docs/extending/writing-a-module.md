@@ -278,20 +278,22 @@ No guard runs when an account changes its address. You learn of that from `auth.
 A module that holds rows about an account, or about a member, takes part in deleting one. Add a handler at register time:
 
 ```ts
-context.handleAccountDeletion(async ({ tx, userId }) => {
+context.handleAccountDeletion(async ({ tx, userId, email }) => {
   if (await subscriptions.hasOpenInvoice(tx, userId)) {
     throw AppError.conflict('Settle the open invoice before deleting the account')
   }
 
-  await subscriptions.forget(tx, userId)
+  await subscriptions.forget(tx, userId, email)
 })
 ```
 
-The handler runs inside the transaction that deletes the account, before the row goes, and its writes commit with the deletion or not at all. Handlers run in module registration order. Throw an `AppError` to refuse: everything rolls back, later handlers do not run, and the caller gets your error with its status and message. Anything else a handler throws fails the deletion with a `500`, and the error is logged with your module id.
+The deletion hands you the account id and its address, read under the row lock.
+
+The handler runs inside the transaction that deletes the account, before the row goes, and its writes commit with the deletion or not at all. Handlers run in module registration order. Throw an `AppError` to refuse: everything rolls back, later handlers do not run, and the caller gets your error with its status and message. Anything else a handler throws fails the deletion with a `500`, and the error is logged with your module id. The one exception is Postgres aborting the transaction to break a deadlock or a serialization conflict: let that error through unchanged. Core runs the whole deletion again, twice at most, and your handler runs again with it, so make it safe to repeat.
 
 The account row is locked while handlers run, so nothing new can attach itself to it. The handler holds the deletion's locks for as long as it runs, so make no network call in it. Queue that work on `jobs`, or subscribe to `auth.user.deleted`, which publishes after commit.
 
-The scope has no workspace. To emit a workspace event, name the workspace on the call: `events.emit(name, target, data, { workspaceId })`. Core's workspace handler does that for each membership it removes, so a module that cleans up after `workspace.member.removed` needs no handler of its own for that.
+The scope has no workspace. To emit a workspace event, name the workspace on the call: `events.emit(name, target, data, { workspaceId })`. A scope that has a workspace of its own refuses a call that names a different one. Core's workspace handler does that for each membership it removes, so a module that cleans up after `workspace.member.removed` needs no handler of its own for that.
 
 Both ways of deleting run the handlers: the account deleting itself with `DELETE /v1/account`, and an operator running `runAccountDeletion` (`npm run delete-account -- <email>` in an assembly).
 

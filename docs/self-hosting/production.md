@@ -142,22 +142,33 @@ Because a failed run is not `0`, a script such as `npm run reseal && <remove the
 
 ## Deleting an account for someone
 
-A person deletes their own account with `DELETE /v1/account` and their current password. When they cannot sign in, an operator deletes it by address:
+A person deletes their own account with `DELETE /v1/account` and their current password. When they cannot sign in, an operator deletes it by address. The first run prints what it would delete and deletes nothing; the same command with `--yes` deletes:
 
 ```bash
 npm run delete-account -- person@example.com
+npm run delete-account -- person@example.com --yes
 ```
 
-It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. Run it where the service runs, with the same environment, after migrations.
+Both runs print the target first: the database host and name, the account id and address, and each workspace it belongs to with its role. Never the database user or password. Text that came from a person, such as a workspace name, is printed with control characters escaped.
+
+It runs the same rules as the account itself, without the password. An account that owns a workspace is refused until ownership moves to another member or the workspace is deleted. Records the person owned or wrote stay in each workspace, with nobody named. The address gets an email saying the account was deleted. Run it where the service runs, with the same environment, after migrations.
 
 | Exit code | Meaning |
 | --- | --- |
 | `0` | The account is gone. |
-| `1` | No address was given, or the configuration or module list is wrong. |
-| `2` | No account has that address. Nothing changed. |
+| `1` | No address or a bad argument, a configuration that will not boot, or no `--yes`. Nothing changed. |
+| `2` | No account has that address, or the account moved off it while the command ran. Nothing changed. |
 | `3` | The deletion was refused, for the reason printed on the error output. Nothing changed. |
+| `4` | Something failed that is not a refusal: the database, a migration, a module. One line on the error output says what. Nothing changed. |
 
 Backups still hold the account. The deletion does not reach them.
+
+Two things outlive the delete in the database, for a while:
+
+- **Finished job rows.** pg-boss keeps a job row after it ends, until its retention removes it. The deletion notice and any earlier verification, reset or email-change job carry the address in their payload.
+- **`ai_runs.requested_by`.** A person-intake run keeps `user:<id>` to decide who may read it. The id names no one once the account is gone.
+
+The deletion removes the rate-limit counters keyed on the address and the idempotency keys the person's own requests reserved.
 
 ## Background work
 
