@@ -7,7 +7,7 @@ import { ModuleConfigFileError } from '../../lib/moduleConfig.ts'
 import type { AccountDeletion } from '../../runtime/module.ts'
 import { ModuleBootError } from '../../runtime/order.ts'
 import type { TransactionScope } from '../../runtime/transaction.ts'
-import { deleteAccountRecord } from './deletion.ts'
+import { DeletionContendedError, deleteAccountRecord } from './deletion.ts'
 import * as repository from './repository.ts'
 
 /**
@@ -36,7 +36,10 @@ export const ACCOUNT_DELETION_EXIT_USAGE = 1
 export const ACCOUNT_DELETION_EXIT_UNKNOWN = 2
 /** A module refused the deletion, for a reason the report gives. Nothing changed. */
 export const ACCOUNT_DELETION_EXIT_REFUSED = 3
-/** Something failed that is not a refusal: the database, a migration, a handler. Nothing changed. */
+/**
+ * Something failed that is not a refusal: the database, a migration, a handler, or every run of the
+ * deletion colliding with other work. Nothing changed.
+ */
 export const ACCOUNT_DELETION_EXIT_FAULT = 4
 
 const USAGE = 'Usage: npm run delete-account -- <email> [--yes]'
@@ -74,18 +77,28 @@ function defaultReportFatal(line: string): void {
  *
  * A workspace name, an address and an error message are text that somebody
  * else typed. Printed raw, a control character in one moves the cursor,
- * rewrites what the operator already read, or sets the window title. Every C0
- * and C1 control, DEL, and the two Unicode line and paragraph separators come
+ * rewrites what the operator already read, or sets the window title, and a
+ * bidirectional or format control reorders or hides what the line seems to
+ * say. Every C0 and C1 control, DEL, the Unicode line and paragraph
+ * separators and every format character (`Cf`: the bidi embeddings,
+ * overrides and isolates, zero-width characters, the byte order mark) comes
  * out as a `\u` escape instead.
  */
 export function printable(value: string): string {
-  return value.replaceAll(
-    // Matching control characters is the point: they are what gets escaped.
-    // eslint-disable-next-line no-control-regex
-    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu,
-    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
-  )
+  return value.replaceAll(UNPRINTABLE, (character) => {
+    const code = character.codePointAt(0) ?? 0
+
+    return code > 0xffff ? `\\u{${code.toString(16)}}` : `\\u${code.toString(16).padStart(4, '0')}`
+  })
 }
+
+/**
+ * What `printable` escapes. Built from escapes in a string: a raw U+2028 in
+ * source ends a line.
+ */
+// Matching control characters is the point: they are what gets escaped.
+// eslint-disable-next-line no-control-regex
+const UNPRINTABLE = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\p{Cf}]', 'gu')
 
 /**
  * The database a URL names, as `host:port/name`. Never the user or the
@@ -119,7 +132,8 @@ class AddressMovedError extends Error {}
  * cloud's directory release never runs.
  *
  * @returns The exit code: `ACCOUNT_DELETION_EXIT_DELETED` (0), `_USAGE` (1) when
- *   not confirmed, `_UNKNOWN` (2) or `_REFUSED` (3).
+ *   not confirmed, `_UNKNOWN` (2), `_REFUSED` (3), or `_FAULT` (4) when every
+ *   run of the deletion collided with other work.
  * @throws Whatever is not a refusal: a database fault, or a handler that
  *   failed rather than refused. Nothing was deleted.
  */
@@ -180,6 +194,12 @@ export async function runAccountDeletion(options: RunAccountDeletionOptions): Pr
 
     return ACCOUNT_DELETION_EXIT_DELETED
   } catch (error: unknown) {
+    if (error instanceof DeletionContendedError) {
+      reportFatal(`Failed: ${printable(error.message)}. Nothing was deleted.`)
+
+      return ACCOUNT_DELETION_EXIT_FAULT
+    }
+
     if (error instanceof AddressMovedError) {
       reportFatal(`The account ${printable(user.id)} moved off the address ${printable(email)} while this ran. Nothing was deleted.`)
 

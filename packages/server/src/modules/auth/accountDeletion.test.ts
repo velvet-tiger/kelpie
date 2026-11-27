@@ -588,6 +588,16 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
       expect(sent[0]?.body).toContain('Your Kelpie account for grace@example.com was deleted')
     })
 
+    it('sends nothing to an address that was never verified', async () => {
+      const cookie = await client.signUp('grace@example.com')
+      const userId = await accountIdOf(cookie)
+      await database.db.update(users).set({ emailVerifiedAt: null }).where(eq(users.id, userId))
+
+      expect((await deleteAccount({ cookie })).status).toBe(204)
+      expect(harness.services.queuedJobs.filter((job) => job.name === SEND_ACCOUNT_DELETED_NOTICE_JOB)).toEqual([])
+      expect(await notices()).toEqual([])
+    })
+
     it('sends nothing when the deletion is refused', async () => {
       const ada = await client.owner('ada@example.com')
 
@@ -866,7 +876,7 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
   })
 
   describe('what else goes with the account', () => {
-    it('deletes the rate-limit counters keyed on its address, and its idempotency keys', async () => {
+    it('deletes the login counter keyed on its address, keeps the mailbox counters, and deletes its idempotency keys', async () => {
       const grace = await graceInTwoWorkspaces()
       // Now, so the prune a request runs does not take the rows first.
       const windowStart = new Date()
@@ -910,11 +920,48 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
         .select({ scope: rateLimitBuckets.scope, key: rateLimitBuckets.key })
         .from(rateLimitBuckets)
         .where(inArray(rateLimitBuckets.key, ['grace@example.com', 'ada@example.com', '203.0.113.9']))
-      expect(buckets.toSorted((left, right) => left.key.localeCompare(right.key))).toEqual([
+      expect(
+        buckets.toSorted((left, right) => `${left.key}:${left.scope}`.localeCompare(`${right.key}:${right.scope}`)),
+      ).toEqual([
         { scope: 'auth', key: '203.0.113.9' },
         { scope: 'login-account', key: 'ada@example.com' },
+        { scope: 'password-reset-account', key: 'grace@example.com' },
+        { scope: 'verify-email-address', key: 'grace@example.com' },
       ])
       expect((await database.db.select().from(idempotencyKeys)).map((row) => row.key)).toEqual(['other-key'])
+    })
+
+    it('deletes the idempotency keys written through its personal API key and its OAuth connection', async () => {
+      const grace = await graceInTwoWorkspaces()
+      const personalKey = await mintKey(grace.cookie, 'personal')
+      await connectApp(grace.userId, grace.acme.workspaceId)
+
+      const created = await client.send('POST', '/v1/people', { body: { name: 'Linus Torvalds' }, bearer: personalKey })
+      expect(created.status).toBe(201)
+      const viaKey = await harness.app.request('/v1/people', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${personalKey}`, 'Idempotency-Key': 'via-key' },
+        body: JSON.stringify({ name: 'Margaret Hamilton' }),
+      })
+      expect(viaKey.status).toBe(201)
+
+      const stored = await database.db.select().from(idempotencyKeys)
+      expect(stored.map((row) => row.actorKey)).toEqual([expect.stringMatching(/^api_key:/u)])
+
+      await database.db.insert(idempotencyKeys).values(
+        ['oauth:ocn_test', 'oauth_connection:ocn_test', 'api_key:key_someone_else'].map((actorKey) => ({
+          id: harness.services.createId('idempotencyKey'),
+          workspaceId: grace.acme.workspaceId,
+          actorKey,
+          key: actorKey,
+          requestHash: 'hash',
+          expiresAt: new Date('2999-01-01T00:00:00.000Z'),
+        })),
+      )
+
+      expect((await deleteAccount({ cookie: grace.cookie })).status).toBe(204)
+
+      expect((await database.db.select().from(idempotencyKeys)).map((row) => row.actorKey)).toEqual(['api_key:key_someone_else'])
     })
   })
 
@@ -1023,6 +1070,17 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
       expect(await accountExists(userId)).toBe(true)
     })
 
+    it('answers 4 when every run of the deletion collides with other work', async () => {
+      const grace = await graceInTwoWorkspaces()
+      transientFailures = 3
+
+      const run = await command(['grace@example.com', '--yes'])
+
+      expect(run.code).toBe(ACCOUNT_DELETION_EXIT_FAULT)
+      expect(run.err).toEqual([`Failed: ${DELETION_CONTENDED_MESSAGE}. Nothing was deleted.`])
+      expect(await accountExists(grace.userId)).toBe(true)
+    })
+
     it('answers 4 to a handler that fails', async () => {
       const grace = await graceInTwoWorkspaces()
       fault = new Error('table missing')
@@ -1065,17 +1123,17 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
       const ada = await client.owner('ada@example.com')
       await database.db
         .update(workspaces)
-        .set({ name: 'Evil\u001b]0;owned\u0007\u001b[2J\u2028Co' })
+        .set({ name: `Evil\u001b]0;owned\u0007\u001b[2J${String.fromCodePoint(0x2028)}Co${String.fromCodePoint(0x202e)}gpj.exe` })
         .where(eq(workspaces.id, ada.workspaceId))
 
       const run = await command(['ada@example.com', '--yes'])
       const printed = [...run.out, ...run.err].join('\n')
 
       expect(run.code).toBe(ACCOUNT_DELETION_EXIT_REFUSED)
-      expect(printed).toContain('Evil\\u001b]0;owned\\u0007\\u001b[2J\\u2028Co')
+      expect(printed).toContain('Evil\\u001b]0;owned\\u0007\\u001b[2J\\u2028Co\\u202egpj.exe')
       // eslint-disable-next-line no-control-regex -- the assertion is that none is left
-      expect(printed).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/u)
-      expect(run.err).toContain(`  ${ada.workspaceId}: Evil\\u001b]0;owned\\u0007\\u001b[2J\\u2028Co`)
+      expect(printed).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029\p{Cf}]/u)
+      expect(run.err).toContain(`  ${ada.workspaceId}: Evil\\u001b]0;owned\\u0007\\u001b[2J\\u2028Co\\u202egpj.exe`)
     })
 
     it('refuses with 2 when the account moves off the address between the lookup and the lock', async () => {

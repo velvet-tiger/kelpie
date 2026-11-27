@@ -531,6 +531,34 @@ describe.skipIf(connectionString === undefined)('rate limiting and security head
       return (response.headers.get('Set-Cookie') ?? '').split(';')[0] ?? ''
     }
 
+    it('keeps the address budget when the account is deleted and the address signs up again', async () => {
+      const harness = await harnessWithBudgets(
+        rateLimitConfig({ loginAccount: { limit: 1, windowMs: 60_000 } }),
+        midWindowClock,
+      )
+      const client = createTestClient(harness.app, harness.services.db)
+      const first = await signUpUnverified(harness, 'stranger@example.com', '203.0.113.110')
+
+      expect((await resend(client, first)).status).toBe(202)
+      expect((await resend(client, first)).status).toBe(429)
+
+      const deleted = await client.send('POST', '/v1/account/delete', {
+        body: { current_password: OWNER_PASSWORD },
+        cookie: first,
+      })
+      expect(deleted.status).toBe(204)
+
+      // A new account on the same address: its own account budget is fresh, and
+      // the address budget is still spent, so the mailbox gets nothing more.
+      const second = await signUpUnverified(harness, 'stranger@example.com', '203.0.113.111')
+      const before = verificationJobs(harness)
+
+      expect((await resend(client, second)).status).toBe(429)
+      expect(verificationJobs(harness)).toBe(before)
+      // An unverified address gets no deletion notice either.
+      expect(harness.services.queuedJobs.filter((job) => job.name === 'auth.send-account-deleted-notice')).toEqual([])
+    })
+
     it('lets a single resend through and queues its mail', async () => {
       const harness = await harnessWithBudgets(rateLimitConfig({}), midWindowClock)
       const client = createTestClient(harness.app, harness.services.db)

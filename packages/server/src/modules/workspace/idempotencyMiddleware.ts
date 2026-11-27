@@ -4,7 +4,7 @@ import type { Context, MiddlewareHandler } from 'hono'
 import type { Database } from '../../lib/database.ts'
 import { AppError, describeThrown } from '../../lib/errors.ts'
 import { bearerCredentialId, isBearerActor } from '../../lib/actor.ts'
-import type { Actor } from '../../lib/actor.ts'
+import type { Actor, BearerActor } from '../../lib/actor.ts'
 import { PUBLIC_ROUTE_PREFIX, isWithheldFromReplay } from '../../lib/http.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import type { Logger } from '../../lib/logger.ts'
@@ -83,12 +83,34 @@ function replayResponse(stored: StoredIdempotentResponse): Response {
  * member's response.
  */
 function actorKeyOf(actor: Actor): string {
-  return isBearerActor(actor) ? `${actor.kind}:${bearerCredentialId(actor)}` : userActorKey(actor.userId)
+  return isBearerActor(actor) ? bearerActorKey(actor.kind, bearerCredentialId(actor)) : userActorKey(actor.userId)
 }
 
-/** The actor key of a signed-in person's requests. Deleting the account deletes its rows. */
+/** The actor key of a signed-in person's requests. */
 export function userActorKey(userId: string): string {
   return `user:${userId}`
+}
+
+/** The actor key of a bearer credential's requests: an API key by its id, an OAuth caller by its connection. */
+export function bearerActorKey(kind: BearerActor['kind'], credentialId: string): string {
+  return `${kind}:${credentialId}`
+}
+
+/**
+ * Every actor key one person's requests can have carried: their session's,
+ * each of their personal API keys', and each of their OAuth connections',
+ * under both OAuth actor kinds (one grant, or a connection with several).
+ * Deleting the account deletes the rows of all of them.
+ */
+export function personActorKeys(
+  userId: string,
+  credentials: { readonly apiKeyIds: readonly string[]; readonly connectionIds: readonly string[] },
+): string[] {
+  return [
+    userActorKey(userId),
+    ...credentials.apiKeyIds.map((id) => bearerActorKey('api_key', id)),
+    ...credentials.connectionIds.flatMap((id) => [bearerActorKey('oauth', id), bearerActorKey('oauth_connection', id)]),
+  ]
 }
 
 function conflict(message: string): AppError {

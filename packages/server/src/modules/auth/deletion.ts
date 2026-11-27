@@ -21,10 +21,13 @@ import * as repository from './repository.ts'
  *      (a session, a membership) until the transaction ends, so what the
  *      handlers find is everything there is.
  *   2. Run every module's deletion handler. A refusal rolls everything back.
- *   3. Delete the rate-limit counters keyed on the address. They belong to no
- *      module, so no handler would.
- *   4. Queue the notice to the address. After the handlers, so a refusal
- *      queues nothing; on the transaction, so a rollback drops it.
+ *   3. Delete the login rate-limit counter keyed on the address. The table
+ *      belongs to no module, so no handler would. The mail counters keyed on
+ *      the address stay: they protect the mailbox (`deleteLoginBuckets`).
+ *   4. Queue the notice to the address, when the address was verified. An
+ *      unverified one may be a stranger's, who never asked for mail. After
+ *      the handlers, so a refusal queues nothing; on the transaction, so a
+ *      rollback drops it.
  *   5. Delete the row. Sessions, tokens, preferences, OAuth connections and
  *      grants, personal API keys and memberships go by cascade.
  *   6. Emit `auth.user.deleted`, published after commit.
@@ -50,6 +53,18 @@ export const DELETION_RETRIES = 2
 
 /** What a deletion answers when every run was aborted. The caller can try again. */
 export const DELETION_CONTENDED_MESSAGE = 'The account changed while it was being deleted. Try again'
+
+/**
+ * Every run was aborted as a deadlock or a serialization conflict. A `409` to
+ * an HTTP caller, like any refusal; the operator command reads it as a fault,
+ * because no module refused anything.
+ */
+export class DeletionContendedError extends AppError {
+  constructor() {
+    super('conflict', DELETION_CONTENDED_MESSAGE)
+    this.name = 'DeletionContendedError'
+  }
+}
 
 export interface AccountDeletionDependencies {
   readonly transaction: TransactionScope
@@ -80,7 +95,7 @@ export interface DeletedAccount {
  *   that id by the time the row lock was taken. Nothing was deleted then.
  * @throws AppError when `checkLocked` or a deletion handler refuses. Nothing
  *   is deleted.
- * @throws AppError `409` (`DELETION_CONTENDED_MESSAGE`) when Postgres aborted
+ * @throws DeletionContendedError, a `409`, when Postgres aborted
  *   every run as a deadlock or a serialization conflict. Nothing is deleted.
  */
 export async function deleteAccountRecord(
@@ -97,7 +112,7 @@ export async function deleteAccountRecord(
       }
 
       if (attempt >= DELETION_RETRIES) {
-        throw AppError.conflict(DELETION_CONTENDED_MESSAGE)
+        throw new DeletionContendedError()
       }
     }
   }
@@ -120,9 +135,12 @@ async function deleteOnce(
       options.checkLocked?.(user)
 
       await dependencies.runDeletionHandlers({ ...context, userId, email: user.email })
-      await rateLimitRepository.deleteAddressBuckets(context.tx, user.email)
+      await rateLimitRepository.deleteLoginBuckets(context.tx, user.email)
+
       // The row is gone when the job runs, so the payload carries the address.
-      await context.jobs.enqueue(ACCOUNT_DELETED_NOTICE, { email: user.email })
+      if (user.emailVerifiedAt !== null) {
+        await context.jobs.enqueue(ACCOUNT_DELETED_NOTICE, { email: user.email })
+      }
 
       const deleted = await repository.deleteUser(context.tx, userId)
 

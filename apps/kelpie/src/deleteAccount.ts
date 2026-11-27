@@ -23,7 +23,8 @@ import kelpieConfig from '../kelpie.config.ts'
  *      Nothing changed.
  *   3  A module refused, for the reason printed. Nothing changed.
  *   4  Something failed that is not a refusal: the database, a migration, a
- *      module. One line says what. Nothing changed.
+ *      module, or every run of the deletion colliding with other work. One
+ *      line says what. Nothing changed.
  */
 
 process.exit(

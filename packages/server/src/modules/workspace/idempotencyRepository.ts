@@ -1,4 +1,7 @@
-import { and, eq, lt } from 'drizzle-orm'
+import { and, eq, inArray, lt } from 'drizzle-orm'
+
+import { apiKeys } from '../api-keys/schema.ts'
+import { oauthConnections } from '../oauth/schema.ts'
 
 import { idempotencyKeys } from './schema.ts'
 import type { StoredIdempotentResponse } from './schema.ts'
@@ -97,11 +100,28 @@ export async function deleteIdempotencyKey(db: Queryable, id: string): Promise<v
 }
 
 /**
- * Deletes every key one actor sent, in every workspace. A stored response can
- * hold what the person wrote, so deleting the account deletes these.
+ * The ids of a person's own credentials: personal API keys and OAuth
+ * connections. Read before the account row goes, because both cascade from it.
  */
-export async function deleteIdempotencyKeysOfActor(db: Queryable, actorKey: string): Promise<void> {
-  await db.delete(idempotencyKeys).where(eq(idempotencyKeys.actorKey, actorKey))
+export async function listPersonalCredentialIds(
+  db: Queryable,
+  userId: string,
+): Promise<{ readonly apiKeyIds: readonly string[]; readonly connectionIds: readonly string[] }> {
+  const keys = await db.select({ id: apiKeys.id }).from(apiKeys).where(eq(apiKeys.userId, userId))
+  const connections = await db
+    .select({ id: oauthConnections.id })
+    .from(oauthConnections)
+    .where(eq(oauthConnections.userId, userId))
+
+  return { apiKeyIds: keys.map((key) => key.id), connectionIds: connections.map((connection) => connection.id) }
+}
+
+/**
+ * Deletes every key these actors sent, in every workspace. A stored response
+ * can hold what the person wrote, so deleting the account deletes these.
+ */
+export async function deleteIdempotencyKeysOfActors(db: Queryable, actorKeys: readonly string[]): Promise<void> {
+  await db.delete(idempotencyKeys).where(inArray(idempotencyKeys.actorKey, [...actorKeys]))
 }
 
 /**

@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt, sql } from 'drizzle-orm'
+import { and, eq, lt, sql } from 'drizzle-orm'
 
 import type { Database } from '../../lib/database.ts'
 import type { Transaction } from '../../runtime/transaction.ts'
@@ -11,16 +11,19 @@ export type Queryable = Database | Transaction
 export type RateLimitBucketRecord = typeof rateLimitBuckets.$inferSelect
 
 /**
- * The budgets keyed on an account's address rather than on an IP or a key id.
- * The address is personal data, so deleting the account deletes these.
+ * Deletes the login counter keyed on this address, which counts guesses at
+ * one account's password and has no account left to protect.
+ *
+ * The other two budgets keyed on an address stay until their window ends:
+ * `verify-email-address` and `password-reset-account` protect the mailbox,
+ * not the account. Clearing them would let somebody sign up with a
+ * stranger's address, use up the mail budget, delete the account and sign up
+ * again, each round mailing the stranger afresh.
  */
-const ADDRESS_KEYED_SCOPES: readonly string[] = ['login-account', 'password-reset-account', 'verify-email-address']
-
-/** Deletes every counter keyed on this address. */
-export async function deleteAddressBuckets(db: Queryable, email: string): Promise<void> {
+export async function deleteLoginBuckets(db: Queryable, email: string): Promise<void> {
   await db
     .delete(rateLimitBuckets)
-    .where(and(inArray(rateLimitBuckets.scope, ADDRESS_KEYED_SCOPES), eq(rateLimitBuckets.key, email)))
+    .where(and(eq(rateLimitBuckets.scope, 'login-account'), eq(rateLimitBuckets.key, email)))
 }
 
 /**
