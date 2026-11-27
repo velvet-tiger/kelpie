@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { createTestApp } from '../../testing/app.ts'
 import type { TestApp } from '../../testing/app.ts'
-import { createTestClient, readString } from '../../testing/client.ts'
+import { createTestClient, readRecord, readString } from '../../testing/client.ts'
 import type { TestClient, TestOwner } from '../../testing/client.ts'
 import { connectTestDatabase, testDatabaseUrl } from '../../testing/database.ts'
 import type { TestDatabase } from '../../testing/database.ts'
@@ -317,6 +317,103 @@ describe.skipIf(connectionString === undefined)('email-domain auto-link', () => 
       const companyId = await createCompany({ name: 'Analytical', domain: 'ANALYTICAL.example' })
 
       expect(await positionsFor(personId)).toEqual([{ companyId, title: '' }])
+    })
+  })
+
+  describe('a later title fills the blank', () => {
+    function linkPosition(body: Record<string, unknown>): Promise<Response> {
+      return client.send('POST', '/v1/positions', { body, cookie: acme.cookie })
+    }
+
+    function positionRowsFor(personId: string): Promise<(typeof positions.$inferSelect)[]> {
+      return database.db.select().from(positions).where(eq(positions.personId, personId))
+    }
+
+    /** Calls an MCP tool with a full-access workspace key, as an agent holding one would. */
+    async function callMcpTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+      const keyResponse = await client.send('POST', '/v1/api-keys', {
+        body: { name: 'agent', kind: 'workspace', full_access: true },
+        cookie: acme.cookie,
+      })
+      const bearer = readString(await keyResponse.json(), 'secret')
+      const response = await harness.app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      })
+      const result = readRecord(readRecord(await response.json()).result)
+
+      expect(result.isError, JSON.stringify(result)).toBe(false)
+
+      const content = result.content as { text: string }[]
+
+      return readRecord(JSON.parse(content[0]?.text ?? 'null'))
+    }
+
+    it('fills the blank Position instead of adding a second row', async () => {
+      const companyId = await createCompany({ name: 'Analytical Engines', domain: 'analytical.example' })
+      const personId = await createPerson({ name: 'Ada Lovelace', email: 'ada@analytical.example' })
+      const [blank] = await positionRowsFor(personId)
+
+      const response = await linkPosition({ person_id: personId, company_id: companyId, title: 'Head of Ops' })
+
+      expect(response.status).toBe(201)
+      expect(readString(await response.json(), 'id')).toBe(blank?.id)
+      expect(await positionsFor(personId)).toEqual([{ companyId, title: 'Head of Ops' }])
+    })
+
+    it('still answers 409 for a title the Person already holds there', async () => {
+      const companyId = await createCompany({ name: 'Analytical Engines', domain: 'analytical.example' })
+      const personId = await createPerson({ name: 'Ada Lovelace', email: 'ada@analytical.example' })
+      const body = { person_id: personId, company_id: companyId, title: 'Head of Ops' }
+
+      expect((await linkPosition(body)).status).toBe(201)
+      expect((await linkPosition(body)).status).toBe(409)
+    })
+
+    it('answers with the blank Position when a blank create repeats', async () => {
+      const companyId = await createCompany({ name: 'Analytical Engines', domain: 'analytical.example' })
+      const personId = await createPerson({ name: 'Ada Lovelace', email: 'ada@analytical.example' })
+      const [blank] = await positionRowsFor(personId)
+
+      const response = await linkPosition({ person_id: personId, company_id: companyId, title: '' })
+
+      expect(response.status).toBe(201)
+      expect(readString(await response.json(), 'id')).toBe(blank?.id)
+      expect(await positionsFor(personId)).toEqual([{ companyId, title: '' }])
+    })
+
+    it('fills the blank through positions_create over MCP, the path the issue reports', async () => {
+      const companyId = await createCompany({ name: 'Analytical Engines', domain: 'analytical.example' })
+      const personId = await createPerson({ name: 'Ada Lovelace', email: 'ada@analytical.example' })
+      const [blank] = await positionRowsFor(personId)
+
+      const created = await callMcpTool('positions_create', {
+        person_id: personId,
+        company_id: companyId,
+        title: 'Head of Ops',
+      })
+
+      expect(created.id).toBe(blank?.id)
+      expect(await positionsFor(personId)).toEqual([{ companyId, title: 'Head of Ops' }])
+    })
+
+    it('keeps both titles when two creates race for the same blank', async () => {
+      const companyId = await createCompany({ name: 'Analytical Engines', domain: 'analytical.example' })
+      const personId = await createPerson({ name: 'Ada Lovelace', email: 'ada@analytical.example' })
+
+      const [first, second] = await Promise.all([
+        linkPosition({ person_id: personId, company_id: companyId, title: 'Head of Ops' }),
+        linkPosition({ person_id: personId, company_id: companyId, title: 'Advisor' }),
+      ])
+
+      expect(first.status).toBe(201)
+      expect(second.status).toBe(201)
+      expect((await positionsFor(personId)).map((row) => row.title).sort()).toEqual(['Advisor', 'Head of Ops'])
     })
   })
 

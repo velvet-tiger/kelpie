@@ -12,6 +12,14 @@ While the major version is `0`, a minor bump may break the API.
 
 ### Fixed
 
+- **A later title fills the blank Position a domain match left.** The email-domain
+  match links a new Person to a Company with an empty title. `positions_create` and
+  `POST /v1/positions` with a title now fill that link. They no longer add a second
+  Position for the same job. A create with an empty title returns the link that is
+  already there. A form submit fills the blank link too, where it used to keep the
+  blank and drop the title. A title the person already holds there still answers
+  `409`. No migration.
+
 - **Default MCP sign-in reads stages and the workspace record.** A new sign-in over
   MCP now grants `pipeline_stages:read` and `workspace:read` with
   `read:objects` and `write:objects`. `pipeline_stages_list` and `workspace_get`

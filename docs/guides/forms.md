@@ -24,7 +24,7 @@ Each field maps to an object and attribute via a searchable picker — not a fix
 
 **A consent the person already has stays as it is.** A ticked box writes a new grant only when the person has no record for that purpose. If the person already has one, granted or withdrawn, Kelpie does not change it: not its status, its date, or its source. A form needs no sign-in, so the submit does not prove who sent it. The person's timeline shows the attempt, and you can set the consent on the person record.
 
-**When values land:** an answer is written only on a record that this submit creates. Person, Company, and Position answers are written when the submit creates that person, company, or position. Deal, Opportunity, Partnership, and Enquiry answers are written when the matching create trigger runs, because the trigger always creates a new record.
+**When values land:** an answer is written only on a record that this submit creates. Person, Company, and Position answers are written when the submit creates that person, company, or position. Deal, Opportunity, Partnership, and Enquiry answers are written when the matching create trigger runs, because the trigger always creates a new record. The one Position a submit writes on an existing record is a blank one that the email-domain match left at the company. The submitted title fills it.
 
 **A submit never changes a record that was already in your workspace.** Anybody can type an email address or a company name that matches one of your records, so a match is not proof. When the submit matches a person or a company, or the form attaches the submitter to a raise, none of the mapped answers are written on that record. This covers names, phones, addresses, summaries, tags from any field type, custom fields, a company's domain, and do not contact. The answers are not lost. The submission keeps every answer as it was typed. The action log has one `map_field:<target>` entry marked `skipped` with the reason "The record already existed" for each answer that differs from what the record holds. An answer that says what the record already says gets no entry, so a returning visitor who types the same name again adds nothing to the log. A value typed where the record has none does get an entry: that is the one worth a look. Copy a value to the record yourself when you trust it.
 
@@ -40,7 +40,7 @@ Common starters — Person · name, Company · domain, Position · title, Submis
 
 A submit matches the person by email and the company by domain, then by name. A new person or company gets the answers. A matched one is left as it is, and the submit only adds to it:
 
-- a Position at the company, when a title was given and the person holds none there (a Position the person already holds keeps its title);
+- a Position at the company, when a title was given and the person holds none there (a Position the person already holds keeps its title, and a blank one takes the submitted title);
 - the pipeline records, list memberships, and attached-record links the form is set up to make;
 - the tags you set on the form's Actions tab (your own fixed tags, not the visitor's);
 - a new consent grant, where the person had none for that purpose;

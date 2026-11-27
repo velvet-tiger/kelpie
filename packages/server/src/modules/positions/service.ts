@@ -4,7 +4,7 @@ import { AppError } from '../../lib/errors.ts'
 import type { IdFactory } from '../../lib/ids.ts'
 import { mapPage, readListWindow, toPage } from '../../lib/pagination.ts'
 import type { ListQueryParameters, Page } from '../../lib/pagination.ts'
-import type { TransactionScope } from '../../runtime/transaction.ts'
+import type { Queryable, TransactionScope } from '../../runtime/transaction.ts'
 import type { ActivityRecorder } from '../activities/recorder.ts'
 import { describeLink, describeUnlink } from '../activities/wording.ts'
 import { toEventActor } from '../../lib/actor.ts'
@@ -123,6 +123,31 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
     return { personName: person.name, companyName: company.name }
   }
 
+  /**
+   * Titles a blank Position. A unique violation means a concurrent create holds
+   * that title already, which is a duplicate. An `undefined` means a concurrent
+   * create titled the blank first, so the caller inserts a new row instead.
+   */
+  async function fillBlank(
+    db: Queryable,
+    workspaceId: string,
+    blankId: string,
+    title: string,
+  ): Promise<PositionRecord | undefined> {
+    try {
+      return await repository.fillBlankPosition(db, workspaceId, blankId, {
+        title,
+        updatedAt: dependencies.now(),
+      })
+    } catch (error: unknown) {
+      if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
+        throw duplicatePosition()
+      }
+
+      throw error
+    }
+  }
+
   return {
     async list(actor, filters, query) {
       const workspaceId = requireWorkspaceId(actor)
@@ -142,6 +167,29 @@ export function createPositionsService(dependencies: PositionsDependencies): Pos
       const id = dependencies.createId('position')
 
       return dependencies.transaction(async ({ tx, events }) => {
+        const held = await repository.listPositionsAt(tx, workspaceId, input.personId, input.companyId)
+        const blank = held.find((position) => position.title === '')
+
+        // A repeated blank create has nothing to write: the link is already there.
+        if (blank !== undefined && input.title === '') {
+          return toView(blank)
+        }
+
+        if (held.some((position) => position.title === input.title)) {
+          throw duplicatePosition()
+        }
+
+        // The email-domain match leaves a blank link. The first real title fills
+        // it, so the same job is not held on the company page twice.
+        const filled =
+          blank === undefined ? undefined : await fillBlank(tx, workspaceId, blank.id, input.title)
+
+        if (filled !== undefined) {
+          events.emit('positions.position.updated', { type: 'position', id: filled.id }, { changed: ['title'] })
+
+          return toView(filled)
+        }
+
         let created: PositionRecord
 
         try {

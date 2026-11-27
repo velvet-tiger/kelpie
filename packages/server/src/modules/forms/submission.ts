@@ -468,11 +468,30 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
     title: string,
   ): Promise<Upserted<PositionLink>> {
     const held = await positionRepository.listPositionsAt(tx, workspaceId, personId, companyId)
-    const existing =
-      held.find((position) => position.title.toLowerCase() === title.toLowerCase()) ?? held[0]
+    const sameTitle = held.find((position) => position.title.toLowerCase() === title.toLowerCase())
 
-    if (existing !== undefined) {
-      return { record: existing, created: false, filled: [] }
+    if (sameTitle !== undefined) {
+      return { record: sameTitle, created: false, filled: [] }
+    }
+
+    // A blank link holds no title to keep, so the submitted title fills it.
+    const blank = held.find((position) => position.title === '')
+
+    if (blank !== undefined) {
+      const filled = await positionRepository.fillBlankPosition(tx, workspaceId, blank.id, {
+        title,
+        updatedAt: dependencies.now(),
+      })
+
+      if (filled !== undefined) {
+        return { record: filled, created: false, filled: ['title'] }
+      }
+    }
+
+    const first = held[0]
+
+    if (first !== undefined) {
+      return { record: first, created: false, filled: [] }
     }
 
     const created = await positionRepository.insertPosition(tx, {
@@ -1123,8 +1142,9 @@ export function createFormSubmitService(dependencies: SubmissionDependencies): F
               intent.positionTitle,
             )
 
-      // A position the person already holds keeps its title.
-      if (position !== undefined && !position.created) {
+      // A position the person already holds keeps its title. A blank one this
+      // submit filled was not held, so there is nothing to report.
+      if (position !== undefined && !position.created && position.filled.length === 0) {
         logNotWritten('position', { title: position.record.title })
       }
 

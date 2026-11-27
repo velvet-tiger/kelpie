@@ -121,6 +121,34 @@ export async function updatePosition(
   return updated
 }
 
+/**
+ * Sets the title on a Position that has none. The `title = ''` guard is what
+ * stops two racing creates from overwriting each other: a loser matches no row,
+ * and its caller inserts instead.
+ *
+ * @returns The filled row, or `undefined` when the row is titled already or gone.
+ */
+export async function fillBlankPosition(
+  db: Queryable,
+  workspaceId: string,
+  id: string,
+  changes: { readonly title: string; readonly updatedAt: Date },
+): Promise<PositionRecord | undefined> {
+  const [filled] = await db
+    .update(positions)
+    .set(changes)
+    .where(
+      and(
+        eq(positions.workspaceId, workspaceId),
+        eq(positions.id, id),
+        eq(positions.title, ''),
+      ),
+    )
+    .returning()
+
+  return filled
+}
+
 export async function deletePosition(
   db: Queryable,
   workspaceId: string,

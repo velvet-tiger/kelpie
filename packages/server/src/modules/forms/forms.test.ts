@@ -1013,6 +1013,29 @@ describe.skipIf(connectionString === undefined)('forms', () => {
       expect(formSubmitResultSchema.parse(result).id).not.toBe('')
     })
 
+    it('fills the blank Position a domain match left, instead of dropping the title', async () => {
+      const companyResponse = await client.send('POST', '/v1/companies', {
+        body: { name: 'Example Co', domain: 'example.com' },
+        cookie: acme.cookie,
+      })
+      const companyId = readString(await companyResponse.json(), 'id')
+      const personResponse = await client.send('POST', '/v1/people', {
+        body: { name: 'Alex Rivera', email: 'alex@example.com' },
+        cookie: acme.cookie,
+      })
+      const personId = readString(await personResponse.json(), 'id')
+
+      await submitContact((ids) =>
+        filledIn(ids, { [ids.Company ?? '']: 'Example Co', [ids['Job title'] ?? '']: 'Head of Ops' }),
+      )
+
+      const rows = await database.db.select().from(positions).where(eq(positions.personId, personId))
+
+      expect(rows.map((row) => ({ companyId: row.companyId, title: row.title }))).toEqual([
+        { companyId, title: 'Head of Ops' },
+      ])
+    })
+
     /**
      * An email domain is not a company identifier. One company sends from
      * several, a consumer address belongs to none, and two people at unrelated
