@@ -178,7 +178,7 @@ export function useDeleteAccount(): MutationResult<DeleteAccountInput, void> {
   const client = useApiClient()
   const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: (input: DeleteAccountInput) => client.deleteWithBody('/account', deleteAccountBody(input)),
+    mutationFn: (input: DeleteAccountInput) => client.postEmpty('/account/delete', deleteAccountBody(input)),
     onSuccess: () => {
       queryClient.clear()
     },
