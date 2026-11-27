@@ -20,6 +20,7 @@ function optionsFor(directory: string, overrides: Partial<ScaffoldOptions> = {})
   return {
     directory,
     projectName: 'acme-crm',
+    composeProjectName: 'acme-crm-k3x9qa',
     databaseUrl: 'postgres://kelpie:kelpie@localhost:5432/kelpie',
     emailFrom: 'crm@acme.example',
     port: 3000,
@@ -287,6 +288,27 @@ describe('scaffold', () => {
     expect(published).toHaveLength(1)
     expect(published[0]).toContain('"127.0.0.1:')
   })
+
+  it('names the Compose project, so its volume is not shared with another project', () => {
+    const directory = scratch()
+
+    scaffold(optionsFor(directory, { composeProjectName: 'kelpie-k3x9qa' }))
+
+    const compose = readFileSync(join(directory, 'docker-compose.yml'), 'utf8')
+
+    expect(compose).toMatch(/^name: "kelpie-k3x9qa"$/mu)
+    expect(compose).not.toContain('__COMPOSE_PROJECT_NAME__')
+  })
+
+  it.each(['Acme', '@acme/crm', '-leading-dash', 'has space', 'quote"mark'])(
+    'refuses the Compose project name %s, and writes nothing',
+    (composeProjectName) => {
+      const directory = scratch()
+
+      expect(() => scaffold(optionsFor(directory, { composeProjectName }))).toThrow(ScaffoldError)
+      expect(readdirSync(join(directory, '..'))).toEqual([])
+    },
+  )
 
   it('refuses a directory that already holds something', () => {
     const directory = scratch()

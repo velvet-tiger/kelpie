@@ -21,6 +21,12 @@ export interface ScaffoldOptions {
   /** Absolute path of the directory to write into. Created if missing. */
   readonly directory: string
   readonly projectName: string
+  /**
+   * The Compose project name, which prefixes the bundled Postgres volume.
+   * Generated per project by `resolveOptions`, so two projects whose directories
+   * share a name do not share a volume. Written only with `docker`.
+   */
+  readonly composeProjectName: string
   readonly databaseUrl: string
   readonly emailFrom: string
   readonly port: number
@@ -102,6 +108,7 @@ function bundledDatabaseEnvironment(database: BundledDatabase | undefined): stri
 function tokensFor(options: ScaffoldOptions, database: BundledDatabase | undefined): ReadonlyMap<string, string> {
   return new Map([
     ['__PROJECT_NAME__', options.projectName],
+    ['__COMPOSE_PROJECT_NAME__', options.composeProjectName],
     ['__CORE_VERSION__', options.coreVersion],
     ['__DATABASE_URL__', options.databaseUrl],
     ['__DATABASE_PORT__', String(options.databasePort)],
@@ -169,10 +176,25 @@ export function assertSingleLine(databaseUrl: string): void {
   }
 }
 
+/**
+ * Compose refuses a project name outside its own character set. The name is
+ * written into the YAML, so this check also keeps it from changing the file's
+ * structure.
+ */
+export function assertComposeProjectName(composeProjectName: string): void {
+  if (!/^[a-z0-9][a-z0-9_-]*$/u.test(composeProjectName)) {
+    throw new ScaffoldError(
+      'The Compose project name must use lowercase letters, digits, "-" and "_", and start with a letter or digit. ' +
+        `It is "${composeProjectName}".`,
+    )
+  }
+}
+
 /** Writes the assembly. Returns the output paths, relative to the directory, in write order. */
 export function scaffold(options: ScaffoldOptions): readonly string[] {
   assertWritable(options.directory)
   assertSingleLine(options.databaseUrl)
+  assertComposeProjectName(options.composeProjectName)
 
   // Checked before anything is written, so a refused URL leaves no files.
   const database = options.docker ? bundledDatabaseFor(options.databaseUrl, options.databasePort) : undefined

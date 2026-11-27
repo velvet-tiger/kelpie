@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   bundledDatabaseUrl,
+  generateComposeProjectName,
   generateSecretEncryptionKey,
   parseArguments,
   readOwnVersion,
   resolveOptions,
+  toComposeProjectName,
   toPackageName,
 } from './options.ts'
 import { ScaffoldError } from './errors.ts'
@@ -55,6 +57,48 @@ describe('toPackageName', () => {
   it('falls back rather than producing an invalid name', () => {
     expect(toPackageName('---')).toBe('kelpie')
     expect(toPackageName('')).toBe('kelpie')
+  })
+})
+
+describe('toComposeProjectName', () => {
+  it('keeps the characters Compose accepts', () => {
+    expect(toComposeProjectName('acme-crm')).toBe('acme-crm')
+    expect(toComposeProjectName('my_project')).toBe('my_project')
+    expect(toComposeProjectName('123app')).toBe('123app')
+  })
+
+  it('reduces a scoped npm name to Compose characters', () => {
+    expect(toComposeProjectName('@acme/crm')).toBe('acme-crm')
+    expect(toComposeProjectName('Kelpie.v2')).toBe('kelpie-v2')
+  })
+
+  it('strips a leading character Compose does not accept', () => {
+    expect(toComposeProjectName('_x')).toBe('x')
+    expect(toComposeProjectName('-x')).toBe('x')
+  })
+
+  it('falls back rather than producing an empty name', () => {
+    expect(toComposeProjectName('---')).toBe('kelpie')
+    expect(toComposeProjectName('@@@')).toBe('kelpie')
+    expect(toComposeProjectName('')).toBe('kelpie')
+  })
+
+  it('always produces a name Compose accepts', () => {
+    for (const input of ['@acme/crm', 'Kelpie.v2', '_x', '---', 'a b c', 'ÄÖÜ', '0']) {
+      expect(toComposeProjectName(input), input).toMatch(/^[a-z0-9][a-z0-9_-]*$/u)
+    }
+  })
+})
+
+describe('generateComposeProjectName', () => {
+  it('appends a six character suffix to the readable name', () => {
+    expect(generateComposeProjectName('acme')).toMatch(/^acme-[a-z0-9]{6}$/u)
+  })
+
+  it('produces a different name every time, so two projects in same-named directories never share a volume', () => {
+    const names = new Set(Array.from({ length: 20 }, () => generateComposeProjectName('kelpie')))
+
+    expect(names.size).toBe(20)
   })
 })
 
@@ -128,6 +172,22 @@ describe('resolveOptions', () => {
     ])
 
     expect((await resolveOptions(parsed, false)).databaseUrl).toBe('postgres://demo_user:pw@localhost:5462/kelpie_demo')
+  })
+
+  it('gives each scaffold of a same-named directory its own Compose project name', async () => {
+    const first = await resolveOptions(parseArguments(['crm', '--yes']), false)
+    const second = await resolveOptions(parseArguments(['crm', '--yes']), false)
+
+    expect(first.composeProjectName).toMatch(/^crm-[a-z0-9]{6}$/u)
+    expect(second.composeProjectName).toMatch(/^crm-[a-z0-9]{6}$/u)
+    expect(first.composeProjectName).not.toBe(second.composeProjectName)
+  })
+
+  it('builds the Compose project name from a scoped --name', async () => {
+    const options = await resolveOptions(parseArguments(['crm', '--yes', '--name', '@acme/crm']), false)
+
+    expect(options.projectName).toBe('@acme/crm')
+    expect(options.composeProjectName).toMatch(/^acme-crm-[a-z0-9]{6}$/u)
   })
 
   it('resolves the directory against the working directory', async () => {
