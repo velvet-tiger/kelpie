@@ -72,7 +72,7 @@ export interface CreateCompanyInput {
   readonly industry: string | null
   readonly description: string
   readonly stage: CompanyStage
-  readonly sizeBand: SizeBand
+  readonly sizeBand: SizeBand | null
   readonly addresses: readonly CompanyAddress[]
   readonly accountType: AccountType
   readonly icpFit: IcpFit

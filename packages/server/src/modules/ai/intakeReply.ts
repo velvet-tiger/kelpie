@@ -456,7 +456,7 @@ export function normaliseResearch(input: ResearchNormaliseInput): PersonIntakeIt
         industry: company.industry ?? undefined,
         description: company.description === '' ? undefined : company.description,
         stage: company.stage,
-        size_band: company.size_band,
+        size_band: company.size_band ?? undefined,
         account_type: company.account_type,
         icp_fit: company.icp_fit,
         tech_stack: nonEmpty(company.tech_stack),

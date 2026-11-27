@@ -18,7 +18,6 @@ import type {
 } from '@kelpie/schemas'
 
 import { normaliseDomain, normaliseEmail } from '../../lib/normalisation.ts'
-import { defaultSizeBandFor } from '../companies/sizeBand.ts'
 import { companyAddressesFromMapped, personAddressesFromMapped } from './addresses.ts'
 import { moneyToCents, splitList } from './mapping.ts'
 import { canonicalEnum } from './validation.ts'
@@ -143,24 +142,13 @@ export interface CustomFieldDefinitionDraft {
  * filling in a web form is by definition an inbound prospect, and a row in a
  * migration file says nothing at all about the relationship. Guessing `prospect`
  * for ten thousand companies would put a claim in the data that nobody made.
- * `size_band` is not here: it follows the stage (see `newCompanySizeBand`).
+ * `size_band` is not here: a row that gives no band leaves it empty.
  */
 export const NEW_COMPANY_DEFAULTS = {
   stage: 'other',
   accountType: 'other',
   icpFit: 'unknown',
 } as const
-
-/**
- * The band a Company an import invents takes. A band the row gives wins. When
- * the row gives none, the band follows the row's stage, so an enterprise that a
- * CSV leaves unsized takes `201+`, not the smallest band.
- *
- * Only for a create. An update that leaves the band blank keeps the stored band.
- */
-export function newCompanySizeBand(draft: CompanyDraft): SizeBand {
-  return draft.sizeBand ?? defaultSizeBandFor(draft.stage ?? NEW_COMPANY_DEFAULTS.stage)
-}
 
 /** Defaults for a Person an import invents. Matches what a form submit uses. */
 export const NEW_PERSON_DEFAULTS = {

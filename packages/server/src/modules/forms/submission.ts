@@ -81,6 +81,8 @@ import type { RefusedMappedValue } from './mappedValueChecks.ts'
 import { SPAM_RETENTION_DAYS } from './spam.ts'
 import type { SpamCheck, SpamCheckInput } from './spam.ts'
 import {
+  NEW_COMPANY_DEFAULTS,
+  NEW_PERSON_DEFAULTS,
   applyCompanyMappedFields,
   applyDealMappedFields,
   applyEnquiryMappedFields,
@@ -117,33 +119,6 @@ const FORM_ACTOR: SystemActor = { kind: 'system', label: 'Form' }
  * belongs to a form somebody configured, not to the fallback.
  */
 const DEFAULT_DEAL_NAME_TEMPLATE = '{{company.name}}'
-
-/**
- * Defaults for a Company a submit invents.
- *
- * `sizeBand` has no given default and the column is `NOT NULL`, so it takes the
- * smallest band: the honest reading of a company nobody has told us anything
- * about yet.
- */
-const NEW_COMPANY_DEFAULTS = {
-  stage: 'other',
-  sizeBand: '1-10',
-  accountType: 'prospect',
-  icpFit: 'unknown',
-} as const
-
-/**
- * Defaults for a Person a submit invents.
- *
- * No tags. The mockup tags new records `inbound` and `form`, but the summary
- * and tags start empty, and provenance is already carried by the
- * timeline entry and by the FormSubmission's own links.
- */
-const NEW_PERSON_DEFAULTS = {
-  relationship: 'cold',
-  preferredChannel: 'email',
-  influence: 'influencer',
-} as const
 
 export interface SubmissionDependencies {
   readonly db: Database

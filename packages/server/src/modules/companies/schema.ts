@@ -35,7 +35,7 @@ export const companies = pgTable(
     industry: text('industry'),
     description: text('description').notNull().default(''),
     stage: text('stage').notNull(),
-    sizeBand: text('size_band').notNull(),
+    sizeBand: text('size_band'),
     addresses: jsonb('addresses').$type<readonly CompanyAddress[]>().notNull().default([]),
     accountType: text('account_type').notNull(),
     icpFit: text('icp_fit').notNull(),

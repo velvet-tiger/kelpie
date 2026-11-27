@@ -66,7 +66,25 @@ While the major version is `0`, a minor bump may break the API.
   An OAuth grant that holds `ai:write` may start a run, as an API key may. The tools
   exist when the `ai` module is listed. Each start still counts one AI run.
 
+### Changed
+
+- **A company's `size_band` can be null, and is null by default.** A company
+  created with no band used to be given `1-10`, which was usually wrong. The API,
+  the MCP tools, CSV import and form submits now leave it empty until somebody
+  gives one, and `PATCH` with `size_band: null` clears it. `size_band` on the wire
+  is `SizeBand | null`, so a client that assumed a string must handle `null`. A CSV
+  export writes an empty cell. Migration `0069` drops `NOT NULL` and clears every
+  stored `1-10`, because the old default cannot be told apart from a band somebody
+  chose.
+
 ### Fixed
+
+- **A form's mapped stage, size, account type and ICP fit reach the company it
+  creates.** A submit created the company with defaults first, then wrote only into
+  empty fields, so these answers were dropped. Person answers for relationship,
+  influence and preferred channel were dropped the same way. On a record the submit
+  creates, a mapped answer now replaces the default. A matched record is still
+  never changed.
 
 - **A member who wrote a note can be removed.** Removing a member was refused
   while they had written any note, and a note's author cannot be changed, so

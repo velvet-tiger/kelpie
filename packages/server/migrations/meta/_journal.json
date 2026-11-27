@@ -484,6 +484,13 @@
       "when": 1791091200000,
       "tag": "0068_members_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1791177600000,
+      "tag": "0069_companies_size_band_optional",
+      "breakpoints": true
     }
   ]
 }

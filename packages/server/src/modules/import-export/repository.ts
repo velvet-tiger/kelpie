@@ -626,7 +626,7 @@ export interface ExportCompanyRow {
   readonly domain: string | null
   readonly industry: string | null
   readonly stage: string
-  readonly sizeBand: string
+  readonly sizeBand: string | null
   readonly accountType: string
   readonly icpFit: string
   readonly description: string

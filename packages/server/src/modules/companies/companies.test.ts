@@ -79,7 +79,7 @@ describe.skipIf(connectionString === undefined)('companies', () => {
       expect(company.industry).toBeNull()
       expect(company.description).toBe('')
       expect(company.stage).toBe('startup')
-      expect(company.size_band).toBe('1-10')
+      expect(company.size_band).toBeNull()
       expect(company.account_type).toBe('prospect')
       expect(company.icp_fit).toBe('unknown')
       expect(company.tech_stack).toEqual([])
@@ -87,26 +87,27 @@ describe.skipIf(connectionString === undefined)('companies', () => {
       expect(String(company.created_at)).toMatch(ISO_8601_UTC)
     })
 
-    it('takes the enterprise band when an enterprise is created without one', async () => {
+    it('leaves the band empty for an enterprise nobody sized', async () => {
       const company = await createCompany({ name: 'Harbour Mutual', stage: 'enterprise' })
 
-      expect(company.size_band).toBe('201+')
+      expect(company.size_band).toBeNull()
     })
 
-    it('keeps a band the caller names, even for an enterprise', async () => {
-      const company = await createCompany({
-        name: 'Harbour Mutual',
-        stage: 'enterprise',
-        size_band: '51-200',
-      })
+    it('keeps a band the caller names', async () => {
+      const company = await createCompany({ name: 'Harbour Mutual', size_band: '51-200' })
 
       expect(company.size_band).toBe('51-200')
     })
 
-    it('keeps the smallest band for a growth company nobody sized', async () => {
-      const company = await createCompany({ name: 'Quarry Works', stage: 'growth' })
+    it('clears a band when the caller sends null', async () => {
+      const company = await createCompany({ name: 'Harbour Mutual', size_band: '51-200' })
+      const response = await client.send('PATCH', `/v1/companies/${String(company.id)}`, {
+        body: { size_band: null },
+        cookie: acme.cookie,
+      })
 
-      expect(company.size_band).toBe('1-10')
+      expect(response.status).toBe(200)
+      expect(readRecord(await response.json()).size_band).toBeNull()
     })
 
     it('reduces a pasted URL to its host', async () => {

@@ -113,7 +113,7 @@ export function CompaniesPage(): React.JSX.Element {
       key: 'sizeBand',
       header: 'Size',
       getSortValue: (company) => company.sizeBand,
-      render: (company) => company.sizeBand,
+      render: (company) => company.sizeBand ?? '—',
     },
     {
       key: 'icp',

@@ -21,12 +21,7 @@ import { upsertPersonConsent } from '../people/personConsentWrites.ts'
 import * as personLinks from '../personLinks.ts'
 import * as positionRepository from '../positions/repository.ts'
 import * as raiseRepository from '../raises/repository.ts'
-import {
-  IMPORT_DEAL_CURRENCY,
-  NEW_COMPANY_DEFAULTS,
-  NEW_PERSON_DEFAULTS,
-  newCompanySizeBand,
-} from './drafts.ts'
+import { IMPORT_DEAL_CURRENCY, NEW_COMPANY_DEFAULTS, NEW_PERSON_DEFAULTS } from './drafts.ts'
 import type { ImportConsentGrant, ImportWrite, PlannedAffiliation, RowPlan } from './plan.ts'
 
 /**
@@ -157,7 +152,6 @@ async function writeCompany(
     const created = await companyRepository.insertCompany(tx, {
       ...NEW_COMPANY_DEFAULTS,
       ...rest,
-      sizeBand: newCompanySizeBand(write.draft),
       tags: tags === undefined ? undefined : [...tags],
       addresses: addresses === undefined ? undefined : [...addresses],
       ...(customFields === undefined ? {} : { customFields }),
@@ -233,7 +227,6 @@ async function applyAffiliation(
     const created = await companyRepository.insertCompany(tx, {
       ...NEW_COMPANY_DEFAULTS,
       ...companyRest,
-      sizeBand: newCompanySizeBand(affiliation.company),
       tags: tags === undefined ? undefined : [...tags],
       id: dependencies.createId('company'),
       workspaceId,

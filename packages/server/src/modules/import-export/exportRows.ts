@@ -96,7 +96,7 @@ export function companyCells(
       row.domain ?? '',
       row.industry ?? '',
       row.stage,
-      row.sizeBand,
+      row.sizeBand ?? '',
       row.accountType,
       row.icpFit,
       row.description,

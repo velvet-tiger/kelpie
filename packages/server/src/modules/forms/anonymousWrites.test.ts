@@ -792,6 +792,67 @@ describe.skipIf(connectionString === undefined)('what an anonymous submit may wr
       expect(company).toMatchObject({ name: 'Brand New Co', industry: 'Logistics' })
     })
 
+    it('writes a mapped stage on a company it creates and leaves the band empty', async () => {
+      const form = await createForm({
+        fields: [...BASE_FIELDS, { label: 'Stage', type: 'text', map_to: 'company.stage' }],
+      })
+
+      await submit(form, { Company: 'Harbour Mutual', Stage: 'enterprise' })
+
+      const [company] = await database.db.select().from(companies)
+
+      expect(company).toMatchObject({ name: 'Harbour Mutual', stage: 'enterprise', sizeBand: null })
+    })
+
+    it('writes a mapped stage and band on a company it creates', async () => {
+      const form = await createForm({
+        fields: [
+          ...BASE_FIELDS,
+          { label: 'Stage', type: 'text', map_to: 'company.stage' },
+          { label: 'Size', type: 'text', map_to: 'company.size_band' },
+        ],
+      })
+
+      await submit(form, { Company: 'Harbour Mutual', Stage: 'enterprise', Size: '51-200' })
+
+      const [company] = await database.db.select().from(companies)
+
+      expect(company).toMatchObject({ stage: 'enterprise', sizeBand: '51-200' })
+    })
+
+    it('writes a mapped account type and ICP fit over the defaults on a company it creates', async () => {
+      const form = await createForm({
+        fields: [
+          ...BASE_FIELDS,
+          { label: 'Account', type: 'text', map_to: 'company.account_type' },
+          { label: 'Fit', type: 'text', map_to: 'company.icp_fit' },
+        ],
+      })
+
+      await submit(form, { Company: 'Harbour Mutual', Account: 'partner', Fit: 'high' })
+
+      const [company] = await database.db.select().from(companies)
+
+      expect(company).toMatchObject({ accountType: 'partner', icpFit: 'high' })
+    })
+
+    it('writes mapped person answers over the defaults on a person it creates', async () => {
+      const form = await createForm({
+        fields: [
+          ...BASE_FIELDS,
+          { label: 'Relationship', type: 'text', map_to: 'person.relationship' },
+          { label: 'Channel', type: 'text', map_to: 'person.preferred_channel' },
+        ],
+      })
+
+      await submit(form, { Relationship: 'warm', Channel: 'call' })
+
+      expect(await personByEmail('alex@example.com')).toMatchObject({
+        relationship: 'warm',
+        preferredChannel: 'call',
+      })
+    })
+
     it('writes no answer on a raise the form attaches to', async () => {
       const { form, raiseId } = await raiseForm('raise.check_size_cents')
 

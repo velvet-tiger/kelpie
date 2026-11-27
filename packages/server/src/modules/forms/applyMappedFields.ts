@@ -138,12 +138,18 @@ function isBlankStored(value: unknown): boolean {
  * "stored" is that record's defaults and what the core capture wrote. A record
  * that was already in the workspace gets no mapped value at all
  * (`submission.ts`).
+ *
+ * @param defaultColumns Columns the submit filled with a default when it created
+ *   the record. A default is not an answer, so a mapped answer replaces it.
+ *   Without this, `stage: other` would count as filled and the visitor's stage
+ *   would be dropped.
  */
 export function applyStandardFillBlank<T extends Record<string, unknown>>(
   stored: T,
   objectType: FormMapObjectType,
   mapped: ObjectMappedValues,
   columnForField: (field: string) => string | undefined,
+  defaultColumns: ReadonlySet<string> = new Set(),
 ): Record<string, unknown> {
   const patch: Record<string, unknown> = {}
 
@@ -154,7 +160,7 @@ export function applyStandardFillBlank<T extends Record<string, unknown>>(
       continue
     }
 
-    const storedValue = stored[column as keyof T]
+    const storedValue = defaultColumns.has(column) ? null : stored[column as keyof T]
 
     const parsed = parseStandardAnswer(objectType, field, raw)
     const entry = resolveMapTargetEntry(`${objectType}.${field}`)

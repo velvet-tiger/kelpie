@@ -18,7 +18,8 @@ export interface Company extends RecordTimestamps {
   readonly industry: string | null
   readonly description: string
   readonly stage: CompanyStage
-  readonly sizeBand: SizeBand
+  /** Null until somebody gives one. No band is guessed. */
+  readonly sizeBand: SizeBand | null
   readonly addresses: readonly CompanyAddress[]
   readonly accountType: AccountType
   readonly icpFit: IcpFit
@@ -39,7 +40,7 @@ export const companySchema: z.ZodType<Company, unknown> = z
     industry: z.string().nullable(),
     description: z.string(),
     stage: z.enum(COMPANY_STAGES),
-    size_band: z.enum(SIZE_BANDS),
+    size_band: z.enum(SIZE_BANDS).nullable(),
     addresses: companyAddressesSchema,
     account_type: z.enum(ACCOUNT_TYPES),
     icp_fit: z.enum(ICP_FITS),
@@ -78,7 +79,7 @@ export interface CompanyInput {
   readonly industry?: string | null
   readonly description?: string
   readonly stage?: CompanyStage
-  readonly sizeBand?: SizeBand
+  readonly sizeBand?: SizeBand | null
   readonly addresses?: readonly CompanyAddress[]
   readonly accountType?: AccountType
   readonly icpFit?: IcpFit

@@ -70,7 +70,8 @@ import { toOptions, toTags } from './fields.ts'
  */
 
 const STAGE_OPTIONS = toOptions(COMPANY_STAGES)
-const SIZE_OPTIONS = toOptions(SIZE_BANDS)
+/** Leads with an empty choice, so a band set by mistake can be cleared. */
+const SIZE_OPTIONS = [{ value: '', label: 'Not set' }, ...toOptions(SIZE_BANDS)]
 const ACCOUNT_OPTIONS = toOptions(ACCOUNT_TYPES)
 const ICP_OPTIONS = toOptions(ICP_FITS)
 
@@ -333,9 +334,9 @@ function CompanySidebar({
       </SidebarField>
       <SidebarField label="Size">
         <InlineEdit
-          value={company.sizeBand}
+          value={company.sizeBand ?? ''}
           onChange={(value) => {
-            patch({ sizeBand: value as SizeBand })
+            patch({ sizeBand: value.length > 0 ? (value as SizeBand) : null })
           }}
           options={SIZE_OPTIONS}
           displayClassName="not-italic text-[12px]"

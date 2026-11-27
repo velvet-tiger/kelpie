@@ -27,6 +27,35 @@ import { fillCompanyAddresses, fillPersonAddresses } from './fillAddresses.ts'
 
 const customFieldValues = createCustomFieldValues({ db: null as never })
 
+/**
+ * Defaults for a Company a submit invents.
+ *
+ * No `sizeBand`: a company nobody has sized has no band. A mapped answer
+ * replaces any of these defaults (see `NEW_COMPANY_DEFAULT_COLUMNS`).
+ */
+export const NEW_COMPANY_DEFAULTS = {
+  stage: 'other',
+  accountType: 'prospect',
+  icpFit: 'unknown',
+} as const
+
+/**
+ * Defaults for a Person a submit invents.
+ *
+ * No tags. The mockup tags new records `inbound` and `form`, but the summary
+ * and tags start empty, and provenance is already carried by the
+ * timeline entry and by the FormSubmission's own links.
+ */
+export const NEW_PERSON_DEFAULTS = {
+  relationship: 'cold',
+  preferredChannel: 'email',
+  influence: 'influencer',
+} as const
+
+/** Columns holding a default rather than an answer on a record a submit created. */
+const NEW_COMPANY_DEFAULT_COLUMNS: ReadonlySet<string> = new Set(Object.keys(NEW_COMPANY_DEFAULTS))
+const NEW_PERSON_DEFAULT_COLUMNS: ReadonlySet<string> = new Set(Object.keys(NEW_PERSON_DEFAULTS))
+
 export const PERSON_FIELD_COLUMNS: Readonly<Record<string, keyof PersonRecord>> = {
   salutation: 'salutation',
   suffix: 'suffix',
@@ -155,7 +184,13 @@ export async function applyPersonMappedFields(
     return person
   }
 
-  const standardPatch = applyStandardFillBlank(person, 'person', values, columnLookup(PERSON_FIELD_COLUMNS))
+  const standardPatch = applyStandardFillBlank(
+    person,
+    'person',
+    values,
+    columnLookup(PERSON_FIELD_COLUMNS),
+    NEW_PERSON_DEFAULT_COLUMNS,
+  )
   const addresses = fillPersonAddresses(person.addresses, values.standard)
   const customFields = await buildCustomFieldsPatch(
     tx,
@@ -199,6 +234,7 @@ export async function applyCompanyMappedFields(
     'company',
     values,
     columnLookup(COMPANY_FIELD_COLUMNS),
+    NEW_COMPANY_DEFAULT_COLUMNS,
   )
   const addresses = fillCompanyAddresses(company.addresses, values.standard)
   const customFields = await buildCustomFieldsPatch(
