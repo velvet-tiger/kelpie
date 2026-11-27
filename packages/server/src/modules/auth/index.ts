@@ -67,6 +67,7 @@ export function createAuthModule(migrationsDirectory: string): KelpieModule {
         },
         signupsEnabled: context.signupsEnabled ?? true,
         checkSignUp: (attempt) => context.checkSignUp(attempt),
+        checkEmailChange: (attempt) => context.checkEmailChange(attempt),
         runAccountDeletionHandlers: (deletion) => context.runAccountDeletionHandlers(deletion),
       })
 

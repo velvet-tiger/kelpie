@@ -15,6 +15,8 @@ import type {
   AccountDeletion,
   AccountDeletionHandler,
   AppRateLimitOptions,
+  EmailChangeAttempt,
+  EmailChangeGuard,
   KelpieModule,
   SignUpAttempt,
   SignUpGuard,
@@ -654,6 +656,108 @@ describe('sign-up guards', () => {
 
     await expect(check(attempt)).rejects.toMatchObject({
       message: 'sign-up guard of module "directory" failed: Error: directory unreachable',
+      cause,
+    })
+  })
+})
+
+describe('email-change guards', () => {
+  const change: EmailChangeAttempt = {
+    userId: 'user_1',
+    previousEmail: 'ada@example.com',
+    email: 'ada.king@example.com',
+  }
+
+  function guardModule(id: string, guard: EmailChangeGuard): KelpieModule {
+    return {
+      id,
+      register(context) {
+        context.guardEmailChange(guard)
+
+        return Promise.resolve()
+      },
+    }
+  }
+
+  /** Boots `modules` plus a consumer, and hands back the consumer's `checkEmailChange`. */
+  async function checkerFor(
+    modules: readonly KelpieModule[],
+  ): Promise<(attempt: EmailChangeAttempt) => Promise<SignUpVerdict>> {
+    let checker: ((attempt: EmailChangeAttempt) => Promise<SignUpVerdict>) | undefined
+
+    const consumer: KelpieModule = {
+      id: 'consumer',
+      register(context) {
+        checker = (value) => context.checkEmailChange(value)
+
+        return Promise.resolve()
+      },
+    }
+
+    await createTestApp({ modules: [consumer, ...modules], environment: {}, services: createTestServices() })
+
+    if (checker === undefined) {
+      throw new Error('the consumer module did not register')
+    }
+
+    return checker
+  }
+
+  it('allows a change when no module added a guard', async () => {
+    const check = await checkerFor([])
+
+    expect(await check(change)).toEqual({ allowed: true })
+  })
+
+  it('runs guards in registration order and returns the first rejection', async () => {
+    const calls: string[] = []
+    const check = await checkerFor([
+      guardModule('first', () => {
+        calls.push('first')
+        return Promise.resolve({ allowed: true })
+      }),
+      guardModule('second', () => {
+        calls.push('second')
+        return Promise.resolve({ allowed: false, message: 'Second says no' })
+      }),
+      guardModule('third', () => {
+        calls.push('third')
+        return Promise.resolve({ allowed: false, message: 'Third says no' })
+      }),
+    ])
+
+    expect(await check(change)).toEqual({ allowed: false, message: 'Second says no' })
+    expect(calls).toEqual(['first', 'second'])
+  })
+
+  it('does not run a sign-up guard for an address change', async () => {
+    const signUpRefuses: KelpieModule = {
+      id: 'sign-up-only',
+      register(context) {
+        context.guardSignUp(() => Promise.resolve({ allowed: false, message: 'No sign-ups' }))
+
+        return Promise.resolve()
+      },
+    }
+    const check = await checkerFor([signUpRefuses])
+
+    expect(await check(change)).toEqual({ allowed: true })
+  })
+
+  it('rejects, naming the module, when a guard refuses without a message', async () => {
+    const check = await checkerFor([guardModule('quiet', () => Promise.resolve({ allowed: false, message: '  ' }))])
+
+    await expect(check(change)).rejects.toThrow(
+      'email-change guard of module "quiet" rejected a change without a message',
+    )
+  })
+
+  it('wraps a guard that throws with the module id and keeps the cause', async () => {
+    const cause = new Error('directory unreachable')
+    const check = await checkerFor([guardModule('directory', () => Promise.reject(cause))])
+
+    await expect(check(change)).rejects.toMatchObject({
+      message: 'email-change guard of module "directory" failed: Error: directory unreachable',
       cause,
     })
   })

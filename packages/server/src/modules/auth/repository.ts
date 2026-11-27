@@ -386,35 +386,26 @@ export async function spendEmailVerificationToken(db: Queryable, id: string, now
 }
 
 /**
- * Sets `email_verified_at` if it is not already set.
- *
- * Guarded in the `WHERE` clause rather than read-then-write, so accepting a
- * second invite or confirming a stale token after the account is already
- * verified is a no-op instead of overwriting the original verification time.
- */
-export async function markEmailVerified(db: Queryable, userId: string, now: Date): Promise<void> {
-  await db
-    .update(users)
-    .set({ emailVerifiedAt: now })
-    .where(and(eq(users.id, userId), isNull(users.emailVerifiedAt)))
-}
-
-/**
- * Sets `email_verified_at` for the address a verification link was sent to.
+ * Sets `email_verified_at` for an address the caller has proved. Returns whether
+ * a row changed.
  *
  * The address is in the `WHERE` clause, so an account that moves to another
- * address between the caller's check and this write is left unverified.
+ * address between the caller's check and this write is left unverified. A
+ * repeat for an account already verified changes nothing, and returns false.
  */
 export async function markEmailAddressVerified(
   db: Queryable,
   userId: string,
   email: string,
   now: Date,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const changed = await db
     .update(users)
     .set({ emailVerifiedAt: now })
     .where(and(eq(users.id, userId), eq(users.email, email), isNull(users.emailVerifiedAt)))
+    .returning({ id: users.id })
+
+  return changed.length > 0
 }
 
 /** The membership a session's active workspace resolves to, if any. */

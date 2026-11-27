@@ -922,8 +922,13 @@ export function createWorkspaceService(dependencies: WorkspaceDependencies): Wor
         // link gives. It is proof of no other address. The address is part of
         // the statement, so an account that has moved to a different address
         // since the comparison above stays unverified. A no-op if the account
-        // was already verified.
-        await authRepository.markEmailAddressVerified(tx, actor.userId, invite.email, now)
+        // was already verified, and then nothing is published.
+        if (await authRepository.markEmailAddressVerified(tx, actor.userId, invite.email, now)) {
+          events.emitAccountEvent('auth.user.email_verified', { type: 'user', id: actor.userId }, {
+            userId: actor.userId,
+            email: invite.email,
+          })
+        }
 
         await authRepository.setActiveWorkspace(tx, actor.sessionId, invite.workspaceId)
 

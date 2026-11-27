@@ -1141,6 +1141,10 @@ describe.skipIf(connectionString === undefined)('account deletion', () => {
       let settled = false
       let running: Promise<Run> | undefined
 
+      // This transaction is the commit of an email change. A real one runs its
+      // email-change guards first, outside any lock, and then locks and updates
+      // the row as this does, so the deletion sees the same thing either way:
+      // the address it looked up is gone by the time it holds the row.
       await database.db.transaction(async (tx) => {
         await tx.select().from(users).where(eq(users.id, grace.userId)).for('update')
         running = command(['grace@example.com', '--yes']).finally(() => {

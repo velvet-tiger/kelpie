@@ -30,6 +30,7 @@ import type {
   AgentDispatcher,
   AppRateLimitOptions,
   CompletedSignIn,
+  EmailChangeAttempt,
   ExternalSignInHandler,
   KelpieModule,
   McpAuthorization,
@@ -39,7 +40,6 @@ import type {
   ModuleServices,
   SchemaContribution,
   SignUpAttempt,
-  SignUpGuard,
   SignUpVerdict,
   VerifiedIdentity,
 } from './module.ts'
@@ -698,16 +698,30 @@ class ExternalSignInProxy {
   }
 }
 
+interface RegisteredGuard<Attempt> {
+  readonly moduleId: string
+  readonly guard: (attempt: Attempt) => Promise<SignUpVerdict>
+}
+
 /**
- * Every sign-up guard modules added, in registration order.
+ * Every guard of one kind modules added, in registration order. `label` names
+ * the kind in errors ("sign-up guard"). `subject` names what it decides in the
+ * empty-message error ("sign-up").
  *
  * Unlike external sign-in, any number of modules may add one: an assembly can
  * have a directory claim and an allow-list side by side, and each is a veto.
  */
-class SignUpGuardList {
-  private readonly guards: { readonly moduleId: string; readonly guard: SignUpGuard }[] = []
+class GuardList<Attempt> {
+  private readonly guards: RegisteredGuard<Attempt>[] = []
+  private readonly label: string
+  private readonly subject: string
 
-  add(moduleId: string, guard: SignUpGuard): void {
+  constructor(label: string, subject: string) {
+    this.label = label
+    this.subject = subject
+  }
+
+  add(moduleId: string, guard: (attempt: Attempt) => Promise<SignUpVerdict>): void {
     this.guards.push({ moduleId, guard })
   }
 
@@ -715,21 +729,21 @@ class SignUpGuardList {
    * @throws Error naming the module when a guard throws, or answers a
    *   rejection with no message to show.
    */
-  async check(attempt: SignUpAttempt): Promise<SignUpVerdict> {
+  async check(attempt: Attempt): Promise<SignUpVerdict> {
     for (const { moduleId, guard } of this.guards) {
       let verdict: SignUpVerdict
 
       try {
         verdict = await guard(attempt)
       } catch (error: unknown) {
-        throw new Error(`sign-up guard of module "${moduleId}" failed: ${describeThrown(error)}`, {
+        throw new Error(`${this.label} of module "${moduleId}" failed: ${describeThrown(error)}`, {
           cause: error,
         })
       }
 
       if (!verdict.allowed) {
         if (verdict.message.trim().length === 0) {
-          throw new Error(`sign-up guard of module "${moduleId}" rejected a sign-up without a message`)
+          throw new Error(`${this.label} of module "${moduleId}" rejected a ${this.subject} without a message`)
         }
 
         return verdict
@@ -859,7 +873,8 @@ function createModuleContext(
   emailProxy: EmailSenderProxy,
   providers: Map<string, RegisteredProvider>,
   externalSignIn: ExternalSignInProxy,
-  signUpGuards: SignUpGuardList,
+  signUpGuards: GuardList<SignUpAttempt>,
+  emailChangeGuards: GuardList<EmailChangeAttempt>,
   accountDeletionHandlers: AccountDeletionHandlerList,
   captchaProxy: CaptchaProxy,
   captchaProviders: Map<string, RegisteredCaptcha>,
@@ -896,6 +911,14 @@ function createModuleContext(
 
     checkSignUp(attempt) {
       return signUpGuards.check(attempt)
+    },
+
+    guardEmailChange(guard) {
+      emailChangeGuards.add(module.id, guard)
+    },
+
+    checkEmailChange(attempt) {
+      return emailChangeGuards.check(attempt)
     },
 
     handleAccountDeletion(handler) {
@@ -1104,7 +1127,8 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
   const emailProxy = new EmailSenderProxy()
   const emailProviders = new Map<string, RegisteredProvider>()
   const externalSignIn = new ExternalSignInProxy()
-  const signUpGuards = new SignUpGuardList()
+  const signUpGuards = new GuardList<SignUpAttempt>('sign-up guard', 'sign-up')
+  const emailChangeGuards = new GuardList<EmailChangeAttempt>('email-change guard', 'change')
   const accountDeletionHandlers = new AccountDeletionHandlerList()
   const captchaProxy = new CaptchaProxy()
   const captchaProviders = new Map<string, RegisteredCaptcha>()
@@ -1199,6 +1223,7 @@ export async function registerModules(options: ModuleRuntimeOptions): Promise<Mo
       emailProviders,
       externalSignIn,
       signUpGuards,
+      emailChangeGuards,
       accountDeletionHandlers,
       captchaProxy,
       captchaProviders,

@@ -224,6 +224,32 @@ export type SignUpVerdict =
 export type SignUpGuard = (attempt: SignUpAttempt) => Promise<SignUpVerdict>
 
 /**
+ * An address change an existing account is about to make, as an email-change
+ * guard sees it. The account already exists: only its sign-in address moves.
+ *
+ * Never the password. A guard decides on the two addresses and the account id.
+ */
+export interface EmailChangeAttempt {
+  /** The account whose address is changing. */
+  readonly userId: string
+  /** Normalised the way core stores it: the address on file before the change. */
+  readonly previousEmail: string
+  /** Normalised the way core stores it: the address the account is moving to. */
+  readonly email: string
+}
+
+/** A guard's answer on an address change. The same shape as a sign-up verdict. */
+export type EmailChangeVerdict = SignUpVerdict
+
+/**
+ * Runs before core commits an address change. Returning a rejection stops the
+ * change. Throwing is a fault, not a refusal: the change fails with a `500` and
+ * the error is logged, message and all. Keep both addresses out of anything a
+ * guard throws.
+ */
+export type EmailChangeGuard = (attempt: EmailChangeAttempt) => Promise<EmailChangeVerdict>
+
+/**
  * An account core is deleting, as a deletion handler sees it.
  *
  * `tx`, `events` and `jobs` belong to the deletion's one transaction. A write
@@ -423,6 +449,26 @@ export interface ModuleContext extends ModuleServices {
    * calls this; other modules have no reason to.
    */
   checkSignUp(attempt: SignUpAttempt): Promise<SignUpVerdict>
+  /**
+   * Adds an email-change guard. Any number of modules may add one. Guards run
+   * in module registration order and the first rejection wins; later guards do
+   * not run.
+   *
+   * A guard runs only when an account's address really changes, after the
+   * current-password check and outside the transaction that makes the change.
+   * So a slow guard holds no database locks, and a guard can allow a change
+   * that then fails, for example on an address already registered. Whatever a
+   * guard records must be safe to record again. Core sends no signal for a
+   * change that then fails. `auth.user.email_changed` reports one that committed.
+   *
+   * Renaming an account, or saving the address already on file, runs no guard.
+   */
+  guardEmailChange(guard: EmailChangeGuard): void
+  /**
+   * Runs every email-change guard in registration order. Core's `auth` module
+   * calls this; other modules have no reason to.
+   */
+  checkEmailChange(attempt: EmailChangeAttempt): Promise<EmailChangeVerdict>
   /**
    * Adds an account-deletion handler. Any number of modules may add one.
    * Handlers run in module registration order, one after the other, inside
